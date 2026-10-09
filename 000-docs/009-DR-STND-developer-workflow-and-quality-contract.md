@@ -1,6 +1,6 @@
 # Developer Workflow and Quality Contract
 
-**Version:** 0.2.0 (preliminary, subject to owner review)
+**Version:** 0.3.0 (preliminary, subject to owner review; owner decisions of 2026-10-09 recorded in section 9)
 **Date:** 2026-10-09
 **Status:** **proposed.** Nothing here is approved until the owner says so in a merged pull request.
 **Companion documents:** `010-DR-REFF-hook-and-memory-responsibility-register.md` (what runs, where,
@@ -76,6 +76,11 @@ This is the single source for how work is authorized. `CLAUDE.md` and `AGENTS.md
 - Recovery after a session or compaction: `bd prime` (already run by a session-start hook), then
   `bd ready` or `bd list --status in_progress`.
 - Cross-machine history: `bd dolt push` when the task authorizes a push.
+- **Public Beads (owner decision, 2026-10-09):** bead history in this repository is public and is
+  permitted only for sanitized engineering work. No applicant information, private Intent OS
+  knowledge, secrets, confidential documents or internal access details in titles, notes or close
+  reasons. Material that cannot safely be public is not tracked here; escalate it to the owner for
+  private tracking.
 
 ## 4. Brain discipline
 
@@ -100,14 +105,15 @@ This is the single source for how work is authorized. `CLAUDE.md` and `AGENTS.md
 
 | Group | Canonical command | Risk it covers | Measured locally (2026-10-09) |
 |---|---|---|---|
-| Markdown | `npx --yes markdownlint-cli2@0.17.2 "**/*.md"` | broken formatting that hides content | 2.1-2.7 s warm; in CI |
+| Markdown | `npx --yes markdownlint-cli2@0.17.2 "**/*.md"` | broken formatting that hides content | 2.1-2.7 s warm; in CI (action pinned by commit) |
 | Doc index | the loop in `.github/workflows/ci.yml` step "Every filed doc appears in 000-docs/000-INDEX.md" | filed documents nobody can find | 0.07 s; in CI |
-| Agent definitions | `claude plugin validate .claude/agents` (Claude Code's own frontmatter check), plus the Intent Solutions agent validator behind `/validate-agent` (`validate-skills-schema.py --agents-only --fail-on-warn <file>`, from the maintainer's `claude-code-plugins` repository; not vendored here, so outside contributors cannot run it yet) | malformed or over-privileged specialists | 2.4 s for the IS validator on all eleven (owner-local); the plugin check NOT MEASURED; **local only today** (not in CI, proposal P8) |
-| Sensitive content | manual diff review for personal data, private paths, credentials, agreement text | public exposure | NOT MEASURED; **intent only today**: no automated scanner in this repository (proposal P9) |
+| Agent definitions | **CI:** the step "Agent definitions stay read-only and well formed" in `ci.yml` (frontmatter parses, 14 fields, name matches file, no Write/Edit/Bash/Agent/Task/NotebookEdit/Skill granted, Agent denied, model allowed, no permission bypass). **Local, when definitions change:** `claude plugin validate .claude/agents` plus the Intent Solutions validator behind `/validate-agent` (maintainer's tooling, not vendored here) | malformed or over-privileged specialists | CI step 0.09 s locally; IS validator 2.4 s for eleven (owner-local) |
+| Secrets | **CI:** gitleaks 8.30.1 (checksum-verified download) over full Git history, redacted output | credentials in the public repository | 0.32 s locally over history; 1.1 s over the working tree |
+| Sensitive content beyond secrets | manual diff review for personal data, private paths, internal access details, agreement text | public exposure | NOT MEASURED; manual only (gitleaks finds credentials, not personal data) |
 | Links and cross-references | manual check that every referenced `000-docs` file exists | dangling references | NOT MEASURED; local only |
 
-`ci.yml` pins the action (`markdownlint-cli2-action@v19`), not the tool; that action's run log on
-2026-10-09 reported `markdownlint-cli2 v0.17.2`, which is why the local command pins 0.17.2. A
+`ci.yml` pins the action by commit (`markdownlint-cli2-action` v19), not the tool; that action's run
+log on 2026-10-09 reported `markdownlint-cli2 v0.17.2`, which is why the local command pins 0.17.2. A
 `check-docs` script that both CI and contributors call, with the tool version pinned in one place, is
 proposal P4. Until then "same version as CI" holds only while the action keeps bundling 0.17.2.
 
@@ -141,8 +147,9 @@ profiling, never removed assertions, weakened thresholds, skipped legal gates or
 `ubuntu-latest` took 6 to 9 seconds from creation to completion (`gh run list` created and updated
 timestamps, 2026-10-09; queue and setup not separated). Earlier pipeline problems in the
 first-generation repository are lessons for later lanes, not a description of this repository.
-**No lane is enforced in CI today**: the single job runs on every PR, so the lane table is a design
-for when code arrives.
+**No lane is enforced in CI today**: the single job runs every step on every PR (markdown, index,
+agent definitions, secret scan), so the lane table is a design for when code arrives. CI run times
+after this change are recorded in `010` section 2.
 
 ### 5.5 GitHub Actions rules
 
@@ -151,7 +158,7 @@ for when code arrives.
   with an aggregating job (`needs` plus `always()`) instead. Every PR, docs-only or not, produces the
   same required check name, so the merge guard never waits on a check that will not run. A cancelled,
   missing or failed applicable job is never reported as a pass.
-- Cancel superseded PR runs with `concurrency: { group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}, cancel-in-progress: true }`
+- Cancel superseded PR runs with `concurrency: { group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}, cancel-in-progress: true }` (in `ci.yml` since 2026-10-09)
   (GitHub, "Control the concurrency of workflows"). Never on deployments.
 - Avoid duplicate full runs: feature-branch pushes run through `pull_request`; `push` runs on `main`
   only (already the case).
@@ -183,13 +190,76 @@ applicant-assessment agents.
 
 | # | Proposal | Status |
 |---|---|---|
-| P1 | Remove the duplicate `bd prime` session-start and pre-compact hooks from the parent projects-folder settings | **applied 2026-10-09** on the owner's in-chat go-ahead, before this full instruction (which keeps machine settings as proposals) arrived; machine-local, backup kept; the owner decides keep or revert (register section 5) |
+| P1 | Remove the duplicate `bd prime` session-start and pre-compact hooks from the parent projects-folder settings | **kept** (owner decision 2026-10-09) after verifying the user-scope hook still loads Beads context; rollback copy preserved (`010` section 5) |
 | P2 | Remove the mandatory-push text from `AGENTS.md` | applied in this documentation change |
-| P3 | Update the parent projects-folder `CLAUDE.md` Beads wording from `bd sync` to the Dolt-remote contract | **applied 2026-10-09** in that file's working tree on the same go-ahead; uncommitted there; owner decides |
+| P3 | Update the parent projects-folder `CLAUDE.md` Beads wording from `bd sync` to the Dolt-remote contract | **reviewed and kept**: `bd sync` is an unknown command in Beads 1.1.x, so the old wording was wrong; uncommitted in that file; rollback copy preserved |
 | P4 | One `check-docs` script called by both CI and contributors | when code tooling is introduced |
-| P5 | Record the live learn proxy route table after an authorized read-only check | pending authorization |
-| P6 | Add `concurrency` cancellation for PR runs | with the first CI change |
+| P5 | Record the live learn proxy route table after an authorized read-only check | **done** 2026-10-09 (read-only; `003`) |
+| P6 | Add `concurrency` cancellation for PR runs | **done** in `ci.yml` |
 | P7 | Path-scoped `.claude/rules/` for Python and migrations | when that code exists; none needed now |
-| P8 | Run the agent validator in CI when `.claude/agents/` changes | with the first CI change |
-| P9 | Add an automated secret and private-path scan to CI | with the first CI change |
-| P10 | Decide whether bead history should stay public through `refs/dolt/data` | owner decision |
+| P8 | Run agent-definition validation in CI | **done**: a scoped check on every PR (0.09 s), keeping one stable required check |
+| P9 | Add an automated secret scan to CI | **done**: gitleaks over full history; personal-data and private-path review stays manual |
+| P10 | Decide whether bead history should stay public through `refs/dolt/data` | **decided**: public for sanitized engineering work only (section 3) |
+
+## 8. Branches and worktrees
+
+Owner decision, 2026-10-09. The first-generation repository reached more than a hundred worktrees and
+a hundred-plus local branches; this section exists so that does not happen again. The same rules are
+set for every repository on the maintainer's machine through the user-level instructions.
+
+### 8.1 Rules
+
+1. One logical task, one branch, one pull request by default.
+2. Prefer the existing checkout for sequential work. A subagent does not get its own worktree.
+3. An additional worktree needs a documented concurrency need (two tasks genuinely running at once),
+   recorded in the task's bead before it is created.
+4. Never create a branch merely to run tests; run them on the task branch.
+5. No hook creates, merges or deletes branches. No automatic merging, deletion or force-pushing.
+6. Before creating a branch: list local and remote branches, open pull requests and worktrees, and
+   continue related work where it already lives instead of starting a parallel branch.
+7. After a pull request merges, retire only branches and worktrees that are verified obsolete
+   (procedure below). Never remove dirty, untracked, unpublished or otherwise unique work.
+8. Record the relationships for recovery in the task's bead: branch, worktree path (or "main
+   checkout"), bead, pull request and head commit.
+
+### 8.2 Before creating a branch
+
+```bash
+git fetch --prune origin
+git worktree list
+git branch -vv                  # local branches, upstream state ([gone] = remote deleted)
+gh pr list --state open         # open work you might continue instead
+```
+
+### 8.3 Retiring a branch or worktree after its PR merged
+
+Retire only when **every** check passes; any failure means keep it and ask the owner.
+
+```bash
+gh pr view <N> --json state,mergeCommit,headRefName    # state MERGED
+git -C <worktree> status --porcelain                   # empty: nothing dirty or untracked
+git log --oneline <branch> --not --remotes             # empty: nothing unpublished
+git diff --stat origin/main <branch> -- <the PR's files>  # nothing the merge left out (squash merges)
+```
+
+Then, with the owner's go-ahead or under a task that authorizes cleanup:
+
+```bash
+git worktree remove <worktree>   # refuses a dirty worktree; never add --force
+git branch -D <branch>           # only after the checks above; squash merges make -d refuse
+```
+
+The remote branch is deleted by GitHub on merge (repository setting `delete_branch_on_merge`). Record
+the retirement in the bead. A stash, an untracked file or an unpushed commit found during the check
+is preserved first (bundle or push) and reported, not deleted.
+
+## 9. Owner decisions recorded 2026-10-09
+
+| # | Decision | Where applied |
+|---|---|---|
+| 1 | Keep the duplicate SessionStart hook removal if verified safe and reversible; review the Beads wording before accepting; preserve rollback copies; no further global changes without approval | `010` section 5 (verified, kept) |
+| 2 | Public Beads history only for sanitized engineering work; escalate anything that cannot be public | section 3 |
+| 3 | Lean CI: cancel superseded PR runs, scoped agent validation, secret scanning; measure, no duplicate tests | `ci.yml`, section 5, `010` section 2 |
+| 4 | Read-only inspection of the live learn routing; no proxy, DNS, container, service or deployment change | `003` "Learn and Django routing" |
+| 5 | Staff interface on a separate authenticated hostname with network restrictions and MFA where supported; final hostname and access method are a design decision requiring verification | `003` "Staff interface access (design)" |
+| 6 | Strict branch and worktree policy, here and in every repository | section 8; user-level instructions |

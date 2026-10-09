@@ -16,7 +16,8 @@ to the same canonical documents rather than copying each other.
 The current authorized task sets scope and what may be published. Preserve unrelated work. Commit
 and push only the authorized change set; pull requests are drafts unless told otherwise; subagents
 never publish. No force-push, no merge-guard bypass, no production, provider, DNS, proxy or secret
-change without separate authorization.
+change without separate authorization. Branches and worktrees follow `009` section 8: one task, one
+branch, one PR, no worktree per agent, never delete unique work.
 
 ## Task tracking
 

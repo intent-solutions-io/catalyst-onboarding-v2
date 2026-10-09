@@ -47,7 +47,8 @@ three runs, unless marked NOT MEASURED.
 | Enabled plugins | user | user-scope settings | none observed | none for this repository | n/a | n/a | n/a | n/a | NO HOOK NEEDED (no plugin hooks found) |
 | Git hooks via `core.hooksPath=.beads/hooks` (5) | this repo, Beads | local Git config, per clone | pre-commit, pre-push, post-merge, post-checkout, prepare-commit-msg | keep the JSONL export and Dolt in step with Git | each runs `bd hooks run`; writes the export; warns when no Dolt remote | a commit or checkout warns; does not run tests | NOT MEASURED | none | KEEP; must stay tiny (no test suites) |
 | Codex hooks | this repo | `.codex/` | Codex PreCompact, PostCompact | Beads refresh for Codex sessions | Beads only | Codex only | n/a | none with Claude Code | KEEP (affects Codex only) |
-| Docs CI job | this repo | `.github/workflows/ci.yml` | `pull_request`, `push` to `main` | Markdown and index evidence | checkout; no secrets | PR shows a failure | 6-9 s per run | none | KEEP; add `concurrency` (P6) |
+| CI job "Markdown lint and doc index check" | this repo | `.github/workflows/ci.yml` | `pull_request`, `push` to `main`; superseded PR runs cancelled | Markdown, index, agent-definition and secret-scan evidence | checkout (full history); downloads PyYAML and a checksum-verified gitleaks; no secrets | PR shows a failure | before this change 6-9 s per run; after: see the CI timing row below | none | KEEP |
+| CI timing after the 2026-10-09 change | this repo | GitHub-hosted `ubuntu-latest` | PR | measurement | n/a | n/a | CI_TIMING_PENDING | n/a | re-measure when steps change |
 | Release workflow | this repo | `.github/workflows/release.yml` | `workflow_dispatch` only | manual release | writes tags and releases | none unless run | n/a | none | KEEP manual-only |
 | Auto memory | each user | user machine | session start | personal preferences | local file | none | NOT MEASURED | none (no directory exists yet for this repository) | optional; never project policy |
 | Governed brain search | estate | MCP connector in the invoking session | on request by `catalyst-intent-knowledge` | institutional retrieval | read only, network | visible UNKNOWN | NOT MEASURED | none | KEEP read-only; no write access for specialists |
@@ -91,14 +92,43 @@ timeouts or more hooks.
 
 ## 5. Changes applied outside this repository (2026-10-09)
 
-Made on the owner's in-chat instruction to fix the issues found, **before** the full instruction for
-this task arrived; that instruction keeps machine settings as proposals. Recorded so the owner can
-keep or revert them; the rollback copies are held privately, not in this repository.
+Both were made on the owner's in-chat instruction to fix the issues found, before the full
+documentation instruction arrived. The owner then decided (2026-10-09): keep the hook removal if it
+is verified safe and reversible; review the Beads wording before accepting it; keep rollback copies;
+no further global changes without approval. Rollback copies are held privately on the maintainer's
+machine, not in this repository.
 
-| Change | Effect | Rollback |
-|---|---|---|
-| Removed a duplicate `bd prime` session-start and pre-compact hook from a parent-directory settings file | one fewer context load per session start and per compaction | restore the private copy |
-| Updated two Beads lines in a parent-directory instructions file from `bd sync` to the Dolt-remote contract | removes a contradictory instruction | restore the two lines from the private copy (restore only those two lines) |
+**5.1 Parent-directory settings file (the maintainer's projects folder, `.claude/settings.json`)**
+
+| | Value |
+|---|---|
+| Original | `{"hooks": {"PreCompact": [{"matcher": "", "hooks": [{"type": "command", "command": "bd prime"}]}], "SessionStart": [{"matcher": "", "hooks": [{"type": "command", "command": "bd prime"}]}]}}` |
+| Modified | `{}` |
+| Safety check | the user-scope settings still run `bd prime` on SessionStart and PreCompact (verified 2026-10-09), so every repository below that folder still gets Beads context; this repository also has its own SessionStart hook |
+| Reversible | yes: restore the private copy; one file, no other references |
+| Status | **kept** |
+
+**5.2 Parent-directory instructions file (the same folder's `CLAUDE.md`), two lines**
+
+| | Value |
+|---|---|
+| Original line 1 | ``Workflow: `bd update <id> --status in_progress` → work → `bd close <id> --reason "evidence"` → `bd sync` `` |
+| Modified line 1 | ``Workflow: `bd update <id> --status in_progress` → work → `bd close <id> --reason "evidence"` → `bd export -o .beads/issues.jsonl` (commit the export) and, where a Dolt remote is configured, `bd dolt push`. `bd sync` is the pre-Dolt command; do not use it.`` |
+| Original line 2 | `Rules: Never code without marking a task first. Never finish without closing. Always sync.` |
+| Modified line 2 | `Rules: Never code without marking a task first. Never finish without closing. Push the Dolt history and the commit only when the current task authorizes a push.` |
+| Review | `bd sync` returns "unknown command" in Beads 1.1.x (checked 2026-10-09), so the original instruction could not be followed; the modified text matches the managed Beads block's sync contract |
+| Reversible | yes: restore those two lines from the private copy (restore only those lines; the file holds unrelated pending edits) |
+| Status | **kept**; uncommitted in that folder's repository |
+
+**5.3 User-level instructions (`~/.claude/CLAUDE.md`), added section "Git branches and worktrees (all repos)"**
+
+| | Value |
+|---|---|
+| Original | section absent |
+| Modified | a short section stating the rules in `009` section 8 for every repository |
+| Authority | owner instruction 2026-10-09 to apply the worktree rules "everywhere" |
+| Reversible | yes: delete the section; a private copy of the file before the change is kept |
+| Status | applied |
 
 ## 6. Pending verification (not claimed)
 
@@ -106,4 +136,3 @@ keep or revert them; the rollback copies are held privately, not in this reposit
 - Auto memory behaviour in a fresh session.
 - Git-hook timings.
 - CI timings beyond the documentation job.
-- The live Learn proxy routes (see the architecture document).

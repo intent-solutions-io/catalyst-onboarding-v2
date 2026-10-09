@@ -33,6 +33,10 @@ never publish. No force-push, no merge-guard bypass, no production, provider, DN
 change without separate authorization. Commit approval, architecture approval and deployment approval
 are separate acts. Report PASS, FAIL, SKIPPED, NOT RUN and BLOCKED separately.
 
+Branches and worktrees (`009` section 8): one task, one branch, one PR; work in this checkout; an
+extra worktree only for a recorded concurrency need; check existing branches, worktrees and open PRs
+before branching; retire only verified-obsolete branches after merge; never delete unique work.
+
 ## Canonical commands
 
 ```bash
