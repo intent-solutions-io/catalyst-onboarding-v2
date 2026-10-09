@@ -128,11 +128,11 @@ behaviour in S1-T1's comparison.
 
 ### S1.6 Dependencies, proposed versions and compatibility checks
 
-**Not installed in this handoff.** Bead S1-T1 performs the checks and records results in ADR-17.
+**Not installed in the contract handoff.** S1-T1 has since performed the checks; results and exact versions are in `012` (ADR-17 stays pending).
 Reported by the Django architect specialist from the Django 5.2 documentation on 2026-10-09 (INSPECTED by
 the main session; S1-T1 re-checks): Django 5.2 supports Python 3.10 to 3.14 and PostgreSQL 14 and later, requires psycopg 3.1.8 or later (or
 psycopg2), and is a long-term-support release with security updates for at least three years from
-2 April 2025. Everything else in the table is unverified until S1-T1.
+2 April 2025. The rest of this table was proposed before S1-T1; `012` section 5 supersedes it with sourced versions.
 
 | Component | Proposed choice | Why | Compatibility check in S1-T1 |
 |---|---|---|---|
@@ -157,7 +157,7 @@ worktree; record exact versions from current official sources.
 
 | Decision | S1-T1 must return |
 |---|---|
-| ADR-03 job mechanism | a bounded comparison of the custom ledger and at least one PostgreSQL-backed library (Procrastinate; Django's tasks interface with a database backend, if one supports Django 5.2), each against: enqueue in the same transaction as the domain write; lease or heartbeat recovery after a killed worker; an `uncertain` outcome and reconciliation; per-subject pause that still lets staff kinds run; staff visibility of every pending action; maintenance burden (code size, dependencies, release activity). Each claim cites documentation or a throwaway spike outside this repository. Procrastinate's transaction-aware deferral is **not yet verified**: the pages read on 2026-10-09 did not describe it. Temporal stays out of scope (D-03) |
+| ADR-03 job mechanism | a bounded comparison of the custom ledger and at least one PostgreSQL-backed library (Procrastinate; Django's tasks interface with a database backend, if one supports Django 5.2), each against: enqueue in the same transaction as the domain write; lease or heartbeat recovery after a killed worker; an `uncertain` outcome and reconciliation; per-subject pause that still lets staff kinds run; staff visibility of every pending action; maintenance burden (code size, dependencies, release activity). Each claim cites documentation or a throwaway spike outside this repository. Procrastinate's transaction-aware deferral was not found on the pages first read; it was later found in its external-connection guide and **demonstrated** with the candidate versions (`012` proof 1). Temporal stays out of scope (D-03) |
 | ADR-14 append-only | how a database trigger blocks ordinary application updates and deletes on versions and events, and the separate privileged, audited path that approved retention or deletion (POL-10) will use, so append-only never means "keep every personal record forever" |
 | ADR-17 versions | exact current patch versions of Python, Django 5.2, PostgreSQL 16, psycopg 3, pytest and pytest-django, with the support statements that justify them |
 | ADR-18 user model | confirmation that a minimal `AbstractUser` subclass is set before any migration, and that applicants are dossier records, not user accounts |

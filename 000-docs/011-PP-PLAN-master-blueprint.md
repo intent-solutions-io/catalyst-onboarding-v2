@@ -311,7 +311,7 @@ request comment):
 | 3 | Signing versus custody | `004` "Agreement facts", J-11 to J-14; REQ-011 and REQ-032; `003` ADR-05 and trust boundary (webhook authentication per installed version); planned TEST-P4-07 and TEST-P4-08 |
 | 4 | Submission versions and verification | `004` J-03 and J-05; REQ-007 and REQ-033; `005` S1.2, S1.4 (`VersionAdoption`); TEST-S1-08 extended, TEST-S1-22 added; planned TEST-P3-08 |
 | 5 | Public route detail | `003` "Current routing" reduced to a summary; the authoritative baseline stays in the live proxy configuration and private operations records; Git history not rewritten |
-| 6 | Delivery handoffs | section 7 maps P-phases to numbered A/B/C handoffs; next is 1A |
+| 6 | Delivery handoffs | section 7 maps P-phases to numbered A/B/C handoffs; the next handoff at the time of the amendment was 1A (since delivered: `012`) |
 | 7 | Decisions before implementation | `003` ADR-03, ADR-14, ADR-17 and ADR-18 marked PENDING OWNER DECISION; `005` S1.6a defines what S1-T1 returns; beads S1-T1 and S1-D updated |
 
 Independent review of the amended clauses (fresh `catalyst-independent-qa` invocation, commit `a264b97`):
