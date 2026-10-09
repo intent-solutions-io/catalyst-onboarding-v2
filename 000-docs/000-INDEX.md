@@ -17,8 +17,9 @@ Every document in this directory is **preliminary and subject to review** until 
 | [009-DR-STND-developer-workflow-and-quality-contract.md](009-DR-STND-developer-workflow-and-quality-contract.md) | Developer Workflow and Quality Contract: one job per system, working agreement, Beads and brain discipline, checks and CI, branch and worktree policy, owner decisions of 2026-10-09 | Proposed 2026-10-09; subject to review |
 | [010-DR-REFF-hook-and-memory-responsibility-register.md](010-DR-REFF-hook-and-memory-responsibility-register.md) | Hook and Memory Responsibility Register: observed hooks, costs, event matrix, memory stores, changes applied outside the repo | Proposed 2026-10-09; subject to review |
 | [011-PP-PLAN-master-blueprint.md](011-PP-PLAN-master-blueprint.md) | **Master blueprint (start here):** document map, owner decisions, authority, open policy register, phased work graph with bead references, approval record | Approved in scope 2026-10-09 (section 10) |
+| [012-RA-ANLY-s1-t1-compatibility-evidence.md](012-RA-ANLY-s1-t1-compatibility-evidence.md) | Handoff 1A evidence: atomic enqueue, worker-death recovery, append-only enforcement, custom user model, versions; decision table for ADR-03, 14, 17, 18 (recommendations only) | Evidence 2026-10-09; ADRs pending owner decision |
 
-Next free number: `012`.
+Next free number: `013`.
 
 **After-action reports** go in `000-aars/` inside this directory (filing standard v4.5 §3.1.3): global
 `NNN`, `NNN-AA-AACR-<slug>.md`, from the template above. None filed yet. Cadence: `009` section 10.

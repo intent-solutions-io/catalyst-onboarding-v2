@@ -48,7 +48,8 @@
 ## Next steps
 
 1. Done: contract approved in scope (`011` section 10).
-2. Now: handoff 1A only, S1-T1's compatibility and comparison checks (`005` S1.6a); then the owner's ADR-03, ADR-14, ADR-17 and ADR-18 decisions (bead S1-D).
+2. Done: handoff 1A, S1-T1's compatibility and comparison evidence (`012`). Next: the owner's
+   decisions on ADR-03, ADR-14, ADR-17 and ADR-18 (bead S1-D); 1B does not start before them.
 3. Policy decisions in `011` section 6, each before the milestone it blocks.
 
 ## Decision log

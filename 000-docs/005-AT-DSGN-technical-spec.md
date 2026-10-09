@@ -152,7 +152,7 @@ Nothing else: no Celery, Redis, Mailpit, HTTP client or model SDK in S1.
 
 ### S1.6a S1-T1 compatibility and comparison checks (what the owner receives before deciding)
 
-S1-T1 returns evidence, not a choice made on the owner's behalf. Do not copy versions from any older
+S1-T1 returns evidence, not a choice made on the owner's behalf. **Result (2026-10-09): `012`.** Do not copy versions from any older
 worktree; record exact versions from current official sources.
 
 | Decision | S1-T1 must return |
