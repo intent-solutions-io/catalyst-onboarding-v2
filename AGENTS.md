@@ -6,6 +6,7 @@ to the same canonical documents rather than copying each other.
 
 ## Read first
 
+- Build contract: `000-docs/011-PP-PLAN-master-blueprint.md` (product, authority, open policies, phases; links the PRD, architecture, journey and first-slice spec).
 - Working agreement, publication policy and checks: `000-docs/009-DR-STND-developer-workflow-and-quality-contract.md`
   (section 2 is the canonical working agreement).
 - Hooks, Git hooks and memory stores: `000-docs/010-DR-REFF-hook-and-memory-responsibility-register.md`.

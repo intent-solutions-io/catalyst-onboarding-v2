@@ -8,18 +8,19 @@ code yet. Repository: https://github.com/intent-solutions-io/catalyst-onboarding
 
 | Need | Document |
 |---|---|
+| What we are building, who decides, open policies, phased plan | `000-docs/011-PP-PLAN-master-blueprint.md` (start here; links the PRD `002`, architecture `003`, journey `004`, first slice `005`) |
 | How work is authorized, published and checked | `000-docs/009-DR-STND-developer-workflow-and-quality-contract.md` |
 | What hooks run, what they cost, where memory lives | `000-docs/010-DR-REFF-hook-and-memory-responsibility-register.md` |
 | Rules for the eleven specialist subagents | `000-docs/007-DR-STND-agent-operating-charter.md`, roster in `008` |
-| Everything filed | `000-docs/000-INDEX.md` (`001`-`006` are seeded templates, not approved) |
+| Everything filed | `000-docs/000-INDEX.md` (all planning documents are proposed, not approved) |
 
 ## Boundaries
 
 - Django application; PostgreSQL authoritative; one PostgreSQL-backed job system (no Temporal);
   MiniMax through PydanticAI; existing Documenso and MXroute; Django-based staff interface; Twenty
   deferred. **Proposed, not configured:** `learn.intentsolutions.io` stays on the existing LMS and only
-  assigned onboarding paths route to Django; today's live routing is unverified (`003`, "Learn and
-  Django routing").
+  assigned onboarding paths route to Django; today's live routing was verified read-only on 2026-10-09
+  (`003`, "Learn and Django routing").
 - Public repository: no applicant data, agreement text, credentials, private paths, brain content or
   transcripts.
 - Product jobs (inbox polling, reminders, signing checks) are application jobs, never Claude Code
