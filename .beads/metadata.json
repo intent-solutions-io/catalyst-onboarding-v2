@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "catalyst_onboarding_v2",
+  "project_id": "9b377e52-642c-4c52-8d0e-ef90783bc23b"
+}
