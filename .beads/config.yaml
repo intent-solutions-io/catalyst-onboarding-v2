@@ -66,3 +66,6 @@
 # - github.token    → use GITHUB_TOKEN env var instead
 
 dolt.auto-commit: "on"
+sync:
+    branch: beads-sync
+    remote: "git+https://github.com/intent-solutions-io/catalyst-onboarding-v2.git"
