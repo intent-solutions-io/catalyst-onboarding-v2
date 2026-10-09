@@ -47,14 +47,14 @@ Recorded so changes can be argued from evidence. Values and personal paths are o
 | Installed project skills | `/audit-tests` 7.2.0, `/implement-tests` 1.2.0, `/agent-creator` 1.1.0, `/validate-agent` 1.0.0, `/doc-filing` 4.4.0, `/beads` 4.5.0 |
 | Managed (enterprise) settings | none readable on this machine |
 
-**Duplications and conflicts found:**
+**Duplications and conflicts found** (status after the 2026-10-09 fixes in section 4):
 
-1. Beads context loads three times at session start and twice at compaction (global, umbrella, project).
-2. `AGENTS.md` (repo-dress template) says work is not complete until `git push` succeeds and to
+1. Beads context loaded three times at session start and twice at compaction (global, umbrella, project). Fixed by P1: now twice and once.
+2. `AGENTS.md` (repo-dress template) said work is not complete until `git push` succeeds and to
    never stop before pushing; the managed Beads block and the current owner rules say pushes need
-   explicit authority. Two instructions, opposite answers.
-3. The parent umbrella's `CLAUDE.md` still tells agents to run `bd sync`, which the managed Beads
-   block in this repository describes differently (Dolt remote push, JSONL as a passive export).
+   explicit authority. Two instructions, opposite answers. Fixed by P2.
+3. The parent umbrella's `CLAUDE.md` told agents to run `bd sync`, which the managed Beads
+   block in this repository describes differently (Dolt remote push, JSONL as a passive export). Fixed by P3.
 4. Doc numbers 009 to 011 were reported as used by earlier drafts; none landed on `main` or in an
    open pull request, so `009` is allocated here and `010`, `011` remain free.
 
@@ -132,9 +132,9 @@ Recorded so changes can be argued from evidence. Values and personal paths are o
 
 | # | Proposal | Why | Owner action |
 |---|---|---|---|
-| P1 | Keep this repository's `SessionStart: bd prime --hook-json` and stop the duplicate loads by removing `bd prime` from the parent umbrella's `.claude/settings.json` (SessionStart and PreCompact) | the project hook travels with the repository for every clone; the umbrella one only duplicates the global hook | edit outside this repository |
+| P1 | Keep this repository's `SessionStart: bd prime --hook-json` and stop the duplicate loads by removing `bd prime` from the parent umbrella's `.claude/settings.json` (SessionStart and PreCompact) | the project hook travels with the repository for every clone; the umbrella one only duplicates the global hook | **applied 2026-10-09 on the owner's go-ahead** (machine-local file, not in Git; backup kept). Now two loads at session start (global and project), one at compaction |
 | P2 | Replace the repo-dress "Critical Rules" push text in `AGENTS.md` with a pointer to the write policy | removes the contradiction in section 2, item 2 | **applied in this documentation change** (repository text only) |
-| P3 | Update the umbrella `CLAUDE.md` Beads paragraph (`bd sync`) to the current Dolt-remote wording | removes conflict 3 | edit outside this repository |
+| P3 | Update the umbrella `CLAUDE.md` Beads paragraph (`bd sync`) to the current Dolt-remote wording | removes conflict 3 | **applied 2026-10-09 on the owner's go-ahead** in the working tree; left uncommitted because that file already held unrelated pending edits |
 | P4 | Add a `Makefile` or script target `check-docs` that wraps the two commands in 3.5, and make CI call it | one command, one place | approve when code tooling is introduced |
 | P5 | Record the verified learn proxy route table in this document | closes the routing unknown | read-only read of the live proxy by an authorized person |
 
