@@ -91,7 +91,8 @@ proposals.
 - **Alternate outcomes:** (from P5, when terminal stages exist; not reachable in S1) an existing application
   in a terminal stage: the fail-closed default records the submission against it, raises a staff item, and
   creates nothing new until POL-01 and POL-12 are decided. Because the partial unique constraint allows a
-  new application after a terminal stage, the service must enforce this before terminal stages ship. A
+  new application after a terminal stage, the service must enforce this before terminal stages ship
+  (planned TEST-P5-06, epic P5). A
   repeat whose details conflict with the verified identity raises a staff item; how it is resolved is
   POL-19. The applicant always sees the same response as J-01, so the form does not reveal whether an email is known.
 - **Retry, timeout, terminal:** none beyond J-01.
@@ -291,7 +292,7 @@ proposals.
 
 - **Trigger and input:** the previous agreement verified complete and stored (J-13); the inventory says
   which agreement is next (POL-07). Any "required details" the agreements need are collected first (field
-  list open, POL-07).
+  list open, POL-18).
 - **Receives it:** worker; `agreements`; Documenso, as J-11.
 - **Records:** one agreement instance per agreement in the inventory, with its recipients and
   observations; the required-details submission (POL-18) linked to the instance that needed it.

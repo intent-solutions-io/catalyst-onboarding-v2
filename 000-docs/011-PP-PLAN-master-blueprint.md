@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document | `011-PP-PLAN-master-blueprint` (the only master blueprint for this repository) |
-| Version | 0.1.0 |
+| Version | 0.2.0 (after both reviews) |
 | Status | **PROPOSED.** Draft for owner review. Merging this document is not approval of the product, of any open policy, or of any deployment. |
 | Owner | Jeremy Longshore (product owner and approver) |
 | Reviewers | `catalyst-django-architect` (build design), `catalyst-independent-qa` (independent review); results in section 9 |
@@ -181,9 +181,9 @@ predecessor's gate passes and the policies it needs are decided. Later epics sta
 |---|---|---|---|---|
 | P0 | Develop the master blueprint, PRD, architecture and phased execution plan before any code is written | `catalyst-v2-211` | none | owner approves this contract (bead `catalyst-v2-211.6`) |
 | P1 | Build the first working slice: synthetic intake, email verification to a local mail sink, and a read-only staff view | `catalyst-v2-6hl` | P0 | GATE-S1 |
-| P2 | Run the applicant correspondence loop: outbound policy, inbox correlation, reminders, stop rules and human takeover | `catalyst-v2-7hu` | P1; POL-06 | GATE-P2 |
+| P2 | Run the applicant correspondence loop: outbound policy, inbox correlation, reminders, stop rules and human takeover | `catalyst-v2-7hu` | P1; POL-06, POL-19 | GATE-P2 |
 | P3 | Collect evidence, run the bounded MiniMax assessment, and record the authorized qualification decision | `catalyst-v2-oc4` | P2; POL-03, POL-04, POL-05 | GATE-P3 |
-| P4 | Issue and verify the NDA, User Agreement and other required agreements through Documenso with protected custody | `catalyst-v2-hdg` | P3; POL-07, POL-08, POL-09 | GATE-P4 |
+| P4 | Issue and verify the NDA, User Agreement and other required agreements through Documenso with protected custody | `catalyst-v2-hdg` | P3; POL-07, POL-08, POL-09, POL-18 | GATE-P4 |
 | P5 | Provision the approved mailbox, activate the applicant, and support withdrawal and recovery | `catalyst-v2-tuc` | P4; POL-11, POL-12 | GATE-P5 |
 | P6 | Prepare staging, deployment, backup with demonstrated restore, monitoring and the reversible Learn routing cutover | `catalyst-v2-9kg` | P5, PL; POL-10, POL-13, POL-14 | GATE-STAGING, GATE-PILOT, GATE-CUTOVER |
 | PL | Plan legacy data compatibility so no live first-generation record is discarded | `catalyst-v2-dy7` | P0 | feeds GATE-CUTOVER |
@@ -217,8 +217,8 @@ LLM recommendation is not an authorized decision.
 
 ## 9. Review record
 
-Both reviews ran on 2026-10-09 with the read-only specialists. Full reports are attached to the pull
-request as comments; the findings and where each landed are listed here.
+Both reviews ran on 2026-10-09 with the read-only specialists. Summaries (local paths removed) are
+posted as comments on the pull request; the findings and where each landed are listed here.
 
 **`catalyst-django-architect`** reviewed the working tree before the first commit. Verdict: accept with
 fixes. All findings adopted:
@@ -263,5 +263,17 @@ with fixes. Disposition:
 
 Not changed, owner decision needed: the reviewer noted that the live route table merged in PR #5
 (`003` "Current live routing") publishes operational detail (exact paths, a log exclusion, a missing
-headers snippet, log retention). Trimming it is left to the owner. The edits made for findings 1 to 16
-were re-reviewed by the same reviewer; the result is in the pull request.
+headers snippet, log retention). Trimming it is left to the owner. **Re-review** of the fixes at commit `9cdce56` by the same reviewer: accept with fixes, nothing blocking.
+Findings 1 to 13 and 15 to 16 resolved. Finding 14 was partially resolved: the full reports are
+summarized on the pull request, not filed in the repository. A label residual on finding 13 and five
+new small problems were fixed in the third commit, and the reviewer then checked those edits (pull
+request comment):
+
+| New problem | Landed in |
+|---|---|
+| POL-18 and POL-19 missing from phase dependencies and GATE-PILOT | section 7 (P2, P4); `002` section 6 |
+| J-12 cited POL-07 for required details | `004` J-12 now cites POL-18 |
+| this section claimed a re-review before it ran | this paragraph |
+| J-02 terminal-stage rule had no test | `004` J-02 and `002` REQ-018 name planned TEST-P5-06 |
+| version not bumped; README stated the agreement order as fact | header; README |
+| `006` labelled the parent-permission point VERIFIED | `006` relabelled |

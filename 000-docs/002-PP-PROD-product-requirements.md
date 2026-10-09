@@ -116,7 +116,7 @@ A gate passes only on recorded evidence. "Planned" rows are not evidence.
 | GATE-S1 | every `TEST-S1-` case in `005` S1.7 is PASS on PostgreSQL in CI at the PR head; none SKIPPED or NOT RUN; independent QA review of the evidence; epic after-action report filed; POL-01 default confirmed or replaced | owner (merge through merge guard) |
 | GATE-P2 to GATE-P5 | each phase's planned tests (section 7) PASS in CI with provider fakes or non-production providers; phase AAR filed | owner |
 | GATE-STAGING | security and privacy review; staff host, network restriction and MFA configured and tested (POL-13, POL-14); provider guards proven; backups configured | owner, separate deployment authorization |
-| GATE-PILOT | policies POL-01 to POL-12, POL-16 and POL-17 decided; retention enforced; restore demonstrated (MET-09 recorded); approved provider canaries pass in isolated staging | owner (and counsel for POL-07, POL-08, POL-10, POL-17) |
+| GATE-PILOT | policies POL-01 to POL-12 and POL-16 to POL-19 decided; retention enforced; restore demonstrated (MET-09 recorded); approved provider canaries pass in isolated staging | owner (and counsel for POL-07, POL-08, POL-10, POL-17) |
 | GATE-CUTOVER | epic PL plan approved and executed; route switch and rollback rehearsed against the verified baseline in `003`; in-flight first-generation cases handled per POL-15 | owner |
 
 ## 7. Traceability matrix
@@ -144,7 +144,7 @@ traceability, not written); their phase refines them at handoff A.
 | REQ-015 | staff views, D-12 | P1 S1-T7 (authorization only); P6 | TEST-S1-11; planned TEST-P6-01 (MFA and host restriction) | CI run; staging check | GATE-S1; GATE-STAGING |
 | REQ-016 | `provisioning`, POL-11 | P5 | planned TEST-P5-01, TEST-P5-02 | CI with MXroute fake; staging canary | GATE-P5; GATE-PILOT |
 | REQ-017 | `provisioning` | P5 | planned TEST-P5-03 (welcome only after verified provisioning) | CI run | GATE-P5 |
-| REQ-018 | `applications`, POL-12 | P5 | planned TEST-P5-05 (withdrawal stops automation, keeps history) | CI run | GATE-P5 |
+| REQ-018 | `applications`, POL-12 | P5 | planned TEST-P5-05 (withdrawal stops automation, keeps history), TEST-P5-06 (a repeat after a terminal stage creates no new application until POL-01 and POL-12 allow it) | CI run | GATE-P5 |
 | REQ-019 | all | every PR | gitleaks in CI (exists); manual sensitive-content review (`009` section 5.1) | CI log; PR review note | every merge |
 | REQ-020 | all | P1 S1-T4, S1-T6 | TEST-S1-16 | CI run | GATE-S1 |
 | REQ-021 | settings, D-02 | P1 S1-T2 | TEST-S1-13 | CI run | GATE-S1 |
