@@ -16,6 +16,16 @@
 
 Key commands: `bd prime` (LLM context), `bd ready`, `bd list --status in_progress`, `bd doctor`
 
+## Specialist subagents (planning stage, read-only)
+
+Eleven project subagents live in `.claude/agents/` (`catalyst-*`). They are advisory and read-only:
+no Write, Edit, shell or spawning; `model: sonnet`. Every one reads the Agent Operating Charter
+(`000-docs/007-DR-STND-agent-operating-charter.md`) at invocation; the roster, access boundaries and
+validation record are in `000-docs/008-RA-REPT-agent-registry-and-validation-report.md`. The main
+session coordinates them, keeps the planning record and performs the only authorized writes. Run at
+most two at once; activate only the specialist an assigned question needs. The first session after
+checkout needs a restart before Claude Code lists them (new `agents` directory).
+
 ## Build & Test
 
 <!-- Add project-specific build commands here -->
