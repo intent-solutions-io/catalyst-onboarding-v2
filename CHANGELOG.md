@@ -14,17 +14,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-10-09
+No release has been cut. The repository is in the architecture and planning phase; every document
+is preliminary and subject to review.
 
 ### Added
 
 - Initial project setup with full governance
 - README, LICENSE, CODE_OF_CONDUCT, CONTRIBUTING, SECURITY, SUPPORT
-- CI/CD workflows (lint, test, release automation)
-- Enterprise documentation set (6-doc planning suite)
+- Docs CI (Markdown lint, index completeness) and an inert release workflow (no release exists)
+- Six-document planning set under `000-docs/` with `000-INDEX.md`, each marked preliminary
+- Beads task tracking (prefix `catalyst-v2`) with one planning epic
 - GitHub issue templates and PR template
 - Dependabot configuration
 - EditorConfig and gitattributes
 
-[Unreleased]: https://github.com/intent-solutions-io/catalyst-onboarding-v2/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/intent-solutions-io/catalyst-onboarding-v2/releases/tag/v0.1.0
+[Unreleased]: https://github.com/intent-solutions-io/catalyst-onboarding-v2/commits/main
