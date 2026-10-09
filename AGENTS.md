@@ -5,6 +5,15 @@
 This project uses [beads](https://github.com/steveyegge/beads) for AI-friendly task tracking.
 Tasks are stored in `.beads/` and tracked via the `bd` CLI.
 
+## Specialist subagents and write policy
+
+Project specialists are defined in `.claude/agents/` and governed by
+`000-docs/007-DR-STND-agent-operating-charter.md`; see `000-docs/008-RA-REPT-agent-registry-and-validation-report.md`
+for the roster. Write policy for every agent in this repository: **the current authorized task
+controls writes; subagents cannot publish; the parent session publishes only the explicitly
+authorized change set.** Where the generic "push to remote" guidance below conflicts with a current
+"do not push" instruction, the current instruction wins.
+
 ## Quick Reference
 
 ```bash
