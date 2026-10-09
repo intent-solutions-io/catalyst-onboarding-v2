@@ -65,11 +65,10 @@ bd doctor                             # Health check
 
 ## Critical Rules
 
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing — leaves work stranded locally
-- NEVER say "ready to push when you are" — YOU must push
-- Always close beads when work is done
-- Always start sessions with `bd prime` or `/beads`
+- Work is complete when the authorized change set is published as the current task allows; see the write policy above and `000-docs/009-DR-STND-development-workflow-policy.md` section 3.1. Without that authority, stop at a clean local state and report the exact commands still needed.
+- Never leave work only in an uncommitted working tree when a commit is authorized.
+- Always close beads with evidence when work is done.
+- Always start sessions with `bd prime` or `/beads` (a session-start hook already runs it here).
 
 ## Creating Tasks
 

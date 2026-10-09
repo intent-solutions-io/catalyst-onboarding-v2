@@ -26,6 +26,12 @@ session coordinates them, keeps the planning record and performs the only author
 most two at once; activate only the specialist an assigned question needs. The first session after
 checkout needs a restart before Claude Code lists them (new `agents` directory).
 
+## Development workflow
+
+How instructions, Beads, memory, hooks, CI and Learn routing fit together, with the observed hook
+layers and open proposals: `000-docs/009-DR-STND-development-workflow-policy.md`. Product jobs
+(inbox polling, reminders, signing checks) are application jobs, never Claude Code hooks.
+
 ## Build & Test
 
 <!-- Add project-specific build commands here -->
