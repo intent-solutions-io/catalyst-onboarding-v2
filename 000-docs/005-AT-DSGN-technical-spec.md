@@ -44,7 +44,7 @@ registrations, the CI runtime lane.
 | Duplicate | one open application per email key (POL-01 PROPOSED default); a repeat becomes a new submission version on the open application. If contact is **unverified**: an expired or failed-to-send active challenge is superseded and a new challenge and send action are created; an unexpired active challenge whose send is queued, running or done is reused (no new work). If contact is **verified**: the version is recorded with source "unverified repeat", never replaces the verified data, and raises a staff item (an unauthenticated third party could otherwise write into a verified dossier). The applicant-facing status, body and redirect target are identical in every case, and the received page carries no application reference. | J-02 |
 | Commit | application (or the existing one, locked), submission version, history event, challenge, pending action "send verification" in one transaction | J-01 |
 | Send | worker claims the action (S1.4 ledger rules), sends through Django's email backend configured as a local sink, records the outbound message and completes the action with a fenced write; crash recovery by lease expiry | J-03 |
-| Confirm | GET shows the confirm page, sets the CSRF cookie, changes no state, and sends `Referrer-Policy: no-referrer` and `Cache-Control: no-store`; POST verifies the token, locks application then challenge, checks the challenge is active and unexpired by the database clock, records verification, writes the event and creates the "start evidence collection" action in status `held` (no handler exists in S1), all once | J-03 |
+| Confirm | GET shows the confirm page with the answers of the current submission version, sets the CSRF cookie, changes no state, and sends `Referrer-Policy: no-referrer` and `Cache-Control: no-store`; POST names that version, verifies the token, locks application then challenge, checks the challenge is active and unexpired by the database clock and the version belongs to the application, records contact control, marks **only the named version** `adopted` (all others stay `unverified`), writes the event and creates the "start evidence collection" action in status `held` with the adopted version as its explicit input (no handler exists in S1), all once. Confirmation proves control of the address, not authorship of other versions | J-03 |
 | Staff | Django admin for a read-only staff group: application list and detail, submission versions, history, challenge state (never the token), pending actions for the application | REQ-014 |
 
 ### S1.3 Proposed defaults the owner may change
@@ -66,7 +66,8 @@ registrations, the CI runtime lane.
 |---|---|---|
 | User (`accounts`) | custom user model extending Django's `AbstractUser`, no extra fields yet | set as `AUTH_USER_MODEL` before the first migration (ADR-18) |
 | Application (`applications`) | public reference (random UUID), email as typed, `email_key`, display name, stage, contact verified at, next version number, timestamps | partial unique on `email_key` where stage is open |
-| SubmissionVersion (`applications`) | application, version number, source (applicant or unverified repeat), submitted fields (JSON), received at | unique (application, version number); never updated (ADR-14) |
+| SubmissionVersion (`applications`) | application, version number, origin (form submission, or repeat after verification), submitted fields (JSON), received at | unique (application, version number); content never updated (ADR-14) |
+| VersionAdoption (`applications`) | submission version, adopted at, via challenge | unique per version; at most one current adoption per application in S1. Trust status (`unverified` or `adopted`) is derived from it, so the version row itself stays append-only |
 | ApplicationEvent (`applications`) | application, kind, actor type, actor reference, occurred at, data (JSON, no secrets or tokens) | index (application, occurred at); never updated or deleted (ADR-14) |
 | ContactChallenge (`applications`) | application, random public id, email at issue, created at, expires at, used at, superseded at | partial unique: at most one **active** challenge per application, where active means not used and not superseded (expiry is a time comparison, so an expired challenge stays "active" until a repeat submission supersedes it under the application lock) |
 | PendingAction (`workflow`) | kind, subject type (string), subject id (UUID), idempotency key, status, due at, attempts, maximum attempts, lease token, lease expires at, last error (sanitized), timestamps | unique idempotency key; index (status, due at); **no foreign key to any domain model** (ADR-01 layer rule) |
@@ -79,7 +80,9 @@ error **for the named constraint only** (read from the database error's diagnost
 then re-reads under `select_for_update`; any other integrity error propagates. Idempotency keys
 (proposed): "send verification" keyed by challenge; "start evidence collection" keyed by application.
 
-**Ledger rules (ADR-03, ADR-15).**
+**Ledger rules (ADR-03, ADR-15).** These are behavioural requirements for whichever mechanism ADR-03
+selects. The field names describe the custom-ledger candidate; a library candidate must show the same
+behaviour in S1-T1's comparison.
 
 1. **Claim** is one short transaction: select one due row (`status` queued, or running with an expired
    lease) with `select_for_update(skip_locked=True, of=("self",))` and no outer joins, skip it if an
@@ -100,7 +103,10 @@ then re-reads under `select_for_update`; any other integrity error propagates. I
    "send verification" does in S1; every later provider kind defaults to `uncertain` and reconciliation.
 7. **Connections:** the worker loop closes and reopens its database connection after an
    `OperationalError` and between idle polls.
-8. **Held** actions and actions of paused subjects are never claimed.
+8. **Held** actions are never claimed. A pause blocks **automated** action kinds for its subject; each kind
+   declares its class (automated or staff). Staff kinds (a staff-authored message, from P2) are created
+   only by an authorized staff action and may run while paused without resuming anything. S1 defines
+   automated kinds only.
 
 ### S1.5 Django capabilities used (built-in first)
 
@@ -138,11 +144,23 @@ psycopg2), and is a long-term-support release with security updates for at least
 | Network guard in tests | a small fixture in the test configuration that blocks non-loopback sockets (no dependency) or `pytest-socket` | TEST-S1-14 | pick one in S1-T1 |
 | Coverage | `coverage` (through pytest) | GATE-S1 evidence | version check; mutation tooling deferred until code exists |
 | Settings source | environment variables read with the standard library; production values from SOPS at runtime (P6) | no extra dependency | none |
-| Job runner | none beyond the ledger and management command (ADR-03) | avoids a second source of truth | if the owner prefers a library, verify same-transaction enqueue, `SKIP LOCKED` claims and lease recovery first |
+| Job mechanism | **pending ADR-03**: the custom ledger and management command, or a PostgreSQL-backed library | one mechanism either way | bounded comparison in S1-T1 against the S1.4 ledger rules (S1.6a) |
 | Environment and lock | `uv` with a hash-pinned lockfile | reproducible installs | lockfile resolves on the CI runner |
 | CI database | official PostgreSQL 16 image pinned by digest, as a service container | parity with the reference version | job starts, migrations apply, `connection.vendor == "postgresql"` |
 
 Nothing else: no Celery, Redis, Mailpit, HTTP client or model SDK in S1.
+
+### S1.6a S1-T1 compatibility and comparison checks (what the owner receives before deciding)
+
+S1-T1 returns evidence, not a choice made on the owner's behalf. Do not copy versions from any older
+worktree; record exact versions from current official sources.
+
+| Decision | S1-T1 must return |
+|---|---|
+| ADR-03 job mechanism | a bounded comparison of the custom ledger and at least one PostgreSQL-backed library (Procrastinate; Django's tasks interface with a database backend, if one supports Django 5.2), each against: enqueue in the same transaction as the domain write; lease or heartbeat recovery after a killed worker; an `uncertain` outcome and reconciliation; per-subject pause that still lets staff kinds run; staff visibility of every pending action; maintenance burden (code size, dependencies, release activity). Each claim cites documentation or a throwaway spike outside this repository. Procrastinate's transaction-aware deferral is **not yet verified**: the pages read on 2026-10-09 did not describe it. Temporal stays out of scope (D-03) |
+| ADR-14 append-only | how a database trigger blocks ordinary application updates and deletes on versions and events, and the separate privileged, audited path that approved retention or deletion (POL-10) will use, so append-only never means "keep every personal record forever" |
+| ADR-17 versions | exact current patch versions of Python, Django 5.2, PostgreSQL 16, psycopg 3, pytest and pytest-django, with the support statements that justify them |
+| ADR-18 user model | confirmation that a minimal `AbstractUser` subclass is set before any migration, and that applicants are dossier records, not user accounts |
 
 ### S1.7 Acceptance plan
 
@@ -160,7 +178,7 @@ PASS, FAIL, SKIPPED, NOT RUN or BLOCKED with the run link. **None has run; all a
 | TEST-S1-05 | database failure injected after the application insert and after the action insert; connection loss; failure injected during confirmation after the verification write | acceptance: zero rows in every slice table and the applicant never sees the received page; confirmation: verification, event and next action all absent, challenge still active | REQ-003, REQ-007 |
 | TEST-S1-06 | worker processes the send action | one message in the local sink to the synthetic address with a link built from `PUBLIC_BASE_URL`; outbound message recorded; action done; event written | REQ-004 |
 | TEST-S1-07 | worker interruption: (a) claimed, then stopped before sending; (b) the sink accepted the message, then stopped before recording (explicit fault seam); (c) a real worker subprocess, `filebased` sink, committed test data, killed with SIGKILL mid-action | lease expiry is simulated by writing a past lease time (no clock mocking); (a) exactly one message; (b) two identical links, one challenge, attempts recorded; (c) recovery without manual steps | REQ-004, REQ-005 |
-| TEST-S1-08 | open the link (GET), then confirm (POST) | GET changes nothing, sets the CSRF cookie and the no-referrer and no-store headers; POST sets verified once, writes one event and one `held` action | REQ-007 |
+| TEST-S1-08 | open the link (GET), then confirm (POST) | GET shows the current version's answers, changes nothing, sets the CSRF cookie and the no-referrer and no-store headers; POST sets verified once, adopts the named version, writes one event and one `held` action whose input is that version | REQ-007, REQ-033 |
 | TEST-S1-09 | expired (by database clock), already-used, superseded and tampered tokens; a token signed with a retired key past its fallback | refusal or "already confirmed"; no state change; no new action or history event (refusals are logged, redacted) | REQ-007 |
 | TEST-S1-10 | two concurrent confirmations of one valid link; a confirmation racing a repeat submission | one verification event and one next-stage action; no deadlock (fixed lock order) | REQ-007, REQ-008 |
 | TEST-S1-11 | access by anonymous, authenticated non-staff, staff without the group, and read-only staff attempting add, change or delete | redirect to login, then refusal; 403 on every write path; no data in refused responses | REQ-015 |
@@ -174,6 +192,7 @@ PASS, FAIL, SKIPPED, NOT RUN or BLOCKED with the run link. **None has run; all a
 | TEST-S1-19 | the worker ignores `held` actions and actions of a paused subject; two workers racing for one action; re-running a completed action | never claimed; exactly one claim; no-op on `done` | REQ-004, REQ-013 |
 | TEST-S1-20 | schema integrity: constraints exist by introspection; `makemigrations --check` reports no drift; no `workflow` row points at a missing subject | all present; no drift; no orphans | REQ-003, REQ-006 |
 | TEST-S1-21 | append-only enforcement, in the one form ADR-14's decision fixes before S1-T3 (bead S1-D) | trigger adopted: `UPDATE` and `DELETE` on versions and events raise at the database, including raw SQL. Trigger declined: an architecture test finds no update, delete, `bulk_update` or raw SQL path to those tables | REQ-001, REQ-002 |
+| TEST-S1-22 | intervening unverified submissions: version 1 submitted and its link sent; version 2 (different answers, same email key) submitted before confirmation; then confirm. Variant: version 3 arrives between GET and POST | contact control recorded once; only the version shown and named in the POST is adopted; the others stay `unverified` and are kept; the `held` action names the adopted version, never "the latest"; in the variant, version 3 stays `unverified` and raises a staff item | REQ-007, REQ-033 |
 
 GATE-S1 (`002` section 6) passes only when every `TEST-S1-` case is PASS at the PR head, with QA review
 and the epic's after-action report.

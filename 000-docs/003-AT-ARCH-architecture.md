@@ -27,7 +27,7 @@ Text inventory. **Nodes:** applicant browser, staff browser, reverse proxy, Djan
 worker process, PostgreSQL, MXroute, Documenso, MiniMax, LMS. **Trust boundaries:** (1) public internet
 to proxy; (2) proxy to Django web (loopback or private socket only); (3) staff network restriction in
 front of the staff hostname; (4) Django processes to external providers (outbound only, credentials only
-in production); (5) Documenso webhooks inbound to Django web (signature-verified). **Flows:** applicant
+in production); (5) Documenso webhooks inbound to Django web, authenticated with the installed Documenso version's documented mechanism (the current public documentation describes a shared-secret header, NEEDS VERIFICATION on the installed version). **Flows:** applicant
 form and confirmation pages; staff admin and focused views; worker claims pending actions from PostgreSQL
 and calls providers; webhooks record observations. **Conclusion:** PostgreSQL is the only system of
 record; the worker is the only caller of providers except the webhook receiver, which only records.
@@ -75,7 +75,7 @@ another app's private models for writing; cross-app writes go through that app's
 | MXroute SMTP | outbound | applicant correspondence (P2 onward; first slice uses a local sink) | OWNER-DECIDED provider; settings NEEDS VERIFICATION |
 | MXroute IMAP | inbound poll | reply collection (P2) | OWNER-DECIDED provider; reply-address support NEEDS VERIFICATION |
 | MXroute provisioning | outbound | mailbox creation (P5) | interface NEEDS VERIFICATION; operator fallback designed in `004` J-14 |
-| Documenso API and webhooks | both | agreements (P4) | OWNER-DECIDED provider; installed version and API generation NEEDS VERIFICATION |
+| Documenso API and webhooks | both | agreements (P4) | OWNER-DECIDED provider; installed version, API generation and webhook authentication mechanism NEEDS VERIFICATION |
 | MiniMax through PydanticAI | outbound | assessments (P3) | OWNER-DECIDED; structured-output support NEEDS VERIFICATION |
 | Reverse proxy | inbound | path routing | current table VERIFIED read-only (below); v2 rules PROPOSED |
 | Twenty | none | deferred | OWNER-DECIDED out of MVP |
@@ -123,26 +123,23 @@ choice that matters at this scale is correctness under concurrency, not speed.
 - **Monitoring and logging:** pending-action health and the staff queues are the first monitors; estate
   alerting integration is designed at P6.
 
-## Learn and Django routing (current routing verified read-only; v2 routing proposed)
+## Learn and Django routing (current routing checked read-only; v2 routing proposed)
 
-**Status:** the **current** route table below was read from the live proxy configuration on
-2026-10-09 in a read-only, owner-authorized check (no reload, no edit; internal addresses and ports
-are deliberately omitted). Everything about **v2** is proposed; nothing for v2 is configured.
+**Status:** the current routing was read from the live proxy configuration on 2026-10-09 in a read-only,
+owner-authorized check (no reload, no edit). Everything about **v2** is proposed; nothing for v2 is
+configured.
 
-### Current live routing (verified 2026-10-09, read-only)
+### Current routing (summary only)
 
-| Path | Served by | Notes |
-|---|---|---|
-| `/user/logon`, `/user/logon/` | proxy redirect (302) to `/request-access` | LMS self-registration is closed at the edge |
-| `/start`, `/start/` (exact, case-sensitive) | static page from the proxy host | its own strict CSP and headers |
-| `/request-access`, `/request-access/received`, `/signing/return` (exact, case-sensitive), and everything under `/setup/` | **first-generation** Catalyst onboarding service | exact-match rules, so `/request-access/` and `/setup` still reach the LMS; `/setup/...` requests are excluded from the access log because the path carries a token |
-| `/u.js`, `/u/api/send` | the estate analytics service, same-origin | first-party analytics |
-| everything else | the existing LMS | default route |
+The learn host's proxy sends a small set of exact onboarding paths to the **first-generation** Catalyst
+onboarding service and every other path to the existing LMS, which is the default route. A v2 cutover
+replaces only the first-generation onboarding rules, never the LMS default.
 
-Access logs for the learn host are kept 30 days. The learn site block does **not** import the shared
-security-headers snippet that the other hosts use; any HSTS, framing or referrer headers on LMS and
-onboarding pages therefore come from the upstream applications (not verified here). Any v2 cutover
-replaces the first-generation onboarding rules, not the LMS default.
+The detailed current route table, header configuration and logging settings are operational detail and
+are **not** kept in this public document. The authoritative baseline is the live proxy configuration on
+the production host, held in the estate's private operations records; P6 re-reads it read-only before
+any cutover and compares against it there. An earlier revision of this document (merged in PR #5)
+contained more detail; it remains in Git history, which this change does not rewrite.
 
 ### Topology
 
@@ -246,9 +243,9 @@ section 4.
 |---|---|---|---|
 | ADR-01 | One Django project, web and worker processes from one codebase, six domain apps (`workflow`, `applications`, `correspondence`, `assessments`, `agreements`, `provisioning`) | direction OWNER-DECIDED (D-01); app split PROPOSED | apps follow the journey's ownership boundaries; fewer apps would mix provider adapters with the dossier; more would split one transaction across apps |
 | ADR-02 | PostgreSQL only, in tests, staging and production; settings refuse other engines | OWNER-DECIDED (D-02) | locking (`SKIP LOCKED`, `select_for_update`), partial unique constraints and concurrency tests must run on the real engine |
-| ADR-03 | One PostgreSQL-backed execution mechanism. Proposed form: a domain-owned pending-action ledger in `workflow`, claimed with Django's `select_for_update(skip_locked=True)` and a lease, run by a worker management command, with no separate queue library. Ledger rules (lease token fencing, database clock, attempts at claim, poison rule, subject-generic rows with no domain foreign key): `005` S1.4 | principle OWNER-DECIDED (D-03); form **NEEDS OWNER DECISION** after bead S1-T1's compatibility check | the domain needs idempotency keys, an `uncertain` state, per-application pause checked under the claim lock, and staff visibility of every pending action; a generic queue library would still need this ledger beside it, giving two sources of truth. Custom code is justified only because those needs are not met by an adequate built-in (charter section 3). Alternatives checked in S1-T1: Django's tasks framework with a database backend (Django 6.0 defines the interface; a production database backend is a separate package, NEEDS VERIFICATION) and Procrastinate (PostgreSQL-native). The choice must keep "enqueue in the same transaction as the domain write". The Django architect review (2026-10-09) judged the custom ledger justified once fencing and the subject-generic layout are in place |
+| ADR-03 | One PostgreSQL-backed execution mechanism, meeting the behavioural rules in `005` S1.4 (same-transaction enqueue, lease fencing, database clock, attempts at claim, poison rule, `uncertain` outcomes, per-subject pause that leaves staff kinds runnable, staff visibility) | principle OWNER-DECIDED (D-03); form **PENDING OWNER DECISION** after S1-T1's bounded comparison (`005` S1.6a) | candidates: a domain-owned ledger claimed with `select_for_update(skip_locked=True)` and run by a management command; Procrastinate; Django's tasks interface with a database backend if one supports Django 5.2. The Django architect review favoured the custom ledger because the domain needs `uncertain`, pause and visibility semantics; that is a hypothesis for the comparison to test, not a conclusion. A library is not rejected merely for keeping its own job table. Temporal is out of scope (D-03) |
 | ADR-04 | MiniMax through PydanticAI, typed output with evidence references, advisory only | OWNER-DECIDED (D-04) | model output cannot authorize transitions; PydanticAI gives typed validation, retries and test models without network |
-| ADR-05 | Existing Documenso installation; completion requires a fresh provider read and every required participant | provider OWNER-DECIDED (D-05); completion rule PROPOSED | one webhook is not proof of completion; installed version NEEDS VERIFICATION |
+| ADR-05 | Existing Documenso installation. Signing completion and custody are separate facts with separate statuses (`004` "Agreement facts"); signing completion requires a fresh provider read showing every required participant complete; webhook requests are authenticated with the installed version's documented mechanism; webhook versus polling is a P4 design choice | provider OWNER-DECIDED (D-05); the rest PROPOSED; installed version NEEDS VERIFICATION | one webhook is not proof of completion; an archive failure must not erase signing evidence; the current public docs describe a plain shared secret in `X-Documenso-Secret` compared in constant time, not an HMAC signature (Documenso "Webhook Verification", read 2026-10-09) |
 | ADR-06 | Existing MXroute for SMTP, IMAP and provisioning | OWNER-DECIDED (D-06) | inbox handling is deterministic code; provisioning interface NEEDS VERIFICATION |
 | ADR-07 | Django admin plus focused Django views for staff | OWNER-DECIDED (D-07) | admin covers read and simple edits; workflow actions use focused views that call services |
 | ADR-08 | Twenty deferred | OWNER-DECIDED (D-08) | |
@@ -257,8 +254,8 @@ section 4.
 | ADR-11 | Development tooling never operates the live workflow; product jobs are application jobs | OWNER-DECIDED (D-10) | `009` section 6 |
 | ADR-12 | Legacy behaviour enters only as sanitized evidence packets through `catalyst-legacy-analyst` | OWNER-DECIDED (D-11) | |
 | ADR-13 | Stages change only through service functions that lock the application, check prerequisites inside the transaction and write a history event; no view, admin form or handler sets the stage field directly | PROPOSED | one place enforces REQ-008; admin stage fields are read-only |
-| ADR-14 | Append-only history: submission versions and history events are never updated or deleted; corrections are new rows | PROPOSED; a database trigger that rejects updates and deletes is **recommended** and NEEDS OWNER DECISION before S1-T3 | the dossier is the audit record (REQ-001, REQ-002); admin permissions do not stop `QuerySet.update()` or raw SQL, so only a trigger survives future code; the chosen form fixes TEST-S1-21 |
+| ADR-14 | Append-only history: ordinary application code never updates or deletes submission versions or history events; corrections are new rows. Approved retention or deletion (POL-10) uses a separate privileged, audited path, so append-only does not mean keeping every personal record forever | PROPOSED; database-trigger enforcement for ordinary writes **recommended**, **PENDING OWNER DECISION** before S1-T3 (bead S1-D) | admin permissions do not stop `QuerySet.update()` or raw SQL; the chosen form fixes TEST-S1-21 |
 | ADR-15 | Every external effect is a pending action with an idempotency key; the provider is called outside any row-locking transaction; an unknown outcome becomes `uncertain` and is reconciled before retry, unless the action kind is declared redeliverable | PROPOSED; the only redeliverable kind proposed is "send verification" (an identical link, `004` J-03) | avoids duplicate sends, envelopes and mailboxes; keeps locks short |
 | ADR-16 | Verification links carry the challenge's random public id signed with Django's `Signer` (dedicated salt and a dedicated key setting with fallback keys, independent of `SECRET_KEY`); expiry, use and supersession live only in the database; links are built from a `PUBLIC_BASE_URL` setting; GET shows a confirm button, POST confirms | PROPOSED | the same link can be resent after a crash (`004` J-03) without storing a raw token; one expiry authority; rotating the token key does not touch sessions or CSRF, and a retired key stays as a fallback for the longest challenge lifetime; POST defeats link prefetching |
-| ADR-17 | Runtime versions for the first slice: Django 5.2 LTS, Python 3.12, PostgreSQL 16, psycopg 3 | PROPOSED; **NEEDS OWNER DECISION**; support ranges reported from the Django 5.2 docs by the architect specialist (INSPECTED; `005` S1.6); exact patch versions NEEDS VERIFICATION in S1-T1 | 5.2 is the long-term-support line the charter already references |
-| ADR-18 | A custom user model (`accounts.User` extending `AbstractUser`) set as `AUTH_USER_MODEL` before the first migration | PROPOSED; **NEEDS OWNER DECISION** before S1-T3 | Django's documentation advises it when starting a project because changing it later is hard; staff MFA (D-12) and history actor references attach to it |
+| ADR-17 | Runtime versions for the first slice: Django 5.2 LTS, Python 3.12, PostgreSQL 16, psycopg 3 | lines PROPOSED; **PENDING OWNER DECISION** on exact versions that S1-T1 returns with support evidence (`005` S1.6a); support ranges reported by the architect specialist are INSPECTED only; nothing copied from older worktrees | 5.2 is the long-term-support line the charter already references |
+| ADR-18 | A minimal custom user model (`accounts.User` extending `AbstractUser`, no custom authentication) set as `AUTH_USER_MODEL` before the first migration. Users are staff; applicants are dossier records, not user accounts | PROPOSED; **PENDING OWNER DECISION** before S1-T3 | Django's documentation advises it when starting a project because changing it later is hard; staff MFA (D-12) and history actor references attach to it |

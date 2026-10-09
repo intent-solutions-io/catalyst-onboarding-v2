@@ -16,6 +16,7 @@
 | Application code | none | repository tree |
 | Build contract (`011`, `002`, `003`, `004`, `005` S1) | PROPOSED, in a draft PR | this branch |
 | Owner approval of the contract and first slice | not given | bead "Obtain the owner's approval of the build contract and the first-slice scope" |
+| Owner-directed amendment of 2026-10-09 | applied | `011` section 9 |
 | Open product policies | 19 open (`011` section 6) | bead "Obtain owner decisions on the open product policies listed in the master blueprint" |
 | Specialist subagents | all eleven discovered in a fresh session; one (`catalyst-django-architect`) probed at runtime | `008` section 5.1 |
 | Documentation CI | green on `main` `95b7537` (run 37891535566, all four checks) | GitHub Actions |
@@ -41,14 +42,14 @@
 
 | Blocker | Owner | Blocks |
 |---|---|---|
-| Approval of the build contract and first-slice scope | Jeremy Longshore | first-slice implementation |
+| Approval of the amended build contract and first-slice scope | Jeremy Longshore | handoff 1A (S1-T1) and all implementation |
 | ADR-03 job mechanism form, ADR-17 runtime versions, ADR-18 custom user model, ADR-14 database trigger | Jeremy Longshore, after bead S1-T1 (bead S1-D) | S1-T2 onward |
 | POL-01 duplicate policy confirmation | Jeremy Longshore | GATE-S1 sign-off |
 
 ## Next steps
 
 1. Owner reviews the draft PR and approves, amends or rejects the first-slice scope.
-2. On approval: bead S1-T1 (version and job-mechanism checks), then the owner's ADR-03, ADR-14, ADR-17 and ADR-18 decisions.
+2. On approval: handoff 1A only, S1-T1's compatibility and comparison checks (`005` S1.6a); then the owner's ADR-03, ADR-14, ADR-17 and ADR-18 decisions (bead S1-D).
 3. Policy decisions in `011` section 6, each before the milestone it blocks.
 
 ## Decision log

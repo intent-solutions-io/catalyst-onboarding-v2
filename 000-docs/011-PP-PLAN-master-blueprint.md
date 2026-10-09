@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document | `011-PP-PLAN-master-blueprint` (the only master blueprint for this repository) |
-| Version | 0.2.0 (after both reviews) |
+| Version | 0.3.0 (owner-directed amendment of 2026-10-09 applied) |
 | Status | **PROPOSED.** Draft for owner review. Merging this document is not approval of the product, of any open policy, or of any deployment. |
 | Owner | Jeremy Longshore (product owner and approver) |
 | Reviewers | `catalyst-django-architect` (build design), `catalyst-independent-qa` (independent review); results in section 9 |
@@ -63,8 +63,8 @@ Catalyst v2 is a new Django application that takes a person who asks for access 
 `learn.intentsolutions.io` through a recorded, auditable onboarding: a safely stored application,
 proof that they control their email address, deterministic evidence collection, a bounded advisory
 assessment by MiniMax through PydanticAI, clarifying questions answered by email, a qualification
-decision made by an authorized human, the required agreements (the owner's journey names an NDA and
-a User Agreement; the full inventory and order are open, POL-07) signed through the existing Documenso installation by every required participant, a
+decision made by an authorized human, an NDA whose verified completion must come before the User
+Agreement is shown or issued (D-15), then the User Agreement and any other required agreements, signed through the existing Documenso installation by every required participant, a
 company mailbox provisioned through the existing MXroute service, and activation with a welcome. One
 PostgreSQL database holds a progressive dossier of everything that happened. Routine correspondence is
 automated under written policy, with explicit stop and escalation rules, and authorized staff can see
@@ -98,6 +98,18 @@ confirms or amends the record by approving or changing this document's pull requ
 > "An assistant recommendation is not owner approval. Merging documentation is not automatically
 > approval to deploy."
 
+**Amendment of 2026-10-09** (owner-directed amendment to this pull request, recorded verbatim):
+
+> "Verified completion of the required NDA must precede exposure or issuance of the User Agreement.
+> The full agreement inventory, templates, versions, participants, countersigning, and additional
+> custody prerequisites remain open."
+>
+> "Email confirmation proves contact control, not authorship or approval of every submission made using
+> the address."
+>
+> "Keep P0-P6 and PL as engineering epic identifiers. Record how they map to numbered A/B/C owner
+> handoffs, delivered one at a time and expandable as needed."
+
 ### 4.2 Decision summary
 
 Decision records with rationale live in `003` section "Architecture decisions". This table is the
@@ -113,12 +125,13 @@ summary a reader needs first.
 | D-06 | Existing MXroute services for correspondence and approved mailbox provisioning | OWNER-DECIDED | section 4.1 |
 | D-07 | Django admin and focused Django views for staff operations | OWNER-DECIDED | section 4.1 |
 | D-08 | Twenty CRM deferred beyond the MVP | OWNER-DECIDED | section 4.1 |
-| D-09 | The learning site is not replaced; explicit proxy routing assigns onboarding paths to Django | OWNER-DECIDED | section 4.1; current routing recorded as verified read-only in `003` (PR #5) |
+| D-09 | The learning site is not replaced; explicit proxy routing assigns onboarding paths to Django | OWNER-DECIDED | section 4.1; current routing checked read-only on 2026-10-09 (PR #5); the live proxy configuration is the authoritative baseline (`003`) |
 | D-10 | Development hooks and coding agents never operate the live applicant workflow | OWNER-DECIDED | section 4.1; `009` section 6 |
 | D-11 | The legacy implementation is not the architectural template; only approved, sanitized behaviour and integration evidence is used | OWNER-DECIDED | section 4.1; charter section 3 |
 | D-12 | Staff interface on a separate authenticated hostname with network restriction and MFA where supported; hostname and method still to be verified | OWNER-DECIDED (design); details NEEDS VERIFICATION | `009` section 9 decision 5 |
 | D-13 | Bead history is public; sanitized engineering work only | OWNER-DECIDED | `009` section 9 decision 2 |
 | D-14 | A clean repository does not authorize discarding live first-generation records | OWNER-DECIDED | section 4.1 |
+| D-15 | Verified completion of the required NDA must precede exposure or issuance of the User Agreement | OWNER-DECIDED | section 4.1 (amendment) |
 
 **Contradictions found:**
 
@@ -156,9 +169,9 @@ open product policies listed in the master blueprint".
 | POL-04 | Assessment rubric, what the model may see, what it may recommend | owner | P3 start | not in slice |
 | POL-05 | Qualification authority: who may admit, decline or hold; whether two people are needed; appeal or reconsideration | owner | P3 decision stage (J-10) | not in slice |
 | POL-06 | Communications policy: approved templates, reminder cadence and maximum, quiet hours, stop rules for autoresponders, bounces and loops, when staff take over | owner | P2 start | slice sends one verification message only, to a local sink |
-| POL-07 | Agreement inventory: NDA, User Agreement and any other required agreement, their versions and order | owner with counsel | P4 start | not in slice |
+| POL-07 | Agreement inventory: the exact approved NDA and User Agreement templates and versions, any other required agreements and their order after the NDA (the NDA-before-User-Agreement rule itself is decided, D-15) | owner with counsel | P4 start | not in slice |
 | POL-08 | Signing roles: required participants, signing order, countersigner | owner with counsel | P4 start | not in slice |
-| POL-09 | Document custody: where executed documents are stored, encryption, who may retrieve them, audit | owner | P4 start | not in slice |
+| POL-09 | Document custody and its gate: where signed documents are stored, encryption, who may retrieve them, audit, and whether verified custody is required (in addition to verified signing completion) before the next agreement or stage | owner | P4 start | not in slice |
 | POL-10 | Retention and deletion for applications, declined and withdrawn records, messages, documents and logs | owner with counsel | GATE-PILOT (no real applicant data before) | synthetic data only |
 | POL-11 | Provisioning scope: mailbox naming, aliases, any other access granted at activation; who approves | owner | P5 start | not in slice |
 | POL-12 | Withdrawal, closure and reopening rules | owner | P5 (J-16); duplicate interaction affects POL-01 | not in slice |
@@ -172,10 +185,21 @@ open product policies listed in the master blueprint".
 
 ## 7. Phased work graph
 
-Provisional phase identifiers (section 2). Each phase runs as small sequential handoffs: **A** specify
-and decompose into beads, **B** implement in one branch and one PR per task, **C** independent
-verification and the epic's after-action report (`009` section 10). A phase starts only when its
-predecessor's gate passes and the policies it needs are decided. Later epics stay coarse until then.
+`P0` to `P6` and `PL` are **engineering epic identifiers**. Delivery to the owner happens in
+**numbered A/B/C handoffs**, one at a time, each released by the owner before it starts:
+
+| Handoff | Content | Ends with |
+|---|---|---|
+| `<n>A` | specify and decide: checks, comparisons and bead decomposition for phase `P<n>`; no application code | owner decisions recorded |
+| `<n>B` | implement: one branch and one PR per task bead; expandable as `<n>B.1`, `<n>B.2`, ... when a real dependency needs more than one step | each PR's required checks green |
+| `<n>C` | verify: run the phase's acceptance plan, independent review, the epic after-action report (`009` section 10) | the phase gate |
+
+Mapping so far, without inventing earlier lettered handoffs: P0 work was delivered as unlettered
+handoffs (PRs #3 to #7, including this contract and its amendment), and is not relabelled. The first
+lettered handoff is **1A: S1-T1 compatibility and comparison checks only** (`005` S1.6a), followed by the
+owner's S1-D decisions; then 1B (S1-T2 to S1-T7) and 1C (S1-T8, GATE-S1). If the owner's own handoff
+numbering differs, this table is adjusted to it; no second roadmap is created. A phase starts only when
+its predecessor's gate passes and the policies it needs are decided. Later epics stay coarse until then.
 
 | Phase | Epic bead (title) | Bead | Depends on | Exit gate |
 |---|---|---|---|---|
@@ -277,3 +301,18 @@ request comment):
 | J-02 terminal-stage rule had no test | `004` J-02 and `002` REQ-018 name planned TEST-P5-06 |
 | version not bumped; README stated the agreement order as fact | header; README |
 | `006` labelled the parent-permission point VERIFIED | `006` relabelled |
+
+**Owner-directed amendment (2026-10-09)** to the reviewed head `d0c632a`:
+
+| # | Item | Disposition |
+|---|---|---|
+| 1 | NDA gate | restored as D-15 and REQ-031; `004` J-11 and J-12; planned TEST-P4-06. This reverses the QA disposition of finding 12 above, which had wrongly made the order open; only the inventory details stay open (POL-07) |
+| 2 | Replies and question status | `004` J-07 rewritten (persist and correlate, then process); J-08 reminder suppression; J-09 staff messages while paused; REQ-013 and REQ-034; `005` S1.4 rule 8; planned TEST-P2-08 to TEST-P2-11 |
+| 3 | Signing versus custody | `004` "Agreement facts", J-11 to J-14; REQ-011 and REQ-032; `003` ADR-05 and trust boundary (webhook authentication per installed version); planned TEST-P4-07 and TEST-P4-08 |
+| 4 | Submission versions and verification | `004` J-03 and J-05; REQ-007 and REQ-033; `005` S1.2, S1.4 (`VersionAdoption`); TEST-S1-08 extended, TEST-S1-22 added; planned TEST-P3-08 |
+| 5 | Public route detail | `003` "Current routing" reduced to a summary; the authoritative baseline stays in the live proxy configuration and private operations records; Git history not rewritten |
+| 6 | Delivery handoffs | section 7 maps P-phases to numbered A/B/C handoffs; next is 1A |
+| 7 | Decisions before implementation | `003` ADR-03, ADR-14, ADR-17 and ADR-18 marked PENDING OWNER DECISION; `005` S1.6a defines what S1-T1 returns; beads S1-T1 and S1-D updated |
+
+Independent review of the amended clauses and their cross-document consistency: pending at the time of
+writing; its result is recorded below once it exists.

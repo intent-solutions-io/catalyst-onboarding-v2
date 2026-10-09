@@ -14,8 +14,8 @@ accepts it.
 
 The platform it describes will take a person from a first access request on
 `learn.intentsolutions.io` through verification, a bounded AI-assisted review with human
-approval, the required agreements (the planned journey names an NDA and a User Agreement; the
-inventory and order are still open) signed through Documenso, company mailbox provisioning
+approval, an NDA whose verified completion comes before the User Agreement is shown or issued,
+then the User Agreement and any other required agreements, signed through Documenso, company mailbox provisioning
 and a welcome, with the whole journey auditable from first contact to activation, a single
 progressive dossier in PostgreSQL. A Twenty CRM projection is deferred beyond the MVP.
 
