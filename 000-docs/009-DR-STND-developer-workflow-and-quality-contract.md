@@ -194,7 +194,7 @@ applicant-assessment agents.
 | P2 | Remove the mandatory-push text from `AGENTS.md` | applied in this documentation change |
 | P3 | Update the parent projects-folder `CLAUDE.md` Beads wording from `bd sync` to the Dolt-remote contract | **reviewed and kept**: `bd sync` is an unknown command in Beads 1.1.x, so the old wording was wrong; uncommitted in that file; rollback copy preserved |
 | P4 | One `check-docs` script called by both CI and contributors | when code tooling is introduced |
-| P5 | Record the live learn proxy route table after an authorized read-only check | **done** 2026-10-09 (read-only; `003`) |
+| P5 | Record the live learn proxy route table after an authorized read-only check | **done** 2026-10-09 (read-only); the detail now lives in the private operations records, `003` keeps a summary (amendment of 2026-10-09) |
 | P6 | Add `concurrency` cancellation for PR runs | **done** in `ci.yml` |
 | P7 | Path-scoped `.claude/rules/` for Python and migrations | when that code exists; none needed now |
 | P8 | Run agent-definition validation in CI | **done**: a scoped check on every PR (0.09 s), keeping one stable required check |

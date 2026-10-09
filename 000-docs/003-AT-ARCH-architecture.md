@@ -18,7 +18,7 @@
 Applicant browser ──HTTPS──▶ reverse proxy (learn.intentsolutions.io) ──assigned paths──▶ Django web
 Staff browser ──HTTPS, restricted network──▶ staff hostname ─────────────────────────────▶ Django web
 Django web ──▶ PostgreSQL ◀── Django worker ──▶ MXroute (SMTP send, IMAP collect, provisioning)
-                                           ──▶ Documenso (envelopes, webhooks via Django web)
+                                           ──▶ Documenso (envelopes; webhooks to Django web if P4 chooses them)
                                            ──▶ MiniMax (through PydanticAI)
 LMS (unchanged) keeps every unassigned path on the learn host.
 ```
@@ -30,7 +30,7 @@ front of the staff hostname; (4) Django processes to external providers (outboun
 in production); (5) Documenso webhooks inbound to Django web, authenticated with the installed Documenso version's documented mechanism (the current public documentation describes a shared-secret header, NEEDS VERIFICATION on the installed version). **Flows:** applicant
 form and confirmation pages; staff admin and focused views; worker claims pending actions from PostgreSQL
 and calls providers; webhooks record observations. **Conclusion:** PostgreSQL is the only system of
-record; the worker is the only caller of providers except the webhook receiver, which only records.
+record; the worker is the only caller of providers; a webhook receiver, if P4 adopts webhooks, only records.
 
 ## Component design
 
@@ -40,7 +40,7 @@ app. App names are proposals (ADR-01).
 
 | Component | Responsibility | Depends on |
 |---|---|---|
-| `workflow` | the pending-action ledger (kind, subject type and id, idempotency key, due time, lease token and expiry, attempts, status), automation pauses keyed by subject, the worker loop, the handler registry. Subject-generic: no foreign key to any domain model | Django only |
+| `workflow` | the one execution mechanism chosen by ADR-03 (described here as the custom-ledger candidate: kind, subject type and id, idempotency key, due time, lease token and expiry, attempts, status), automation pauses keyed by subject, the worker loop, the handler registry. Subject-generic: no foreign key to any domain model | Django only |
 | `accounts` | the custom user model; nothing else | Django only |
 | `applications` | application, submission versions, append-only history events, contact challenges, stage state service, decisions, withdrawal; sets and clears automation pauses through `workflow` services | `workflow`, `accounts` |
 | `correspondence` | outbound and inbound messages, templates, mailbox cursor, correlation, reminder and stop rules | `applications`, `workflow` |
@@ -162,8 +162,8 @@ Browser ──HTTPS──▶ reverse proxy on the authorized host (learn.intents
 - Which application serves a path is decided by the proxy's path routing (for Caddy, `handle` blocks:
   [Caddy, "handle"](https://caddyserver.com/docs/caddyfile/directives/handle), checked 2026-10-09),
   not by the domain.
-- Existing routes are preserved until an approved cutover. The table above is the baseline any
-  cutover is compared against.
+- Existing routes are preserved until an approved cutover. The live proxy configuration, held in the
+  estate's private operations records, is the baseline any cutover is compared against.
 
 ### Route-ownership matrix (proposed)
 
@@ -254,8 +254,8 @@ section 4.
 | ADR-11 | Development tooling never operates the live workflow; product jobs are application jobs | OWNER-DECIDED (D-10) | `009` section 6 |
 | ADR-12 | Legacy behaviour enters only as sanitized evidence packets through `catalyst-legacy-analyst` | OWNER-DECIDED (D-11) | |
 | ADR-13 | Stages change only through service functions that lock the application, check prerequisites inside the transaction and write a history event; no view, admin form or handler sets the stage field directly | PROPOSED | one place enforces REQ-008; admin stage fields are read-only |
-| ADR-14 | Append-only history: ordinary application code never updates or deletes submission versions or history events; corrections are new rows. Approved retention or deletion (POL-10) uses a separate privileged, audited path, so append-only does not mean keeping every personal record forever | PROPOSED; database-trigger enforcement for ordinary writes **recommended**, **PENDING OWNER DECISION** before S1-T3 (bead S1-D) | admin permissions do not stop `QuerySet.update()` or raw SQL; the chosen form fixes TEST-S1-21 |
+| ADR-14 | Append-only history: ordinary application code never updates or deletes submission versions or history events; corrections are new rows. Approved retention or deletion (POL-10) uses a separate privileged, audited path, so append-only does not mean keeping every personal record forever | PROPOSED; database-trigger enforcement for ordinary writes **recommended**, **PENDING OWNER DECISION** before S1-T2 (bead S1-D) | admin permissions do not stop `QuerySet.update()` or raw SQL; the chosen form fixes TEST-S1-21 |
 | ADR-15 | Every external effect is a pending action with an idempotency key; the provider is called outside any row-locking transaction; an unknown outcome becomes `uncertain` and is reconciled before retry, unless the action kind is declared redeliverable | PROPOSED; the only redeliverable kind proposed is "send verification" (an identical link, `004` J-03) | avoids duplicate sends, envelopes and mailboxes; keeps locks short |
 | ADR-16 | Verification links carry the challenge's random public id signed with Django's `Signer` (dedicated salt and a dedicated key setting with fallback keys, independent of `SECRET_KEY`); expiry, use and supersession live only in the database; links are built from a `PUBLIC_BASE_URL` setting; GET shows a confirm button, POST confirms | PROPOSED | the same link can be resent after a crash (`004` J-03) without storing a raw token; one expiry authority; rotating the token key does not touch sessions or CSRF, and a retired key stays as a fallback for the longest challenge lifetime; POST defeats link prefetching |
 | ADR-17 | Runtime versions for the first slice: Django 5.2 LTS, Python 3.12, PostgreSQL 16, psycopg 3 | lines PROPOSED; **PENDING OWNER DECISION** on exact versions that S1-T1 returns with support evidence (`005` S1.6a); support ranges reported by the architect specialist are INSPECTED only; nothing copied from older worktrees | 5.2 is the long-term-support line the charter already references |
-| ADR-18 | A minimal custom user model (`accounts.User` extending `AbstractUser`, no custom authentication) set as `AUTH_USER_MODEL` before the first migration. Users are staff; applicants are dossier records, not user accounts | PROPOSED; **PENDING OWNER DECISION** before S1-T3 | Django's documentation advises it when starting a project because changing it later is hard; staff MFA (D-12) and history actor references attach to it |
+| ADR-18 | A minimal custom user model (`accounts.User` extending `AbstractUser`, no custom authentication) set as `AUTH_USER_MODEL` before the first migration. Users are staff; applicants are dossier records, not user accounts | PROPOSED; **PENDING OWNER DECISION** before S1-T2 (bead S1-D) | Django's documentation advises it when starting a project because changing it later is hard; staff MFA (D-12) and history actor references attach to it |

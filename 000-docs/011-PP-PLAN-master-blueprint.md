@@ -54,7 +54,7 @@ VERIFIED (observed by a named check), NOT VERIFIED.
 | Pull requests | #3 to #6 MERGED; #1 and #2 open Dependabot action bumps, unrelated to this contract |
 | **Planning ZIP and earlier planning drafts** | **NOT AVAILABLE.** No ZIP or earlier blueprint draft exists in this repository, its Git history, or the maintainer's projects folder (searched 2026-10-09). Nothing in this contract claims to reflect their contents. |
 | Earlier document numbering | the brief notes that earlier drafts used `009` and `010` for other purposes. In this repository `009` is the workflow contract and `010` the hook and memory register (MERGED, PR #5). Neither is renumbered. This blueprint takes the next free number, `011`. |
-| Earlier phase identifiers and A/B/C handoff labels | **not found** in this repository. Section 7 defines provisional phase IDs `P0` to `P6` and `PL`. If the owner's earlier identifiers surface, map them onto section 7 rather than adding a parallel plan. |
+| Earlier phase identifiers and A/B/C handoff labels | **not found** in this repository. Section 7 defines engineering epic identifiers `P0` to `P6` and `PL`. If the owner's earlier identifiers surface, map them onto section 7 rather than adding a parallel plan. |
 | First-generation (legacy) implementation | not browsed. Its behaviour enters only through sanitized evidence packets assigned to `catalyst-legacy-analyst` (ADR-12). |
 
 ## 3. The product in one paragraph
@@ -73,7 +73,7 @@ direct database edits or a coding agent. The learning site itself is not replace
 
 ## 4. Owner decisions and boundaries
 
-### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14)
+### 4.1 Recorded owner direction (source of D-01 to D-11, D-14 and D-15)
 
 The owner gave this project direction in the build-contract instruction of 2026-10-09, in the
 invoking session. It is recorded here verbatim so a fresh session can check the source. The owner
@@ -194,8 +194,9 @@ open product policies listed in the master blueprint".
 | `<n>B` | implement: one branch and one PR per task bead; expandable as `<n>B.1`, `<n>B.2`, ... when a real dependency needs more than one step | each PR's required checks green |
 | `<n>C` | verify: run the phase's acceptance plan, independent review, the epic after-action report (`009` section 10) | the phase gate |
 
-Mapping so far, without inventing earlier lettered handoffs: P0 work was delivered as unlettered
-handoffs (PRs #3 to #7, including this contract and its amendment), and is not relabelled. The first
+Mapping so far, without inventing earlier lettered handoffs: P0 is still in review (its exit gate, the
+owner's approval, is not met) and has no lettered handoffs; its earlier merged setup work is not
+relabelled. The first
 lettered handoff is **1A: S1-T1 compatibility and comparison checks only** (`005` S1.6a), followed by the
 owner's S1-D decisions; then 1B (S1-T2 to S1-T7) and 1C (S1-T8, GATE-S1). If the owner's own handoff
 numbering differs, this table is adjusted to it; no second roadmap is created. A phase starts only when
@@ -285,9 +286,8 @@ with fixes. Disposition:
 | 16 | README promised Twenty | README corrected |
 | notes | later planned tests missing from the matrix | `002` section 7 |
 
-Not changed, owner decision needed: the reviewer noted that the live route table merged in PR #5
-(`003` "Current live routing") publishes operational detail (exact paths, a log exclusion, a missing
-headers snippet, log retention). Trimming it is left to the owner. **Re-review** of the fixes at commit `9cdce56` by the same reviewer: accept with fixes, nothing blocking.
+The reviewer also noted that the live route table merged in PR #5 published operational detail; the
+owner later directed its removal (amendment item 5 below). **Re-review** of the fixes at commit `9cdce56` by the same reviewer: accept with fixes, nothing blocking.
 Findings 1 to 13 and 15 to 16 resolved. Finding 14 was partially resolved: the full reports are
 summarized on the pull request, not filed in the repository. A label residual on finding 13 and five
 new small problems were fixed in the third commit, and the reviewer then checked those edits (pull
@@ -314,5 +314,13 @@ request comment):
 | 6 | Delivery handoffs | section 7 maps P-phases to numbered A/B/C handoffs; next is 1A |
 | 7 | Decisions before implementation | `003` ADR-03, ADR-14, ADR-17 and ADR-18 marked PENDING OWNER DECISION; `005` S1.6a defines what S1-T1 returns; beads S1-T1 and S1-D updated |
 
-Independent review of the amended clauses and their cross-document consistency: pending at the time of
-writing; its result is recorded below once it exists.
+Independent review of the amended clauses (fresh `catalyst-independent-qa` invocation, commit `a264b97`):
+**accept with fixes**, nothing blocking. Items 1, 2, 3 and 7 satisfied; 4, 5 and 6 partial. The six
+should-fix findings were applied in the next commit: the pause exemption for staff-class kinds in ledger
+rule 1; resume reschedules instead of dropping reminders (`004` J-09); `PendingAction` gains an input
+reference; S1 staff items are defined as `needs_staff_attention` events, raised at confirmation for newer
+unverified versions, with a refusal case for a foreign or unknown version (TEST-S1-09); stale route-table
+references removed from `003`, this section and `009` P5; the P0 handoff sentence and the section 2 label
+corrected. Notes applied: hedged webhook wording in `003`, D-15 in section 4.1's heading, S1-D blocking
+S1-T2 stated consistently, the `workflow` row described as the ADR-03 mechanism, "ordinary code" in
+`005` S1.4. The reviewer's check of those edits is recorded on the pull request.

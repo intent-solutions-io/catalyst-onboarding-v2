@@ -130,7 +130,8 @@ proposals.
   sending and raises a staff item (P2). Several unverified versions exist before confirmation (an
   intervening repeat): only the version shown and named is adopted; earlier ones stay `unverified` and are
   kept. A newer version arrives between GET and POST: the named (older) version is adopted and the newer
-  one stays `unverified` and raises a staff item, as any repeat after verification does (J-02). A person who
+  one stays `unverified`; at confirmation a staff item is raised for any unverified version newer than the
+  adopted one. A person who
   did not make the request simply does not confirm; a "this was not me" path belongs to POL-19.
 - **Retry, timeout, terminal:** send attempts are bounded. A crash after the mail server accepted the message
   but before the result was recorded leaves the action `running` with an expired lease; the next claim
@@ -289,8 +290,10 @@ correlated**, then **processed** to decide what, if anything, it answered.
 - **Deterministic checks:** permission to pause, resume and send staff messages (POL-13); the worker checks
   for a pause and the action kind's class (automated or staff) inside the claim transaction.
 - **LLM:** none.
-- **Alternate outcomes:** resume: an explicit staff action; due reminders that went stale while paused
-  are cancelled, not burst-sent. A reply to a staff message is collected and correlated as usual (J-07);
+- **Alternate outcomes:** resume: an explicit staff action. Resume re-evaluates every open question and
+  reschedules its next reminder under POL-06 instead of sending the backlog at once; reminders for
+  `reply_pending` questions stay suppressed. Rescheduling or cancelling a reminder never changes a
+  question's status. A reply to a staff message is collected and correlated as usual (J-07);
   its processing waits for resume unless staff process it by hand.
 - **Retry, timeout, terminal:** no automatic timeout: a paused application waits for staff. Staleness is
   surfaced, not acted on: the queue sorts by pause age, and an age threshold for highlighting is part of
