@@ -63,8 +63,8 @@ Catalyst v2 is a new Django application that takes a person who asks for access 
 `learn.intentsolutions.io` through a recorded, auditable onboarding: a safely stored application,
 proof that they control their email address, deterministic evidence collection, a bounded advisory
 assessment by MiniMax through PydanticAI, clarifying questions answered by email, a qualification
-decision made by an authorized human, an NDA and then a User Agreement (and any other required
-agreement) signed through the existing Documenso installation by every required participant, a
+decision made by an authorized human, the required agreements (the owner's journey names an NDA and
+a User Agreement; the full inventory and order are open, POL-07) signed through the existing Documenso installation by every required participant, a
 company mailbox provisioned through the existing MXroute service, and activation with a welcome. One
 PostgreSQL database holds a progressive dossier of everything that happened. Routine correspondence is
 automated under written policy, with explicit stop and escalation rules, and authorized staff can see
@@ -73,34 +73,57 @@ direct database edits or a coding agent. The learning site itself is not replace
 
 ## 4. Owner decisions and boundaries
 
+### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14)
+
+The owner gave this project direction in the build-contract instruction of 2026-10-09, in the
+invoking session. It is recorded here verbatim so a fresh session can check the source. The owner
+confirms or amends the record by approving or changing this document's pull request.
+
+> - One new Django-native project, with a small number of cohesive apps.
+> - PostgreSQL for development database tests, staging, and production; no silent SQLite fallback.
+> - One durable PostgreSQL-backed background execution mechanism.
+> - MiniMax through PydanticAI for bounded assessments.
+> - Existing Documenso for signing.
+> - Existing MXroute services for correspondence and approved mailbox provisioning.
+> - Django Admin and focused Django views for staff operations.
+> - Twenty deferred beyond the MVP.
+> - The learning site is not being replaced by default; explicit routing assigns onboarding requests
+>   to Django.
+> - Development hooks and coding agents never operate the live applicant workflow.
+> - The legacy implementation is not the architectural template. Use approved, sanitized
+>   behavior/integration evidence; no unrestricted legacy browsing or copying.
+>
+> "A clean repository does not authorize discarding live records."
+>
+> "An assistant recommendation is not owner approval. Merging documentation is not automatically
+> approval to deploy."
+
+### 4.2 Decision summary
+
 Decision records with rationale live in `003` section "Architecture decisions". This table is the
 summary a reader needs first.
 
 | ID | Boundary | Status | Source |
 |---|---|---|---|
-| D-01 | One new Django-native project with a small number of cohesive apps | OWNER-DECIDED | owner build-contract instruction, 2026-10-09; README "Why a new repository" (first-generation decision 22, 2026-10-09) |
-| D-02 | PostgreSQL for development tests, staging and production; no silent SQLite fallback | OWNER-DECIDED | owner instruction 2026-10-09 |
-| D-03 | One durable PostgreSQL-backed background execution mechanism; no Temporal, no second workflow engine | OWNER-DECIDED | owner instruction 2026-10-09; charter `007` section 3 |
-| D-04 | MiniMax through PydanticAI for bounded assessments; model output never authorizes a transition | OWNER-DECIDED | owner instruction 2026-10-09; charter section 3 |
-| D-05 | Existing Documenso installation for signing | OWNER-DECIDED | owner instruction 2026-10-09 |
-| D-06 | Existing MXroute services for correspondence and approved mailbox provisioning | OWNER-DECIDED | owner instruction 2026-10-09 |
-| D-07 | Django admin and focused Django views for staff operations | OWNER-DECIDED | owner instruction 2026-10-09 |
-| D-08 | Twenty CRM deferred beyond the MVP | OWNER-DECIDED | owner instruction 2026-10-09 |
-| D-09 | The learning site is not replaced; explicit proxy routing assigns onboarding paths to Django | OWNER-DECIDED | owner instruction 2026-10-09; current routing VERIFIED read-only in `003` |
-| D-10 | Development hooks and coding agents never operate the live applicant workflow | OWNER-DECIDED | owner instruction 2026-10-09; `009` section 6 |
-| D-11 | The legacy implementation is not the architectural template; only approved, sanitized behaviour and integration evidence is used | OWNER-DECIDED | owner instruction 2026-10-09; charter section 3 |
+| D-01 | One new Django-native project with a small number of cohesive apps | OWNER-DECIDED | section 4.1; README "Why a new repository" (first-generation decision 22, 2026-10-09) |
+| D-02 | PostgreSQL for development tests, staging and production; no silent SQLite fallback | OWNER-DECIDED | section 4.1 |
+| D-03 | One durable PostgreSQL-backed background execution mechanism; no Temporal, no second workflow engine | OWNER-DECIDED | section 4.1; charter `007` section 3 |
+| D-04 | MiniMax through PydanticAI for bounded assessments; model output never authorizes a transition | OWNER-DECIDED | section 4.1; charter section 3 |
+| D-05 | Existing Documenso installation for signing | OWNER-DECIDED | section 4.1 |
+| D-06 | Existing MXroute services for correspondence and approved mailbox provisioning | OWNER-DECIDED | section 4.1 |
+| D-07 | Django admin and focused Django views for staff operations | OWNER-DECIDED | section 4.1 |
+| D-08 | Twenty CRM deferred beyond the MVP | OWNER-DECIDED | section 4.1 |
+| D-09 | The learning site is not replaced; explicit proxy routing assigns onboarding paths to Django | OWNER-DECIDED | section 4.1; current routing recorded as verified read-only in `003` (PR #5) |
+| D-10 | Development hooks and coding agents never operate the live applicant workflow | OWNER-DECIDED | section 4.1; `009` section 6 |
+| D-11 | The legacy implementation is not the architectural template; only approved, sanitized behaviour and integration evidence is used | OWNER-DECIDED | section 4.1; charter section 3 |
 | D-12 | Staff interface on a separate authenticated hostname with network restriction and MFA where supported; hostname and method still to be verified | OWNER-DECIDED (design); details NEEDS VERIFICATION | `009` section 9 decision 5 |
 | D-13 | Bead history is public; sanitized engineering work only | OWNER-DECIDED | `009` section 9 decision 2 |
-| D-14 | A clean repository does not authorize discarding live first-generation records | OWNER-DECIDED | owner instruction 2026-10-09 |
+| D-14 | A clean repository does not authorize discarding live first-generation records | OWNER-DECIDED | section 4.1 |
 
-**Contradictions found and not resolved here (flagged for the owner):**
+**Contradictions found:**
 
-1. `README.md` lists "a Twenty CRM projection of the relationship" in the platform description,
-   while D-08 defers Twenty beyond the MVP. This contract treats Twenty as out of MVP scope;
-   the README sentence should be corrected in a later docs change.
-2. The README's target shape says "the existing email provider" and "an LLM provider abstraction".
-   D-04 and D-06 are more specific (MiniMax through PydanticAI; MXroute). PydanticAI is the
-   abstraction; MiniMax is the only provider in scope.
+1. `README.md` promised a Twenty projection and an unnamed email and LLM provider. Corrected in this
+   change to match D-04, D-06 and D-08.
 
 ## 5. Who may authorize what
 
@@ -129,7 +152,7 @@ open product policies listed in the master blueprint".
 |---|---|---|---|---|
 | POL-01 | Applicant identity key and duplicate policy: is "same applicant" the normalized email address; may a person hold more than one open application; what happens after a decline or withdrawal | owner | GATE-S1 acceptance sign-off (the slice encodes a default) | PROPOSED defaults (`005` S1.3): identity is a case-folded email key with plus-addressing kept distinct; one open application per key; a repeat becomes a new submission version; a repeat after verification is recorded as unverified and goes to staff, never overwriting verified data |
 | POL-02 | Verification link lifetime, resend limits, what an expired link offers | owner | GATE-STAGING | PROPOSED default: lifetime is a setting; no number is approved; tests use a short synthetic value |
-| POL-03 | Which evidence is required and how it is collected (and from which sources the system may fetch) | owner | P3 start | not in slice |
+| POL-03 | Which evidence is required and how it is collected (and from which sources the system may fetch); the final intake form fields | owner | P3 start (evidence); GATE-PILOT (form fields shown to real applicants) | S1 uses a synthetic placeholder field set (name, email, reason) only |
 | POL-04 | Assessment rubric, what the model may see, what it may recommend | owner | P3 start | not in slice |
 | POL-05 | Qualification authority: who may admit, decline or hold; whether two people are needed; appeal or reconsideration | owner | P3 decision stage (J-10) | not in slice |
 | POL-06 | Communications policy: approved templates, reminder cadence and maximum, quiet hours, stop rules for autoresponders, bounces and loops, when staff take over | owner | P2 start | slice sends one verification message only, to a local sink |
@@ -144,6 +167,8 @@ open product policies listed in the master blueprint".
 | POL-15 | Legacy data: which live first-generation records move, coexistence period, cutover rules | owner | GATE-CUTOVER | not in slice; separate epic |
 | POL-16 | Numerical operating targets for the measures in `002` (`MET-`) | owner | GATE-PILOT | measures defined, no targets |
 | POL-17 | Applicant-facing notices (privacy notice, what the applicant is told about automated assessment) | owner with counsel | GATE-PILOT | placeholder synthetic text only |
+| POL-18 | Required details: which personal or business details the agreements and provisioning need, when they are collected and who may see them | owner with counsel | P4 start | not in slice |
+| POL-19 | Identity disputes: what staff do when a repeat submission, a reply or a signer conflicts with the verified identity, and who resolves it | owner | P2 start (first staff item from an unverified repeat appears in S1 but needs no resolution there) | S1 records the conflict as a staff item only |
 
 ## 7. Phased work graph
 
@@ -172,12 +197,13 @@ working, tested behaviour; no phase defers all integration to the end.
 | Key | Bead | Title | Depends on |
 |---|---|---|---|
 | S1-T1 | `catalyst-v2-6hl.1` | Select and verify the Django, Python, PostgreSQL, driver and job-runner versions for the first slice | owner approval (`catalyst-v2-211.6`) |
-| S1-T2 | `catalyst-v2-6hl.2` | Create the Django project skeleton with PostgreSQL-only settings, provider guards and the CI runtime lane | S1-T1 |
+| S1-D | `catalyst-v2-6hl.9` | Obtain the owner's decisions on ADR-03, ADR-14, ADR-17 and ADR-18 before the first migration | S1-T1 |
+| S1-T2 | `catalyst-v2-6hl.2` | Create the Django project skeleton with PostgreSQL-only settings, provider guards and the CI runtime lane | S1-D |
 | S1-T3 | `catalyst-v2-6hl.3` | Model the application, submission versions, history events and pending actions with their constraints | S1-T2 |
 | S1-T4 | `catalyst-v2-6hl.4` | Accept the public access-request form with validation, duplicate handling and one atomic commit | S1-T3 |
 | S1-T5 | `catalyst-v2-6hl.5` | Run the durable worker that sends the verification message to the local mail sink and recovers after interruption | S1-T4 |
 | S1-T6 | `catalyst-v2-6hl.6` | Confirm contact control once through an explicit, expiring, single-use confirmation | S1-T5 |
-| S1-T7 | `catalyst-v2-6hl.7` | Give authorized staff a read-only view of applications and their history, and refuse everyone else | S1-T3 |
+| S1-T7 | `catalyst-v2-6hl.7` | Give authorized staff a read-only view of applications and their history, and refuse everyone else | S1-T4 |
 | S1-T8 | `catalyst-v2-6hl.8` | Prove the first slice against its acceptance plan and record the evidence | S1-T6, S1-T7 |
 
 ## 8. Definition of success
@@ -191,9 +217,51 @@ LLM recommendation is not an authorized decision.
 
 ## 9. Review record
 
-Filled in by the reviewing session; see the pull request for the full reports.
+Both reviews ran on 2026-10-09 with the read-only specialists. Full reports are attached to the pull
+request as comments; the findings and where each landed are listed here.
 
-| Reviewer | Revision reviewed | Verdict | Material findings and disposition |
-|---|---|---|---|
-| `catalyst-django-architect` | working tree before first commit, 2026-10-09 | accept with fixes | 3 blocking (lease fencing, clock and poison rules; `workflow` foreign key would create a dependency cycle; no custom user model decision), 8 should-fix (challenge predicate, constraint-specific race handling, repeat submission into a verified dossier, race test seams, token key and logging, start-up guards, append-only enforcement, request limits), 13 test gaps. **All adopted** into `005` S1.2 to S1.7, `003` (components, error handling, ADR-03, ADR-14 to ADR-18), `004` (J-02, J-03, J-09) and POL-01. Re-reviewed by the independent reviewer below, not by the architect |
-| `catalyst-independent-qa` | pending | pending | pending |
+**`catalyst-django-architect`** reviewed the working tree before the first commit. Verdict: accept with
+fixes. All findings adopted:
+
+| Finding | Landed in |
+|---|---|
+| B1 lease without fencing, clock source or poison rule | `005` S1.4 ledger rules 1-8; `003` ADR-03, ADR-15, error handling; TEST-S1-17, TEST-S1-18 |
+| B2 `workflow` foreign key to `applications` creates a dependency cycle | `005` S1.4 subject-generic `PendingAction` and `AutomationPause`; `003` component table and layer rule; `004` J-09; TEST-S1-20 |
+| B3 no custom user model decision | `003` ADR-18; `005` S1.4, S1.9; bead S1-D |
+| S1 challenge "active" predicate cannot encode expiry | `005` S1.2, S1.4; `004` J-02 |
+| S2 race handling: named constraint only, version counter, lock order, email key, no reference on the received page | `005` S1.2 to S1.4; `004` J-03 |
+| S3 repeat submission could write into a verified dossier | `005` S1.2, S1.3; `004` J-02; POL-01, POL-19 |
+| S4 race and crash tests could pass without exercising the race | `005` S1.7 preamble, TEST-S1-04, TEST-S1-07 |
+| S5 token: one expiry authority, random id, dedicated key, logging, headers, CSRF cookie, base URL | `003` ADR-16; `005` S1.2, S1.5; TEST-S1-06, 08, 09, 16 |
+| S6 system checks do not run under web servers | `005` S1.5; TEST-S1-13 |
+| S7 admin permissions cannot enforce append-only | `003` ADR-14; TEST-S1-21 |
+| S8 oversized requests are a 400, not a form error | `005` S1.5; TEST-S1-02 |
+| 13 missing test cases | TEST-S1-03, 04, 09, 10, 12, 16 extended; TEST-S1-17 to 20 added |
+
+**`catalyst-independent-qa`** reviewed commit `f6d18b2` (the first commit of this branch). Verdict: accept
+with fixes. Disposition:
+
+| # | Finding | Landed in |
+|---|---|---|
+| 1 | OWNER-DECIDED rows cited an unfiled chat instruction | section 4.1 records the direction verbatim; rows cite it |
+| 2 | evidence collection and required details had no requirement | `002` REQ-029, REQ-030; POL-18; `004` J-04, J-12 |
+| 3 | TEST-S1-15 had two conditional outcomes | split: TEST-S1-15 (completeness) and TEST-S1-21 (enforcement chosen by ADR-14 before S1-T3) |
+| 4 | ADR decisions gating S1 had no bead | bead S1-D (section 7) |
+| 5 | S1-T7 depended on the wrong task | now depends on S1-T4 |
+| 6 | "refusal record" undefined | removed: refused confirmations are logged (redacted), not written to history |
+| 7 | no database-failure case for confirmation | TEST-S1-05 extended |
+| 8 | open-stage set and count wrong | `004` section 2 lists the open set |
+| 9 | J-02 terminal branch not reachable in S1 | marked "from P5" in `004` J-02 |
+| 10 | identity disputes missing | POL-19; `004` J-02 |
+| 11 | thin template fields in J-09, J-10, J-12, J-15; envelope expiry | filled in `004` |
+| 12 | NDA-first stated as fact | hedged in section 3 and `004` J-11 |
+| 13 | verification labels overstated | scoped in `006`, `008` section 5.1, `003` ADR-17, `005` S1.6 |
+| 14 | review record unsupported | this section |
+| 15 | S1 form fields under a later milestone | POL-03 |
+| 16 | README promised Twenty | README corrected |
+| notes | later planned tests missing from the matrix | `002` section 7 |
+
+Not changed, owner decision needed: the reviewer noted that the live route table merged in PR #5
+(`003` "Current live routing") publishes operational detail (exact paths, a log exclusion, a missing
+headers snippet, log retention). Trimming it is left to the owner. The edits made for findings 1 to 16
+were re-reviewed by the same reviewer; the result is in the pull request.

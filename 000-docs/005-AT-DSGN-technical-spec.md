@@ -123,8 +123,8 @@ then re-reads under `select_for_update`; any other integrity error propagates. I
 ### S1.6 Dependencies, proposed versions and compatibility checks
 
 **Not installed in this handoff.** Bead S1-T1 performs the checks and records results in ADR-17.
-Verified by the Django architect specialist from the Django 5.2 documentation on 2026-10-09: Django 5.2
-supports Python 3.10 to 3.14 and PostgreSQL 14 and later, requires psycopg 3.1.8 or later (or
+Reported by the Django architect specialist from the Django 5.2 documentation on 2026-10-09 (INSPECTED by
+the main session; S1-T1 re-checks): Django 5.2 supports Python 3.10 to 3.14 and PostgreSQL 14 and later, requires psycopg 3.1.8 or later (or
 psycopg2), and is a long-term-support release with security updates for at least three years from
 2 April 2025. Everything else in the table is unverified until S1-T1.
 
@@ -156,23 +156,24 @@ PASS, FAIL, SKIPPED, NOT RUN or BLOCKED with the run link. **None has run; all a
 | TEST-S1-01 | valid synthetic submission | one application, version 1, one "submission received" event, one active challenge, one queued "send verification" action; redirect to the received page | REQ-001, REQ-003 |
 | TEST-S1-02 | invalid submissions: missing fields, malformed email, over-long fields, too many fields, oversized body, missing CSRF token | no rows in any slice table; form errors, or 400/403 for size and CSRF | REQ-027 |
 | TEST-S1-03 | repeat submissions: same email key with case, whitespace and Unicode variants; a plus-addressed variant (distinct key); repeat after the challenge expired; repeat after a failed send; repeat after verification | per S1.2: correct attach-or-new; superseded and new challenge only where S1.2 says; "unverified repeat" version and staff item after verification; status, body and redirect target identical to TEST-S1-01 | REQ-002, REQ-006, REQ-027 |
-| TEST-S1-04 | concurrent submissions with one email key, using a deterministic seam (both requests pass the "no open application" read, then a barrier, then insert), plus a repeated smoke loop | one application, both submissions recorded with distinct version numbers, one send action, no server error | REQ-006 |
-| TEST-S1-05 | database failure injected after the application insert and after the action insert; connection loss | zero rows in every slice table; the applicant never sees the received page | REQ-003 |
+| TEST-S1-04 | concurrent submissions with one email key, using a deterministic seam (both requests pass the "no open application" read, then a barrier, then insert), plus a repeated smoke loop; the seam proves one interleaving, the loop is supporting evidence only | one application, both submissions recorded with distinct version numbers, one send action, no server error | REQ-006 |
+| TEST-S1-05 | database failure injected after the application insert and after the action insert; connection loss; failure injected during confirmation after the verification write | acceptance: zero rows in every slice table and the applicant never sees the received page; confirmation: verification, event and next action all absent, challenge still active | REQ-003, REQ-007 |
 | TEST-S1-06 | worker processes the send action | one message in the local sink to the synthetic address with a link built from `PUBLIC_BASE_URL`; outbound message recorded; action done; event written | REQ-004 |
 | TEST-S1-07 | worker interruption: (a) claimed, then stopped before sending; (b) the sink accepted the message, then stopped before recording (explicit fault seam); (c) a real worker subprocess, `filebased` sink, committed test data, killed with SIGKILL mid-action | lease expiry is simulated by writing a past lease time (no clock mocking); (a) exactly one message; (b) two identical links, one challenge, attempts recorded; (c) recovery without manual steps | REQ-004, REQ-005 |
 | TEST-S1-08 | open the link (GET), then confirm (POST) | GET changes nothing, sets the CSRF cookie and the no-referrer and no-store headers; POST sets verified once, writes one event and one `held` action | REQ-007 |
-| TEST-S1-09 | expired (by database clock), already-used, superseded and tampered tokens; a token signed with a retired key past its fallback | refusal or "already confirmed"; no state change; no new action or event beyond a refusal record | REQ-007 |
+| TEST-S1-09 | expired (by database clock), already-used, superseded and tampered tokens; a token signed with a retired key past its fallback | refusal or "already confirmed"; no state change; no new action or history event (refusals are logged, redacted) | REQ-007 |
 | TEST-S1-10 | two concurrent confirmations of one valid link; a confirmation racing a repeat submission | one verification event and one next-stage action; no deadlock (fixed lock order) | REQ-007, REQ-008 |
 | TEST-S1-11 | access by anonymous, authenticated non-staff, staff without the group, and read-only staff attempting add, change or delete | redirect to login, then refusal; 403 on every write path; no data in refused responses | REQ-015 |
 | TEST-S1-12 | read-only staff open the application created in TEST-S1-01; the group's permission set | list and detail show the same application with versions, events, challenge state (no token) and actions; the group holds exactly the view permissions on slice models | REQ-014 |
 | TEST-S1-13 | settings pointed at a non-PostgreSQL engine, checked through `manage.py check`, the worker command and application start-up | refused in each; the test session asserts PostgreSQL | REQ-021 |
 | TEST-S1-14 | provider isolation: SMTP backend or any provider credential variable outside production; network access to a non-loopback address during tests | refused at start-up; the network guard blocks the connection; CI has no provider secrets | REQ-022 |
-| TEST-S1-15 | history completeness and append-only rules across the whole flow | the expected event sequence exactly; updates and deletes of versions and events rejected by the database trigger if ADR-14's trigger is adopted, otherwise an architecture test finds no update or delete path; admin denies change and delete to everyone | REQ-001, REQ-002 |
+| TEST-S1-15 | history completeness across the whole flow | the expected event sequence exactly; admin denies change and delete of versions and events to everyone | REQ-001, REQ-002 |
 | TEST-S1-16 | log capture across the whole flow, including refused confirmations and 4xx responses, on application and Django loggers | no raw token, email address or name in any log record | REQ-020 |
 | TEST-S1-17 | lease fencing: a stale worker's late result after another worker reclaimed the action | late write updates zero rows and is discarded; one outcome recorded | REQ-004, REQ-005 |
 | TEST-S1-18 | poison action: a handler that always crashes the worker, and one that always raises | attempts count at claim; the action reaches `failed` at the maximum and is not run again; event written | REQ-004 |
 | TEST-S1-19 | the worker ignores `held` actions and actions of a paused subject; two workers racing for one action; re-running a completed action | never claimed; exactly one claim; no-op on `done` | REQ-004, REQ-013 |
 | TEST-S1-20 | schema integrity: constraints exist by introspection; `makemigrations --check` reports no drift; no `workflow` row points at a missing subject | all present; no drift; no orphans | REQ-003, REQ-006 |
+| TEST-S1-21 | append-only enforcement, in the one form ADR-14's decision fixes before S1-T3 (bead S1-D) | trigger adopted: `UPDATE` and `DELETE` on versions and events raise at the database, including raw SQL. Trigger declined: an architecture test finds no update, delete, `bulk_update` or raw SQL path to those tables | REQ-001, REQ-002 |
 
 GATE-S1 (`002` section 6) passes only when every `TEST-S1-` case is PASS at the PR head, with QA review
 and the epic's after-action report.
@@ -187,6 +188,6 @@ compatibility plan is the separate epic PL and blocks cutover, not this slice.
 
 1. Owner approval of this contract and slice scope.
 2. Owner decisions on ADR-03's form, ADR-17's versions, ADR-18 (custom user model) and ADR-14's
-   database trigger, informed by S1-T1's checks; all before the first migration (S1-T3).
+   database trigger, informed by S1-T1's checks; tracked by bead S1-D, which blocks S1-T2.
 3. Confirmation or replacement of the POL-01 defaults (identity key, repeat after verification) before
    GATE-S1 (not before coding).

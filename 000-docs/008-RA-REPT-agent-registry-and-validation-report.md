@@ -146,7 +146,7 @@ After the fixes every definition was re-validated (section 4). The reviewer did 
 
 ## 8. Unavailable capabilities and unresolved conflicts
 
-1. Discovery and runtime tool restriction: **verified** in a fresh session on 2026-10-09 for one named agent (section 5.1); the other ten share the same allowlist pattern and were discovered but not invoked.
+1. Discovery: verified for all eleven in a fresh session on 2026-10-09. Runtime tool restriction: verified for one of eleven (section 5.1); the other ten share the same allowlist pattern but were not probed. The section 6 smoke tests remain contract-text simulations.
 2. Resolved model ids not observable from the Agent tool result (section 3).
 3. The creator skill's reference snapshot is stale on nested spawning; the definitions follow the live docs (exclude `Agent`).
 4. The validator requires `version`, `author`, `tags`, which the runtime ignores; kept for the validator, harmless at runtime.

@@ -85,6 +85,8 @@ waived by schedule. Component names refer to `003` section "Component design".
 | REQ-026 | Only assigned onboarding paths route to Django; the LMS default route is unchanged; the cutover is reversible. | MUST | proxy; D-09 | OWNER-DECIDED (principle) |
 | REQ-027 | The public form has abuse controls: rate limits, body-size limits, CSRF, no account enumeration (the same response whether or not the email is known). | MUST | `applications`; `003` security model | PROPOSED |
 | REQ-028 | Retention and deletion follow the approved policy and are enforced by a job, with an audit record. | MUST before pilot | `workflow`; POL-10 | NEEDS OWNER DECISION |
+| REQ-029 | Evidence is collected only from sources POL-03 allows; outbound fetches are restricted to approved hosts, never private or link-local addresses, with size and time limits; fetched content is stored as untrusted data with its source and checksum. | MUST, invariant | `assessments`; POL-03 | PROPOSED; sources NEEDS OWNER DECISION |
+| REQ-030 | Details the agreements or provisioning require are collected from the verified applicant in a recorded submission before the agreement or step that needs them, and are visible only to the staff roles POL-18 names. | MUST | `applications`, `agreements`; POL-18 | NEEDS OWNER DECISION |
 
 ## 5. Operating measures (proposed; no targets)
 
@@ -125,18 +127,18 @@ traceability, not written); their phase refines them at handoff A.
 
 | Requirement | Component / decision | Epic / bead | Acceptance test | Required evidence | Gate |
 |---|---|---|---|---|---|
-| REQ-001 | `applications`, ADR-14 | P1 S1-T3, S1-T4; extended each phase | TEST-S1-01, TEST-S1-15; planned TEST-P5-04 (full dossier from contact to activation) | CI run on PostgreSQL with test report | GATE-S1; GATE-P5 |
-| REQ-002 | `applications`, ADR-14 | P1 S1-T3 | TEST-S1-03, TEST-S1-15 | CI run | GATE-S1 |
+| REQ-001 | `applications`, ADR-14 | P1 S1-T3, S1-T4; extended each phase | TEST-S1-01, TEST-S1-15, TEST-S1-21; planned TEST-P5-04 (full dossier from contact to activation) | CI run on PostgreSQL with test report | GATE-S1; GATE-P5 |
+| REQ-002 | `applications`, ADR-14 | P1 S1-T3 | TEST-S1-03, TEST-S1-15, TEST-S1-21 | CI run | GATE-S1 |
 | REQ-003 | `applications`, `workflow`, ADR-03, ADR-13 | P1 S1-T4 | TEST-S1-01, TEST-S1-05, TEST-S1-20 | CI run incl. forced-failure cases | GATE-S1 |
 | REQ-004 | `workflow`, ADR-03 | P1 S1-T5 | TEST-S1-06, TEST-S1-07, TEST-S1-17, TEST-S1-18, TEST-S1-19 | CI run with worker interruption case | GATE-S1 |
 | REQ-005 | `workflow`, ADR-15 | P1 S1-T5; P2, P4, P5 | TEST-S1-07, TEST-S1-17; planned TEST-P2-03 (uncertain send), TEST-P4-03 (duplicate envelope), TEST-P5-02 (uncertain provisioning) | CI runs | GATE-S1; phase gates |
 | REQ-006 | `applications`, POL-01 | P1 S1-T4 | TEST-S1-03, TEST-S1-04, TEST-S1-20 | CI run with concurrent transactions on PostgreSQL | GATE-S1 |
-| REQ-007 | `applications`, ADR-16 | P1 S1-T6 | TEST-S1-08, TEST-S1-09, TEST-S1-10 | CI run | GATE-S1 |
+| REQ-007 | `applications`, ADR-16 | P1 S1-T6 | TEST-S1-05 (confirmation case), TEST-S1-08, TEST-S1-09, TEST-S1-10 | CI run | GATE-S1 |
 | REQ-008 | `applications`, ADR-13 | P1 (verification gate); P3, P4, P5 | TEST-S1-10; planned TEST-P3-04 (no decision without authority), TEST-P4-01 (no next agreement before completion), TEST-P5-01 (no provisioning before prerequisites) | CI runs | GATE-S1; phase gates |
-| REQ-009 | `assessments`, D-04 | P3 | planned TEST-P3-01 (typed output), TEST-P3-02 (model failure goes to staff), TEST-P3-03 (prompt-injection evidence) | CI with PydanticAI test model | GATE-P3 |
+| REQ-009 | `assessments`, D-04 | P3 | planned TEST-P3-01 (typed output), TEST-P3-02 (model failure goes to staff), TEST-P3-03 (prompt-injection evidence), TEST-P3-07 (an answer re-enters assessment once) | CI with PydanticAI test model | GATE-P3 |
 | REQ-010 | staff views, POL-05 | P3 | planned TEST-P3-04 | CI run | GATE-P3 |
 | REQ-011 | `agreements`, D-05 | P4 | planned TEST-P4-01, TEST-P4-02 (fresh re-read), TEST-P4-04 (checksum and custody) | CI with Documenso fake; staging canary | GATE-P4; GATE-PILOT |
-| REQ-012 | `correspondence`, POL-06 | P2 | planned TEST-P2-01 (reply correlation), TEST-P2-02 (autoresponder and loop stop), TEST-P2-04 (reminder race) | CI with local IMAP test server | GATE-P2 |
+| REQ-012 | `correspondence`, POL-06 | P2 | planned TEST-P2-01 (reply correlation), TEST-P2-02 (autoresponder and loop stop), TEST-P2-04 (reminder race), TEST-P2-07 (`UIDVALIDITY` change) | CI with local IMAP test server | GATE-P2 |
 | REQ-013 | `workflow`, staff views | P1 S1-T5 (worker honours pauses); P2 | TEST-S1-19; planned TEST-P2-05 (pause stops all automation) | CI run | GATE-P2 |
 | REQ-014 | staff views | P1 S1-T7 (read-only); P2 onward | TEST-S1-12; planned TEST-P2-06 (resolve an exception without SSH) | CI run; operator walkthrough record | GATE-S1; GATE-P2 |
 | REQ-015 | staff views, D-12 | P1 S1-T7 (authorization only); P6 | TEST-S1-11; planned TEST-P6-01 (MFA and host restriction) | CI run; staging check | GATE-S1; GATE-STAGING |
@@ -153,6 +155,8 @@ traceability, not written); their phase refines them at handoff A.
 | REQ-026 | proxy, D-09 | P6 | planned TEST-P6-03 (route table versus baseline, rollback rehearsal) | rehearsal record | GATE-CUTOVER |
 | REQ-027 | `applications` | P1 S1-T4 (CSRF, size, enumeration); P6 (rate limits at proxy) | TEST-S1-02, TEST-S1-03; planned TEST-P6-04 | CI run; staging check | GATE-S1; GATE-STAGING |
 | REQ-028 | `workflow`, POL-10 | P6 | planned TEST-P6-05 | CI run | GATE-PILOT |
+| REQ-029 | `assessments`, POL-03 | P3 | planned TEST-P3-05 (disallowed and private hosts refused), TEST-P3-06 (unavailable source path) | CI run | GATE-P3 |
+| REQ-030 | `applications`, `agreements`, POL-18 | P4 | planned TEST-P4-05 (an agreement waits for its required details; visibility limited to named roles) | CI run | GATE-P4 |
 
 ## 8. Dependencies
 

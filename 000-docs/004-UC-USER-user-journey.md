@@ -44,7 +44,11 @@ awaiting_decision ──▶ declined (terminal)      any open stage ──▶ wi
 awaiting_decision ──▶ on_hold ──▶ awaiting_decision
 ```
 
-Text inventory: ten open stages and three terminal stages (`declined`, `withdrawn`, `closed`). The
+Text inventory: twelve open stages (`submitted`, `contact_verified`, `evidence`, `assessing`,
+`awaiting_answers`, `awaiting_decision`, `on_hold`, `admitted`, `agreements`, `agreements_complete`,
+`provisioning`, `active`) and three terminal stages (`declined`, `withdrawn`, `closed`). "Open" in a
+constraint or rule means any of the twelve, so an `active` person's repeat submission attaches to their
+application as an unverified repeat (J-02). The
 automation-paused flag is separate from the stage and can be set on any open stage. Transitions only
 through service functions that check prerequisites inside the transaction (ADR-13). The stage names are
 proposals.
@@ -71,7 +75,7 @@ proposals.
 
 ### J-02 Duplicate and concurrent submissions
 
-- **Trigger and input:** a valid submission whose normalized email matches an open application, or two
+- **Trigger and input:** a valid submission whose email key matches an open application, or two
   submissions racing (double click, network retry).
 - **Receives it:** same service as J-01.
 - **Records:** a new submission version on the existing application; history event "repeat submission".
@@ -84,9 +88,12 @@ proposals.
   re-reads the winner under `select_for_update`, and attaches. Unique idempotency keys stop duplicate actions.
 - **Deterministic checks:** as J-01, plus the open-application lookup.
 - **LLM:** none.
-- **Alternate outcomes:** an existing application in a terminal stage: fail-closed default records the
-  submission against it, raises a staff item, and creates nothing new until POL-01 and POL-12 are decided.
-  The applicant always sees the same response as J-01, so the form does not reveal whether an email is known.
+- **Alternate outcomes:** (from P5, when terminal stages exist; not reachable in S1) an existing application
+  in a terminal stage: the fail-closed default records the submission against it, raises a staff item, and
+  creates nothing new until POL-01 and POL-12 are decided. Because the partial unique constraint allows a
+  new application after a terminal stage, the service must enforce this before terminal stages ship. A
+  repeat whose details conflict with the verified identity raises a staff item; how it is resolved is
+  POL-19. The applicant always sees the same response as J-01, so the form does not reveal whether an email is known.
 - **Retry, timeout, terminal:** none beyond J-01.
 - **Next action owner and visibility:** unchanged from the existing application. Staff see every version.
 - **Acceptance:** TEST-S1-03, TEST-S1-04. **References:** REQ-002, REQ-006, REQ-027; POL-01.
@@ -104,7 +111,8 @@ proposals.
   everywhere) and writes everything in one transaction. Next: "start evidence collection" (system).
 - **Deterministic checks:** signed token valid; challenge exists, not expired by the database clock, not
   used, not superseded, belongs to this application, email unchanged since issue. GET never changes state, so mail
-  scanners that prefetch links cannot confirm.
+  scanners that prefetch links cannot confirm. Refused confirmations are logged (redacted) and not written
+  to history, so unauthenticated requests cannot grow the dossier.
 - **LLM:** none.
 - **Alternate outcomes:** expired link shows "this link has expired" and the way to get a new one
   (resubmitting the form issues one via J-02; a dedicated resend page waits for POL-02). A used link shows
@@ -128,7 +136,7 @@ proposals.
   stored content as data); history events.
 - **Transaction and next action:** each fetch runs outside a transaction; each result is recorded in its own.
   When every required item is present or explicitly unavailable: next "run assessment" (system).
-- **Deterministic checks:** only sources allowed by POL-03; outbound fetches restricted to approved hosts,
+- **Deterministic checks (REQ-029):** only sources allowed by POL-03; outbound fetches restricted to approved hosts,
   never private or link-local addresses, with size and time limits (SSRF controls); fetched content is
   stored as untrusted data.
 - **LLM:** none.
@@ -137,7 +145,7 @@ proposals.
 - **Retry, timeout, terminal:** bounded per source; a stage that cannot complete goes to the staff queue.
 - **Next action owner and visibility:** system, then staff if stuck. Staff see each item and its status.
 - **Acceptance:** planned TEST-P3-05 (disallowed host refused), TEST-P3-06 (unavailable source path).
-  **References:** POL-03; `003` security model.
+  **References:** REQ-029; POL-03; `003` security model.
 
 ### J-05 Assessment, including MiniMax failure
 
@@ -232,7 +240,9 @@ proposals.
 - **LLM:** none.
 - **Alternate outcomes:** resume: an explicit staff action; due reminders that went stale while paused
   are cancelled, not burst-sent.
-- **Retry, timeout, terminal:** none; a paused application waits for staff.
+- **Retry, timeout, terminal:** no automatic timeout: a paused application waits for staff. Staleness is
+  surfaced, not acted on: the queue sorts by pause age, and an age threshold for highlighting is part of
+  POL-16.
 - **Next action owner and visibility:** staff; a "paused" queue shows reason and age.
 - **Acceptance:** planned TEST-P2-05, TEST-P2-06. **References:** REQ-013, REQ-014.
 
@@ -249,14 +259,15 @@ proposals.
 - **LLM:** the recommendation is shown, labelled advisory, beside the evidence. It is never pre-selected.
 - **Alternate outcomes:** until POL-05 is decided no account holds the permission, so the stage cannot be
   passed. Reversal or appeal follows POL-05.
-- **Retry, timeout, terminal:** decline is terminal unless POL-12 allows reopening.
+- **Retry, timeout, terminal:** no retry (a human act). No automatic timeout: an undecided application
+  waits in the decision queue, sorted by age. Decline is terminal unless POL-12 allows reopening.
 - **Next action owner and visibility:** decision-maker; staff see a decision queue with age.
 - **Acceptance:** planned TEST-P3-04. **References:** REQ-008, REQ-010; POL-05.
 
-### J-11 NDA
+### J-11 First agreement (the owner's journey names the NDA)
 
-- **Trigger and input:** action "issue first agreement" after admission; the first agreement in the
-  inventory is the NDA (POL-07).
+- **Trigger and input:** action "issue first agreement" after admission. Which agreement comes first is
+  set by the inventory (POL-07); the owner's journey names the NDA first and the User Agreement after it.
 - **Receives it:** worker; `agreements` app; Documenso API (installed version NEEDS VERIFICATION; the
   public API is v2 with envelopes, `008` section 2).
 - **Records:** agreement instance (type, template version, idempotency key, envelope reference),
@@ -267,8 +278,9 @@ proposals.
 - **Deterministic checks:** completion requires every required recipient complete, confirmed by a fresh
   provider read at the moment of use, not by one webhook. Webhook signatures verified.
 - **LLM:** none.
-- **Alternate outcomes:** a recipient declines: automation paused, staff item. Envelope expires: staff
-  reissue per POL-08. Webhook lost: periodic reconciliation read. One of two signatures present: waiting,
+- **Alternate outcomes:** a recipient declines: automation paused, staff item. A participant does not sign
+  before the envelope expires: reminders follow POL-06, and at expiry the instance is marked expired and a
+  staff item is raised; reissue or closure follows POL-08 and POL-12, never an automatic re-send. Webhook lost: periodic reconciliation read. One of two signatures present: waiting,
   owner shown as the missing participant. Provider down: bounded retry, then staff.
 - **Retry, timeout, terminal:** bounded; uncertain creation is reconciled, never blindly retried.
 - **Next action owner and visibility:** applicant or countersigner named; staff see each participant's state.
@@ -280,12 +292,22 @@ proposals.
 - **Trigger and input:** the previous agreement verified complete and stored (J-13); the inventory says
   which agreement is next (POL-07). Any "required details" the agreements need are collected first (field
   list open, POL-07).
-- **Receives it, records, transaction, checks, alternates, retries:** as J-11, per agreement.
+- **Receives it:** worker; `agreements`; Documenso, as J-11.
+- **Records:** one agreement instance per agreement in the inventory, with its recipients and
+  observations; the required-details submission (POL-18) linked to the instance that needed it.
+- **Transaction and next action:** as J-11, per agreement. Next: the following agreement in the inventory,
+  or, after the last one, the provisioning prerequisites check (J-14).
 - **Deterministic checks:** the next agreement is never issued while an earlier required one is incomplete
-  or not in custody (REQ-008).
+  or not in custody (REQ-008); required details present and recorded before the agreement that needs them
+  (REQ-030).
 - **LLM:** none.
+- **Alternate outcomes:** as J-11 (decline, expiry, lost webhook, partial signatures, provider down). Required
+  details missing: the applicant is asked through the correspondence loop (J-06 pattern), and the agreement
+  waits.
+- **Retry, timeout, terminal:** as J-11.
 - **Next action owner and visibility:** as J-11; staff see the agreement sequence and position.
-- **Acceptance:** planned TEST-P4-01. **References:** REQ-008, REQ-011; POL-07, POL-08.
+- **Acceptance:** planned TEST-P4-01, TEST-P4-05. **References:** REQ-008, REQ-011, REQ-030; POL-07,
+  POL-08, POL-18.
 
 ### J-13 Document custody and retrieval
 
@@ -330,6 +352,8 @@ proposals.
 - **Deterministic checks:** provisioning verified; no open prerequisite.
 - **LLM:** none.
 - **Alternate outcomes:** welcome bounces: staff item.
+- **Retry, timeout, terminal:** the welcome send uses bounded retries, then `failed` for staff; `active` is
+  the journey's end state (still "open" for duplicate handling).
 - **Next action owner and visibility:** none (complete); staff see the full dossier from first contact.
 - **Acceptance:** planned TEST-P5-03, TEST-P5-04. **References:** REQ-001, REQ-017.
 

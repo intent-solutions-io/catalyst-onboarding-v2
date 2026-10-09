@@ -16,7 +16,7 @@ The platform it describes will take a person from a first access request on
 `learn.intentsolutions.io` through verification, a bounded AI-assisted review with human
 approval, an NDA and a User Agreement signed through Documenso, company mailbox provisioning
 and a welcome, with the whole journey auditable from first contact to activation, a single
-progressive dossier in PostgreSQL, and a Twenty CRM projection of the relationship.
+progressive dossier in PostgreSQL. A Twenty CRM projection is deferred beyond the MVP.
 
 ## Why a new repository
 
@@ -33,8 +33,9 @@ proven behaviour as the specification to meet, not as code to copy.
 - No secrets, applicant information, agreement contents or private audit material. Everything
   here is public; keep it that way.
 - Target shape, to be confirmed by the plan: Django, PostgreSQL, server-rendered applicant UI,
-  Django admin as the first operator UI, the existing email provider, Documenso, an LLM provider
-  abstraction, Twenty integration, and a simple background worker.
+  Django admin as the first operator UI, the existing MXroute email services, Documenso, MiniMax
+  through PydanticAI, and one PostgreSQL-backed background worker; Twenty deferred. The build
+  contract is `000-docs/011-PP-PLAN-master-blueprint.md`.
 
 ## Layout
 
