@@ -1,101 +1,27 @@
-# AGENTS.md — AI Agent Operations for catalyst-onboarding-v2
+# AGENTS.md
 
-## Beads (bd) Issue Tracking
+Entry point for coding agents other than Claude Code (Codex and similar). Claude Code reads
+`CLAUDE.md` instead and does not load this file while a `CLAUDE.md` exists, so the two files point
+to the same canonical documents rather than copying each other.
 
-This project uses [beads](https://github.com/steveyegge/beads) for AI-friendly task tracking.
-Tasks are stored in `.beads/` and tracked via the `bd` CLI.
+## Read first
 
-## Specialist subagents and write policy
+- Working agreement, publication policy and checks: `000-docs/009-DR-STND-developer-workflow-and-quality-contract.md`
+  (section 2 is the canonical working agreement).
+- Hooks, Git hooks and memory stores: `000-docs/010-DR-REFF-hook-and-memory-responsibility-register.md`.
+- Project specialists: `.claude/agents/`, governed by `000-docs/007-DR-STND-agent-operating-charter.md`.
 
-Project specialists are defined in `.claude/agents/` and governed by
-`000-docs/007-DR-STND-agent-operating-charter.md`; see `000-docs/008-RA-REPT-agent-registry-and-validation-report.md`
-for the roster. Write policy for every agent in this repository: **the current authorized task
-controls writes; subagents cannot publish; the parent session publishes only the explicitly
-authorized change set.** Where the generic "push to remote" guidance below conflicts with a current
-"do not push" instruction, the current instruction wins.
+## Working agreement (summary; canonical: `009` section 2)
 
-## Quick Reference
+The current authorized task sets scope and what may be published. Preserve unrelated work. Commit
+and push only the authorized change set; pull requests are drafts unless told otherwise; subagents
+never publish. No force-push, no merge-guard bypass, no production, provider, DNS, proxy or secret
+change without separate authorization.
 
-```bash
-bd ready                              # Find available work
-bd show <id>                          # View issue details
-bd update <id> --status in_progress   # Claim work
-bd close <id> -r "Evidence"           # Complete work (or: bd done)
-bd note <id> "Progress update"        # Append a note
-bd prime                              # LLM-optimized context
-bd doctor                             # Health check
-```
+## Task tracking
 
-## Core Workflow
-
-### Session Start
-
-1. Run `/beads` or `bd prime` to recover context
-2. Run `bd ready` to see available tasks
-3. Pick a task and claim it: `bd update <id> --status in_progress`
-
-### During Work
-
-- Keep notes: `bd note <id> "what I did"`
-- Create subtasks: `bd create "Subtask" --parent <id> -p 2`
-- Check blockers: `bd blocked`
-
-### Session End (Landing the Plane)
-
-1. Close finished tasks: `bd close <id> -r "Evidence of completion"`
-2. Update in-progress tasks with status notes
-3. Run quality gates (tests, linters, builds)
-4. **PUSH TO REMOTE** (mandatory):
-
-   ```bash
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-
-5. Hand off context for next session
-
-## Priority Levels
-
-| Priority | Label | Meaning |
-|----------|-------|---------|
-| P0 | Critical | Blocks everything, fix immediately |
-| P1 | High | Important, address this session |
-| P2 | Normal | Standard priority |
-| P3 | Low | Nice-to-have, address when convenient |
-
-## Critical Rules
-
-- Work is complete when the authorized change set is published as the current task allows; see the write policy above and `000-docs/009-DR-STND-development-workflow-policy.md` section 3.1. Without that authority, stop at a clean local state and report the exact commands still needed.
-- Never leave work only in an uncommitted working tree when a commit is authorized.
-- Always close beads with evidence when work is done.
-- Always start sessions with `bd prime` or `/beads` (a session-start hook already runs it here).
-
-## Creating Tasks
-
-```bash
-# Simple task
-bd create "Implement user auth" -t task -p 1 -d "Add JWT-based authentication"
-
-# Bug report
-bd create "Login fails on mobile" -t bug -p 0 -d "Steps to reproduce..."
-
-# Feature request
-bd create "Add export to CSV" -t feature -p 2
-
-# With dependencies
-bd create "Write tests" --parent <epic-id> -p 2
-```
-
-## Advanced Commands
-
-```bash
-bd list --status in_progress    # What am I working on?
-bd statuses                     # List valid statuses
-bd search "auth"                # Search by text
-bd stale                        # Find stale issues
-bd dep add <child> <parent>     # Add dependency
-bd graph <id>                   # View dependency graph
-```
+Use the Beads CLI (`bd`); see the managed blocks below and `009` section 3. Do not keep task lists in
+Markdown and do not hand-edit `.beads/issues.jsonl`.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:970c3bf2 -->
 ## Beads Issue Tracker
