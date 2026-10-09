@@ -105,17 +105,19 @@ This is the single source for how work is authorized. `CLAUDE.md` and `AGENTS.md
 
 | Group | Canonical command | Risk it covers | Measured locally (2026-10-09) |
 |---|---|---|---|
-| Markdown | `npx --yes markdownlint-cli2@0.17.2 "**/*.md"` | broken formatting that hides content | 2.1-2.7 s warm; in CI (action pinned by commit) |
+| Markdown | `npx --yes markdownlint-cli2@0.23.2 "**/*.md"` | broken formatting that hides content | 2.1-2.7 s warm; in CI (action pinned by commit) |
 | Doc index | the loop in `.github/workflows/ci.yml` step "Every filed doc appears in 000-docs/000-INDEX.md" | filed documents nobody can find | 0.07 s; in CI |
 | Agent definitions | **CI:** the step "Agent definitions stay read-only and well formed" in `ci.yml` (frontmatter parses, 14 fields, name matches file, no Write/Edit/Bash/Agent/Task/NotebookEdit/Skill granted, Agent denied, model allowed, no permission bypass). **Local, when definitions change:** `claude plugin validate .claude/agents` plus the Intent Solutions validator behind `/validate-agent` (maintainer's tooling, not vendored here) | malformed or over-privileged specialists | CI step 0.09 s locally; IS validator 2.4 s for eleven (owner-local) |
 | Secrets | **CI:** gitleaks 8.30.1 (checksum-verified download) over full Git history, redacted output | credentials in the public repository | 0.32 s locally over history; 1.1 s over the working tree |
 | Sensitive content beyond secrets | manual diff review for personal data, private paths, internal access details, agreement text | public exposure | NOT MEASURED; manual only (gitleaks finds credentials, not personal data) |
 | Links and cross-references | manual check that every referenced `000-docs` file exists | dangling references | NOT MEASURED; local only |
 
-`ci.yml` pins the action by commit (`markdownlint-cli2-action` v19), not the tool; that action's run
-log on 2026-10-09 reported `markdownlint-cli2 v0.17.2`, which is why the local command pins 0.17.2. A
-`check-docs` script that both CI and contributors call, with the tool version pinned in one place, is
-proposal P4. Until then "same version as CI" holds only while the action keeps bundling 0.17.2.
+`ci.yml` pins the action by commit (`markdownlint-cli2-action` v24.2.0 since PR #1), not the tool; the
+`main` run log on 2026-10-09 (run 37960690832) reported `markdownlint-cli2 v0.23.2 (markdownlint
+v0.41.1)`, which is why the local command pins 0.23.2. (Before PR #1 the action was v19 and bundled
+0.17.2.) A `check-docs` script that both CI and contributors call, with the tool version pinned in one
+place, is proposal P4. Until then "same version as CI" holds only while the action keeps bundling
+0.23.2; a Dependabot bump of the action changes it and must update this line.
 
 ### 5.2 Skills versus test execution
 
@@ -194,7 +196,7 @@ applicant-assessment agents.
 | P2 | Remove the mandatory-push text from `AGENTS.md` | applied in this documentation change |
 | P3 | Update the parent projects-folder `CLAUDE.md` Beads wording from `bd sync` to the Dolt-remote contract | **reviewed and kept**: `bd sync` is an unknown command in Beads 1.1.x, so the old wording was wrong; uncommitted in that file; rollback copy preserved |
 | P4 | One `check-docs` script called by both CI and contributors | when code tooling is introduced |
-| P5 | Record the live learn proxy route table after an authorized read-only check | **done** 2026-10-09 (read-only; `003`) |
+| P5 | Record the live learn proxy route table after an authorized read-only check | **done** 2026-10-09 (read-only); the detail now lives in the private operations records, `003` keeps a summary (amendment of 2026-10-09) |
 | P6 | Add `concurrency` cancellation for PR runs | **done** in `ci.yml` |
 | P7 | Path-scoped `.claude/rules/` for Python and migrations | when that code exists; none needed now |
 | P8 | Run agent-definition validation in CI | **done**: a scoped check on every PR (0.09 s), keeping one stable required check |

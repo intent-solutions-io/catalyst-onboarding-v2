@@ -130,9 +130,18 @@ machine, not in this repository.
 | Reversible | yes: delete the section; a private copy of the file before the change is kept |
 | Status | applied |
 
-## 6. Pending verification (not claimed)
+## 6. Fresh-session observations and remaining verification
 
-- Hook loading, deduplication and denial behaviour in a fresh session started in this repository.
-- Auto memory behaviour in a fresh session.
-- Git-hook timings.
-- CI timings beyond the documentation job.
+Observed 2026-10-09 in a session started in this repository (build-contract handoff):
+
+| Item | Result |
+|---|---|
+| Effective context-loading hooks | SessionStart: project `bd prime --hook-json` (this repository) and user-scope `bd prime`; PreCompact: user-scope `bd prime`. The parent projects-folder settings file is empty (P1 kept). |
+| Hook output reached the session | VERIFIED: Beads context was present at session start; the in-progress task was identified with `bd list --status in_progress` |
+| Timing, three runs each | project hook 0.26-0.28 s; user-scope hook 0.27-0.34 s; together under 1 s. Subsecond duplication accepted, not optimized |
+| Git hooks | `bd hooks list`: all five installed (shim 1.1.2); `dolt.auto-commit` on |
+| CI on `main` `95b7537` | run 37891535566 PASS: Markdown, index, agent definitions, gitleaks |
+| Parent permission mode | this session ran in `bypassPermissions`; see `008` section 5.1 for why subagent restriction is evidenced by the tool allowlist, not by permission prompts |
+
+Still pending (not claimed): auto memory behaviour in a fresh session; Git-hook timings; compaction
+recovery (no destructive compaction test was run); CI timings for a runtime lane that does not exist yet.

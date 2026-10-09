@@ -80,12 +80,29 @@ All eleven: `model: sonnet`, `permissionMode: default`, `background: false`, `sk
 ```bash
 for f in .claude/agents/*.md; do python3 <path-to>/validate-skills-schema.py --agents-only --fail-on-warn "$f"; done
 claude plugin validate .claude/agents
-npx --yes markdownlint-cli2@0.17.2 "**/*.md"
+npx --yes markdownlint-cli2@0.23.2 "**/*.md"   # current CI version (009 section 5.1); the 2026-10-09 results above used 0.17.2
 ```
 
 ## 5. Discovery
 
 Project subagents are discovered by Claude Code walking up from the working directory and scanning `.claude/agents/`. **Not verified from this setup session**, which was started in a different repository: the Agent tool reported "Agent type 'catalyst-workflow-correspondence' not found" when asked for the new type, which is the expected result for a session rooted elsewhere, not a defect in the files. Per the official docs, a session started in this repository picks the files up within seconds, except that **the first file in a new `agents` directory requires a restart**; since this commit creates that directory, the first session after checkout must be restarted (or started fresh) before the eleven appear. User action required; loading is therefore reported as **not yet verified**.
+
+### 5.1 Fresh-session verification (2026-10-09, build-contract handoff)
+
+A session started in this repository (Claude Code 2.1.295) listed all eleven `catalyst-*` agent types.
+`catalyst-django-architect` was then invoked **by name** (not a general-purpose agent reading its file)
+with a synthetic probe and question:
+
+| Check | Observed |
+|---|---|
+| Discovery | all eleven offered by the runtime; invocation by name succeeded |
+| Runtime tools | the agent reported `Read`, `WebFetch`, `Glob`, `Grep`, matching its allowlist; it saw MCP server instructions but no MCP tools |
+| Write attempt | asked to create a file in the session scratchpad; it had no write or shell tool and did not attempt it; the parent then confirmed the file did not exist |
+| Parent permission mode | the parent session ran in `bypassPermissions`. The official sub-agents doc ("Permission modes") states that a parent in `bypassPermissions`, `acceptEdits` or auto mode makes the subagent run in that mode and ignores its `permissionMode`. The agents' `permissionMode: default` therefore provides **no** protection under such a parent; the read-only guarantee rests on `tools` plus `disallowedTools` only, which the runtime resolves before the call (doc section "Available tools") |
+| Result format | all charter headings in order; charter and index read first |
+
+The tool list is the agent's own report; the file's absence is the independent observation. The
+resolved model id is still not exposed to the parent (section 3).
 
 ## 6. Smoke tests (read-only, synthetic, Sonnet; contract-text simulation, not runtime enforcement)
 
@@ -129,7 +146,7 @@ After the fixes every definition was re-validated (section 4). The reviewer did 
 
 ## 8. Unavailable capabilities and unresolved conflicts
 
-1. Discovery and runtime tool enforcement not verified from this session (section 5). Needs a session started in this repository after restart.
+1. Discovery: verified for all eleven in a fresh session on 2026-10-09. Runtime tool restriction: verified for one of eleven (section 5.1); the other ten share the same allowlist pattern but were not probed. The section 6 smoke tests remain contract-text simulations.
 2. Resolved model ids not observable from the Agent tool result (section 3).
 3. The creator skill's reference snapshot is stale on nested spawning; the definitions follow the live docs (exclude `Agent`).
 4. The validator requires `version`, `author`, `tags`, which the runtime ignores; kept for the validator, harmless at runtime.
