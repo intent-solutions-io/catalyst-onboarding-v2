@@ -263,3 +263,15 @@ is preserved first (bundle or push) and reported, not deleted.
 | 4 | Read-only inspection of the live learn routing; no proxy, DNS, container, service or deployment change | `003` "Learn and Django routing" |
 | 5 | Staff interface on a separate authenticated hostname with network restrictions and MFA where supported; final hostname and access method are a design decision requiring verification | `003` "Staff interface access (design)" |
 | 6 | Strict branch and worktree policy, here and in every repository | section 8; user-level instructions |
+
+## 10. After-action reports
+
+- **When:** one when the planning phase closes (blueprint, PRD and architecture approved); one per
+  epic or implementation phase; one after any incident or significant failure. Not per pull request.
+- **Lane:** full nine-section AAR for phase closes and any epic with an incident; the lightweight
+  lane (What, Why, Verification, Rollback, Next) for routine epics.
+- **Where:** `000-docs/000-aars/NNN-AA-AACR-<slug>.md`, global `NNN` (filing standard v4.5
+  §3.1.3).
+- **Template:** `000-docs/000-AA-TMPL-after-action-report.md`, a snapshot of the canonical
+  `/doc-filing` reference (v1.0.0, SemVer); the skill copy wins on any difference.
+- **Evidence:** section 4 is checked against the epic's acceptance test, with links.
