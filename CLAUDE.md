@@ -42,7 +42,7 @@ before branching; retire only verified-obsolete branches after merge; never dele
 
 ```bash
 bd ready                                   # open work (bd prime already ran at session start)
-npx --yes markdownlint-cli2@0.17.2 "**/*.md" # Markdown check, same version as CI
+npx --yes markdownlint-cli2@0.23.2 "**/*.md" # Markdown check, same version as CI (009 section 5.1)
 claude plugin validate .claude/agents      # agent definitions (plus the IS validator, see 009)
 ```
 

@@ -3,8 +3,8 @@
 | Field | Value |
 |---|---|
 | Document | `011-PP-PLAN-master-blueprint` (the only master blueprint for this repository) |
-| Version | 0.3.0 (owner-directed amendment of 2026-10-09 applied) |
-| Status | **PROPOSED.** Draft for owner review. Merging this document is not approval of the product, of any open policy, or of any deployment. |
+| Version | 1.0.0 (approved in the scope of section 10) |
+| Status | **APPROVED IN SCOPE** (section 10): project direction, amended requirements and the bounded synthetic first-slice scope. **Not approved:** ADR-03, ADR-14, ADR-17, ADR-18, the 19 open policies, application implementation, provider writes, deployment, release. Items marked PROPOSED elsewhere stay proposals. |
 | Owner | Jeremy Longshore (product owner and approver) |
 | Reviewers | `catalyst-django-architect` (build design), `catalyst-independent-qa` (independent review); results in section 9 |
 | Date | 2026-10-09 |
@@ -324,3 +324,31 @@ references removed from `003`, this section and `009` P5; the P0 handoff sentenc
 corrected. Notes applied: hedged webhook wording in `003`, D-15 in section 4.1's heading, S1-D blocking
 S1-T2 stated consistently, the `workflow` row described as the ADR-03 mechanism, "ordinary code" in
 `005` S1.4. The reviewer's check of those edits is recorded on the pull request.
+
+## 10. Approval record
+
+**Owner approval, 2026-10-09**, of PR #7 at revision `e8a7a4c6ae39062f9b3bdbebbffb2dce5072be60`,
+recorded verbatim:
+
+> "I approve the amended build contract and first-slice scope represented by PR #7 at
+> e8a7a4c6ae39062f9b3bdbebbffb2dce5072be60. This approves the project direction, the amended
+> requirements, and the bounded synthetic first-slice scope. It does NOT approve the four pending ADRs,
+> the 19 unresolved policies, application implementation, provider writes, deployment, or a release."
+
+| In scope of the approval | Not approved by it |
+|---|---|
+| D-01 to D-15 and the project direction (section 4) | ADR-03, ADR-14, ADR-17, ADR-18 (pending; bead S1-D) |
+| the amended requirements REQ-001 to REQ-034 (`002`) | POL-01 to POL-19 (open at their milestone gates, section 6) |
+| the bounded synthetic first slice S1 and its acceptance plan (`005` S1) | any application code, migration or 1B work |
+| the phase and A/B/C handoff structure (section 7), starting handoff 1A only | provider writes, deployment, staging, release |
+
+Approving the contract does not turn planned tests into run tests: all 22 `TEST-S1-` cases remain
+NOT RUN. Items labelled PROPOSED in other sections remain proposals unless they are listed in the left
+column. Changes after `e8a7a4c` and before the merge: this approval record, the markdownlint version
+pin correction (`009` section 5.1, `CLAUDE.md`, `008` section 4.1) and the residual-risk note below; no
+requirement or scope changed.
+
+**Residual risk recorded by owner instruction:** non-secret routing descriptions removed from `003` in the
+amendment remain available in this public repository's Git history. History is not rewritten. This is
+not acceptance of credentials, live tokens, applicant data or confidential agreement content; any such
+material found would be reported as a separate exposure.

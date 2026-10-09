@@ -80,7 +80,7 @@ All eleven: `model: sonnet`, `permissionMode: default`, `background: false`, `sk
 ```bash
 for f in .claude/agents/*.md; do python3 <path-to>/validate-skills-schema.py --agents-only --fail-on-warn "$f"; done
 claude plugin validate .claude/agents
-npx --yes markdownlint-cli2@0.17.2 "**/*.md"
+npx --yes markdownlint-cli2@0.23.2 "**/*.md"   # current CI version (009 section 5.1); the 2026-10-09 results above used 0.17.2
 ```
 
 ## 5. Discovery
