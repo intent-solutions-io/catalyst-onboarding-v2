@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    name: Markdown lint and doc index check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Markdown lint
+        uses: DavidAnson/markdownlint-cli2-action@v19
+        with:
+          globs: "**/*.md"
+      - name: Every filed doc appears in 000-docs/000-INDEX.md
+        run: |
+          set -e
+          for f in $(find 000-docs -name '*.md' ! -name '000-INDEX.md' | sort); do
+            grep -q "$(basename "$f")" 000-docs/000-INDEX.md || { echo "missing from index: $f"; exit 1; }
+          done

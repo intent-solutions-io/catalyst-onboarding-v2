@@ -20,24 +20,29 @@ bd doctor                             # Health check
 ## Core Workflow
 
 ### Session Start
+
 1. Run `/beads` or `bd prime` to recover context
 2. Run `bd ready` to see available tasks
 3. Pick a task and claim it: `bd update <id> --status in_progress`
 
 ### During Work
+
 - Keep notes: `bd note <id> "what I did"`
 - Create subtasks: `bd create "Subtask" --parent <id> -p 2`
 - Check blockers: `bd blocked`
 
 ### Session End (Landing the Plane)
+
 1. Close finished tasks: `bd close <id> -r "Evidence of completion"`
 2. Update in-progress tasks with status notes
 3. Run quality gates (tests, linters, builds)
 4. **PUSH TO REMOTE** (mandatory):
+
    ```bash
    git push
    git status  # MUST show "up to date with origin"
    ```
+
 5. Hand off context for next session
 
 ## Priority Levels
@@ -122,6 +127,7 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 2. **Run quality gates** (if code changed) - Tests, linters, builds
 3. **Update issue status** - Close finished work, update in-progress items
 4. **Handle git/sync by active profile**:
+
    ```bash
    # Conservative/minimal/default: report status and proposed commands; wait for approval.
    git status
@@ -132,9 +138,11 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
    git push
    git status
    ```
+
 5. **Hand off** - Summarize changes, validation, issue status, and any blocked sync/commit/push step
 
 **Critical rules:**
+
 - Explicit user or orchestrator instructions override this Beads block.
 - Do not commit or push without clear authority from the active profile or the current user request.
 - If a required sync or push is blocked, stop and report the exact command and error.
