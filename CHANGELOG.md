@@ -6,7 +6,6 @@
 - bd init: initialize beads issue tracking (e585d2e)
 - bd init: initialize beads issue tracking (8dc5045)
 
-
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
@@ -14,8 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No release has been cut. The repository is in the architecture and planning phase; every document
-is preliminary and subject to review.
+The repository is in the architecture and planning phase; every document is preliminary and subject
+to review. `v0.1.0` below was tagged automatically by the templated release workflow on the first
+push to `main`; it was not a planned release, and the workflow now runs only when started by hand.
 
 ### Added
 
