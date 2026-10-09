@@ -1,5 +1,9 @@
 name: CI
 
+# One job, one required check name ("Markdown lint and doc index check"), so the merge guard never
+# waits on a check that did not run. Every step runs on every PR; each is seconds on this repository.
+# Policy and measured timings: 000-docs/009 section 5.
+
 on:
   push:
     branches: [main]
@@ -8,20 +12,87 @@ on:
 permissions:
   contents: read
 
+# Cancel a superseded run of the same workflow on the same PR. Pushes to main use the run id, so
+# they never cancel each other. Never copy this onto a deployment workflow.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   docs:
     name: Markdown lint and doc index check
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0 # full history for the secret scan
+
       - name: Markdown lint
-        uses: DavidAnson/markdownlint-cli2-action@v19
+        uses: DavidAnson/markdownlint-cli2-action@05f32210e84442804257b2a6f20b273450ec8265 # v19
         with:
           globs: "**/*.md"
+
       - name: Every filed doc appears in 000-docs/000-INDEX.md
         run: |
           set -e
           for f in $(find 000-docs -name '*.md' ! -name '000-INDEX.md' | sort); do
             grep -q "$(basename "$f")" 000-docs/000-INDEX.md || { echo "missing from index: $f"; exit 1; }
           done
+
+      - name: Agent definitions stay read-only and well formed
+        run: |
+          set -e
+          python3 -m pip install --quiet --disable-pip-version-check pyyaml==6.0.2
+          python3 - <<'EOF'
+          import glob, sys, yaml
+          REQUIRED = {"name", "description", "tools", "disallowedTools", "model", "color", "version",
+                      "author", "tags", "skills", "background", "hooks", "mcpServers", "permissionMode"}
+          FORBIDDEN_TOOLS = {"Write", "Edit", "NotebookEdit", "Bash", "Agent", "Task", "Skill"}
+          MODELS = {"sonnet", "haiku", "opus", "fable", "inherit"}
+          errors = []
+          files = sorted(glob.glob(".claude/agents/*.md"))
+          for path in files:
+              text = open(path, encoding="utf-8").read()
+              parts = text.split("---", 2)
+              if not text.startswith("---") or len(parts) < 3:
+                  errors.append(f"{path}: no YAML frontmatter"); continue
+              try:
+                  fm = yaml.safe_load(parts[1]) or {}
+              except yaml.YAMLError as exc:
+                  errors.append(f"{path}: frontmatter does not parse: {exc}"); continue
+              missing = REQUIRED - fm.keys()
+              if missing:
+                  errors.append(f"{path}: missing {sorted(missing)}")
+              if fm.get("name") != path.split("/")[-1][:-3]:
+                  errors.append(f"{path}: name does not match file name")
+              tools = fm.get("tools") or ""
+              tools = [t.strip() for t in (tools.split(",") if isinstance(tools, str) else tools)]
+              granted = FORBIDDEN_TOOLS.intersection(tools)
+              if granted:
+                  errors.append(f"{path}: planning-stage agent grants {sorted(granted)}")
+              denied = fm.get("disallowedTools")
+              if not isinstance(denied, list) or "Agent" not in denied:
+                  errors.append(f"{path}: disallowedTools must be a list that denies Agent")
+              if fm.get("model") not in MODELS:
+                  errors.append(f"{path}: model {fm.get('model')!r} not allowed")
+              if fm.get("permissionMode") == "bypassPermissions":
+                  errors.append(f"{path}: bypassPermissions is not allowed")
+          print(f"checked {len(files)} agent definitions")
+          for e in errors:
+              print("ERROR", e)
+          sys.exit(1 if errors else 0)
+          EOF
+
+      - name: Secret scan (gitleaks, full history)
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          set -euo pipefail
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "$RUNNER_TEMP/$tarball" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/$tarball" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" git --redact --no-banner --exit-code 1 .
