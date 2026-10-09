@@ -143,7 +143,7 @@ traceability, not written); their phase refines them at handoff A.
 | REQ-010 | staff views, POL-05 | P3 | planned TEST-P3-04 | CI run | GATE-P3 |
 | REQ-011 | `agreements`, D-05 | P4 | planned TEST-P4-01, TEST-P4-02 (fresh re-read), TEST-P4-08 (webhook authentication per installed version) | CI with Documenso fake; staging canary | GATE-P4; GATE-PILOT |
 | REQ-012 | `correspondence`, POL-06 | P2 | planned TEST-P2-01 (reply correlation), TEST-P2-02 (autoresponder and loop stop), TEST-P2-04 (reminder race), TEST-P2-07 (`UIDVALIDITY` change) | CI with local IMAP test server | GATE-P2 |
-| REQ-013 | `workflow`, staff views | P1 S1-T5 (worker honours pauses); P2 | TEST-S1-19; planned TEST-P2-05 (pause stops all automated kinds), TEST-P2-11 (staff message sent while paused, no automated action runs) | CI run | GATE-P2 |
+| REQ-013 | `workflow`, staff views | P1 S1-T5 (worker honours pauses); P2 | TEST-S1-19; planned TEST-P2-05 (pause stops all automated kinds; resume reschedules without a burst), TEST-P2-11 (staff message sent while paused, no automated action runs) | CI run | GATE-P2 |
 | REQ-014 | staff views | P1 S1-T7 (read-only); P2 onward | TEST-S1-12; planned TEST-P2-06 (resolve an exception without SSH) | CI run; operator walkthrough record | GATE-S1; GATE-P2 |
 | REQ-015 | staff views, D-12 | P1 S1-T7 (authorization only); P6 | TEST-S1-11; planned TEST-P6-01 (MFA and host restriction) | CI run; staging check | GATE-S1; GATE-STAGING |
 | REQ-016 | `provisioning`, POL-11 | P5 | planned TEST-P5-01, TEST-P5-02 | CI with MXroute fake; staging canary | GATE-P5; GATE-PILOT |

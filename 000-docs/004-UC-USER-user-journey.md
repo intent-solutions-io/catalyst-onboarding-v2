@@ -299,7 +299,8 @@ correlated**, then **processed** to decide what, if anything, it answered.
   surfaced, not acted on: the queue sorts by pause age, and an age threshold for highlighting is part of
   POL-16. A staff message follows the ledger's retry rules.
 - **Next action owner and visibility:** staff; a "paused" queue shows reason and age.
-- **Acceptance:** planned TEST-P2-05 (pause stops all automated kinds), TEST-P2-06 (resolve an exception
+- **Acceptance:** planned TEST-P2-05 (pause stops all automated kinds; resume reschedules reminders
+  without a burst and changes no question status), TEST-P2-06 (resolve an exception
   without SSH), TEST-P2-11 (a staff message is sent while paused and no automated action runs).
   **References:** REQ-013, REQ-014.
 
@@ -361,7 +362,7 @@ fail-closed default requires both.
 - **Alternate outcomes:** a recipient declines: `declined`, automation paused, staff item. A participant does
   not sign before the envelope expires: reminders follow POL-06; at expiry the instance is `expired` and a
   staff item is raised; reissue or closure follows POL-08 and POL-12, never an automatic re-send. Webhook
-  lost: periodic reconciliation read. One of two signatures present: `partially_signed`, owner shown as the
+  lost (if webhooks are used): periodic reconciliation read. One of two signatures present: `partially_signed`, owner shown as the
   missing participant. Provider down: bounded retry, then staff.
 - **Retry, timeout, terminal:** bounded; uncertain creation is reconciled, never blindly retried.
 - **Next action owner and visibility:** applicant or countersigner named; staff see each participant's
