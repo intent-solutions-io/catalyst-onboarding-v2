@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.1.0] - 2026-10-09
+
+- feat: initial project setup with governance, filed planning docs and beads (planning phase, no code) (d0f6719)
+- bd init: initialize beads issue tracking (e585d2e)
+- bd init: initialize beads issue tracking (8dc5045)
+
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
