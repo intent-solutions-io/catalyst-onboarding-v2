@@ -67,12 +67,23 @@ registrations, the CI runtime lane.
 | User (`accounts`) | custom user model extending Django's `AbstractUser`, no extra fields yet | set as `AUTH_USER_MODEL` before the first migration (ADR-18) |
 | Application (`applications`) | public reference (random UUID), email as typed, `email_key`, display name, stage, contact verified at, next version number, timestamps | partial unique on `email_key` where stage is open |
 | SubmissionVersion (`applications`) | application, version number, origin (form submission, or repeat after verification), submitted fields (JSON), received at | unique (application, version number); content never updated by ordinary code (ADR-14) |
-| VersionAdoption (`applications`) | submission version, adopted at, via challenge | unique per version; at most one current adoption per application in S1. Trust status (`unverified` or `adopted`) is derived from it, so the version row itself stays append-only |
+| VersionAdoption (`applications`) | submission version, adopted at, via challenge | unique per version; at most one current adoption per application in S1. Trust status (`unverified` or `adopted`) is derived from it, so the version row itself stays append-only. Protected history (D-22): never updated, deleted or truncated by any role; no retention path until POL-10 |
 | ApplicationEvent (`applications`) | application, kind, actor type, actor reference, occurred at, data (JSON, no secrets or tokens) | index (application, occurred at); never updated or deleted by ordinary code (ADR-14). A **staff item** in S1 is an event of kind `needs_staff_attention` with a reason; the read-only admin lists applications that have one (resolving it arrives in P2) |
 | ContactChallenge (`applications`) | application, random public id, email at issue, created at, expires at, used at, superseded at | partial unique: at most one **active** challenge per application, where active means not used and not superseded (expiry is a time comparison, so an expired challenge stays "active" until a repeat submission supersedes it under the application lock) |
 | PendingAction (`workflow`) | kind, subject type (string), subject id (UUID), input reference (string naming the exact input, e.g. the adopted submission version's public id; no foreign key), idempotency key, status, due at, attempts, maximum attempts, lease token, lease expires at, last error (sanitized), timestamps | unique idempotency key; index (status, due at); **no foreign key to any domain model** (ADR-01 layer rule) |
 | AutomationPause (`workflow`) | subject type, subject id, reason, actor, created at | unique (subject type, subject id); S1 creates none but the worker honours it |
 | OutboundMessage (`correspondence`) | application, pending action, attempt number, template key and version, recipient, Message-ID, status, sent at | unique (pending action, attempt number) |
+
+**Implemented in S1-T3 (1B.2).** The models above, plus `RetentionAudit` (written only by the protection
+trigger), in apps `applications`, `workflow` and `correspondence`. Roles (ADR-14, D-17) are provisioned outside
+the application by `scripts/provision_db_roles.py` (development and test only); each app's grant migration
+gives the application role exactly the privileges listed in the migration (UPDATE is column-level, so
+services must save with `update_fields` or `QuerySet.update`, never a full-row save), and
+`applications.0002_history_protection` adds the append-only and audit triggers, and
+`applications.0003_protect_version_adoption` makes adoptions unchangeable (D-22). Composite foreign keys keep an
+adoption's version and challenge within its own application. The web process refuses any
+database connection that is not the application role (`config/runtime.py`, ADR-14). Services, locking and
+allocation below arrive with S1-T4 onward.
 
 **Allocation and locking.** Version numbers come from the application's counter while its row is locked.
 Lock order everywhere is application, then challenge. The losing side of a race catches the integrity

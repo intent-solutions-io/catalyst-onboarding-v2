@@ -32,20 +32,25 @@ jobs:
         image: postgres:16.15@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
         env:
           POSTGRES_DB: catalyst
-          POSTGRES_USER: catalyst
-          POSTGRES_PASSWORD: synthetic-ci-only
+          POSTGRES_USER: catalyst_admin
+          POSTGRES_PASSWORD: synthetic-ci-admin-only
         options: >-
-          --health-cmd "pg_isready -U catalyst -d catalyst"
+          --health-cmd "pg_isready -U catalyst_admin -d catalyst"
           --health-interval 2s --health-timeout 5s --health-retries 30
     env:
       PYTHONDONTWRITEBYTECODE: "1"
       CATALYST_ENV: test
       CATALYST_SECRET_KEY: synthetic-ci-only
       CATALYST_DB_NAME: catalyst
-      CATALYST_DB_USER: catalyst
-      CATALYST_DB_PASSWORD: synthetic-ci-only
+      CATALYST_DB_USER: catalyst_owner
+      CATALYST_DB_PASSWORD: synthetic-ci-owner-only
       CATALYST_DB_HOST: postgres
       CATALYST_DB_PORT: "5432"
+      CATALYST_DB_OWNER_PASSWORD: synthetic-ci-owner-only
+      CATALYST_DB_ADMIN_USER: catalyst_admin
+      CATALYST_DB_ADMIN_PASSWORD: synthetic-ci-admin-only
+      CATALYST_DB_APP_PASSWORD: synthetic-ci-app-only
+      CATALYST_DB_RETENTION_PASSWORD: synthetic-ci-retention-only
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -53,6 +58,9 @@ jobs:
         run: |
           python -m venv /tmp/venv
           /tmp/venv/bin/pip install --quiet --disable-pip-version-check --require-hashes --no-deps -r requirements/dev.txt
+
+      - name: Provision the three database roles (ADR-14)
+        run: /tmp/venv/bin/python scripts/provision_db_roles.py
 
       - name: Test suite (PostgreSQL)
         run: /tmp/venv/bin/python -m pytest -v

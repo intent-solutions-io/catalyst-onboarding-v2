@@ -5,6 +5,7 @@ database URL and no engine variable: the engine is PostgreSQL, and config.guards
 """
 
 import os
+import re
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -26,6 +27,9 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.auth",
     "accounts",
+    "workflow",
+    "applications",
+    "correspondence",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -49,6 +53,25 @@ DATABASES = {
     }
 }
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# ADR-14 (D-17): three database roles, provisioned outside the application (scripts/provision_db_roles.py).
+# Migrations run as the owner and grant the application and retention roles exactly what they need.
+# Web and worker processes connect as the application role, never as the owner or a superuser.
+CATALYST_DB_ROLES = {
+    "owner": env("CATALYST_DB_OWNER_ROLE", "catalyst_owner"),
+    "app": env("CATALYST_DB_APP_ROLE", "catalyst_app"),
+    "retention": env("CATALYST_DB_RETENTION_ROLE", "catalyst_retention"),
+}
+# Role names reach SQL as identifiers in migrations: accept only plain lowercase identifiers.
+for _key, _role in CATALYST_DB_ROLES.items():
+    if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", _role):
+        raise ImproperlyConfigured(f"CATALYST_DB_ROLES[{_key!r}] is not a plain lowercase identifier")
+if len(set(CATALYST_DB_ROLES.values())) != 3:
+    raise ImproperlyConfigured("the owner, application and retention roles must be three different roles")
+# The kind of process for the catalyst.E002 diagnostic. Runtime enforcement does not read it: entry points
+# declare their kind in code (config.runtime), so a stale value cannot exempt the web process.
+# CATALYST_DB_USER / CATALYST_DB_PASSWORD are the login of whichever role this process uses.
+CATALYST_PROCESS = os.environ.get("CATALYST_PROCESS", "management")
 
 # ADR-18 (D-19): the custom user model exists before the first migration.
 AUTH_USER_MODEL = "accounts.User"

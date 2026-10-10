@@ -11,12 +11,12 @@ services:
     image: postgres:16.15@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
     environment:
       POSTGRES_DB: catalyst
-      POSTGRES_USER: catalyst
-      POSTGRES_PASSWORD: synthetic-local-only
+      POSTGRES_USER: catalyst_admin  # bootstrap superuser: used only by scripts/provision_db_roles.py
+      POSTGRES_PASSWORD: synthetic-admin-only
     tmpfs:
       - /var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "catalyst", "-d", "catalyst"]
+      test: ["CMD", "pg_isready", "-U", "catalyst_admin", "-d", "catalyst"]
       interval: 2s
       timeout: 5s
       retries: 30
@@ -36,11 +36,17 @@ services:
       CATALYST_ENV: test
       CATALYST_SECRET_KEY: synthetic-test-only
       CATALYST_DB_NAME: catalyst
-      CATALYST_DB_USER: catalyst
-      CATALYST_DB_PASSWORD: synthetic-local-only
+      CATALYST_DB_USER: catalyst_owner  # creates and migrates the test database; tests then run as catalyst_app (D-21)
+      CATALYST_DB_PASSWORD: synthetic-owner-only
       CATALYST_DB_HOST: db
       CATALYST_DB_PORT: "5432"
+      CATALYST_DB_OWNER_PASSWORD: synthetic-owner-only
+      CATALYST_DB_ADMIN_USER: catalyst_admin
+      CATALYST_DB_ADMIN_PASSWORD: synthetic-admin-only
+      CATALYST_DB_APP_PASSWORD: synthetic-app-only
+      CATALYST_DB_RETENTION_PASSWORD: synthetic-retention-only
     command: >-
       sh -c "python -m venv /tmp/venv
       && /tmp/venv/bin/pip install --quiet --disable-pip-version-check --require-hashes --no-deps -r requirements/dev.txt
+      && /tmp/venv/bin/python scripts/provision_db_roles.py
       && /tmp/venv/bin/python -m pytest -v ${PYTEST_ARGS:-}"

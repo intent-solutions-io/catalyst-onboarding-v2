@@ -10,9 +10,11 @@ from django.db.migrations.recorder import MigrationRecorder
 
 pytestmark = pytest.mark.django_db
 
-# The complete baseline migration set of the skeleton. Anything else appearing here means later
-# application schema was pulled into S1-T2.
-BASELINE_MIGRATIONS = {
+# The complete, approved migration set. Updated deliberately per task: S1-T2 added the skeleton baseline
+# (contrib + accounts.0001); S1-T3 added the slice data model, the role grants and history protection, and
+# adoption protection (D-22).
+# Anything else appearing here means unapproved schema was pulled in.
+APPROVED_MIGRATIONS = {
     ("contenttypes", "0001_initial"), ("contenttypes", "0002_remove_content_type_name"),
     ("auth", "0001_initial"), ("auth", "0002_alter_permission_name_max_length"),
     ("auth", "0003_alter_user_email_max_length"), ("auth", "0004_alter_user_username_opts"),
@@ -20,7 +22,11 @@ BASELINE_MIGRATIONS = {
     ("auth", "0007_alter_validators_add_error_messages"), ("auth", "0008_alter_user_username_max_length"),
     ("auth", "0009_alter_user_last_name_max_length"), ("auth", "0010_alter_group_name_max_length"),
     ("auth", "0011_update_proxy_permissions"), ("auth", "0012_alter_user_first_name_max_length"),
-    ("accounts", "0001_initial"),
+    ("accounts", "0001_initial"), ("accounts", "0002_role_grants"),
+    ("workflow", "0001_initial"), ("workflow", "0002_role_grants"),
+    ("applications", "0001_initial"), ("applications", "0002_history_protection"),
+    ("applications", "0003_protect_version_adoption"),
+    ("correspondence", "0001_initial"), ("correspondence", "0002_role_grants"),
 }
 
 
@@ -49,9 +55,9 @@ def test_custom_user_model_is_in_place_and_auth_user_was_never_created():
     assert "auth_user" not in tables
 
 
-def test_applied_migrations_are_exactly_the_baseline():
+def test_applied_migrations_are_exactly_the_approved_set():
     applied = set(MigrationRecorder(connection).applied_migrations())
-    assert applied == BASELINE_MIGRATIONS
+    assert applied == APPROVED_MIGRATIONS
 
 
 def test_custom_user_migration_precedes_any_dependent_migration():
