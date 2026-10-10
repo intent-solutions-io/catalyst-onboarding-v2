@@ -43,7 +43,7 @@
 | Item | Where it is proved |
 |---|---|
 | ADR-03 worker behaviours: automatic recovery, pause, bounded attempts, staff visibility | S1-T5, S1-T7, S1-T8 (TEST-S1-07, 12, 17, 18, 19) |
-| `uncertain` outcomes and reconciliation | P2 acceptance (first non-redeliverable provider effect) |
+| `uncertain` outcomes and reconciliation | P2 acceptance, **conditional on ADR-15** (still proposed); owner to confirm the deferral |
 | ADR-14 role non-inheritance, no owner or superuser credentials in web and worker, privileged `search_path` | S1-T3 |
 | pytest 9.1.1 and pytest-django 4.14.0 | start of 1B.1 |
 
@@ -60,7 +60,7 @@
 1. Done: contract approved in scope (`011` section 10).
 2. Done: handoff 1A evidence (`012`), and the owner's ADR-03, ADR-14, ADR-17 and ADR-18 decisions
    (2026-10-10, D-16 to D-19).
-3. Now: handoff 1B.1 only, S1-T2 (skeleton, PostgreSQL-only settings, provider guards, reproducible
+3. Next, **once PR #8 merges**: handoff 1B.1 only, S1-T2 (skeleton, PostgreSQL-only settings, provider guards, reproducible
    environment, CI runtime lane). It starts by showing that pytest 9.1.1 and pytest-django 4.14.0 install,
    load, collect and run a PostgreSQL-backed check; an incompatibility is a blocker. S1-T3 onward waits for
    separate authorization.

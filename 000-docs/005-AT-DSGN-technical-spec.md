@@ -85,9 +85,10 @@ are its requirements. The `012` proof demonstrated claiming and fenced completio
 by a polling worker, pause handling, bounded attempts with the poison rule's history event, `uncertain`
 outcomes, reconciliation and operational visibility are **not yet demonstrated**. S1 tests cover recovery
 (TEST-S1-07, TEST-S1-17), bounded attempts and the poison rule (TEST-S1-18), pause (TEST-S1-19) and
-staff visibility of pending actions (TEST-S1-12). `uncertain` outcomes and reconciliation cannot arise in S1,
-whose only external effect, the verification message, is declared redeliverable (ADR-15); their acceptance
-belongs to P2, the first phase with a non-redeliverable provider effect.
+staff visibility of pending actions (TEST-S1-12). `uncertain` outcomes and reconciliation cannot arise in S1
+**if ADR-15 is approved as drafted** (still PROPOSED): it declares S1's only external effect, the verification
+message, redeliverable. Their acceptance then belongs to P2, the first phase with a non-redeliverable
+provider effect, and rule 2's `uncertain` branch is unreached in S1. The owner confirms this deferral.
 
 1. **Claim** is one short transaction: select one due row (`status` queued, or running with an expired
    lease) with `select_for_update(skip_locked=True, of=("self",))` and no outer joins, skip it if an
@@ -149,7 +150,7 @@ psycopg2), and is a long-term-support release with security updates for at least
 | Network guard in tests | a small fixture in the test configuration that blocks non-loopback sockets (no dependency) or `pytest-socket` | TEST-S1-14 | pick one in S1-T1 |
 | Coverage | `coverage` (through pytest) | GATE-S1 evidence | version check; mutation tooling deferred until code exists |
 | Settings source | environment variables read with the standard library; production values from SOPS at runtime (P6) | no extra dependency | none |
-| Job mechanism | **custom ledger and management-command worker** (decided, D-16) | one mechanism; one source of truth | `012` comparison; unproven behaviours carried into S1-T5 and S1-T8 |
+| Job mechanism | **custom ledger and management-command worker** (decided, D-16) | one mechanism; one source of truth | `012` comparison; unproven behaviours carried as stated in S1.4 (S1-T5, S1-T7, S1-T8; P2 for `uncertain` and reconciliation) |
 | Environment and lock | `uv` with a hash-pinned lockfile | reproducible installs | lockfile resolves on the CI runner |
 | CI database | official PostgreSQL 16.15 image **pinned by digest**, as a service container | parity with the decided version | job starts, migrations apply, `connection.vendor == "postgresql"`, server version 16.15 |
 

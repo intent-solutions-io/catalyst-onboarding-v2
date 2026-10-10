@@ -4,7 +4,7 @@
 |---|---|
 | Document | `011-PP-PLAN-master-blueprint` (the only master blueprint for this repository) |
 | Version | 1.1.0 (ADR decisions of 2026-10-10 recorded) |
-| Status | **APPROVED IN SCOPE** (section 10): project direction, amended requirements and the bounded synthetic first-slice scope. ADR-03, ADR-14, ADR-17 and ADR-18 **decided 2026-10-10** (D-16 to D-19). **Not approved:** the 19 open policies, provider writes, deployment, release; implementation only as each handoff is authorized (1B.1 authorized 2026-10-10). Items marked PROPOSED elsewhere stay proposals. |
+| Status | **APPROVED IN SCOPE** (section 10): project direction, amended requirements and the bounded synthetic first-slice scope. ADR-03, ADR-14, ADR-17 and ADR-18 **decided 2026-10-10** (D-16 to D-19). **Not approved:** the 19 open policies, provider writes, deployment, release; implementation only as each handoff is authorized (1B.1 authorized 2026-10-10, to start once PR #8 merges). Items marked PROPOSED elsewhere stay proposals. |
 | Owner | Jeremy Longshore (product owner and approver) |
 | Reviewers | `catalyst-django-architect` (build design), `catalyst-independent-qa` (independent review); results in section 9 |
 | Date | 2026-10-09 |
@@ -381,7 +381,7 @@ not acceptance of credentials, live tokens, applicant data or confidential agree
 material found would be reported as a separate exposure.
 
 **ADR decisions, 2026-10-10:** ADR-03, ADR-14, ADR-17 and ADR-18 were decided by the owner against the
-`012` evidence (D-16 to D-19, section 4.1). The same instruction authorized handoff **1B.1 only** (S1-T2:
+`012` evidence (D-16 to D-19, section 4.1). The same instruction authorized handoff **1B.1 only**, to start after PR #8 merges (S1-T2:
 skeleton, PostgreSQL-only configuration, provider guards, reproducible environment, minimal CI runtime
 lane). The 19 policies, provider writes, deployment and release remain unapproved; all 22 `TEST-S1-`
 cases remain NOT RUN until their tasks run them.
