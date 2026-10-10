@@ -1,0 +1,43 @@
+# Local test environment for Catalyst v2 (ADR-17, D-18). Images are pinned by digest.
+# Run: scripts/test.sh   (or: docker compose run --rm test && docker compose down)
+# Synthetic credentials only; the database lives in tmpfs and disappears with the container.
+name: catalyst-v2-local
+
+services:
+  db:
+    image: postgres:16.15@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
+    environment:
+      POSTGRES_DB: catalyst
+      POSTGRES_USER: catalyst
+      POSTGRES_PASSWORD: synthetic-local-only
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "catalyst", "-d", "catalyst"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  test:
+    image: python:3.14.8-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
+    depends_on:
+      db:
+        condition: service_healthy
+    user: "${CATALYST_UID:-1000}:${CATALYST_GID:-1000}"
+    working_dir: /src
+    volumes:
+      - .:/src
+    environment:
+      HOME: /tmp
+      PYTHONDONTWRITEBYTECODE: "1"
+      CATALYST_ENV: test
+      CATALYST_SECRET_KEY: synthetic-test-only
+      CATALYST_DB_NAME: catalyst
+      CATALYST_DB_USER: catalyst
+      CATALYST_DB_PASSWORD: synthetic-local-only
+      CATALYST_DB_HOST: db
+      CATALYST_DB_PORT: "5432"
+    command: >-
+      sh -c "python -m venv /tmp/venv
+      && /tmp/venv/bin/pip install --quiet --disable-pip-version-check --require-hashes --no-deps -r requirements/dev.txt
+      && /tmp/venv/bin/python -m pytest -v ${PYTEST_ARGS:-}"

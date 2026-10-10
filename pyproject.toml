@@ -1,0 +1,13 @@
+[project]
+name = "catalyst-onboarding-v2"
+version = "0.0.0"
+description = "Catalyst v2 onboarding platform (Django). Planning-stage skeleton; see 000-docs/011."
+requires-python = "==3.14.*"
+license = "Apache-2.0"
+
+# Dependencies are installed from the hash-locked requirements/*.txt files, not from this file.
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider --strict-markers"

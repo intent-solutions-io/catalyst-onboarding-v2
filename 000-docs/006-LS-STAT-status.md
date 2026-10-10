@@ -7,7 +7,7 @@
 | Source revision | contract PR #7 (merged `110bfad`); 1A evidence and ADR decisions in PR #8 |
 | Classification | Public |
 
-> **Status: PRELIMINARY, subject to review.** Planning phase. No application code, no deployment.
+> **Status: PRELIMINARY, subject to review.** Implementation started (handoff 1B.1 skeleton only). No applicant features, no deployment.
 
 ## Current state
 

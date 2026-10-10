@@ -1,0 +1,52 @@
+"""Unit tests for config.guards: the rules, independent of process start-up."""
+
+from types import SimpleNamespace
+
+from config import guards
+
+PG = {"default": {"ENGINE": "django.db.backends.postgresql"}}
+LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
+
+
+def test_postgresql_is_accepted():
+    assert guards.database_problems(PG) == []
+
+
+def test_every_non_postgresql_alias_is_reported():
+    problems = guards.database_problems(
+        {**PG, "other": {"ENGINE": "django.db.backends.sqlite3"}, "third": {"ENGINE": "django.db.backends.mysql"}}
+    )
+    assert len(problems) == 2
+    assert any("'other'" in p and "sqlite3" in p for p in problems)
+    assert any("'third'" in p and "mysql" in p for p in problems)
+
+
+def test_only_development_and_test_environments_are_allowed():
+    assert guards.environment_problems("test") == []
+    assert guards.environment_problems("development") == []
+    assert guards.environment_problems("production") != []
+    assert guards.environment_problems("staging") != []
+
+
+def test_sink_backends_pass_and_smtp_is_refused():
+    for backend in guards.SINK_EMAIL_BACKENDS:
+        assert guards.provider_problems(backend, {}) == []
+    problems = guards.provider_problems("django.core.mail.backends.smtp.EmailBackend", {})
+    assert problems == ["EMAIL_BACKEND 'django.core.mail.backends.smtp.EmailBackend' is not a local sink backend"]
+
+
+def test_provider_variables_are_reported_by_name_not_value():
+    environ = {"MINIMAX_API_KEY": "synthetic-value-1", "DOCUMENSO_TOKEN": "synthetic-value-2", "PATH": "/usr/bin"}
+    (problem,) = guards.provider_problems(LOCMEM, environ)
+    assert "DOCUMENSO_TOKEN" in problem and "MINIMAX_API_KEY" in problem
+    assert "synthetic-value" not in problem
+    assert "PATH" not in problem
+
+
+def test_all_problems_combines_every_rule():
+    settings = SimpleNamespace(
+        DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3"}},
+        CATALYST_ENV="production",
+        EMAIL_BACKEND="django.core.mail.backends.smtp.EmailBackend",
+    )
+    assert len(guards.all_problems(settings, {"SMTP_PASSWORD": "x"})) == 4

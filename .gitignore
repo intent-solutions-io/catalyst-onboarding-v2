@@ -35,3 +35,9 @@ coverage/
 *.db
 .beads-credential-key
 .beads/proxieddb/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/

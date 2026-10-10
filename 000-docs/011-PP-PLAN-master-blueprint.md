@@ -12,7 +12,7 @@
 | Conventions | Intent Blueprint Docs 3.0.0 (stable IDs, evidence status, lifecycle links); doc-filing v4.5 |
 | Supersedes | nothing; the earlier planning drafts named in section 2 were not available |
 
-> **Status: PRELIMINARY, subject to review.** This repository has no application code. An assistant
+> **Status: PRELIMINARY, subject to review.** Application code is limited to authorized handoffs (1B.1: the skeleton). An assistant
 > recommendation in this document is a proposal, never an owner decision.
 
 ## 1. How to read the build contract
