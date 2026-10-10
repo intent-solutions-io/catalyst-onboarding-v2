@@ -169,8 +169,17 @@ def protection_state(conn):
     return triggers, privileges
 
 
+# The protection the reset must find before it starts and leave behind (003 ADR-14 trigger inventory).
+EXPECTED_TRIGGERS = {
+    ("applications_submissionversion", "catalyst_append_only"), ("applications_applicationevent", "catalyst_append_only"),
+    ("applications_submissionversion", "catalyst_no_truncate"), ("applications_applicationevent", "catalyst_no_truncate"),
+    ("applications_retentionaudit", "catalyst_no_truncate"), ("applications_versionadoption", "catalyst_no_truncate"),
+    ("applications_retentionaudit", "catalyst_audit_immutable"), ("applications_versionadoption", "catalyst_adoption_immutable"),
+}
+
+
 @pytest.fixture(scope="session")
-def django_db_setup(django_db_setup, django_db_blocker):
+def django_db_setup(django_db_setup, django_db_blocker, django_db_keepdb):
     from django.conf import settings
     from django.db import connection, connections
     from django.test.utils import setup_databases, teardown_databases
@@ -184,11 +193,20 @@ def django_db_setup(django_db_setup, django_db_blocker):
         name = connection.settings_dict["NAME"]
         if name == os.environ["CATALYST_DB_NAME"]:
             raise ResetRefused("no test database was created; refusing to use the configured database")
+        if django_db_keepdb:
+            raise ResetRefused("--reuse-db is not supported: the reset only ever targets a database this run created")
         with connection.cursor() as cursor:
+            # A database this run created carries no comment yet; anything else was not created by this run.
+            cursor.execute("SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = current_database()")
+            if cursor.fetchone()[0] is not None:
+                raise ResetRefused(f"test database {name!r} already carries an identity marker; refusing to adopt it")
             cursor.execute(f"COMMENT ON DATABASE {connection.ops.quote_name(name)} IS %s", [RUN_IDENTITY["marker"]])
         _session["owner"] = {"USER": connection.settings_dict["USER"], "PASSWORD": connection.settings_dict["PASSWORD"]}
         with owner_connection() as conn:
             _session["baseline"] = protection_state(conn)
+        triggers = _session["baseline"][0]
+        if {(t, g) for t, g, _ in triggers} != EXPECTED_TRIGGERS or {e for _, _, e in triggers} != {"O"}:
+            raise ResetRefused(f"the migrated test database does not hold the expected enabled protection triggers: {triggers}")
         connection.close()
         connection.settings_dict.update(USER=settings.CATALYST_DB_ROLES["app"], PASSWORD=os.environ["CATALYST_DB_APP_PASSWORD"])
     yield
@@ -257,7 +275,7 @@ class Committed:
         reset_test_database()
 
 
-def reset_test_database():
+def reset_test_database(settle_seconds=5):
     from django.db import connection
 
     with owner_connection() as conn:
@@ -268,7 +286,7 @@ def reset_test_database():
         if database != connection.settings_dict["NAME"] or marker != RUN_IDENTITY["marker"]:
             raise ResetRefused(f"reset refused: database {database!r} does not carry this test run's identity marker")
         # Every other session must be gone (closed above); allow a moment for backends to exit.
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + settle_seconds
         while conn.execute(
             "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()"
         ).fetchone()[0]:

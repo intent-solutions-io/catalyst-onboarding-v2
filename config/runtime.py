@@ -6,8 +6,9 @@ before Django loads, so no environment value can exempt the web path; the worker
 "worker"; anything undeclared (management commands, tests) is "management". For "web" and "worker",
 CatalystConfig.ready() connects a receiver to connection_created, so every new database connection is
 checked before any application query runs on it. ready() itself runs no query (Django advises against
-it). A refused connection is closed and ImproperlyConfigured is raised, naming roles only, never
-passwords.
+it). A refused connection, or one whose check itself fails, is closed before the error propagates;
+ImproperlyConfigured names roles only, never passwords. Every new entry point (an ASGI module, the
+worker command) must call declare_process: an undeclared process is "management" and is not enforced.
 """
 
 ENFORCED_KINDS = frozenset({"web", "worker"})
@@ -55,8 +56,12 @@ def enforce_on_connect(sender, connection, **kwargs):
     from django.conf import settings
     from django.core.exceptions import ImproperlyConfigured
 
-    with connection.cursor() as cursor:
-        problems = role_problems(cursor, kind, settings.CATALYST_DB_ROLES)
+    try:
+        with connection.cursor() as cursor:
+            problems = role_problems(cursor, kind, settings.CATALYST_DB_ROLES)
+    except BaseException:
+        connection.close()  # fail closed: an unchecked connection is never left open for a retry to reuse
+        raise
     if problems:
         connection.close()
         raise ImproperlyConfigured(f"Catalyst refuses the database connection {connection.alias!r}: " + "; ".join(problems))

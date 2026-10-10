@@ -498,6 +498,28 @@ def test_a_stale_management_value_does_not_exempt_the_web_process():
     assert "web process connects as" in result.stderr and "not the application role" in result.stderr
 
 
+WSGI_RETRY_PROBE = """
+import config.wsgi
+from django.db import connection
+for attempt in (1, 2):
+    try:
+        connection.ensure_connection()
+        print("attempt", attempt, "connected")
+    except Exception as exc:
+        print("attempt", attempt, "refused:", type(exc).__name__, "closed:", connection.connection is None)
+"""
+
+
+def test_a_failing_role_check_closes_the_connection_and_checks_again_on_retry():
+    # The role query itself fails (the configured owner role does not exist): the connection must be closed,
+    # not left open for a retry to reuse, and the retry must be checked again.
+    result = run([sys.executable, "-c", WSGI_RETRY_PROBE], CATALYST_DB_OWNER_ROLE="catalyst_missing_owner",
+                 CATALYST_DB_USER=ROLES["app"], CATALYST_DB_PASSWORD=PASSWORDS["app"])
+    assert result.returncode == 0, result.stderr
+    assert "connected" not in result.stdout
+    assert result.stdout.count("refused: ProgrammingError closed: True") == 2, result.stdout
+
+
 def test_child_processes_do_not_receive_the_administrator_login():
     result = run([sys.executable, "-c", "import os; print(sorted(k for k in os.environ if k.startswith('CATALYST_DB_ADMIN')))"])
     assert result.stdout.strip() == "[]"
@@ -663,3 +685,19 @@ def test_a_reset_against_the_wrong_identity_fails_the_run(tmp_path):
     assert result.returncode == 1, result.stdout + result.stderr
     assert "1 passed, 1 error" in result.stdout
     assert "does not carry this test run's identity marker" in result.stdout
+
+
+def test_a_reset_refuses_while_another_session_is_connected(privileged_reset):
+    from tests.conftest import ResetRefused, reset_test_database
+
+    straggler = psycopg.connect(
+        host=connection.settings_dict["HOST"], port=connection.settings_dict["PORT"], dbname=connection.settings_dict["NAME"],
+        user=ROLES["app"], password=PASSWORDS["app"],
+    )  # deliberately not registered with privileged_reset, so release() does not close it
+    try:
+        privileged_reset.release()
+        with pytest.raises(ResetRefused, match="other sessions are still connected"):
+            reset_test_database(settle_seconds=0.5)
+    finally:
+        straggler.close()
+
