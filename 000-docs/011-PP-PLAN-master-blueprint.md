@@ -73,7 +73,7 @@ direct database edits or a coding agent. The learning site itself is not replace
 
 ## 4. Owner decisions and boundaries
 
-### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-20)
+### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-24)
 
 The owner gave this project direction in the build-contract instruction of 2026-10-09, in the
 invoking session. It is recorded here verbatim so a fresh session can check the source. The owner
@@ -141,6 +141,40 @@ test-tool verification) are recorded on each ADR row in `003`.
 > action. Provider-specific reconciliation is deferred to P2 or the appropriate later integration phase,
 > before real external actions are enabled."
 
+**PR #11 closeout, 2026-10-10** (owner instruction against PR #11 head
+`1fb0f1c09332209053ae2bc0c1d506a5e6a62d62`), recorded verbatim in its essentials:
+
+> "Use a test-only privileged reset for the disposable test database where real-transaction/concurrency
+> tests require it. Do not create a fresh database for every ordinary test by default. Application
+> behavior must execute under the restricted application role with all normal grants, constraints and
+> protection triggers enabled." "Do not use a global replication-role switch or blanket constraint
+> disabling as the default solution." "Do not add a TESTING bypass to production trigger functions or
+> give the application role owner/retention privileges."
+>
+> "Treat VersionAdoption as protected history." "For this milestone, do not grant the retention role a
+> new deletion capability for adoptions. POL-10 stays open." "Do not introduce a cascade or relax
+> foreign keys merely to make cleanup easier." "Preserve the stated owner/superuser limitations: owners
+> can alter protections; the system is not administrator-proof."
+>
+> "Keep E002 as a useful diagnostic and add the smallest shared runtime enforcement needed to refuse
+> privileged database use by the web process before application operations. The later worker must use
+> that same contract when implemented." "A stale environment value naming a migration/management
+> process must not silently exempt the actual web entry point."
+>
+> "Django Admin: Approve necessary session/admin-log grants and creation of the read-only staff group's
+> permissions in S1-T7, not in this closeout. Use least privilege and an authorized setup/migration
+> path. The runtime application must not gain authority to grant itself staff, superuser or group
+> permissions."
+>
+> "Confirmation: Retain the signed-challenge design specified in 005/ADR-16. The raw
+> ContactChallenge.public_id is not sufficient authorization. A valid signature and the existing
+> database checks are required. Do not display or export the complete token, signature or usable
+> signing link through the staff interface. Do not log them or save them in ApplicationEvent." "No
+> read-only staff action may mint applicant confirmation links."
+>
+> "Retention: POL-10 must include adopted versions and associated records. No real deletion, retention
+> schedule or retention UI is authorized."
+
 ### 4.2 Decision summary
 
 Decision records with rationale live in `003` section "Architecture decisions". This table is the
@@ -168,6 +202,10 @@ summary a reader needs first.
 | D-18 | ADR-17: Python 3.14.8, Django 5.2.18 LTS, PostgreSQL 16.15, psycopg 3.3.6; locked dependencies; digest-pinned images | OWNER-DECIDED | section 4.1; `003` ADR-17 |
 | D-19 | ADR-18: minimal `accounts.User(AbstractUser)` before the first migration; applicants are not accounts | OWNER-DECIDED | section 4.1; `003` ADR-18 |
 | D-20 | S1 recovery policy: only the identical verification invitation may be redelivered to the local sink after an interrupted attempt; S1 still proves attempts, bounded recovery, lease fencing, interruption and no duplicate challenge, adoption or next-stage action; provider-specific reconciliation is P2 or later, before real external actions | OWNER-DECIDED | section 4.1 (2026-10-10 closeout); `003` ADR-15 |
+| D-21 | Test cleanup: the suite runs as the application role; tests that commit use a test-only privileged reset of this run's own test database (identity-marker check, only the named `catalyst_no_truncate` triggers disabled for the reset, trigger and privilege state re-verified, failure fails the run); no bypass in trigger functions, no replication-role switch | OWNER-DECIDED | section 4.1 (PR #11 closeout); `tests/conftest.py` |
+| D-22 | `VersionAdoption` is protected history: no role may update, delete or truncate it; no retention path for adoptions until POL-10; same-application foreign keys unchanged | OWNER-DECIDED | section 4.1 (PR #11 closeout); `003` ADR-14; migration `applications.0003` |
+| D-23 | Django Admin in S1-T7: only the session and admin-log grants it needs, and the read-only staff group's permissions, created through an authorized setup or migration path; the runtime application never grants itself staff, superuser or group rights | OWNER-DECIDED | section 4.1 (PR #11 closeout); bead S1-T7 |
+| D-24 | Confirmation token contract: the signed challenge `public_id` (ADR-16); the raw `public_id` is not authorization, a valid signature plus the database checks are; the token, signature and link are never shown, exported, logged or stored in events, and no staff action can mint a link | OWNER-DECIDED | section 4.1 (PR #11 closeout); `003` ADR-16; bead S1-T6 |
 
 **Contradictions found:**
 
@@ -208,7 +246,7 @@ open product policies listed in the master blueprint".
 | POL-07 | Agreement inventory: the exact approved NDA and User Agreement templates and versions, any other required agreements and their order after the NDA (the NDA-before-User-Agreement rule itself is decided, D-15) | owner with counsel | P4 start | not in slice |
 | POL-08 | Signing roles: required participants, signing order, countersigner | owner with counsel | P4 start | not in slice |
 | POL-09 | Document custody and its gate: where signed documents are stored, encryption, who may retrieve them, audit, and whether verified custody is required (in addition to verified signing completion) before the next agreement or stage | owner | P4 start | not in slice |
-| POL-10 | Retention and deletion for applications, declined and withdrawn records, messages, documents and logs | owner with counsel | GATE-PILOT (no real applicant data before) | synthetic data only |
+| POL-10 | Retention and deletion for applications, declined and withdrawn records, messages, documents and logs; must cover adopted submission versions together with their adoption records, challenges and audit evidence (D-22) | owner with counsel | GATE-PILOT (no real applicant data before) | synthetic data only; no deletion, retention schedule or retention UI is authorized |
 | POL-11 | Provisioning scope: mailbox naming, aliases, any other access granted at activation; who approves | owner | P5 start | not in slice |
 | POL-12 | Withdrawal, closure and reopening rules | owner | P5 (J-16); duplicate interaction affects POL-01 | not in slice |
 | POL-13 | Staff roles and groups (read-only, operator, decision-maker), MFA package | owner | GATE-STAGING | slice uses one PROPOSED read-only group, local only |

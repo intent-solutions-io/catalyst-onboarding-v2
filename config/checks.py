@@ -10,7 +10,7 @@ import os
 from django.conf import settings
 from django.core import checks
 
-from . import guards
+from . import guards, runtime
 
 
 @checks.register()  # no "database" tag: runs on every `manage.py check`
@@ -20,31 +20,14 @@ def guard_check(app_configs, **kwargs):
 
 @checks.register(checks.Tags.database)
 def database_role_check(app_configs, databases=None, **kwargs):
-    """catalyst.E002 (ADR-14, D-17): no process connects as a superuser; web and worker processes connect
-    as exactly the application role, which is not a member of the owner or retention role. Tagged
-    `database`: it runs with `manage.py check --database default`, which deployment must call (P6)."""
+    """catalyst.E002 (ADR-14, D-17): the diagnostic form of config.runtime.role_problems, the same contract
+    the web and worker processes enforce on every new connection. Tagged `database`: it runs with
+    `manage.py check --database default`, for the kind named by CATALYST_PROCESS (default "management")."""
     from django.db import connections
 
-    roles = settings.CATALYST_DB_ROLES
     errors = []
     for alias in databases or []:
         with connections[alias].cursor() as cursor:
-            cursor.execute(
-                "SELECT current_user, rolsuper, pg_has_role(current_user, %s, 'MEMBER'), pg_has_role(current_user, %s, 'MEMBER')"
-                " FROM pg_catalog.pg_roles WHERE rolname = current_user",
-                [roles["owner"], roles["retention"]],
-            )
-            user, is_superuser, owner_member, retention_member = cursor.fetchone()
-        if is_superuser:
-            errors.append(checks.Error(f"database {alias!r} connects as superuser {user!r}", id="catalyst.E002"))
-        if settings.CATALYST_PROCESS in {"web", "worker"}:
-            if user != roles["app"]:
-                errors.append(checks.Error(
-                    f"{settings.CATALYST_PROCESS} process connects to {alias!r} as {user!r}, not the application role {roles['app']!r}",
-                    id="catalyst.E002",
-                ))
-            elif owner_member or retention_member:
-                errors.append(checks.Error(
-                    f"the application role {user!r} is a member of the owner or retention role", id="catalyst.E002"
-                ))
+            problems = runtime.role_problems(cursor, settings.CATALYST_PROCESS, settings.CATALYST_DB_ROLES)
+        errors += [checks.Error(f"database {alias!r}: {p}", id="catalyst.E002") for p in problems]
     return errors

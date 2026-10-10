@@ -1,64 +1,57 @@
-"""Database roles and append-only protection (ADR-14, D-17; S1-T3), proved through real connections as
-each role. Ordinary operations run as the restricted application role, not the owner.
+"""Database roles and append-only protection (ADR-14, D-17, D-21, D-22; S1-T3), proved through real
+connections as each role. The suite itself runs as the restricted application role (tests/conftest.py).
 
-These tests commit through their own connections (the application, retention and owner roles), so each
-uses unique synthetic data; the disposable test database is dropped at the end of the session. Django's
-transactional test cleanup is not used, because it truncates tables and the protected tables refuse TRUNCATE.
+Tests that commit through their own connections use `privileged_reset` (through the `connect` fixture):
+the slice tables are emptied after each such test by the test-only owner reset, so the data here is plain
+fixed synthetic data, not unique residue. Read-only catalogue tests use the django_db mark (rollback).
+Migrations are reversed and reapplied by the migration owner in a child process, never by the test process.
 """
 
 import os
-import subprocess
 import sys
 import uuid
-from pathlib import Path
 
 import psycopg
 import pytest
 from django.conf import settings
-from django.core.management import call_command
-from django.db import connection
+from django.db import ProgrammingError, connection, transaction
 from psycopg import errors
 
-pytestmark = pytest.mark.django_db
+from tests.support import ROOT, manage_as_owner, run
 
-ROOT = Path(__file__).resolve().parent.parent
 ROLES = settings.CATALYST_DB_ROLES
 PASSWORDS = {
     "owner": os.environ["CATALYST_DB_OWNER_PASSWORD"],
     "app": os.environ["CATALYST_DB_APP_PASSWORD"],
     "retention": os.environ["CATALYST_DB_RETENTION_PASSWORD"],
 }
+SECRETS = [*PASSWORDS.values(), os.environ["CATALYST_DB_ADMIN_PASSWORD"]]
+# Trigger inventory (003 ADR-14): append-only on versions and events (2), no-truncate on versions, events,
+# audit and adoptions (4), audit immutability (1), adoption immutability (1).
+TRIGGERS = ("catalyst_append_only", "catalyst_no_truncate", "catalyst_audit_immutable", "catalyst_adoption_immutable")
+TRIGGER_COUNT = 8
+SLICE_TABLES = [
+    "applications_application", "applications_submissionversion", "applications_contactchallenge",
+    "applications_versionadoption", "applications_applicationevent", "applications_retentionaudit",
+    "workflow_pendingaction", "workflow_automationpause", "correspondence_outboundmessage",
+]
 
 
 @pytest.fixture
-def connect():
-    opened = []
-
-    def _connect(role_key, autocommit=False):
-        conn = psycopg.connect(
-            host=os.environ["CATALYST_DB_HOST"], port=os.environ.get("CATALYST_DB_PORT", "5432"),
-            dbname=connection.settings_dict["NAME"], user=ROLES[role_key], password=PASSWORDS[role_key],
-            autocommit=autocommit,
-        )
-        opened.append(conn)
-        return conn
-
-    yield _connect
-    for conn in opened:
-        conn.close()
+def connect(privileged_reset):
+    return privileged_reset.connect
 
 
-def new_application(conn):
-    key = f"{uuid.uuid4().hex}@example.test"
+def new_application(conn, key="applicant@example.test"):
     app_id = conn.execute(
         "INSERT INTO applications_application (public_ref, email, email_key, display_name, stage, next_version_number)"
-        " VALUES (%s, %s, %s, 'Synthetic', 'submitted', 1) RETURNING id",
-        [uuid.uuid4(), key, key],
+        " VALUES (gen_random_uuid(), %s, %s, 'Synthetic', 'submitted', 1) RETURNING id",
+        [key, key],
     ).fetchone()[0]
     version_id = conn.execute(
         "INSERT INTO applications_submissionversion (application_id, public_id, version_number, origin, submitted_fields)"
-        " VALUES (%s, %s, 1, 'form', '{}') RETURNING id",
-        [app_id, uuid.uuid4()],
+        " VALUES (%s, gen_random_uuid(), 1, 'form', '{}') RETURNING id",
+        [app_id],
     ).fetchone()[0]
     event_id = conn.execute(
         "INSERT INTO applications_applicationevent (application_id, kind, actor_type, actor_ref, data)"
@@ -69,14 +62,40 @@ def new_application(conn):
     return app_id, version_id, event_id
 
 
+def new_adoption(conn, key="adopter@example.test"):
+    app_id, version_id, _ = new_application(conn, key)
+    challenge_id = conn.execute(
+        "INSERT INTO applications_contactchallenge (application_id, public_id, email_at_issue, expires_at)"
+        " VALUES (%s, gen_random_uuid(), %s, now() + interval '1 hour') RETURNING id", [app_id, key]
+    ).fetchone()[0]
+    adoption_id = conn.execute(
+        "INSERT INTO applications_versionadoption (application_id, submission_version_id, via_challenge_id)"
+        " VALUES (%s, %s, %s) RETURNING id", [app_id, version_id, challenge_id],
+    ).fetchone()[0]
+    conn.commit()
+    return adoption_id
+
+
 def refused(conn, sql, params=(), match="permission denied"):
     with pytest.raises(errors.InsufficientPrivilege, match=match):
         conn.execute(sql, params)
     conn.rollback()
 
 
+def row_counts(conn):
+    return {t: conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in SLICE_TABLES if t != "applications_retentionaudit"}
+
+
+def trigger_states(conn):
+    return conn.execute(
+        "SELECT c.relname, t.tgname, t.tgenabled FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid"
+        " WHERE t.tgname = ANY(%s) ORDER BY 1, 2", [list(TRIGGERS)]
+    ).fetchall()
+
+
 # --- role attributes and escalation ---------------------------------------------------------------
 
+@pytest.mark.django_db
 def test_no_role_is_privileged_and_none_is_a_member_of_another():
     names = list(ROLES.values())
     with connection.cursor() as cursor:
@@ -303,6 +322,7 @@ def test_a_temporary_table_cannot_divert_the_audit_record(connect):
     assert audited == ("shadow attempt",)
 
 
+@pytest.mark.django_db
 def test_privileged_trigger_function_has_a_fixed_search_path_and_no_public_execute():
     with connection.cursor() as cursor:
         cursor.execute(
@@ -321,13 +341,12 @@ def test_privileged_trigger_function_has_a_fixed_search_path_and_no_public_execu
 # --- the ORM through the application role ---------------------------------------------------------------
 
 ORM_PROBE = """
-import django, uuid
+import django
 django.setup()
 from django.db import transaction
 from applications.models import Application, SubmissionVersion
-key = uuid.uuid4().hex + "@example.test"
 with transaction.atomic():
-    app = Application.objects.create(email=key, email_key=key, display_name="Synthetic")
+    app = Application.objects.create(email="orm@example.test", email_key="orm@example.test", display_name="Synthetic")
     version = SubmissionVersion.objects.create(application=app, version_number=1, origin="form", submitted_fields={})
     Application.objects.filter(pk=app.pk).update(stage="contact_verified")
 print("ordinary operations: ok")
@@ -340,43 +359,68 @@ except Exception as exc:
 """
 
 
-def test_orm_through_the_application_role():
+def test_orm_through_the_application_role_in_a_fresh_process(privileged_reset):
     # A fresh Django process configured with the application role's credentials, against the test database.
-    env = {**os.environ, "CATALYST_DB_USER": ROLES["app"], "CATALYST_DB_PASSWORD": PASSWORDS["app"],
-           "CATALYST_DB_NAME": connection.settings_dict["NAME"], "DJANGO_SETTINGS_MODULE": "config.settings"}
-    result = subprocess.run([sys.executable, "-c", ORM_PROBE], cwd=ROOT, env=env, capture_output=True, text=True, timeout=60)
+    result = run([sys.executable, "-c", ORM_PROBE], CATALYST_DB_USER=ROLES["app"], CATALYST_DB_PASSWORD=PASSWORDS["app"],
+                 CATALYST_DB_NAME=connection.settings_dict["NAME"])
     assert result.returncode == 0, result.stderr
     assert "ordinary operations: ok" in result.stdout
     assert "protected update: refused: ProgrammingError permission denied for table applications_submissionversion" in result.stdout
 
 
-# --- migration behaviour ----------------------------------------------------------------------------------
-
-def test_history_protection_migration_reverses_and_reapplies():
-    def protected():
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT count(*) FROM pg_trigger WHERE tgname IN ('catalyst_append_only', 'catalyst_no_truncate', 'catalyst_audit_immutable')"
-            )
-            return cursor.fetchone()[0]
-
-    # append-only on 2 protected tables, no-truncate on those 2 plus the audit table, audit immutability: 6
-    assert protected() == 6
-    call_command("migrate", "applications", "0001", verbosity=0)
-    assert protected() == 0
-    call_command("migrate", "applications", "0002", verbosity=0)
-    assert protected() == 6
+@pytest.mark.django_db
+def test_this_test_process_runs_as_the_application_role():
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT current_user")
+        assert cursor.fetchone()[0] == ROLES["app"]
 
 
-# --- start-up role check (catalyst.E002) -------------------------------------------------------------------
+# --- migration behaviour (the owner, in a child process) ------------------------------------------------------
+
+def test_history_protection_migrations_reverse_and_reapply_and_keep_data(connect):
+    app = connect("app")
+    app_id, version_id, _ = new_application(app)
+    adoption_id = new_adoption(app)
+    owner = connect("owner", autocommit=True)
+    count = lambda: len(trigger_states(owner))
+    assert count() == TRIGGER_COUNT
+    manage_as_owner("migrate", "applications", "0002", "--verbosity", "0")
+    assert count() == 6  # 0003 reversed: adoption triggers gone, 0002 intact
+    manage_as_owner("migrate", "applications", "0001", "--verbosity", "0")
+    assert count() == 0
+    manage_as_owner("migrate", "applications", "0003", "--verbosity", "0")
+    assert count() == TRIGGER_COUNT
+    assert {state for _, _, state in trigger_states(owner)} == {"O"}
+    assert owner.execute("SELECT count(*) FROM applications_submissionversion WHERE id = %s AND application_id = %s",
+                         [version_id, app_id]).fetchone()[0] == 1
+    assert owner.execute("SELECT count(*) FROM applications_versionadoption WHERE id = %s", [adoption_id]).fetchone()[0] == 1
+
+
+def test_grant_migrations_reverse_and_reapply(connect):
+    owner = connect("owner", autocommit=True)
+    app_can = lambda table, privilege: owner.execute(
+        "SELECT has_table_privilege(%s, %s, %s)", [ROLES["app"], table, privilege]).fetchone()[0]
+    assert app_can("workflow_pendingaction", "INSERT")
+    manage_as_owner("migrate", "workflow", "0001", "--verbosity", "0")
+    assert not app_can("workflow_pendingaction", "INSERT") and not app_can("workflow_pendingaction", "SELECT")
+    manage_as_owner("migrate", "workflow", "0002", "--verbosity", "0")
+    assert app_can("workflow_pendingaction", "INSERT")
+
+
+def test_the_owner_still_runs_management_commands(privileged_reset):
+    # The separate, authorized administration path: management commands as the owner keep working.
+    assert "[X] 0003_protect_version_adoption" in manage_as_owner("showmigrations", "applications").stdout
+    manage_as_owner("migrate", "--verbosity", "0")
+
+
+# --- the diagnostic role check (catalyst.E002) ------------------------------------------------------------
 
 def check_database(**env):
-    full = {**os.environ, **env}
-    return subprocess.run([sys.executable, "manage.py", "check", "--database", "default"], cwd=ROOT,
-                          env=full, capture_output=True, text=True, timeout=60)
+    return run([sys.executable, "manage.py", "check", "--database", "default"], **env)
 
 
 def test_a_superuser_connection_is_refused():
+    # The one child process that receives administrator credentials, explicitly, to prove refusal.
     result = check_database(CATALYST_DB_USER=os.environ["CATALYST_DB_ADMIN_USER"],
                             CATALYST_DB_PASSWORD=os.environ["CATALYST_DB_ADMIN_PASSWORD"])
     assert result.returncode != 0
@@ -404,6 +448,59 @@ def test_a_worker_process_connecting_as_the_application_role_passes():
 def test_a_web_process_connecting_as_the_application_role_passes():
     result = check_database(CATALYST_PROCESS="web", CATALYST_DB_USER=ROLES["app"], CATALYST_DB_PASSWORD=PASSWORDS["app"])
     assert result.returncode == 0, result.stderr
+
+
+# --- runtime enforcement on the real WSGI path (config.runtime) ----------------------------------------------
+
+WSGI_PROBE = """
+import config.wsgi
+from django.db import connection
+connection.ensure_connection()
+with connection.cursor() as cursor:
+    cursor.execute("SELECT current_user")
+    print("connected as", cursor.fetchone()[0])
+"""
+
+
+def wsgi_connect(role_key=None, **env):
+    if role_key == "admin":
+        env.update(CATALYST_DB_USER=os.environ["CATALYST_DB_ADMIN_USER"], CATALYST_DB_PASSWORD=os.environ["CATALYST_DB_ADMIN_PASSWORD"])
+    elif role_key:
+        env.update(CATALYST_DB_USER=ROLES[role_key], CATALYST_DB_PASSWORD=PASSWORDS[role_key])
+    result = run([sys.executable, "-c", WSGI_PROBE], **env)
+    output = result.stdout + result.stderr
+    assert not [s for s in SECRETS if s in output], "a password value appeared in the output"
+    return result
+
+
+def test_the_web_process_connects_as_the_application_role():
+    result = wsgi_connect("app")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == f"connected as {ROLES['app']}"
+
+
+@pytest.mark.parametrize(("role_key", "reason"), [
+    ("owner", "not the application role"),
+    ("retention", "not the application role"),
+    ("admin", "connects as superuser"),
+])
+def test_the_web_process_refuses_a_privileged_connection(role_key, reason):
+    result = wsgi_connect(role_key)
+    assert result.returncode != 0
+    assert "ImproperlyConfigured: Catalyst refuses the database connection 'default'" in result.stderr
+    assert reason in result.stderr
+    assert "connected as" not in result.stdout
+
+
+def test_a_stale_management_value_does_not_exempt_the_web_process():
+    result = wsgi_connect("owner", CATALYST_PROCESS="management")
+    assert result.returncode != 0
+    assert "web process connects as" in result.stderr and "not the application role" in result.stderr
+
+
+def test_child_processes_do_not_receive_the_administrator_login():
+    result = run([sys.executable, "-c", "import os; print(sorted(k for k in os.environ if k.startswith('CATALYST_DB_ADMIN')))"])
+    assert result.stdout.strip() == "[]"
 
 
 @pytest.mark.parametrize(
@@ -448,24 +545,121 @@ def test_application_role_can_claim_with_skip_locked(connect):
     other.rollback()
 
 
-def test_grant_migrations_reverse_and_reapply():
-    def app_can(table, privilege):
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT has_table_privilege(%s, %s, %s)", [ROLES["app"], table, privilege])
-            return cursor.fetchone()[0]
+# --- protected adoptions (D-22) ------------------------------------------------------------------------------
 
-    assert app_can("workflow_pendingaction", "INSERT")
-    call_command("migrate", "workflow", "0001", verbosity=0)
-    assert not app_can("workflow_pendingaction", "INSERT") and not app_can("workflow_pendingaction", "SELECT")
-    call_command("migrate", "workflow", "0002", verbosity=0)
-    assert app_can("workflow_pendingaction", "INSERT")
+@pytest.mark.parametrize("sql", [
+    "UPDATE applications_versionadoption SET adopted_at = now() WHERE id = %s",
+    "DELETE FROM applications_versionadoption WHERE id = %s",
+], ids=["update", "delete"])
+def test_application_role_cannot_change_an_adoption(connect, sql):
+    app = connect("app")
+    refused(app, sql, [new_adoption(app)])
 
 
-def test_data_survives_reversing_and_reapplying_the_protection():
-    from applications.models import Application
+@pytest.mark.parametrize("role_key", ["app", "retention"])
+def test_no_ordinary_role_can_truncate_or_delete_adoptions(connect, role_key):
+    adoption_id = new_adoption(connect("app"))
+    conn = connect(role_key)
+    if role_key == "retention":  # no retention path for adoptions (POL-10 open), even with a stated reason
+        conn.execute("SET LOCAL catalyst.retention_reason = 'synthetic retention of an adoption'")
+    refused(conn, "DELETE FROM applications_versionadoption WHERE id = %s", [adoption_id])
+    refused(conn, "TRUNCATE applications_versionadoption")
 
-    key = f"{uuid.uuid4().hex}@example.test"
-    kept = Application.objects.create(email=key, email_key=key, display_name="Synthetic")
-    call_command("migrate", "applications", "0001", verbosity=0)
-    call_command("migrate", "applications", "0002", verbosity=0)
-    assert Application.objects.filter(pk=kept.pk).exists()
+
+@pytest.mark.parametrize("sql", [
+    "UPDATE applications_versionadoption SET adopted_at = now() WHERE id = %s",
+    "DELETE FROM applications_versionadoption WHERE id = %s",
+    "TRUNCATE applications_versionadoption CASCADE",
+], ids=["update", "delete", "truncate"])
+def test_the_trigger_refuses_adoption_changes_even_for_the_migration_owner(connect, sql):
+    adoption_id = new_adoption(connect("app"))
+    refused(connect("owner"), sql, [adoption_id] if "%s" in sql else (), match="append-only")
+
+
+def test_adoption_grants_are_unchanged(connect):
+    owner = connect("owner", autocommit=True)
+    privileges = owner.execute(
+        "SELECT has_table_privilege(%(app)s, t, 'SELECT'), has_table_privilege(%(app)s, t, 'INSERT'),"
+        " has_any_column_privilege(%(app)s, t, 'UPDATE'), has_table_privilege(%(app)s, t, 'DELETE'),"
+        " has_table_privilege(%(retention)s, t, 'SELECT'), has_table_privilege(%(retention)s, t, 'DELETE')"
+        " FROM (SELECT 'public.applications_versionadoption'::regclass AS t) x",
+        {"app": ROLES["app"], "retention": ROLES["retention"]},
+    ).fetchone()
+    assert privileges == (True, True, False, False, False, False)
+
+
+@pytest.mark.django_db
+def test_the_orm_cannot_rewrite_or_remove_an_adoption():
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from applications.models import Application, ContactChallenge, SubmissionVersion, VersionAdoption
+
+    app = Application.objects.create(email="orm@example.test", email_key="orm@example.test", display_name="Synthetic")
+    version = SubmissionVersion.objects.create(application=app, version_number=1, origin="form", submitted_fields={})
+    challenge = ContactChallenge.objects.create(application=app, email_at_issue=app.email,
+                                                expires_at=timezone.now() + timedelta(hours=1))
+    adoption = VersionAdoption.objects.create(application=app, submission_version=version, via_challenge=challenge)
+    for change in (lambda: VersionAdoption.objects.filter(pk=adoption.pk).update(adopted_at=timezone.now()),
+                   lambda: VersionAdoption.objects.filter(pk=adoption.pk).delete()):
+        with pytest.raises(ProgrammingError, match="permission denied for table applications_versionadoption"):
+            with transaction.atomic():
+                change()
+
+
+# --- the privileged reset itself (D-21) ----------------------------------------------------------------------
+
+def test_a_committed_write_is_removed_by_an_explicit_reset(privileged_reset):
+    app = privileged_reset.connect("app")
+    new_application(app)
+    new_adoption(app)
+    assert row_counts(privileged_reset.connect("app"))["applications_versionadoption"] == 1  # committed, seen elsewhere
+    privileged_reset.reset()
+    assert set(row_counts(privileged_reset.connect("app")).values()) == {0}
+
+
+def test_the_next_test_starts_empty_with_identities_restarted(privileged_reset):
+    # Runs after the test above (file order) and after every committing test before it.
+    app = privileged_reset.connect("app")
+    assert set(row_counts(app).values()) == {0}
+    app_id, version_id, event_id = new_application(app)
+    assert (app_id, version_id, event_id) == (1, 1, 1)  # RESTART IDENTITY
+
+
+def test_protection_holds_after_a_reset(privileged_reset):
+    privileged_reset.reset()
+    app = privileged_reset.connect("app")
+    _, version_id, event_id = new_application(app)
+    adoption_id = new_adoption(app)
+    owner = privileged_reset.connect("owner")
+    assert {state for _, _, state in trigger_states(owner)} == {"O"} and len(trigger_states(owner)) == TRIGGER_COUNT
+    refused(owner, "UPDATE applications_submissionversion SET origin = 'form' WHERE id = %s", [version_id], match="append-only")
+    refused(owner, "DELETE FROM applications_applicationevent WHERE id = %s", [event_id], match="append-only")
+    refused(owner, "DELETE FROM applications_versionadoption WHERE id = %s", [adoption_id], match="append-only")
+    for table in ("applications_submissionversion", "applications_applicationevent",
+                  "applications_retentionaudit", "applications_versionadoption"):
+        refused(owner, f"TRUNCATE {table} CASCADE", match="append-only")
+    refused(app, "UPDATE applications_submissionversion SET origin = 'form' WHERE id = %s", [version_id])
+
+
+IDENTITY_PROBE = """
+import tests.conftest as harness
+
+
+def test_reset_against_a_database_without_this_runs_identity(privileged_reset):
+    harness.RUN_IDENTITY["marker"] = "catalyst-test-run:some-other-run"
+"""
+
+
+def test_a_reset_against_the_wrong_identity_fails_the_run(tmp_path):
+    # A child pytest run with its own test database; its reset must refuse and the run must not pass.
+    # The harness is loaded as a conftest (not with -p) so its django_db_setup overrides pytest-django's.
+    (tmp_path / "conftest.py").write_text("from tests.conftest import *  # noqa: F403\n")
+    probe = tmp_path / "test_identity_probe.py"
+    probe.write_text(IDENTITY_PROBE)
+    result = run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(probe)],
+                 timeout=120, CATALYST_TEST_DB_SUFFIX=f"probe{os.getpid()}")
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "1 passed, 1 error" in result.stdout
+    assert "does not carry this test run's identity marker" in result.stdout

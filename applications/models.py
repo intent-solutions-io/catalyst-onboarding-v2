@@ -1,9 +1,11 @@
 """Applicant dossier models for the first slice (005 S1.4). Fields and constraints only: stage changes,
 version allocation and adoption happen in services (S1-T4 onward), never here.
 
-Protected history (ADR-14, D-17): SubmissionVersion and ApplicationEvent are append-only for the
-application role, enforced by database privileges and a trigger (migration 0002). RetentionAudit is
-written only by that trigger and never changed.
+Protected history (ADR-14, D-17, D-22): SubmissionVersion and ApplicationEvent are append-only for the
+application role, enforced by database privileges and a trigger (migration 0002). VersionAdoption is
+append-only for every role, with no retention exception (migration 0003). RetentionAudit is written only
+by the 0002 trigger and never changed. Stated limitation: the migration owner can alter these
+protections and a superuser bypasses them; they are not administrator-proof.
 """
 
 import uuid
@@ -105,7 +107,10 @@ class ContactChallenge(models.Model):
 
 
 class VersionAdoption(models.Model):
-    """The verified address owner explicitly confirmed this version (005 S1.2; REQ-033)."""
+    """The verified address owner explicitly confirmed this version (005 S1.2; REQ-033).
+
+    Protected history (D-22): no role may update, delete or truncate it (migration 0003); there is no
+    retention path for adoptions until POL-10 decides one for the connected records."""
 
     application = models.ForeignKey(Application, on_delete=models.PROTECT, related_name="adoptions")
     submission_version = models.OneToOneField(SubmissionVersion, on_delete=models.PROTECT, related_name="adoption")

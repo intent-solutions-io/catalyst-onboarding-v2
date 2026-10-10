@@ -36,7 +36,7 @@ services:
       CATALYST_ENV: test
       CATALYST_SECRET_KEY: synthetic-test-only
       CATALYST_DB_NAME: catalyst
-      CATALYST_DB_USER: catalyst_owner  # tests and migrations run as the migration owner (ADR-14)
+      CATALYST_DB_USER: catalyst_owner  # creates and migrates the test database; tests then run as catalyst_app (D-21)
       CATALYST_DB_PASSWORD: synthetic-owner-only
       CATALYST_DB_HOST: db
       CATALYST_DB_PORT: "5432"

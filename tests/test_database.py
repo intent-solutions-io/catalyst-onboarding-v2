@@ -11,7 +11,8 @@ from django.db.migrations.recorder import MigrationRecorder
 pytestmark = pytest.mark.django_db
 
 # The complete, approved migration set. Updated deliberately per task: S1-T2 added the skeleton baseline
-# (contrib + accounts.0001); S1-T3 added the slice data model and the role grants and history protection.
+# (contrib + accounts.0001); S1-T3 added the slice data model, the role grants and history protection, and
+# adoption protection (D-22).
 # Anything else appearing here means unapproved schema was pulled in.
 APPROVED_MIGRATIONS = {
     ("contenttypes", "0001_initial"), ("contenttypes", "0002_remove_content_type_name"),
@@ -24,6 +25,7 @@ APPROVED_MIGRATIONS = {
     ("accounts", "0001_initial"), ("accounts", "0002_role_grants"),
     ("workflow", "0001_initial"), ("workflow", "0002_role_grants"),
     ("applications", "0001_initial"), ("applications", "0002_history_protection"),
+    ("applications", "0003_protect_version_adoption"),
     ("correspondence", "0001_initial"), ("correspondence", "0002_role_grants"),
 }
 

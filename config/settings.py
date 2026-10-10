@@ -68,7 +68,8 @@ for _key, _role in CATALYST_DB_ROLES.items():
         raise ImproperlyConfigured(f"CATALYST_DB_ROLES[{_key!r}] is not a plain lowercase identifier")
 if len(set(CATALYST_DB_ROLES.values())) != 3:
     raise ImproperlyConfigured("the owner, application and retention roles must be three different roles")
-# The kind of process: "web" and "worker" must connect as the application role (config.checks, E002).
+# The kind of process for the catalyst.E002 diagnostic. Runtime enforcement does not read it: entry points
+# declare their kind in code (config.runtime), so a stale value cannot exempt the web process.
 # CATALYST_DB_USER / CATALYST_DB_PASSWORD are the login of whichever role this process uses.
 CATALYST_PROCESS = os.environ.get("CATALYST_PROCESS", "management")
 

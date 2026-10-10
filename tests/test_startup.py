@@ -1,22 +1,14 @@
 """Start-up behaviour of real processes (TEST-S1-13, TEST-S1-14): the guards run in AppConfig.ready(),
 so each case starts a fresh Python process and asserts its exit status and message."""
 
-import os
-import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parent.parent
+from tests.support import ROOT, run
+
 CHECK = [sys.executable, "manage.py", "check"]
 WSGI = [sys.executable, "-c", "import config.wsgi"]
-
-
-def run(cmd, **overrides):
-    env = {**os.environ, "DJANGO_SETTINGS_MODULE": "config.settings", **overrides}
-    env = {k: v for k, v in env.items() if v is not None}
-    return subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True, timeout=60)
 
 
 def test_check_passes_with_the_test_configuration():
