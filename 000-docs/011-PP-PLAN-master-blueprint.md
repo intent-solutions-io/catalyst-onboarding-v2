@@ -3,8 +3,8 @@
 | Field | Value |
 |---|---|
 | Document | `011-PP-PLAN-master-blueprint` (the only master blueprint for this repository) |
-| Version | 1.0.0 (approved in the scope of section 10) |
-| Status | **APPROVED IN SCOPE** (section 10): project direction, amended requirements and the bounded synthetic first-slice scope. **Not approved:** ADR-03, ADR-14, ADR-17, ADR-18, the 19 open policies, application implementation, provider writes, deployment, release. Items marked PROPOSED elsewhere stay proposals. |
+| Version | 1.1.0 (ADR decisions of 2026-10-10 recorded) |
+| Status | **APPROVED IN SCOPE** (section 10): project direction, amended requirements and the bounded synthetic first-slice scope. ADR-03, ADR-14, ADR-17 and ADR-18 **decided 2026-10-10** (D-16 to D-19). **Not approved:** the 19 open policies, provider writes, deployment, release; implementation only as each handoff is authorized (1B.1 authorized 2026-10-10, to start once PR #8 merges). Items marked PROPOSED elsewhere stay proposals. |
 | Owner | Jeremy Longshore (product owner and approver) |
 | Reviewers | `catalyst-django-architect` (build design), `catalyst-independent-qa` (independent review); results in section 9 |
 | Date | 2026-10-09 |
@@ -73,7 +73,7 @@ direct database edits or a coding agent. The learning site itself is not replace
 
 ## 4. Owner decisions and boundaries
 
-### 4.1 Recorded owner direction (source of D-01 to D-11, D-14 and D-15)
+### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-19)
 
 The owner gave this project direction in the build-contract instruction of 2026-10-09, in the
 invoking session. It is recorded here verbatim so a fresh session can check the source. The owner
@@ -110,6 +110,29 @@ confirms or amends the record by approving or changing this document's pull requ
 > "Keep P0-P6 and PL as engineering epic identifiers. Record how they map to numbered A/B/C owner
 > handoffs, delivered one at a time and expandable as needed."
 
+**ADR decisions of 2026-10-10** (owner instruction, against the `012` evidence at PR #8 head
+`62a4a9dee2f5cb89efb2a123120dd109f2a2a07b`), recorded verbatim in their essentials:
+
+> "ADR-03: Approve the custom PostgreSQL pending-action ledger and Django management-command worker for
+> the bounded Catalyst MVP. This is not authorization to build a reusable queue framework, distributed
+> scheduler, plugin architecture, or second execution engine."
+>
+> "ADR-14: Approve privileges plus triggers for the protected append-only tables, with separate
+> migration-owner, application, and retention roles. Ordinary operational tables may still be updated
+> through approved services. Do not make the whole application database append-only." "Approve the
+> capability for a separately authorized, audited retention operation--not a default permission to
+> delete real records. POL-10 stays open."
+>
+> "ADR-17: Approve this initial application baseline: Python 3.14.8, Django 5.2.18 LTS, PostgreSQL
+> 16.15, Psycopg 3.3.6." "The test-tool versions reported in 012 were not run." "Pin container images
+> by digest."
+>
+> "ADR-18: Approve a minimal accounts.User subclass of AbstractUser with AUTH_USER_MODEL established
+> before the first migration. Applicants remain dossier records, not automatically created accounts."
+
+The full conditions (fair comparison, unproven worker behaviours, role boundaries, retention limits,
+test-tool verification) are recorded on each ADR row in `003`.
+
 ### 4.2 Decision summary
 
 Decision records with rationale live in `003` section "Architecture decisions". This table is the
@@ -132,6 +155,10 @@ summary a reader needs first.
 | D-13 | Bead history is public; sanitized engineering work only | OWNER-DECIDED | `009` section 9 decision 2 |
 | D-14 | A clean repository does not authorize discarding live first-generation records | OWNER-DECIDED | section 4.1 |
 | D-15 | Verified completion of the required NDA must precede exposure or issuance of the User Agreement | OWNER-DECIDED | section 4.1 (amendment) |
+| D-16 | ADR-03: custom PostgreSQL pending-action ledger and management-command worker, bounded to the MVP | OWNER-DECIDED | section 4.1 (ADR decisions 2026-10-10); `003` ADR-03 |
+| D-17 | ADR-14: privileges plus triggers on protected history tables, three roles; retention capability only, no real deletion until POL-10 | OWNER-DECIDED | section 4.1; `003` ADR-14 |
+| D-18 | ADR-17: Python 3.14.8, Django 5.2.18 LTS, PostgreSQL 16.15, psycopg 3.3.6; locked dependencies; digest-pinned images | OWNER-DECIDED | section 4.1; `003` ADR-17 |
+| D-19 | ADR-18: minimal `accounts.User(AbstractUser)` before the first migration; applicants are not accounts | OWNER-DECIDED | section 4.1; `003` ADR-18 |
 
 **Contradictions found:**
 
@@ -205,7 +232,7 @@ its predecessor's gate passes and the policies it needs are decided. Later epics
 | Phase | Epic bead (title) | Bead | Depends on | Exit gate |
 |---|---|---|---|---|
 | P0 | Develop the master blueprint, PRD, architecture and phased execution plan before any code is written | `catalyst-v2-211` | none | owner approves this contract (bead `catalyst-v2-211.6`) |
-| P1 | Build the first working slice: synthetic intake, email verification to a local mail sink, and a read-only staff view | `catalyst-v2-6hl` | P0 | GATE-S1 |
+| P1 | Build the first working slice: synthetic intake, email verification to a local mail sink, and a read-only staff view | `catalyst-v2-6hl` | contract approval (bead `catalyst-v2-211.6`, on S1-T1); not the open policy beads (corrected 2026-10-10) | GATE-S1 |
 | P2 | Run the applicant correspondence loop: outbound policy, inbox correlation, reminders, stop rules and human takeover | `catalyst-v2-7hu` | P1; POL-06, POL-19 | GATE-P2 |
 | P3 | Collect evidence, run the bounded MiniMax assessment, and record the authorized qualification decision | `catalyst-v2-oc4` | P2; POL-03, POL-04, POL-05 | GATE-P3 |
 | P4 | Issue and verify the NDA, User Agreement and other required agreements through Documenso with protected custody | `catalyst-v2-hdg` | P3; POL-07, POL-08, POL-09, POL-18 | GATE-P4 |
@@ -222,7 +249,7 @@ working, tested behaviour; no phase defers all integration to the end.
 | Key | Bead | Title | Depends on |
 |---|---|---|---|
 | S1-T1 | `catalyst-v2-6hl.1` | Select and verify the Django, Python, PostgreSQL, driver and job-runner versions for the first slice | owner approval (`catalyst-v2-211.6`) |
-| S1-D | `catalyst-v2-6hl.9` | Obtain the owner's decisions on ADR-03, ADR-14, ADR-17 and ADR-18 before the first migration | S1-T1 |
+| S1-D | `catalyst-v2-6hl.9` | Obtain the owner's decisions on ADR-03, ADR-14, ADR-17 and ADR-18 before the first migration | S1-T1 (decided 2026-10-10: D-16 to D-19) |
 | S1-T2 | `catalyst-v2-6hl.2` | Create the Django project skeleton with PostgreSQL-only settings, provider guards and the CI runtime lane | S1-D |
 | S1-T3 | `catalyst-v2-6hl.3` | Model the application, submission versions, history events and pending actions with their constraints | S1-T2 |
 | S1-T4 | `catalyst-v2-6hl.4` | Accept the public access-request form with validation, duplicate handling and one atomic commit | S1-T3 |
@@ -311,7 +338,7 @@ request comment):
 | 3 | Signing versus custody | `004` "Agreement facts", J-11 to J-14; REQ-011 and REQ-032; `003` ADR-05 and trust boundary (webhook authentication per installed version); planned TEST-P4-07 and TEST-P4-08 |
 | 4 | Submission versions and verification | `004` J-03 and J-05; REQ-007 and REQ-033; `005` S1.2, S1.4 (`VersionAdoption`); TEST-S1-08 extended, TEST-S1-22 added; planned TEST-P3-08 |
 | 5 | Public route detail | `003` "Current routing" reduced to a summary; the authoritative baseline stays in the live proxy configuration and private operations records; Git history not rewritten |
-| 6 | Delivery handoffs | section 7 maps P-phases to numbered A/B/C handoffs; next is 1A |
+| 6 | Delivery handoffs | section 7 maps P-phases to numbered A/B/C handoffs; the next handoff at the time of the amendment was 1A (since delivered: `012`) |
 | 7 | Decisions before implementation | `003` ADR-03, ADR-14, ADR-17 and ADR-18 marked PENDING OWNER DECISION; `005` S1.6a defines what S1-T1 returns; beads S1-T1 and S1-D updated |
 
 Independent review of the amended clauses (fresh `catalyst-independent-qa` invocation, commit `a264b97`):
@@ -352,3 +379,9 @@ requirement or scope changed.
 amendment remain available in this public repository's Git history. History is not rewritten. This is
 not acceptance of credentials, live tokens, applicant data or confidential agreement content; any such
 material found would be reported as a separate exposure.
+
+**ADR decisions, 2026-10-10:** ADR-03, ADR-14, ADR-17 and ADR-18 were decided by the owner against the
+`012` evidence (D-16 to D-19, section 4.1). The same instruction authorized handoff **1B.1 only**, to start after PR #8 merges (S1-T2:
+skeleton, PostgreSQL-only configuration, provider guards, reproducible environment, minimal CI runtime
+lane). The 19 policies, provider writes, deployment and release remain unapproved; all 22 `TEST-S1-`
+cases remain NOT RUN until their tasks run them.

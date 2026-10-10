@@ -11,14 +11,15 @@ Every document in this directory is **preliminary and subject to review** until 
 | [003-AT-ARCH-architecture.md](003-AT-ARCH-architecture.md) | Architecture: context, six domain apps plus `accounts`, data flow, security model, verified current Learn routing, proposed v2 routing, staff access design, decision records `ADR-01`-`18` | Proposed 2026-10-09 (0.2.0); subject to review |
 | [004-UC-USER-user-journey.md](004-UC-USER-user-journey.md) | Applicant journey, stages `J-01`-`J-16`: trigger, records, transaction, checks, LLM scope, alternates, retries, owner, tests | Proposed 2026-10-09 (0.2.0); subject to review |
 | [005-AT-DSGN-technical-spec.md](005-AT-DSGN-technical-spec.md) | Implementation slices; S1 first slice: scope, minimal model, Django capabilities, versions, acceptance plan `TEST-S1-01`-`22` | Proposed 2026-10-09 (0.2.0); not built |
-| [006-LS-STAT-status.md](006-LS-STAT-status.md) | Status: current state, verified versus pending, blockers, next approval | Updated 2026-10-09 |
+| [006-LS-STAT-status.md](006-LS-STAT-status.md) | Status: current state, verified versus pending, blockers, next approval | Updated 2026-10-10 |
 | [007-DR-STND-agent-operating-charter.md](007-DR-STND-agent-operating-charter.md) | Agent Operating Charter: shared rules, boundaries, precedence and result format for the specialist subagents | Proposed 2026-10-09; subject to review |
 | [008-RA-REPT-agent-registry-and-validation-report.md](008-RA-REPT-agent-registry-and-validation-report.md) | Agent registry and validation report: roster, models, access boundaries, references, validation and smoke-test results | Proposed 2026-10-09; subject to review |
 | [009-DR-STND-developer-workflow-and-quality-contract.md](009-DR-STND-developer-workflow-and-quality-contract.md) | Developer Workflow and Quality Contract: one job per system, working agreement, Beads and brain discipline, checks and CI, branch and worktree policy, owner decisions of 2026-10-09 | Proposed 2026-10-09; subject to review |
 | [010-DR-REFF-hook-and-memory-responsibility-register.md](010-DR-REFF-hook-and-memory-responsibility-register.md) | Hook and Memory Responsibility Register: observed hooks, costs, event matrix, memory stores, changes applied outside the repo | Proposed 2026-10-09; subject to review |
 | [011-PP-PLAN-master-blueprint.md](011-PP-PLAN-master-blueprint.md) | **Master blueprint (start here):** document map, owner decisions, authority, open policy register, phased work graph with bead references, approval record | Approved in scope 2026-10-09 (section 10) |
+| [012-RA-ANLY-s1-t1-compatibility-evidence.md](012-RA-ANLY-s1-t1-compatibility-evidence.md) | Handoff 1A evidence: atomic enqueue, worker-death recovery, append-only enforcement, custom user model, versions; decision table for ADR-03, 14, 17, 18 (recommendations only) | Evidence 2026-10-09; ADRs decided 2026-10-10 (D-16 to D-19) |
 
-Next free number: `012`.
+Next free number: `013`.
 
 **After-action reports** go in `000-aars/` inside this directory (filing standard v4.5 §3.1.3): global
 `NNN`, `NNN-AA-AACR-<slug>.md`, from the template above. None filed yet. Cadence: `009` section 10.
