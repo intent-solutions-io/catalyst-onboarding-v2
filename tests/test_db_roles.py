@@ -24,7 +24,7 @@ pytestmark = pytest.mark.django_db
 ROOT = Path(__file__).resolve().parent.parent
 ROLES = settings.CATALYST_DB_ROLES
 PASSWORDS = {
-    "owner": os.environ["CATALYST_DB_PASSWORD"],
+    "owner": os.environ["CATALYST_DB_OWNER_PASSWORD"],
     "app": os.environ["CATALYST_DB_APP_PASSWORD"],
     "retention": os.environ["CATALYST_DB_RETENTION_PASSWORD"],
 }
@@ -154,6 +154,10 @@ def test_application_role_performs_ordinary_operations(connect):
 def test_application_role_reads_but_cannot_change_staff_accounts_beyond_last_login(connect):
     app = connect("app")
     app.execute("SELECT count(*) FROM accounts_user").fetchone()
+    app.execute("UPDATE accounts_user SET last_login = now() WHERE false")  # permitted column
+    app.rollback()
+    refused(app, "UPDATE accounts_user SET is_superuser = true WHERE false")
+    refused(app, "UPDATE accounts_user SET is_staff = true WHERE false")
     refused(app, "INSERT INTO accounts_user (password, is_superuser, username, first_name, last_name, email, is_staff,"
                  " is_active, date_joined) VALUES ('x', true, 'mallory', '', '', '', true, true, now())")
     refused(app, "DELETE FROM accounts_user")
@@ -232,9 +236,26 @@ def test_stated_limitation_the_owner_can_disable_the_trigger(connect):
 
 # --- audited retention ---------------------------------------------------------------------------------
 
-def test_retention_delete_requires_a_reason(connect):
+@pytest.mark.parametrize("reason", [None, "", "   ", "too short"], ids=["unset", "empty", "blank", "short"])
+def test_retention_delete_requires_a_stated_reason(connect, reason):
     _, _, event_id = new_application(connect("app"))
-    refused(connect("retention"), "DELETE FROM applications_applicationevent WHERE id = %s", [event_id], match="append-only")
+    retention = connect("retention")
+    if reason is not None:
+        retention.execute("SELECT set_config('catalyst.retention_reason', %s, true)", [reason])
+    refused(retention, "DELETE FROM applications_applicationevent WHERE id = %s", [event_id], match="append-only")
+
+
+def test_retention_can_delete_an_unadopted_submission_version_with_audit(connect):
+    app_id, version_id, _ = new_application(connect("app"))
+    retention = connect("retention")
+    retention.execute("SET LOCAL catalyst.retention_reason = 'synthetic retention of a version'")
+    assert retention.execute("DELETE FROM applications_submissionversion WHERE id = %s", [version_id]).rowcount == 1
+    retention.commit()
+    audited = retention.execute(
+        "SELECT application_id FROM applications_retentionaudit WHERE row_id = %s AND table_name = 'applications_submissionversion'",
+        [version_id],
+    ).fetchone()
+    assert audited == (app_id,)
 
 
 def test_retention_delete_with_a_reason_is_audited_and_the_audit_is_immutable(connect):
@@ -244,10 +265,12 @@ def test_retention_delete_with_a_reason_is_audited_and_the_audit_is_immutable(co
     assert retention.execute("DELETE FROM applications_applicationevent WHERE id = %s", [event_id]).rowcount == 1
     retention.commit()
     row = retention.execute(
-        "SELECT actor, table_name, reason FROM applications_retentionaudit WHERE row_id = %s AND table_name = 'applications_applicationevent'",
+        "SELECT actor, table_name, reason, application_id, length(row_sha256) FROM applications_retentionaudit"
+        " WHERE row_id = %s AND table_name = 'applications_applicationevent'",
         [event_id],
     ).fetchone()
-    assert row == (ROLES["retention"], "applications_applicationevent", "synthetic retention test")
+    assert row[:3] == (ROLES["retention"], "applications_applicationevent", "synthetic retention test")
+    assert row[3] is not None and row[4] == 64  # which application, and a digest of the removed row
     retention.commit()
     owner = connect("owner")
     refused(owner, "UPDATE applications_retentionaudit SET reason = 'rewritten' WHERE row_id = %s", [event_id], match="append-only")
@@ -363,9 +386,86 @@ def test_a_superuser_connection_is_refused():
 def test_a_web_process_connecting_as_the_owner_is_refused():
     result = check_database(CATALYST_PROCESS="web")
     assert result.returncode != 0
-    assert "catalyst.E002" in result.stderr and "migration owner" in result.stderr
+    assert "catalyst.E002" in result.stderr and "not the application role" in result.stderr
+
+
+def test_a_worker_process_connecting_as_the_retention_role_is_refused():
+    result = check_database(CATALYST_PROCESS="worker", CATALYST_DB_USER=ROLES["retention"],
+                            CATALYST_DB_PASSWORD=PASSWORDS["retention"])
+    assert result.returncode != 0
+    assert "catalyst.E002" in result.stderr and "not the application role" in result.stderr
+
+
+def test_a_worker_process_connecting_as_the_application_role_passes():
+    result = check_database(CATALYST_PROCESS="worker", CATALYST_DB_USER=ROLES["app"], CATALYST_DB_PASSWORD=PASSWORDS["app"])
+    assert result.returncode == 0, result.stderr
 
 
 def test_a_web_process_connecting_as_the_application_role_passes():
     result = check_database(CATALYST_PROCESS="web", CATALYST_DB_USER=ROLES["app"], CATALYST_DB_PASSWORD=PASSWORDS["app"])
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "UPDATE applications_application SET email = 'x@example.test' WHERE false",
+        "UPDATE applications_application SET email_key = 'x@example.test' WHERE false",
+        "UPDATE applications_application SET public_ref = gen_random_uuid() WHERE false",
+        "UPDATE applications_contactchallenge SET expires_at = now() WHERE false",
+        "UPDATE workflow_pendingaction SET idempotency_key = 'x' WHERE false",
+        "UPDATE workflow_pendingaction SET max_attempts = 99 WHERE false",
+        "UPDATE correspondence_outboundmessage SET recipient = 'x@example.test' WHERE false",
+    ],
+    ids=["app-email", "app-email-key", "app-public-ref", "challenge-expiry", "action-key", "action-max-attempts", "outbound-recipient"],
+)
+def test_application_role_updates_only_the_columns_its_services_need(connect, sql):
+    refused(connect("app"), sql)
+
+
+def test_application_role_cannot_switch_off_triggers_for_its_session(connect):
+    refused(connect("app"), "SET session_replication_role = replica", match="permission denied")
+
+
+def test_application_role_can_claim_with_skip_locked(connect):
+    app = connect("app")
+    key = f"sv:{uuid.uuid4()}"
+    app.execute(
+        "INSERT INTO workflow_pendingaction (kind, subject_type, subject_id, input_ref, idempotency_key, status, attempts,"
+        " max_attempts, last_error) VALUES ('send_verification', 'application', %s, '', %s, 'queued', 0, 3, '')",
+        [uuid.uuid4(), key],
+    )
+    app.commit()
+    claimed = app.execute(
+        "SELECT id FROM workflow_pendingaction WHERE idempotency_key = %s FOR UPDATE SKIP LOCKED", [key]
+    ).fetchone()
+    assert claimed is not None
+    other = connect("app")
+    assert other.execute(
+        "SELECT id FROM workflow_pendingaction WHERE idempotency_key = %s FOR UPDATE SKIP LOCKED", [key]
+    ).fetchone() is None  # locked by the first claimant: skipped, not waited for
+    app.rollback()
+    other.rollback()
+
+
+def test_grant_migrations_reverse_and_reapply():
+    def app_can(table, privilege):
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT has_table_privilege(%s, %s, %s)", [ROLES["app"], table, privilege])
+            return cursor.fetchone()[0]
+
+    assert app_can("workflow_pendingaction", "INSERT")
+    call_command("migrate", "workflow", "0001", verbosity=0)
+    assert not app_can("workflow_pendingaction", "INSERT") and not app_can("workflow_pendingaction", "SELECT")
+    call_command("migrate", "workflow", "0002", verbosity=0)
+    assert app_can("workflow_pendingaction", "INSERT")
+
+
+def test_data_survives_reversing_and_reapplying_the_protection():
+    from applications.models import Application
+
+    key = f"{uuid.uuid4().hex}@example.test"
+    kept = Application.objects.create(email=key, email_key=key, display_name="Synthetic")
+    call_command("migrate", "applications", "0001", verbosity=0)
+    call_command("migrate", "applications", "0002", verbosity=0)
+    assert Application.objects.filter(pk=kept.pk).exists()

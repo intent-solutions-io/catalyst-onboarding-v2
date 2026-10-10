@@ -77,8 +77,10 @@ registrations, the CI runtime lane.
 **Implemented in S1-T3 (1B.2).** The models above, plus `RetentionAudit` (written only by the protection
 trigger), in apps `applications`, `workflow` and `correspondence`. Roles (ADR-14, D-17) are provisioned outside
 the application by `scripts/provision_db_roles.py` (development and test only); each app's grant migration
-gives the application role exactly the privileges listed in the migration, and
-`applications.0002_history_protection` adds the append-only and audit triggers. Services, locking and
+gives the application role exactly the privileges listed in the migration (UPDATE is column-level, so
+services must save with `update_fields` or `QuerySet.update`, never a full-row save), and
+`applications.0002_history_protection` adds the append-only and audit triggers. Composite foreign keys keep an
+adoption's version and challenge within its own application. Services, locking and
 allocation below arrive with S1-T4 onward.
 
 **Allocation and locking.** Version numbers come from the application's counter while its row is locked.

@@ -3,6 +3,8 @@
 Used by each app's grant migration, which runs as the migration owner. Role names come from settings
 (CATALYST_DB_ROLES); roles themselves are provisioned outside the application (scripts/provision_db_roles.py).
 Grants are explicit per table: no default privileges, so a new table gets nothing until a migration says so.
+UPDATE is column-level where possible ("UPDATE (col, col)"), so identity and audit columns stay fixed; code
+that writes these tables must use update_fields or QuerySet.update, never a full-row save.
 """
 
 from django.conf import settings
@@ -16,7 +18,7 @@ def grant(schema_editor, table, role_key, privileges):
     role = settings.CATALYST_DB_ROLES[role_key]
     schema_editor.execute(f"GRANT {', '.join(privileges)} ON TABLE {_q(schema_editor, table)} TO {_q(schema_editor, role)}")
     # Identity columns draw from a sequence; INSERT needs USAGE on it.
-    if "INSERT" in privileges:
+    if any(p.startswith("INSERT") for p in privileges):
         with schema_editor.connection.cursor() as cursor:
             cursor.execute("SELECT pg_get_serial_sequence(%s, 'id')", [table])
             row = cursor.fetchone()

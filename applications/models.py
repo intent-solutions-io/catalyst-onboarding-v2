@@ -76,6 +76,8 @@ class SubmissionVersion(models.Model):
             models.UniqueConstraint(fields=["application", "version_number"], name="version_number_unique_per_application"),
             models.CheckConstraint(condition=Q(version_number__gte=1), name="version_number_positive"),
             models.CheckConstraint(condition=Q(origin__in=["form", "repeat_after_verification"]), name="version_origin_valid"),
+            # Target of the composite foreign key from VersionAdoption (same application).
+            models.UniqueConstraint(fields=["id", "application"], name="version_id_application_unique"),
         ]
 
 
@@ -97,6 +99,8 @@ class ContactChallenge(models.Model):
                 name="challenge_one_active_per_application",
             ),
             models.CheckConstraint(condition=Q(expires_at__gt=models.F("created_at")), name="challenge_expires_after_creation"),
+            # Target of the composite foreign key from VersionAdoption (same application).
+            models.UniqueConstraint(fields=["id", "application"], name="challenge_id_application_unique"),
         ]
 
 
@@ -113,6 +117,8 @@ class VersionAdoption(models.Model):
             # S1: at most one adoption per application.
             models.UniqueConstraint(fields=["application"], name="adoption_one_per_application"),
         ]
+        # The adopted version and the challenge must belong to this same application: composite foreign
+        # keys added by migration 0001 (Django has no composite foreign key field).
 
 
 class ApplicationEvent(models.Model):
@@ -129,17 +135,23 @@ class ApplicationEvent(models.Model):
     data = models.JSONField(default=dict)  # never secrets or tokens
 
     class Meta:
-        indexes = [models.Index(fields=["application", "occurred_at"], name="event_application_time")]
+        indexes = [
+            models.Index(fields=["application", "occurred_at"], name="event_application_time"),
+            models.Index(fields=["application"], condition=Q(kind="needs_staff_attention"), name="event_staff_attention"),
+        ]
         constraints = [
             models.CheckConstraint(condition=Q(actor_type__in=["system", "applicant", "staff"]), name="event_actor_type_valid"),
         ]
 
 
 class RetentionAudit(models.Model):
-    """One row per audited retention delete; inserted only by the protection trigger (migration 0002)."""
+    """One row per audited retention delete; inserted only by the protection trigger (migration 0002).
+    Records which application's record was removed and a SHA-256 digest of the deleted row, never its content."""
 
     at = models.DateTimeField(db_default=Now())
     actor = models.CharField(max_length=128)
     table_name = models.CharField(max_length=128)
     row_id = models.BigIntegerField()
+    application_id = models.BigIntegerField()
+    row_sha256 = models.CharField(max_length=64)
     reason = models.TextField()

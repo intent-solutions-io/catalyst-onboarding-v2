@@ -35,7 +35,13 @@ class PendingAction(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        indexes = [models.Index(fields=["status", "due_at"], name="pending_action_status_due")]
+        indexes = [
+            models.Index(fields=["status", "due_at"], name="pending_action_status_due"),
+            models.Index(fields=["subject_type", "subject_id"], name="pending_action_subject"),
+            # Claim path (005 S1.4 rule 1): due queued rows and expired leases.
+            models.Index(fields=["due_at"], condition=Q(status="queued"), name="pending_action_queued_due"),
+            models.Index(fields=["lease_expires_at"], condition=Q(status="running"), name="pending_action_running_lease"),
+        ]
         constraints = [
             models.CheckConstraint(condition=Q(status__in=STATUSES), name="pending_action_status_valid"),
             models.CheckConstraint(condition=Q(max_attempts__gte=1), name="pending_action_max_attempts_positive"),

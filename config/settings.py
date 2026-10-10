@@ -5,6 +5,7 @@ database URL and no engine variable: the engine is PostgreSQL, and config.guards
 """
 
 import os
+import re
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -61,7 +62,14 @@ CATALYST_DB_ROLES = {
     "app": env("CATALYST_DB_APP_ROLE", "catalyst_app"),
     "retention": env("CATALYST_DB_RETENTION_ROLE", "catalyst_retention"),
 }
-# The kind of process: "web" and "worker" must not connect as the owner role (config.checks).
+# Role names reach SQL as identifiers in migrations: accept only plain lowercase identifiers.
+for _key, _role in CATALYST_DB_ROLES.items():
+    if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", _role):
+        raise ImproperlyConfigured(f"CATALYST_DB_ROLES[{_key!r}] is not a plain lowercase identifier")
+if len(set(CATALYST_DB_ROLES.values())) != 3:
+    raise ImproperlyConfigured("the owner, application and retention roles must be three different roles")
+# The kind of process: "web" and "worker" must connect as the application role (config.checks, E002).
+# CATALYST_DB_USER / CATALYST_DB_PASSWORD are the login of whichever role this process uses.
 CATALYST_PROCESS = os.environ.get("CATALYST_PROCESS", "management")
 
 # ADR-18 (D-19): the custom user model exists before the first migration.

@@ -9,7 +9,7 @@ Privileged, cluster-level work kept outside the application: it connects with th
   retention  LOGIN, no other attribute; the separately authorized retention path
 
 None is a superuser, none can create roles, and no role is a member of another. Passwords come from
-CATALYST_DB_PASSWORD (owner), CATALYST_DB_APP_PASSWORD and CATALYST_DB_RETENTION_PASSWORD. Production
+CATALYST_DB_OWNER_PASSWORD, CATALYST_DB_APP_PASSWORD and CATALYST_DB_RETENTION_PASSWORD. Production
 provisioning is a later, separately authorized phase (P6); this script refuses CATALYST_ENV=production.
 """
 
@@ -25,7 +25,7 @@ def main() -> int:
         print("provision_db_roles: only for CATALYST_ENV=development or test", file=sys.stderr)
         return 2
     roles = {
-        os.environ.get("CATALYST_DB_OWNER_ROLE", "catalyst_owner"): (os.environ["CATALYST_DB_PASSWORD"], ["CREATEDB"]),
+        os.environ.get("CATALYST_DB_OWNER_ROLE", "catalyst_owner"): (os.environ["CATALYST_DB_OWNER_PASSWORD"], ["CREATEDB"]),
         os.environ.get("CATALYST_DB_APP_ROLE", "catalyst_app"): (os.environ["CATALYST_DB_APP_PASSWORD"], []),
         os.environ.get("CATALYST_DB_RETENTION_ROLE", "catalyst_retention"): (os.environ["CATALYST_DB_RETENTION_PASSWORD"], []),
     }

@@ -6,7 +6,10 @@ from django.db import migrations
 from config.db_roles import apply_grants
 
 forward, reverse = apply_grants({
-    "workflow_pendingaction": {"app": ["SELECT", "INSERT", "UPDATE"]},
+    "workflow_pendingaction": {"app": [
+        "SELECT", "INSERT",
+        "UPDATE (status, due_at, attempts, lease_token, lease_expires_at, last_error, updated_at, completed_at)",
+    ]},
     "workflow_automationpause": {"app": ["SELECT", "INSERT", "DELETE"]},
 })
 

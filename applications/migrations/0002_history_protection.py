@@ -17,14 +17,18 @@ from django.db import migrations
 from config.db_roles import apply_grants
 
 PROTECTED = ("applications_submissionversion", "applications_applicationevent")
+MIN_REASON = 10  # characters after trimming; a stated reason, not a placeholder
 AUDIT = "applications_retentionaudit"
 
 grant_forward, grant_reverse = apply_grants({
-    "applications_application": {"app": ["SELECT", "INSERT", "UPDATE"], "retention": ["SELECT"]},
+    "applications_application": {
+        "app": ["SELECT", "INSERT", "UPDATE (display_name, stage, contact_verified_at, next_version_number, updated_at)"],
+        "retention": ["SELECT"],
+    },
     "applications_submissionversion": {"app": ["SELECT", "INSERT"], "retention": ["SELECT", "DELETE"]},
     "applications_applicationevent": {"app": ["SELECT", "INSERT"], "retention": ["SELECT", "DELETE"]},
     "applications_versionadoption": {"app": ["SELECT", "INSERT"]},
-    "applications_contactchallenge": {"app": ["SELECT", "INSERT", "UPDATE"]},
+    "applications_contactchallenge": {"app": ["SELECT", "INSERT", "UPDATE (used_at, superseded_at)"]},
     AUDIT: {"retention": ["SELECT"]},
 })
 
@@ -40,10 +44,12 @@ def protect(apps, schema_editor):
         BEGIN
           IF TG_OP = 'DELETE'
              AND pg_catalog.pg_has_role(session_user, {retention_literal}, 'MEMBER')
-             AND coalesce(pg_catalog.current_setting('catalyst.retention_reason', true), '') <> '' THEN
-            INSERT INTO public.{AUDIT} (at, actor, table_name, row_id, reason)
-              VALUES (pg_catalog.now(), session_user, TG_TABLE_NAME, OLD.id,
-                      pg_catalog.current_setting('catalyst.retention_reason'));
+             AND pg_catalog.length(pg_catalog.btrim(coalesce(
+                   pg_catalog.current_setting('catalyst.retention_reason', true), ''))) >= {MIN_REASON} THEN
+            INSERT INTO public.{AUDIT} (at, actor, table_name, row_id, application_id, row_sha256, reason)
+              VALUES (pg_catalog.statement_timestamp(), session_user, TG_TABLE_NAME, OLD.id, OLD.application_id,
+                      pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(OLD::text, 'UTF8')), 'hex'),
+                      pg_catalog.btrim(pg_catalog.current_setting('catalyst.retention_reason')));
             RETURN OLD;
           END IF;
           RAISE EXCEPTION 'append-only: % on % refused for %', TG_OP, TG_TABLE_NAME, session_user
