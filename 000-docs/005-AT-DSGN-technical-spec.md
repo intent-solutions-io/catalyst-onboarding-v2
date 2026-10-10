@@ -136,7 +136,7 @@ is P2 or the relevant integration phase, before real external actions are enable
 
 ### S1.6 Dependencies, proposed versions and compatibility checks
 
-**Not installed in the contract handoff.** S1-T1 has since performed the checks; results are in `012`; ADR-17 decided 2026-10-10 (D-18); pytest and pytest-django are still to be verified at the start of 1B.1.
+**Not installed in the contract handoff.** S1-T1 has since performed the checks; results are in `012`; ADR-17 decided 2026-10-10 (D-18); pytest and pytest-django were verified at the start of 1B.1 (Test runner row below).
 Reported by the Django architect specialist from the Django 5.2 documentation on 2026-10-09 (INSPECTED by
 the main session; S1-T1 re-checks): Django 5.2 supports Python 3.10 to 3.14 and PostgreSQL 14 and later, requires psycopg 3.1.8 or later (or
 psycopg2), and is a long-term-support release with security updates for at least three years from
