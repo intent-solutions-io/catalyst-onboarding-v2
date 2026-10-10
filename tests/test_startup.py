@@ -66,3 +66,27 @@ def test_unreachable_database_fails_loudly_when_a_command_needs_it():
     result = run([sys.executable, "manage.py", "showmigrations"], CATALYST_DB_PORT="1")
     assert result.returncode != 0
     assert "OperationalError" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("environment", "backend"),
+    [("test", "locmem"), ("development", "console")],
+)
+def test_configured_default_mail_backend_is_a_local_sink(environment, backend):
+    probe = "from django.conf import settings; print(settings.EMAIL_BACKEND)"
+    result = run(
+        [sys.executable, "-c", f"import django; django.setup(); {probe}"],
+        CATALYST_ENV=environment, CATALYST_EMAIL_BACKEND=None,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == f"django.core.mail.backends.{backend}.EmailBackend"
+
+
+def test_image_digests_match_between_compose_and_ci():
+    import re
+
+    pins = lambda text: sorted(set(re.findall(r"(?:python|postgres):[\w.-]+@sha256:[0-9a-f]{64}", text)))
+    compose = pins((ROOT / "compose.yaml").read_text())
+    ci = pins((ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    assert len(compose) == 2
+    assert compose == ci

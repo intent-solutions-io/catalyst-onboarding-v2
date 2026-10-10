@@ -24,8 +24,10 @@ PROVIDER_ENV_PREFIXES = ("MINIMAX_", "DOCUMENSO_", "TWENTY_", "MXROUTE_", "SMTP_
 
 
 def database_problems(databases: Mapping) -> list[str]:
-    """Every configured database must be PostgreSQL (ADR-02, D-02); no silent SQLite fallback."""
-    return [
+    """A default database must exist and every database must be PostgreSQL (ADR-02, D-02); no silent
+    SQLite fallback and no Django dummy backend."""
+    problems = [] if "default" in databases else ["no 'default' database is configured"]
+    return problems + [
         f"database {alias!r} uses {config.get('ENGINE')!r}; only {POSTGRESQL_ENGINE!r} is allowed"
         for alias, config in databases.items()
         if config.get("ENGINE") != POSTGRESQL_ENGINE

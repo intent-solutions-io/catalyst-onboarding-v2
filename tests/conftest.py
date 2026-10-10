@@ -36,6 +36,19 @@ def _guarded_connect(self, address):
     raise RuntimeError(f"network access blocked in tests: {host}")
 
 
+def _guarded_connect_ex(self, address):
+    _guarded_connect(self, address)  # raises for a blocked host; otherwise connected
+    return 0
+
+
 @pytest.fixture(autouse=True)
 def block_network(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect", _guarded_connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", _guarded_connect_ex)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """A skipped test is not a passing test: fail the run if anything was skipped (CI gate)."""
+    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    if reporter is not None and reporter.stats.get("skipped") and session.exitstatus == 0:
+        session.exitstatus = 1

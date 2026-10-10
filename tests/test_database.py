@@ -36,7 +36,8 @@ def test_settings_invariants():
     assert settings.TIME_ZONE == "UTC"
     assert settings.DATABASES["default"]["ATOMIC_REQUESTS"] is False
     assert settings.AUTH_USER_MODEL == "accounts.User"
-    assert settings.EMAIL_BACKEND == "django.core.mail.backends.locmem.EmailBackend"
+    # EMAIL_BACKEND is not asserted here: pytest-django forces locmem during tests, so the configured
+    # default is checked from a fresh process in test_startup.py.
 
 
 def test_custom_user_model_is_in_place_and_auth_user_was_never_created():
