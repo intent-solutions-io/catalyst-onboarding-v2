@@ -19,6 +19,7 @@ import socket
 import pytest
 
 _real_connect = socket.socket.connect
+_real_connect_ex = socket.socket.connect_ex
 
 
 def _allowed_hosts() -> set[str]:
@@ -31,23 +32,29 @@ def _allowed_hosts() -> set[str]:
     return allowed
 
 
-def _guarded_connect(self, address):
-    if self.family == socket.AF_UNIX:
-        return _real_connect(self, address)
+def _check_destination(sock, address):
+    """Raise for a blocked destination; return silently for an allowed one."""
+    if sock.family == socket.AF_UNIX:
+        return
     host = address[0]
     try:
         if ipaddress.ip_address(host).is_loopback:
-            return _real_connect(self, address)
+            return
     except ValueError:
         pass
     if host in _allowed_hosts():
-        return _real_connect(self, address)
+        return
     raise RuntimeError(f"network access blocked in tests: {host}")
 
 
+def _guarded_connect(self, address):
+    _check_destination(self, address)
+    return _real_connect(self, address)
+
+
 def _guarded_connect_ex(self, address):
-    _guarded_connect(self, address)  # raises for a blocked host; otherwise connected
-    return 0
+    _check_destination(self, address)
+    return _real_connect_ex(self, address)  # keeps connect_ex semantics (errno, not exceptions)
 
 
 @pytest.fixture(autouse=True)
@@ -75,3 +82,11 @@ def pytest_collectreport(report):
 def pytest_sessionfinish(session, exitstatus):
     if _skipped and session.exitstatus == 0:
         session.exitstatus = 1
+
+
+def pytest_terminal_summary(terminalreporter):
+    if _skipped:
+        terminalreporter.write_line(
+            "FAILED GATE: skipped, xfailed or xpassed tests cannot satisfy required cases: " + ", ".join(_skipped),
+            red=True,
+        )

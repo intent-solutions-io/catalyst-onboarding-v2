@@ -30,3 +30,17 @@ def test_database_access_is_unaffected_by_the_guard():
     with connection.cursor() as cursor:
         cursor.execute("select 1")
         assert cursor.fetchone() == (1,)
+
+
+def test_connect_ex_keeps_its_errno_semantics_for_allowed_hosts():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        closed_port = probe.getsockname()[1]  # bound but not listening: connections are refused
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            assert s.connect_ex(("127.0.0.1", closed_port)) != 0
+
+
+def test_connect_ex_to_an_external_address_is_blocked():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        with pytest.raises(RuntimeError, match="network access blocked"):
+            s.connect_ex(("192.0.2.10", 443))

@@ -2,6 +2,8 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 from config import guards
 
 PG = {"default": {"ENGINE": "django.db.backends.postgresql"}}
@@ -76,17 +78,26 @@ def test_system_check_is_silent_for_the_valid_configuration():
     assert [e for e in checks.run_checks() if e.id == "catalyst.E001"] == []
 
 
-def test_model_provider_and_telemetry_credentials_are_refused_by_exact_name():
-    environ = {
-        "OPENAI_API_KEY": "synthetic-1",
-        "ANTHROPIC_API_KEY": "synthetic-2",
-        "LOGFIRE_TOKEN": "synthetic-3",
-        "OTEL_EXPORTER_OTLP_HEADERS": "synthetic-4",
-    }
-    (problem,) = guards.provider_problems(LOCMEM, environ)
-    for name in environ:
-        assert name in problem
-    assert "synthetic-" not in problem
+EXPECTED_REFUSED_NAMES = (
+    "OPENAI_API_KEY", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID", "OPENAI_BASE_URL",
+    "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
+    "LOGFIRE_TOKEN", "LOGFIRE_SEND_TO_LOGFIRE",
+    "OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_HEADERS",
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
+)
+
+
+@pytest.mark.parametrize("name", EXPECTED_REFUSED_NAMES)
+def test_each_listed_credential_name_is_refused_without_its_value(name):
+    (problem,) = guards.provider_problems(LOCMEM, {name: "synthetic-value"})
+    assert name in problem
+    assert "synthetic-value" not in problem
+
+
+def test_the_refused_name_list_is_exactly_the_documented_one():
+    assert guards.PROVIDER_ENV_NAMES == frozenset(EXPECTED_REFUSED_NAMES)
 
 
 def test_harmless_vendor_named_variables_are_not_refused():

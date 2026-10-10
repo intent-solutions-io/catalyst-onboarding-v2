@@ -149,7 +149,7 @@ psycopg2), and is a long-term-support release with security updates for at least
 | PostgreSQL | **16.15** (decided, D-18) | inside Django 5.2's range; supported until November 2028 | the production host's server version stays an open P6 check |
 | Driver | **psycopg 3.3.6** (decided, D-18; binary wheel in development and CI) | Django requires 3.1.8 or later | production wheel choice belongs to P6 |
 | Test runner | pytest 9.1.1 with pytest-django 4.14.0 | integrates with the estate testing SOP tooling | **verified 2026-10-10** at the start of 1B.1: installed from hashes, loaded, collected and passed a PostgreSQL-backed check on Python 3.14.8 and PostgreSQL 16.15 (bead S1-T2 notes) |
-| Network guard in tests | a small fixture in the test configuration that blocks non-loopback sockets (no dependency) or `pytest-socket` | TEST-S1-14 | pick one in S1-T1 |
+| Network guard in tests | a small autouse fixture in `tests/conftest.py`, no dependency (chosen in 1B.1) | TEST-S1-14 | Python-level only: covers `socket.connect` and `connect_ex` inside test functions; not native libraries, child processes or collection-time code |
 | Coverage | `coverage` (through pytest) | GATE-S1 evidence | version check; mutation tooling deferred until code exists |
 | Settings source | environment variables read with the standard library; production values from SOPS at runtime (P6) | no extra dependency | none |
 | Job mechanism | **custom ledger and management-command worker** (decided, D-16) | one mechanism; one source of truth | `012` comparison; unproven behaviours carried as stated in S1.4 (S1-T5, S1-T7, S1-T8; P2 for `uncertain` and reconciliation) |

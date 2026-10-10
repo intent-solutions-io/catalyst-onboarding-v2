@@ -8,12 +8,20 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 export CATALYST_UID="$(id -u)" CATALYST_GID="$(id -g)"
+# CATALYST_TEST_PROJECT lets a caller choose the name; that name is then the caller's responsibility, and
+# the script refuses to use one that already has containers so it can never clean up someone else's run.
 PROJECT="${CATALYST_TEST_PROJECT:-catalyst-v2-test-$(date +%s)-$$-$RANDOM}"
 COMPOSE=(docker compose --project-name "$PROJECT" --file compose.yaml)
+if [ -n "$("${COMPOSE[@]}" ps --all --quiet 2>/dev/null)" ]; then
+  echo "test.sh: compose project $PROJECT already has containers; refusing to run or clean it up" >&2
+  exit 2
+fi
 
 cleanup() {
-  if ! "${COMPOSE[@]}" down --volumes --remove-orphans >/dev/null 2>&1; then
-    echo "test.sh: cleanup of compose project $PROJECT failed; inspect with: docker compose -p $PROJECT ps -a" >&2
+  local err
+  if ! err="$("${COMPOSE[@]}" down --volumes --remove-orphans 2>&1 >/dev/null)"; then
+    echo "test.sh: cleanup of compose project $PROJECT failed: $err" >&2
+    echo "test.sh: inspect with: docker compose -p $PROJECT ps -a" >&2
   fi
 }
 trap cleanup EXIT

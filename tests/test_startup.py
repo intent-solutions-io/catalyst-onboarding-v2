@@ -111,6 +111,17 @@ def test_a_skip_or_expected_failure_fails_the_run(tmp_path, kind):
     assert result.returncode == 1
 
 
+def test_a_collection_time_skip_fails_the_run(tmp_path):
+    # A module skipped at collection (module-level skip, importorskip) must also fail the run. A lone
+    # skipped module exits 5 (nothing collected), so a passing module runs beside it.
+    (tmp_path / "test_skipped_module.py").write_text("import pytest\n\npytest.skip('probe', allow_module_level=True)\n")
+    (tmp_path / "test_passing.py").write_text("def test_ok():\n    assert True\n")
+    result = run([sys.executable, "-m", "pytest", "-p", "tests.conftest", "-q", "-p", "no:cacheprovider", str(tmp_path)])
+    assert "1 passed, 1 skipped" in result.stdout
+    assert "FAILED GATE" in result.stdout
+    assert result.returncode == 1
+
+
 def test_a_plain_pass_still_passes(tmp_path):
     probe = tmp_path / "test_probe.py"
     probe.write_text("def test_probe():\n    assert True\n")
