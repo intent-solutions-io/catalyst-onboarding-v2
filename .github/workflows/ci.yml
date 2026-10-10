@@ -46,6 +46,7 @@ jobs:
       CATALYST_DB_PASSWORD: synthetic-ci-owner-only
       CATALYST_DB_HOST: postgres
       CATALYST_DB_PORT: "5432"
+      CATALYST_CHALLENGE_LIFETIME_SECONDS: "3600"  # synthetic; POL-02 open
       CATALYST_DB_OWNER_PASSWORD: synthetic-ci-owner-only
       CATALYST_DB_ADMIN_USER: catalyst_admin
       CATALYST_DB_ADMIN_PASSWORD: synthetic-ci-admin-only

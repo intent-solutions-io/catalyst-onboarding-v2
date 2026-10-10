@@ -38,6 +38,18 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 ROOT_URLCONF = "config.urls"
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+    }
+]
+# Request limits for the public form (005 S1.5): a larger body or more fields is a 400, not a form error.
+# The form has three fields plus the CSRF token; 64 KiB covers its longest percent-encoded values.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 64 * 1024
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 10
+DATA_UPLOAD_MAX_NUMBER_FILES = 0  # the memory limit excludes file parts; no form here accepts a file
 WSGI_APPLICATION = "config.wsgi.application"
 
 DATABASES = {
@@ -72,6 +84,15 @@ if len(set(CATALYST_DB_ROLES.values())) != 3:
 # declare their kind in code (config.runtime), so a stale value cannot exempt the web process.
 # CATALYST_DB_USER / CATALYST_DB_PASSWORD are the login of whichever role this process uses.
 CATALYST_PROCESS = os.environ.get("CATALYST_PROCESS", "management")
+
+# Verification challenge lifetime (POL-02 open: no production value is proposed). Required, so no number
+# is invented here; compose and CI pass a synthetic value.
+try:
+    CATALYST_CHALLENGE_LIFETIME_SECONDS = int(env("CATALYST_CHALLENGE_LIFETIME_SECONDS"))
+except ValueError:
+    raise ImproperlyConfigured("CATALYST_CHALLENGE_LIFETIME_SECONDS must be a whole number of seconds") from None
+if CATALYST_CHALLENGE_LIFETIME_SECONDS <= 0:
+    raise ImproperlyConfigured("CATALYST_CHALLENGE_LIFETIME_SECONDS must be positive")
 
 # ADR-18 (D-19): the custom user model exists before the first migration.
 AUTH_USER_MODEL = "accounts.User"

@@ -13,7 +13,7 @@
 
 | Item | State | Evidence |
 |---|---|---|
-| Application code | 1B.1 skeleton (merged, PR #9) and the 1B.2 slice data model with ADR-14 roles (draft PR, not merged); no services, views, worker or providers | PR #9; 1B.2 draft PR |
+| Application code | 1B.1 skeleton (PR #9) and 1B.2 data model with ADR-14 roles (PR #11, merged `6f7fbc8`); 1B.3 public intake (S1-T4) in a draft PR, not merged: form, service transaction, duplicate and race handling, queued (not sent) verification. No worker, confirmation, staff views or providers | PR #9, PR #11; 1B.3 draft PR |
 | Build contract (`011`, `002`, `003`, `004`, `005` S1) | APPROVED IN SCOPE 2026-10-09 (`011` section 10) | PR #7 |
 | Owner approval of the contract and first slice | given 2026-10-09 for the scope in `011` section 10 | bead "Obtain the owner's approval of the build contract and the first-slice scope" |
 | Owner-directed amendment of 2026-10-09 | applied | `011` section 9 |

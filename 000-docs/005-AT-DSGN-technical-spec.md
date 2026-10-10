@@ -85,6 +85,13 @@ adoption's version and challenge within its own application. The web process ref
 database connection that is not the application role (`config/runtime.py`, ADR-14). Services, locking and
 allocation below arrive with S1-T4 onward.
 
+**Implemented in S1-T4 (1B.3, draft).** `applications/identity.py` (the S1.3 key), `forms.py`
+(name, email, reason with the column limits), `services.accept_submission` (one transaction, the rules
+below), the `request-access` views (one redirect and one received page for every outcome; a database
+failure is a 503 "please try again"), and the request limits (64 KiB body, 10 fields). The challenge
+lifetime is the required setting `CATALYST_CHALLENGE_LIFETIME_SECONDS` (synthetic in compose and CI;
+POL-02 open). Submission queues the send; nothing is sent until S1-T5.
+
 **Allocation and locking.** Version numbers come from the application's counter while its row is locked.
 Lock order everywhere is application, then challenge. The losing side of a race catches the integrity
 error **for the named constraint only** (read from the database error's diagnostics), inside a savepoint,
