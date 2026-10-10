@@ -17,6 +17,12 @@ Rules it keeps:
 - While unverified, an active, unexpired challenge whose send is queued, running or done is reused;
   otherwise the active challenge (if any) is superseded and a new challenge and send action are created. Expiry is
   compared with the database clock.
+
+Failure guarantee: acceptance is atomic, so the records above commit together or not at all. A
+DatabaseError raised before the commit means nothing was committed. A connection lost at the commit
+itself leaves the caller unable to tell whether it committed (PostgreSQL reports the outcome only over
+that connection); a resubmission is then handled by the duplicate rules above (one application, a new
+version, no extra challenge or send while the existing one is reusable).
 """
 
 from dataclasses import dataclass
@@ -128,8 +134,8 @@ def _issue_challenge(application) -> bool:
 
 
 def accept_submission(data) -> Outcome:
-    """`data` is AccessRequestForm.cleaned_data. Raises DatabaseError on any database failure, after which
-    nothing from this submission is committed."""
+    """`data` is AccessRequestForm.cleaned_data. Raises DatabaseError on a database failure: before the
+    commit nothing is committed; at the commit the outcome is unknown (module docstring)."""
     email = data["email"]  # EmailField has already trimmed it
     key = email_key(email)
     fields = {"name": data["name"], "email": email, "reason": data["reason"]}

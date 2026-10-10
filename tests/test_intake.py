@@ -378,7 +378,8 @@ def test_s1_04_any_other_integrity_error_is_not_swallowed(privileged_reset, monk
 
 
 def test_s1_04_smoke_loop_of_concurrent_pairs(privileged_reset):
-    # Supporting evidence only (no seam): real interleavings vary run to run.
+    # Supporting evidence only (no seam): each pair starts with a fresh key, so this is not a controlled
+    # existing-application test (those are above); real interleavings vary run to run.
     for i in range(15):
         results = []
         email = f"pair{i}@example.test"
@@ -391,7 +392,81 @@ def test_s1_04_smoke_loop_of_concurrent_pairs(privileged_reset):
         assert PendingAction.objects.filter(subject_id=app.public_ref).count() == 1
 
 
-# --- TEST-S1-05: database failures leave nothing behind -----------------------------------------------------
+def wait_for_waiters(monitor, expected, timeout=20):
+    """Bounded wait until `expected` sessions in the test database are waiting on a lock (no sleep-only
+    timing). Counted by wait state, not by pg_blocking_pids(holder): the second waiter queues behind the
+    first on the row's tuple lock, so PostgreSQL names the first waiter, not the holder, as its blocker."""
+    import time
+
+    deadline = time.monotonic() + timeout
+    while monitor.execute("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()"
+                          " AND wait_event_type = 'Lock'").fetchone()[0] < expected:
+        if time.monotonic() > deadline:
+            raise AssertionError(f"{expected} submissions did not queue behind the application lock in {timeout}s")
+        time.sleep(0.02)
+
+
+def race_two_repeats_on_an_existing_application(privileged_reset, email):
+    """A controlled lock-holder sequence: an application-role session holds the existing application's row
+    lock; both repeats start and block on that same lock (the first statement of the service's transaction);
+    the test waits until both are queued behind it, then releases. Coordination is before the contested
+    lock, so the two requests then run through it one after the other, in whichever order PostgreSQL wakes
+    them. Returns the request results."""
+    holder = privileged_reset.connect("app")  # a transaction is open until commit
+    holder.execute("SELECT id FROM applications_application WHERE email_key = %s FOR UPDATE", [email_key(email)])
+    monitor = privileged_reset.connect("app", autocommit=True)
+    results = []
+    threads = [privileged_reset.thread(submit_in_thread(results, email)) for _ in range(2)]
+    wait_for_waiters(monitor, expected=2)
+    assert results == []  # neither request got past the lock
+    holder.commit()  # release
+    for t in threads:
+        t.join(timeout=30)
+    return results
+
+
+def test_s1_04_two_concurrent_repeats_on_an_existing_application_reuse_its_challenge(privileged_reset):
+    email = "known@example.test"
+    assert post(Client(), email=email).status_code == 302  # committed: application, version 1, queued send
+    results = race_two_repeats_on_an_existing_application(privileged_reset, email)
+    assert results == [(302, RECEIVED, settings.CATALYST_DB_ROLES["app"])] * 2
+    app = Application.objects.get()
+    assert list(app.versions.order_by("version_number").values_list("version_number", flat=True)) == [1, 2, 3]
+    assert app.next_version_number == 4
+    events = list(app.events.order_by("id").values_list("kind", "data"))
+    assert events[0] == ("submission_received", {"version_number": 1})
+    assert sorted(events[1:], key=lambda e: e[1]["version_number"]) == [
+        ("repeat_submission", {"version_number": 2}), ("repeat_submission", {"version_number": 3})]
+    challenge = active_challenges(app).get()
+    assert ContactChallenge.objects.count() == 1  # reused by both repeats
+    action = PendingAction.objects.get()
+    assert (action.status, action.input_ref) == ("queued", str(challenge.public_id))
+
+
+def test_s1_04_two_concurrent_repeats_needing_a_new_challenge_create_only_one(privileged_reset):
+    email = "known@example.test"
+    assert post(Client(), email=email).status_code == 302
+    old = ContactChallenge.objects.get()
+    PendingAction.objects.update(status="failed")  # stand-in for S1-T5 recording a failed send
+    results = race_two_repeats_on_an_existing_application(privileged_reset, email)
+    assert results == [(302, RECEIVED, settings.CATALYST_DB_ROLES["app"])] * 2
+    app = Application.objects.get()
+    assert list(app.versions.order_by("version_number").values_list("version_number", flat=True)) == [1, 2, 3]
+    assert app.next_version_number == 4
+    events = list(app.events.order_by("id").values_list("kind", "data"))
+    assert events[0] == ("submission_received", {"version_number": 1})
+    assert sorted(events[1:], key=lambda e: e[1]["version_number"]) == [
+        ("repeat_submission", {"version_number": 2}), ("repeat_submission", {"version_number": 3})]
+    # The first repeat superseded the old challenge and queued one replacement; the second reused it.
+    old.refresh_from_db()
+    assert old.superseded_at is not None
+    current = active_challenges(app).get()
+    assert ContactChallenge.objects.count() == 2
+    assert sorted(PendingAction.objects.values_list("status", "input_ref")) == sorted(
+        [("failed", str(old.public_id)), ("queued", str(current.public_id))])
+
+
+# --- TEST-S1-05: failures before the commit leave nothing behind; a lost commit acknowledgment is safe to retry --
 
 def failing_on(table, lose_connection=False):
     def wrapper(execute, sql, params, many, context):
@@ -416,11 +491,53 @@ def test_s1_05_a_database_failure_commits_nothing_and_shows_try_again(privileged
     with connection.execute_wrapper(failing_on(table, lose_connection)):
         response = post(client)
     assert response.status_code == 503
-    assert "intake submission not accepted" in caplog.text
+    assert "intake submission did not complete" in caplog.text
     assert "ada@example.test" not in caplog.text and "Ada Example" not in caplog.text  # no applicant data logged
+    assert VALID["reason"] not in caplog.text and "injected failure" not in caplog.text  # nor the error text
     assert "Please try again" in response.content.decode()
     assert "Location" not in response
     assert {t: app_role_rows(t) for t in SLICE} == {t: 0 for t in SLICE}
     # The form works again once the database does.
     assert post(client).status_code == 302
     assert app_role_rows("applications_application") == 1
+
+
+def test_s1_05_simulated_lost_commit_acknowledgment_leaves_the_outcome_unknown_and_a_resubmission_is_safe(
+        privileged_reset, caplog, monkeypatch):
+    """SIMULATION, not a network fault: the COMMIT really succeeds on the server, then the commit call
+    reports an OperationalError, standing in for an acknowledgment lost in transit. (A real lost connection
+    would also fail Django's rollback and close the connection; the test closes connections itself before
+    the retry.) The caller sees a failure although everything committed; the applicant's resubmission on a
+    fresh connection follows the duplicate policy."""
+    from django.db import OperationalError, connections
+
+    conn = connections["default"]
+    commit, lost = conn._commit, []
+
+    def commit_then_lose_the_acknowledgment():
+        commit()
+        if not lost:
+            lost.append(True)
+            raise OperationalError("simulated lost commit acknowledgment")
+
+    client = Client()
+    with monkeypatch.context() as patch:  # undo only this patch; the autouse network guard stays in place
+        patch.setattr(conn, "_commit", commit_then_lose_the_acknowledgment)
+        response = post(client)
+    assert lost == [True]
+    assert response.status_code == 503 and "Location" not in response
+    assert "intake submission did not complete: OperationalError" in caplog.text
+    assert "ada@example.test" not in caplog.text and "Ada Example" not in caplog.text
+    assert "simulated lost" not in caplog.text  # the database error text is never logged
+    committed = {t: app_role_rows(t) for t in SLICE}
+    assert committed == {**{t: 0 for t in SLICE}, "applications_application": 1, "applications_submissionversion": 1,
+                         "applications_applicationevent": 1, "applications_contactchallenge": 1, "workflow_pendingaction": 1}
+
+    connections.close_all()  # the applicant retries on a fresh connection
+    assert post(client).status_code == 302
+    after = {t: app_role_rows(t) for t in SLICE}
+    assert after == {**committed, "applications_submissionversion": 2, "applications_applicationevent": 2}
+    app = Application.objects.get()
+    assert list(app.versions.order_by("version_number").values_list("version_number", "origin")) == [(1, "form"), (2, "form")]
+    assert list(app.events.order_by("id").values_list("kind", flat=True)) == ["submission_received", "repeat_submission"]
+    assert PendingAction.objects.get().input_ref == str(active_challenges(app).get().public_id)  # no extra work

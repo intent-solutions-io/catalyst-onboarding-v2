@@ -258,14 +258,15 @@ class Committed:
     def release(self):
         from django.db import connection, connections
 
+        # Close the test's own connections first: one may hold a lock a test thread is waiting on.
+        for conn in self._connections:
+            conn.close()
+        self._connections.clear()
         for t in self._threads:
             t.join(timeout=30)
             if t.is_alive():
                 raise ResetRefused("a test thread did not finish; reset refused")
-        for conn in self._connections:
-            conn.close()
         self._threads.clear()
-        self._connections.clear()
         if connection.in_atomic_block:
             raise ResetRefused("privileged_reset cannot run inside a django_db transaction; drop the django_db mark")
         connections.close_all()
