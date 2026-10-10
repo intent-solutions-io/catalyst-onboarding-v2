@@ -1,5 +1,6 @@
 """The pending-action ledger (ADR-03, D-16; 005 S1.4). Subject-generic: no foreign key to any domain
-model, so `workflow` depends on no domain app. Claiming, fencing and the worker arrive in S1-T5."""
+model, so `workflow` depends on no domain app. Claiming, fencing and the result write live in
+`workflow/ledger.py`; the worker is `manage.py run_worker` (S1-T5)."""
 
 from django.db import models
 from django.db.models import Q

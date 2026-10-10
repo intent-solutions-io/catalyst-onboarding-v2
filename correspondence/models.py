@@ -1,4 +1,5 @@
-"""Outbound message record (005 S1.4). Sending arrives in S1-T5; only the record and its uniqueness here."""
+"""Outbound message record (005 S1.4). Written by the send handler (`correspondence/verification.py`, S1-T5),
+one record per attempt, inside the lease-fenced result transaction."""
 
 from django.db import models
 from django.db.models import Q
