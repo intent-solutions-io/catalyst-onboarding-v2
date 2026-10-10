@@ -26,6 +26,9 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.auth",
     "accounts",
+    "workflow",
+    "applications",
+    "correspondence",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -49,6 +52,17 @@ DATABASES = {
     }
 }
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# ADR-14 (D-17): three database roles, provisioned outside the application (scripts/provision_db_roles.py).
+# Migrations run as the owner and grant the application and retention roles exactly what they need.
+# Web and worker processes connect as the application role, never as the owner or a superuser.
+CATALYST_DB_ROLES = {
+    "owner": env("CATALYST_DB_OWNER_ROLE", "catalyst_owner"),
+    "app": env("CATALYST_DB_APP_ROLE", "catalyst_app"),
+    "retention": env("CATALYST_DB_RETENTION_ROLE", "catalyst_retention"),
+}
+# The kind of process: "web" and "worker" must not connect as the owner role (config.checks).
+CATALYST_PROCESS = os.environ.get("CATALYST_PROCESS", "management")
 
 # ADR-18 (D-19): the custom user model exists before the first migration.
 AUTH_USER_MODEL = "accounts.User"

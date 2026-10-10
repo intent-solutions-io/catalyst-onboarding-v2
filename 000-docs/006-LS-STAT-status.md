@@ -13,7 +13,7 @@
 
 | Item | State | Evidence |
 |---|---|---|
-| Application code | handoff 1B.1 skeleton only: settings, start-up guards, `accounts.User`, tests; no applicant features | PR #9 |
+| Application code | 1B.1 skeleton (merged, PR #9) and the 1B.2 slice data model with ADR-14 roles (draft PR, not merged); no services, views, worker or providers | PR #9; 1B.2 draft PR |
 | Build contract (`011`, `002`, `003`, `004`, `005` S1) | APPROVED IN SCOPE 2026-10-09 (`011` section 10) | PR #7 |
 | Owner approval of the contract and first slice | given 2026-10-09 for the scope in `011` section 10 | bead "Obtain the owner's approval of the build contract and the first-slice scope" |
 | Owner-directed amendment of 2026-10-09 | applied | `011` section 9 |
@@ -44,7 +44,7 @@
 |---|---|
 | ADR-03 worker behaviours: automatic recovery, pause, bounded attempts, staff visibility | S1-T5, S1-T7, S1-T8 (TEST-S1-07, 12, 17, 18, 19) |
 | Provider-specific reconciliation of `uncertain` outcomes | P2 or the relevant integration phase, before real external actions (D-20). S1 still proves attempts, bounded recovery, lease fencing, interruption and no duplicate challenge, adoption or next-stage action |
-| ADR-14 role non-inheritance, no owner or superuser credentials in web and worker, privileged `search_path` | S1-T3 |
+| ADR-14 role non-inheritance, no owner or superuser credentials in web and worker, privileged `search_path` | **implemented and tested in S1-T3** (1B.2 draft PR): three non-superuser roles with no memberships, per-table grants, append-only triggers, audited retention path, `catalyst.E002` start-up check. Configuring deployed web and worker processes with the application role is P6 |
 | TEST-S1-13, still open parts | the worker-command start-up refusal (S1-T5); the remaining parts (manage.py check, WSGI start-up, test-session PostgreSQL assertion) are covered by the 1B.1 tests |
 | TEST-S1-14, still open parts | an assertion that CI holds no provider secrets; protection beyond Python sockets (native libraries such as libpq, child processes, collection-time code) is not provided by the test fixture and is not claimed |
 | pytest 9.1.1 and pytest-django 4.14.0 | **done**: verified at the start of 1B.1 (bead S1-T2 notes) |

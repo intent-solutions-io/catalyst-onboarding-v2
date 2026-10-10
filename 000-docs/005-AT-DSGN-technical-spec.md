@@ -74,6 +74,13 @@ registrations, the CI runtime lane.
 | AutomationPause (`workflow`) | subject type, subject id, reason, actor, created at | unique (subject type, subject id); S1 creates none but the worker honours it |
 | OutboundMessage (`correspondence`) | application, pending action, attempt number, template key and version, recipient, Message-ID, status, sent at | unique (pending action, attempt number) |
 
+**Implemented in S1-T3 (1B.2).** The models above, plus `RetentionAudit` (written only by the protection
+trigger), in apps `applications`, `workflow` and `correspondence`. Roles (ADR-14, D-17) are provisioned outside
+the application by `scripts/provision_db_roles.py` (development and test only); each app's grant migration
+gives the application role exactly the privileges listed in the migration, and
+`applications.0002_history_protection` adds the append-only and audit triggers. Services, locking and
+allocation below arrive with S1-T4 onward.
+
 **Allocation and locking.** Version numbers come from the application's counter while its row is locked.
 Lock order everywhere is application, then challenge. The losing side of a race catches the integrity
 error **for the named constraint only** (read from the database error's diagnostics), inside a savepoint,
