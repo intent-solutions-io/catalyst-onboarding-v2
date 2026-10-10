@@ -90,3 +90,12 @@ def test_image_digests_match_between_compose_and_ci():
     ci = pins((ROOT / ".github" / "workflows" / "ci.yml").read_text())
     assert len(compose) == 2
     assert compose == ci
+
+
+def test_a_skipped_test_fails_the_run(tmp_path):
+    # Standing proof of the skip gate in conftest.py, so a pytest upgrade cannot silently disable it.
+    probe = tmp_path / "test_probe.py"
+    probe.write_text("import pytest\n\ndef test_probe():\n    pytest.skip('probe')\n")
+    result = run([sys.executable, "-m", "pytest", "-p", "tests.conftest", "-q", "-p", "no:cacheprovider", str(probe)])
+    assert "1 skipped" in result.stdout
+    assert result.returncode == 1

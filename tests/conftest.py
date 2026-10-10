@@ -47,8 +47,21 @@ def block_network(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect_ex", _guarded_connect_ex)
 
 
+# A skipped test is not a passing test: the run fails if anything was skipped (CI gate).
+# Counted from the reports themselves, so it does not depend on the terminal reporter plugin.
+_skipped = []
+
+
+def pytest_runtest_logreport(report):
+    if report.skipped and not hasattr(report, "wasxfail"):
+        _skipped.append(report.nodeid)
+
+
+def pytest_collectreport(report):
+    if report.skipped:
+        _skipped.append(report.nodeid)
+
+
 def pytest_sessionfinish(session, exitstatus):
-    """A skipped test is not a passing test: fail the run if anything was skipped (CI gate)."""
-    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
-    if reporter is not None and reporter.stats.get("skipped") and session.exitstatus == 0:
+    if _skipped and session.exitstatus == 0:
         session.exitstatus = 1
