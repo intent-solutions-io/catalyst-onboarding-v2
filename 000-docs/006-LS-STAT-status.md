@@ -43,7 +43,7 @@
 | Item | Where it is proved |
 |---|---|
 | ADR-03 worker behaviours: automatic recovery, pause, bounded attempts, staff visibility | S1-T5, S1-T7, S1-T8 (TEST-S1-07, 12, 17, 18, 19) |
-| `uncertain` outcomes and reconciliation | P2 acceptance, **conditional on ADR-15** (still proposed); owner to confirm the deferral |
+| Provider-specific reconciliation of `uncertain` outcomes | P2 or the relevant integration phase, before real external actions (D-20). S1 still proves attempts, bounded recovery, lease fencing, interruption and no duplicate challenge, adoption or next-stage action |
 | ADR-14 role non-inheritance, no owner or superuser credentials in web and worker, privileged `search_path` | S1-T3 |
 | pytest 9.1.1 and pytest-django 4.14.0 | start of 1B.1 |
 

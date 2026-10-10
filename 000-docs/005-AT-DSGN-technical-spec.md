@@ -55,7 +55,7 @@ registrations, the CI runtime lane.
 | Open applications per identity | one | POL-01 |
 | Repeat submission after verification | recorded as "unverified repeat", staff item, no effect on verified data | POL-01 |
 | Challenge lifetime | a setting; tests use short synthetic values; no production number proposed | POL-02 |
-| Verification message delivery | at-least-once (an identical link may be sent twice after a crash); the declared exception to ADR-15 | POL-06 |
+| Verification message delivery | at-least-once (the identical invitation may be redelivered to the local sink after an interrupted attempt); **owner-decided for S1 only (D-20)**; no other kind inherits it | POL-06 |
 | Send attempts | a setting; tests use small synthetic values | POL-16 |
 | Read-only staff group | one group with exactly the view permissions on slice models, created by a data migration | POL-13 |
 | Message wording | synthetic placeholder text | POL-17 |
@@ -85,10 +85,12 @@ are its requirements. The `012` proof demonstrated claiming and fenced completio
 by a polling worker, pause handling, bounded attempts with the poison rule's history event, `uncertain`
 outcomes, reconciliation and operational visibility are **not yet demonstrated**. S1 tests cover recovery
 (TEST-S1-07, TEST-S1-17), bounded attempts and the poison rule (TEST-S1-18), pause (TEST-S1-19) and
-staff visibility of pending actions (TEST-S1-12). `uncertain` outcomes and reconciliation cannot arise in S1
-**if ADR-15 is approved as drafted** (still PROPOSED): it declares S1's only external effect, the verification
-message, redeliverable. Their acceptance then belongs to P2, the first phase with a non-redeliverable
-provider effect, and rule 2's `uncertain` branch is unreached in S1. The owner confirms this deferral.
+staff visibility of pending actions (TEST-S1-12). **Recovery policy (D-20, owner 2026-10-10):** in S1 the
+identical verification invitation may be redelivered to the local sink after an interrupted attempt; that
+does not mean outcomes cannot be uncertain. S1 still proves attempts, bounded recovery, lease fencing,
+interruption and no duplicate challenge, adoption or next-stage action. Provider-specific reconciliation
+is P2 or the relevant integration phase, before real external actions are enabled; the ledger keeps the
+`uncertain` status for it, and the redelivery exception applies to no other kind.
 
 1. **Claim** is one short transaction: select one due row (`status` queued, or running with an expired
    lease) with `select_for_update(skip_locked=True, of=("self",))` and no outer joins, skip it if an

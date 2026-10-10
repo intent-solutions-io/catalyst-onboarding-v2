@@ -34,10 +34,11 @@ def test_non_postgresql_engine_refuses_to_start(cmd):
 
 
 @pytest.mark.parametrize("cmd", [CHECK, WSGI], ids=["manage-check", "wsgi-import"])
-def test_provider_credential_variable_refuses_to_start(cmd):
-    result = run(cmd, MINIMAX_API_KEY="synthetic-not-a-key")
+@pytest.mark.parametrize("variable", ["MINIMAX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "LOGFIRE_TOKEN"])
+def test_provider_credential_variable_refuses_to_start(cmd, variable):
+    result = run(cmd, **{variable: "synthetic-not-a-key"})
     assert result.returncode != 0
-    assert "MINIMAX_API_KEY" in result.stderr
+    assert variable in result.stderr
     assert "synthetic-not-a-key" not in result.stderr + result.stdout
 
 
@@ -92,10 +93,27 @@ def test_image_digests_match_between_compose_and_ci():
     assert compose == ci
 
 
-def test_a_skipped_test_fails_the_run(tmp_path):
-    # Standing proof of the skip gate in conftest.py, so a pytest upgrade cannot silently disable it.
+PROBES = {
+    "skip": ("import pytest\n\ndef test_probe():\n    pytest.skip('probe')\n", "1 skipped"),
+    "xfail": ("import pytest\n\n@pytest.mark.xfail\ndef test_probe():\n    assert False\n", "1 xfailed"),
+    "xpass": ("import pytest\n\n@pytest.mark.xfail\ndef test_probe():\n    assert True\n", "1 xpassed"),
+}
+
+
+@pytest.mark.parametrize("kind", PROBES)
+def test_a_skip_or_expected_failure_fails_the_run(tmp_path, kind):
+    # Standing proof of the gate in conftest.py, so a pytest upgrade cannot silently disable it.
+    source, summary = PROBES[kind]
     probe = tmp_path / "test_probe.py"
-    probe.write_text("import pytest\n\ndef test_probe():\n    pytest.skip('probe')\n")
+    probe.write_text(source)
     result = run([sys.executable, "-m", "pytest", "-p", "tests.conftest", "-q", "-p", "no:cacheprovider", str(probe)])
-    assert "1 skipped" in result.stdout
+    assert summary in result.stdout
     assert result.returncode == 1
+
+
+def test_a_plain_pass_still_passes(tmp_path):
+    probe = tmp_path / "test_probe.py"
+    probe.write_text("def test_probe():\n    assert True\n")
+    result = run([sys.executable, "-m", "pytest", "-p", "tests.conftest", "-q", "-p", "no:cacheprovider", str(probe)])
+    assert "1 passed" in result.stdout
+    assert result.returncode == 0

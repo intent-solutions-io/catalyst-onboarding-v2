@@ -1,6 +1,9 @@
 # Local test environment for Catalyst v2 (ADR-17, D-18). Images are pinned by digest.
-# Run: scripts/test.sh   (or: docker compose run --rm test && docker compose down)
-# Synthetic credentials only; the database lives in tmpfs and disappears with the container.
+# Run: scripts/test.sh, which gives every run its own Compose project name (isolation between sessions
+# and worktrees) and removes only that project's resources. Calling `docker compose` directly falls back
+# to the default project name below; give it `--project-name <unique>` if anything else may be running.
+# Synthetic credentials only; the database lives in tmpfs and disappears with the container. The test
+# service receives only the explicit settings listed here, never the developer's shell environment.
 name: catalyst-v2-local
 
 services:

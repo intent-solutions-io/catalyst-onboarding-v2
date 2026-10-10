@@ -1,4 +1,5 @@
-"""The test-wide network guard (TEST-S1-14): outbound connections beyond loopback and the database fail."""
+"""The Python-level test network guard (TEST-S1-14; limits in conftest.py): inside a test function, Python
+socket connections beyond loopback and the database host fail."""
 
 import socket
 

@@ -73,7 +73,7 @@ direct database edits or a coding agent. The learning site itself is not replace
 
 ## 4. Owner decisions and boundaries
 
-### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-19)
+### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-20)
 
 The owner gave this project direction in the build-contract instruction of 2026-10-09, in the
 invoking session. It is recorded here verbatim so a fresh session can check the source. The owner
@@ -133,6 +133,14 @@ confirms or amends the record by approving or changing this document's pull requ
 The full conditions (fair comparison, unproven worker behaviours, role boundaries, retention limits,
 test-tool verification) are recorded on each ADR row in `003`.
 
+**S1 recovery policy, 2026-10-10** (owner closeout instruction for PR #9):
+
+> "For S1 only, approve redelivery of the identical verification invitation to the local test sink after
+> an interrupted attempt. This does not mean uncertain outcomes cannot occur. S1 still requires attempts,
+> bounded recovery, lease fencing, interruption tests, and no duplicate challenge/adoption/next-stage
+> action. Provider-specific reconciliation is deferred to P2 or the appropriate later integration phase,
+> before real external actions are enabled."
+
 ### 4.2 Decision summary
 
 Decision records with rationale live in `003` section "Architecture decisions". This table is the
@@ -159,6 +167,7 @@ summary a reader needs first.
 | D-17 | ADR-14: privileges plus triggers on protected history tables, three roles; retention capability only, no real deletion until POL-10 | OWNER-DECIDED | section 4.1; `003` ADR-14 |
 | D-18 | ADR-17: Python 3.14.8, Django 5.2.18 LTS, PostgreSQL 16.15, psycopg 3.3.6; locked dependencies; digest-pinned images | OWNER-DECIDED | section 4.1; `003` ADR-17 |
 | D-19 | ADR-18: minimal `accounts.User(AbstractUser)` before the first migration; applicants are not accounts | OWNER-DECIDED | section 4.1; `003` ADR-18 |
+| D-20 | S1 recovery policy: only the identical verification invitation may be redelivered to the local sink after an interrupted attempt; S1 still proves attempts, bounded recovery, lease fencing, interruption and no duplicate challenge, adoption or next-stage action; provider-specific reconciliation is P2 or later, before real external actions | OWNER-DECIDED | section 4.1 (2026-10-10 closeout); `003` ADR-15 |
 
 **Contradictions found:**
 

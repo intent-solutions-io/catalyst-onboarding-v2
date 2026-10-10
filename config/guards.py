@@ -19,8 +19,20 @@ SINK_EMAIL_BACKENDS = frozenset({
     "django.core.mail.backends.filebased.EmailBackend",
 })
 
-# Environment variable prefixes that would carry real provider credentials (D-04 to D-08).
+# Catalyst's own providers (D-04 to D-08): any variable with these prefixes is refused.
 PROVIDER_ENV_PREFIXES = ("MINIMAX_", "DOCUMENSO_", "TWENTY_", "MXROUTE_", "SMTP_", "EMAIL_HOST")
+
+# Other model-provider and telemetry credential or export settings, refused by exact name (owner
+# decision 2026-10-10). Exact names, not prefixes, so harmless vendor-named variables still pass. The
+# guard only stops a Catalyst process from starting; it never changes the developer's environment or
+# any other tool's credentials, and Catalyst processes receive an explicit synthetic environment.
+PROVIDER_ENV_NAMES = frozenset({
+    "OPENAI_API_KEY", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID", "OPENAI_BASE_URL",
+    "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
+    "LOGFIRE_TOKEN", "LOGFIRE_SEND_TO_LOGFIRE",
+    "OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_HEADERS",
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+})
 
 
 def database_problems(databases: Mapping) -> list[str]:
@@ -45,7 +57,9 @@ def provider_problems(email_backend: str, environ: Mapping[str, str]) -> list[st
     problems = []
     if email_backend not in SINK_EMAIL_BACKENDS:
         problems.append(f"EMAIL_BACKEND {email_backend!r} is not a local sink backend")
-    leaked = sorted(name for name in environ if name.startswith(PROVIDER_ENV_PREFIXES))
+    leaked = sorted(
+        name for name in environ if name.startswith(PROVIDER_ENV_PREFIXES) or name in PROVIDER_ENV_NAMES
+    )
     if leaked:
         # Report names only, never values.
         problems.append(f"provider credential variables are set: {', '.join(leaked)}")

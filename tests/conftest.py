@@ -1,7 +1,16 @@
-"""Test-wide network guard (TEST-S1-14): Python-level sockets may reach only loopback, Unix sockets and
-the configured database host. This covers every Python client (smtplib, HTTP libraries). It does not
-see libpq, which psycopg's binary wheel uses for database connections; the database host comes from
-the CATALYST_DB_* settings, which config.guards keeps PostgreSQL-only."""
+"""Test-only network protection (TEST-S1-14), at Python level and nothing more.
+
+An autouse fixture patches ``socket.socket.connect`` and ``connect_ex`` for the duration of each test
+function, allowing only loopback, Unix sockets and the configured database host. It is a test aid, not
+a firewall or sandbox. It does not cover:
+
+- native libraries that open sockets themselves (libpq, used by psycopg's binary wheel);
+- code that runs outside a test function (collection, imports, session-scoped fixtures);
+- child processes (each subprocess is a fresh interpreter without the patch);
+- other socket operations (UDP sendto, DNS resolution).
+
+The container-level boundary is the explicit, synthetic environment the test service receives
+(compose.yaml) and config.guards, which refuses provider credentials at start-up."""
 
 import ipaddress
 import os
@@ -47,13 +56,14 @@ def block_network(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect_ex", _guarded_connect_ex)
 
 
-# A skipped test is not a passing test: the run fails if anything was skipped (CI gate).
+# PASS means executed and passed. A skipped test, an expected failure (xfail) or an unexpected pass of
+# an xfail-marked test (xpass) cannot satisfy a required case, so any of them fails the run (CI gate).
 # Counted from the reports themselves, so it does not depend on the terminal reporter plugin.
 _skipped = []
 
 
 def pytest_runtest_logreport(report):
-    if report.skipped and not hasattr(report, "wasxfail"):
+    if report.skipped or hasattr(report, "wasxfail"):
         _skipped.append(report.nodeid)
 
 

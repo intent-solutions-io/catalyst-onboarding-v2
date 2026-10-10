@@ -74,3 +74,21 @@ def test_system_check_is_silent_for_the_valid_configuration():
     from django.core import checks
 
     assert [e for e in checks.run_checks() if e.id == "catalyst.E001"] == []
+
+
+def test_model_provider_and_telemetry_credentials_are_refused_by_exact_name():
+    environ = {
+        "OPENAI_API_KEY": "synthetic-1",
+        "ANTHROPIC_API_KEY": "synthetic-2",
+        "LOGFIRE_TOKEN": "synthetic-3",
+        "OTEL_EXPORTER_OTLP_HEADERS": "synthetic-4",
+    }
+    (problem,) = guards.provider_problems(LOCMEM, environ)
+    for name in environ:
+        assert name in problem
+    assert "synthetic-" not in problem
+
+
+def test_harmless_vendor_named_variables_are_not_refused():
+    environ = {"OPENAI_DOCS_URL": "https://example.test", "ANTHROPIC_COURSE_NOTES": "x", "LOGFIRE_DOCS": "x"}
+    assert guards.provider_problems(LOCMEM, environ) == []
