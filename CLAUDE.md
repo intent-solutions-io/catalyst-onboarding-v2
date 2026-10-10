@@ -1,8 +1,8 @@
 # CLAUDE.md
 
 Entry point for Claude Code in **catalyst-onboarding-v2**, the documentation-first, Django-native
-Solution Catalyst onboarding platform for Intent Solutions. Planning phase: there is no application
-code yet. Repository: https://github.com/intent-solutions-io/catalyst-onboarding-v2 (public).
+Solution Catalyst onboarding platform for Intent Solutions. Implementation has started with handoff 1B.1:
+a Django skeleton only (settings, start-up guards, custom user, tests); no applicant features yet. Repository: https://github.com/intent-solutions-io/catalyst-onboarding-v2 (public).
 
 ## Read first
 
@@ -42,14 +42,16 @@ before branching; retire only verified-obsolete branches after merge; never dele
 
 ```bash
 bd ready                                   # open work (bd prime already ran at session start)
-npx --yes markdownlint-cli2@0.23.2 "**/*.md" # Markdown check, same version as CI (009 section 5.1)
+scripts/check-docs.sh                      # Markdown lint (same version as CI) and doc index check
+scripts/test.sh                            # runtime tests in digest-pinned Python 3.14.8 + PostgreSQL 16.15 containers
 claude plugin validate .claude/agents      # agent definitions (plus the IS validator, see 009)
 ```
 
 Which checks apply: a docs-only change runs the Markdown and index checks (CI) plus, if
 `.claude/agents/` changed, the agent validators (local only today). A change to code, tests,
 dependencies, migrations, CI, hooks or test selection is **not** docs-only; its lanes are in `009`
-section 5.3 (proposed; no code exists yet). Merges go through the estate merge guard (registration
+section 5.3; the runtime lane runs `scripts/test.sh`'s suite in CI (job "Runtime checks", aggregated
+into the required check). Merges go through the estate merge guard (registration
 recorded in `009` section 5.5; not verifiable from this repository).
 
 The managed Beads block below says not to use `MEMORY.md` files: that means no `MEMORY.md` in this

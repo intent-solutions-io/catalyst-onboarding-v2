@@ -1,8 +1,9 @@
 name: CI
 
-# One job, one required check name ("Markdown lint and doc index check"), so the merge guard never
-# waits on a check that did not run. Every step runs on every PR; each is seconds on this repository.
-# Policy and measured timings: 000-docs/009 section 5.
+# One required check name ("Markdown lint and doc index check"), so the merge guard never waits on a
+# check that did not run. The runtime job runs the Python test suite; the required docs job waits for it
+# and fails unless it succeeded (an aggregating job, 009 section 5.5), so a failed, cancelled or skipped
+# runtime job can never count as a pass. Policy and measured timings: 000-docs/009 section 5.
 
 on:
   push:
@@ -19,11 +20,55 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  runtime:
+    name: Runtime checks (Python 3.14.8, PostgreSQL 16.15)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Same digest-pinned images as compose.yaml (ADR-17, D-18).
+    container:
+      image: python:3.14.8-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
+    services:
+      postgres:
+        image: postgres:16.15@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
+        env:
+          POSTGRES_DB: catalyst
+          POSTGRES_USER: catalyst
+          POSTGRES_PASSWORD: synthetic-ci-only
+        options: >-
+          --health-cmd "pg_isready -U catalyst -d catalyst"
+          --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      CATALYST_ENV: test
+      CATALYST_SECRET_KEY: synthetic-ci-only
+      CATALYST_DB_NAME: catalyst
+      CATALYST_DB_USER: catalyst
+      CATALYST_DB_PASSWORD: synthetic-ci-only
+      CATALYST_DB_HOST: postgres
+      CATALYST_DB_PORT: "5432"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install hash-locked dependencies
+        run: |
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install --quiet --disable-pip-version-check --require-hashes --no-deps -r requirements/dev.txt
+
+      - name: Test suite (PostgreSQL)
+        run: /tmp/venv/bin/python -m pytest -v
+
   docs:
     name: Markdown lint and doc index check
+    needs: runtime
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Runtime checks succeeded
+        run: |
+          echo "runtime job result: ${{ needs.runtime.result }}"
+          test "${{ needs.runtime.result }}" = "success"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # full history for the secret scan
@@ -34,11 +79,7 @@ jobs:
           globs: "**/*.md"
 
       - name: Every filed doc appears in 000-docs/000-INDEX.md
-        run: |
-          set -e
-          for f in $(find 000-docs -name '*.md' ! -name '000-INDEX.md' | sort); do
-            grep -q "$(basename "$f")" 000-docs/000-INDEX.md || { echo "missing from index: $f"; exit 1; }
-          done
+        run: bash scripts/check-docs.sh index
 
       - name: Agent definitions stay read-only and well formed
         run: |

@@ -1,0 +1,5 @@
+# Runtime dependencies for Catalyst v2 (ADR-17, D-18). Compile with:
+#   uv pip compile --python-version 3.14 --python-platform x86_64-unknown-linux-gnu \
+#     --generate-hashes --no-header requirements/base.in -o requirements/base.txt
+Django==5.2.18
+psycopg[binary]==3.3.6

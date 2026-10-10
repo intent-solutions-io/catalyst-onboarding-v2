@@ -7,20 +7,20 @@
 | Source revision | contract PR #7 (merged `110bfad`); 1A evidence and ADR decisions in PR #8 |
 | Classification | Public |
 
-> **Status: PRELIMINARY, subject to review.** Planning phase. No application code, no deployment.
+> **Status: PRELIMINARY, subject to review.** Implementation started (handoff 1B.1 skeleton only). No applicant features, no deployment.
 
 ## Current state
 
 | Item | State | Evidence |
 |---|---|---|
-| Application code | none | repository tree |
+| Application code | handoff 1B.1 skeleton only: settings, start-up guards, `accounts.User`, tests; no applicant features | PR #9 |
 | Build contract (`011`, `002`, `003`, `004`, `005` S1) | APPROVED IN SCOPE 2026-10-09 (`011` section 10) | PR #7 |
 | Owner approval of the contract and first slice | given 2026-10-09 for the scope in `011` section 10 | bead "Obtain the owner's approval of the build contract and the first-slice scope" |
 | Owner-directed amendment of 2026-10-09 | applied | `011` section 9 |
 | Open product policies | 19 open (`011` section 6) | bead "Obtain owner decisions on the open product policies listed in the master blueprint" |
 | Specialist subagents | all eleven discovered in a fresh session; one (`catalyst-django-architect`) probed at runtime | `008` section 5.1 |
 | Documentation CI | green on `main` `95b7537` (run 37891535566, all four checks) | GitHub Actions |
-| Runtime CI lane | not created (first-slice bead S1-T2) | |
+| Runtime CI lane | job "Runtime checks (Python 3.14.8, PostgreSQL 16.15)", aggregated into the required check; failure path demonstrated (probe run 38030066475: runtime failed, required check failed, `safe-merge` refused) | PR #9, closed probe PR #10 |
 | v0.1.0 tag | an automatic tag, not a release (`CHANGELOG.md`) | |
 
 ## Verified versus pending (this handoff)
@@ -43,9 +43,11 @@
 | Item | Where it is proved |
 |---|---|
 | ADR-03 worker behaviours: automatic recovery, pause, bounded attempts, staff visibility | S1-T5, S1-T7, S1-T8 (TEST-S1-07, 12, 17, 18, 19) |
-| `uncertain` outcomes and reconciliation | P2 acceptance, **conditional on ADR-15** (still proposed); owner to confirm the deferral |
+| Provider-specific reconciliation of `uncertain` outcomes | P2 or the relevant integration phase, before real external actions (D-20). S1 still proves attempts, bounded recovery, lease fencing, interruption and no duplicate challenge, adoption or next-stage action |
 | ADR-14 role non-inheritance, no owner or superuser credentials in web and worker, privileged `search_path` | S1-T3 |
-| pytest 9.1.1 and pytest-django 4.14.0 | start of 1B.1 |
+| TEST-S1-13, still open parts | the worker-command start-up refusal (S1-T5); the remaining parts (manage.py check, WSGI start-up, test-session PostgreSQL assertion) are covered by the 1B.1 tests |
+| TEST-S1-14, still open parts | an assertion that CI holds no provider secrets; protection beyond Python sockets (native libraries such as libpq, child processes, collection-time code) is not provided by the test fixture and is not claimed |
+| pytest 9.1.1 and pytest-django 4.14.0 | **done**: verified at the start of 1B.1 (bead S1-T2 notes) |
 
 ## Blockers
 
@@ -60,10 +62,8 @@
 1. Done: contract approved in scope (`011` section 10).
 2. Done: handoff 1A evidence (`012`), and the owner's ADR-03, ADR-14, ADR-17 and ADR-18 decisions
    (2026-10-10, D-16 to D-19).
-3. Next, **once PR #8 merges**: handoff 1B.1 only, S1-T2 (skeleton, PostgreSQL-only settings, provider guards, reproducible
-   environment, CI runtime lane). It starts by showing that pytest 9.1.1 and pytest-django 4.14.0 install,
-   load, collect and run a PostgreSQL-backed check; an incompatibility is a blocker. S1-T3 onward waits for
-   separate authorization.
+3. Now: close out 1B.1 (PR #9: S1-T2 skeleton). After it merges, 1B.2 only: S1-T3, the slice data model
+   and ADR-14 roles. S1-T4 onward waits for separate authorization.
 4. Policy decisions in `011` section 6, each before the milestone it blocks.
 
 ## Decision log

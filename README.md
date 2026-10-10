@@ -8,9 +8,9 @@ A documentation-first, Django-native Solution Catalyst onboarding platform for I
 
 This repository holds the planning record for a second-generation onboarding platform:
 the master blueprint, product requirements, architecture, user journey, technical specification
-and phased execution plan. **It contains no application code.** Nothing in it is approved,
-implemented or deployed, and every document carries a preliminary banner until the owner
-accepts it.
+and phased execution plan, approved in scope by the owner (`000-docs/011` section 10). The only
+application code is the handoff 1B.1 skeleton: Django settings, start-up guards, a custom user model
+and its tests. No applicant feature is implemented and nothing is deployed.
 
 The platform it describes will take a person from a first access request on
 `learn.intentsolutions.io` through verification, a bounded AI-assisted review with human
@@ -29,7 +29,7 @@ proven behaviour as the specification to meet, not as code to copy.
 
 ## Boundaries
 
-- No application code, features, deployments or data until a plan is approved.
+- Application code only within an authorized handoff; no deployments, no real data.
 - No code copied from the first-generation repository.
 - No secrets, applicant information, agreement contents or private audit material. Everything
   here is public; keep it that way.

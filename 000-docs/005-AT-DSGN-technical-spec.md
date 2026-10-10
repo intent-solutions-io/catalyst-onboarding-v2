@@ -55,7 +55,7 @@ registrations, the CI runtime lane.
 | Open applications per identity | one | POL-01 |
 | Repeat submission after verification | recorded as "unverified repeat", staff item, no effect on verified data | POL-01 |
 | Challenge lifetime | a setting; tests use short synthetic values; no production number proposed | POL-02 |
-| Verification message delivery | at-least-once (an identical link may be sent twice after a crash); the declared exception to ADR-15 | POL-06 |
+| Verification message delivery | at-least-once (the identical invitation may be redelivered to the local sink after an interrupted attempt); **owner-decided for S1 only (D-20)**; no other kind inherits it | POL-06 |
 | Send attempts | a setting; tests use small synthetic values | POL-16 |
 | Read-only staff group | one group with exactly the view permissions on slice models, created by a data migration | POL-13 |
 | Message wording | synthetic placeholder text | POL-17 |
@@ -85,10 +85,12 @@ are its requirements. The `012` proof demonstrated claiming and fenced completio
 by a polling worker, pause handling, bounded attempts with the poison rule's history event, `uncertain`
 outcomes, reconciliation and operational visibility are **not yet demonstrated**. S1 tests cover recovery
 (TEST-S1-07, TEST-S1-17), bounded attempts and the poison rule (TEST-S1-18), pause (TEST-S1-19) and
-staff visibility of pending actions (TEST-S1-12). `uncertain` outcomes and reconciliation cannot arise in S1
-**if ADR-15 is approved as drafted** (still PROPOSED): it declares S1's only external effect, the verification
-message, redeliverable. Their acceptance then belongs to P2, the first phase with a non-redeliverable
-provider effect, and rule 2's `uncertain` branch is unreached in S1. The owner confirms this deferral.
+staff visibility of pending actions (TEST-S1-12). **Recovery policy (D-20, owner 2026-10-10):** in S1 the
+identical verification invitation may be redelivered to the local sink after an interrupted attempt; that
+does not mean outcomes cannot be uncertain. S1 still proves attempts, bounded recovery, lease fencing,
+interruption and no duplicate challenge, adoption or next-stage action. Provider-specific reconciliation
+is P2 or the relevant integration phase, before real external actions are enabled; the ledger keeps the
+`uncertain` status for it, and the redelivery exception applies to no other kind.
 
 1. **Claim** is one short transaction: select one due row (`status` queued, or running with an expired
    lease) with `select_for_update(skip_locked=True, of=("self",))` and no outer joins, skip it if an
@@ -134,7 +136,7 @@ provider effect, and rule 2's `uncertain` branch is unreached in S1. The owner c
 
 ### S1.6 Dependencies, proposed versions and compatibility checks
 
-**Not installed in the contract handoff.** S1-T1 has since performed the checks; results are in `012`; ADR-17 decided 2026-10-10 (D-18); pytest and pytest-django are still to be verified at the start of 1B.1.
+**Not installed in the contract handoff.** S1-T1 has since performed the checks; results are in `012`; ADR-17 decided 2026-10-10 (D-18); pytest and pytest-django were verified at the start of 1B.1 (Test runner row below).
 Reported by the Django architect specialist from the Django 5.2 documentation on 2026-10-09 (INSPECTED by
 the main session; S1-T1 re-checks): Django 5.2 supports Python 3.10 to 3.14 and PostgreSQL 14 and later, requires psycopg 3.1.8 or later (or
 psycopg2), and is a long-term-support release with security updates for at least three years from
@@ -146,8 +148,8 @@ psycopg2), and is a long-term-support release with security updates for at least
 | Django | **5.2.18 LTS** (decided, D-18) | long-term support until April 2028 | installed from the hash-locked file in 1B.1 |
 | PostgreSQL | **16.15** (decided, D-18) | inside Django 5.2's range; supported until November 2028 | the production host's server version stays an open P6 check |
 | Driver | **psycopg 3.3.6** (decided, D-18; binary wheel in development and CI) | Django requires 3.1.8 or later | production wheel choice belongs to P6 |
-| Test runner | pytest 9.1.1 with pytest-django 4.14.0 | integrates with the estate testing SOP tooling | **reported, not run at decision time:** 1B.1 first shows they install, load, collect and run a PostgreSQL-backed check |
-| Network guard in tests | a small fixture in the test configuration that blocks non-loopback sockets (no dependency) or `pytest-socket` | TEST-S1-14 | pick one in S1-T1 |
+| Test runner | pytest 9.1.1 with pytest-django 4.14.0 | integrates with the estate testing SOP tooling | **verified 2026-10-10** at the start of 1B.1: installed from hashes, loaded, collected and passed a PostgreSQL-backed check on Python 3.14.8 and PostgreSQL 16.15 (bead S1-T2 notes) |
+| Network guard in tests | a small autouse fixture in `tests/conftest.py`, no dependency (chosen in 1B.1) | TEST-S1-14 | Python-level only: covers `socket.connect` and `connect_ex` inside test functions; not native libraries, child processes or collection-time code |
 | Coverage | `coverage` (through pytest) | GATE-S1 evidence | version check; mutation tooling deferred until code exists |
 | Settings source | environment variables read with the standard library; production values from SOPS at runtime (P6) | no extra dependency | none |
 | Job mechanism | **custom ledger and management-command worker** (decided, D-16) | one mechanism; one source of truth | `012` comparison; unproven behaviours carried as stated in S1.4 (S1-T5, S1-T7, S1-T8; P2 for `uncertain` and reconciliation) |
