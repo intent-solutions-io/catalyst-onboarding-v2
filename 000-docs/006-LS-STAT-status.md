@@ -3,8 +3,8 @@
 | Field | Value |
 |---|---|
 | Document | `006-LS-STAT-status` |
-| Last updated | 2026-10-09 |
-| Source revision | PR #7 (`docs/build-contract-and-first-slice`), approved at `e8a7a4c` |
+| Last updated | 2026-10-10 |
+| Source revision | contract PR #7 (merged `110bfad`); 1A evidence and ADR decisions in PR #8 |
 | Classification | Public |
 
 > **Status: PRELIMINARY, subject to review.** Planning phase. No application code, no deployment.
@@ -38,11 +38,21 @@
 | Git-hook timings | NOT RUN |
 | Auto memory behaviour in a fresh session | NOT VERIFIED (not needed by this contract) |
 
+## Not yet demonstrated (carried, not blocking 1B.1)
+
+| Item | Where it is proved |
+|---|---|
+| ADR-03 worker behaviours: automatic recovery, pause, bounded attempts, staff visibility | S1-T5, S1-T7, S1-T8 (TEST-S1-07, 12, 17, 18, 19) |
+| `uncertain` outcomes and reconciliation | P2 acceptance (first non-redeliverable provider effect) |
+| ADR-14 role non-inheritance, no owner or superuser credentials in web and worker, privileged `search_path` | S1-T3 |
+| pytest 9.1.1 and pytest-django 4.14.0 | start of 1B.1 |
+
 ## Blockers
 
 | Blocker | Owner | Blocks |
 |---|---|---|
 | POL-01 duplicate policy confirmation | Jeremy Longshore | GATE-S1 sign-off |
+| POL-10 retention: no real retention or deletion until the policy and an operating authorization exist (ADR-14) | Jeremy Longshore | any real deletion; GATE-PILOT |
 | Release workflow swallows test failures (`\|\| true`), bead `catalyst-v2-2xy` | Jeremy Longshore | any real release (not 1B.1) |
 
 ## Next steps
@@ -51,7 +61,9 @@
 2. Done: handoff 1A evidence (`012`), and the owner's ADR-03, ADR-14, ADR-17 and ADR-18 decisions
    (2026-10-10, D-16 to D-19).
 3. Now: handoff 1B.1 only, S1-T2 (skeleton, PostgreSQL-only settings, provider guards, reproducible
-   environment, CI runtime lane). S1-T3 onward waits for separate authorization.
+   environment, CI runtime lane). It starts by showing that pytest 9.1.1 and pytest-django 4.14.0 install,
+   load, collect and run a PostgreSQL-backed check; an incompatibility is a blocker. S1-T3 onward waits for
+   separate authorization.
 4. Policy decisions in `011` section 6, each before the milestone it blocks.
 
 ## Decision log

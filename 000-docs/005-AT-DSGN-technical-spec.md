@@ -83,8 +83,11 @@ then re-reads under `select_for_update`; any other integrity error propagates. I
 **Ledger rules (ADR-03, ADR-15).** ADR-03 was decided on 2026-10-10 (D-16): the custom ledger. These rules
 are its requirements. The `012` proof demonstrated claiming and fenced completion only; automatic recovery
 by a polling worker, pause handling, bounded attempts with the poison rule's history event, `uncertain`
-outcomes, reconciliation and operational visibility are **not yet demonstrated** and are proved by S1-T5
-and S1-T8 (TEST-S1-07, TEST-S1-17 to TEST-S1-19, and later phases).
+outcomes, reconciliation and operational visibility are **not yet demonstrated**. S1 tests cover recovery
+(TEST-S1-07, TEST-S1-17), bounded attempts and the poison rule (TEST-S1-18), pause (TEST-S1-19) and
+staff visibility of pending actions (TEST-S1-12). `uncertain` outcomes and reconciliation cannot arise in S1,
+whose only external effect, the verification message, is declared redeliverable (ADR-15); their acceptance
+belongs to P2, the first phase with a non-redeliverable provider effect.
 
 1. **Claim** is one short transaction: select one due row (`status` queued, or running with an expired
    lease) with `select_for_update(skip_locked=True, of=("self",))` and no outer joins, skip it if an
@@ -122,7 +125,7 @@ and S1-T8 (TEST-S1-07, TEST-S1-17 to TEST-S1-19, and later phases).
 | Signed links | `django.core.signing.Signer` with a dedicated salt and a dedicated key setting with fallbacks (`Signer(key=..., fallback_keys=...)`) | signs the challenge's random public id; the database alone decides expiry and use (ADR-16) |
 | Link base URL | a `PUBLIC_BASE_URL` setting | the worker has no request; never built from the `Host` header |
 | Mail sink | `locmem` backend in in-process tests; `filebased` backend for local runs and the subprocess crash test | no SMTP host configured outside production |
-| Worker | a management command (`BaseCommand`) running the claim loop | ADR-03 form pending owner decision |
+| Worker | a management command (`BaseCommand`) running the claim loop | ADR-03 decided (D-16): custom ledger |
 | Custom user | `AbstractUser`, `AUTH_USER_MODEL` | before the first migration |
 | Staff view | `django.contrib.admin`, view permission, `Group`, `has_add/change/delete_permission` returning false | read-only even for superusers on dossier models |
 | Startup guards | system checks registered without the `database` tag, **and** the same assertions in `AppConfig.ready()` | web servers do not run system checks; `ready()` runs in every process |
@@ -130,7 +133,7 @@ and S1-T8 (TEST-S1-07, TEST-S1-17 to TEST-S1-19, and later phases).
 
 ### S1.6 Dependencies, proposed versions and compatibility checks
 
-**Not installed in the contract handoff.** S1-T1 has since performed the checks; results and exact versions are in `012` (ADR-17 stays pending).
+**Not installed in the contract handoff.** S1-T1 has since performed the checks; results are in `012`; ADR-17 decided 2026-10-10 (D-18); pytest and pytest-django are still to be verified at the start of 1B.1.
 Reported by the Django architect specialist from the Django 5.2 documentation on 2026-10-09 (INSPECTED by
 the main session; S1-T1 re-checks): Django 5.2 supports Python 3.10 to 3.14 and PostgreSQL 14 and later, requires psycopg 3.1.8 or later (or
 psycopg2), and is a long-term-support release with security updates for at least three years from
@@ -139,9 +142,9 @@ psycopg2), and is a long-term-support release with security updates for at least
 | Component | Proposed choice | Why | Compatibility check in S1-T1 |
 |---|---|---|---|
 | Python | **3.14.8** (decided, D-18) | longest support of the lines tested; all `012` proofs passed on it | the official image pinned by digest; no change to the system interpreter |
-| Django | 5.2 LTS, latest patch | long-term support; the line the charter references | latest patch on the Django download page |
-| PostgreSQL | 16.x | charter's reference version; inside Django 5.2's range | production host server version (NEEDS VERIFICATION) |
-| Driver | psycopg 3 (binary wheel in development and CI) | Django-supported modern driver | production wheel choice belongs to P6 |
+| Django | **5.2.18 LTS** (decided, D-18) | long-term support until April 2028 | installed from the hash-locked file in 1B.1 |
+| PostgreSQL | **16.15** (decided, D-18) | inside Django 5.2's range; supported until November 2028 | the production host's server version stays an open P6 check |
+| Driver | **psycopg 3.3.6** (decided, D-18; binary wheel in development and CI) | Django requires 3.1.8 or later | production wheel choice belongs to P6 |
 | Test runner | pytest 9.1.1 with pytest-django 4.14.0 | integrates with the estate testing SOP tooling | **reported, not run at decision time:** 1B.1 first shows they install, load, collect and run a PostgreSQL-backed check |
 | Network guard in tests | a small fixture in the test configuration that blocks non-loopback sockets (no dependency) or `pytest-socket` | TEST-S1-14 | pick one in S1-T1 |
 | Coverage | `coverage` (through pytest) | GATE-S1 evidence | version check; mutation tooling deferred until code exists |
