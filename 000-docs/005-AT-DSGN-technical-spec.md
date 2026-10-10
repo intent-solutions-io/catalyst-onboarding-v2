@@ -85,6 +85,13 @@ adoption's version and challenge within its own application. The web process ref
 database connection that is not the application role (`config/runtime.py`, ADR-14). Services, locking and
 allocation below arrive with S1-T4 onward.
 
+**Implemented in S1-T4 (1B.3, draft).** `applications/identity.py` (the S1.3 key), `forms.py`
+(name, email, reason with the column limits), `services.accept_submission` (one transaction, the rules
+below), the `request-access` views (one redirect and one received page for every outcome; a database
+failure is a 503 "please try again"), and the request limits (64 KiB body, 10 fields). The challenge
+lifetime is the required setting `CATALYST_CHALLENGE_LIFETIME_SECONDS` (synthetic in compose and CI;
+POL-02 open). Submission queues the send; nothing is sent until S1-T5. **Failure guarantee:** acceptance is atomic (all of these records commit together or none do); a failure before the commit records nothing, but a connection lost at the commit leaves the caller unable to tell whether it committed, so the 503 page asks the applicant to resubmit and the resubmission follows the duplicate rules (one application, a new version, no extra challenge or send while the existing one is reusable). No request identifier or two-phase commit is added.
+
 **Allocation and locking.** Version numbers come from the application's counter while its row is locked.
 Lock order everywhere is application, then challenge. The losing side of a race catches the integrity
 error **for the named constraint only** (read from the database error's diagnostics), inside a savepoint,
@@ -186,15 +193,15 @@ worktree; record exact versions from current official sources.
 Every case runs on PostgreSQL in CI. Cases that involve locking or concurrency use real transactions
 (`TransactionTestCase`, or pytest-django's `transaction=True`), each thread with its own connection,
 closed at the end; Django's `TestCase` cannot test `select_for_update` behaviour. Results are reported
-PASS, FAIL, SKIPPED, NOT RUN or BLOCKED with the run link. **None has run; all are planned.**
+PASS, FAIL, SKIPPED, NOT RUN or BLOCKED with the run link. **Status (S1-T4 closeout, 2026-10-10):** the intake parts of TEST-S1-01 to TEST-S1-05 run in `tests/test_intake.py` (counts and the CI run for the merged head are on the S1-T4 bead); every other case is NOT RUN until its task. GATE-S1 still needs every case PASS at one head.
 
 | ID | Case | Expected | Requirement |
 |---|---|---|---|
 | TEST-S1-01 | valid synthetic submission | one application, version 1, one "submission received" event, one active challenge, one queued "send verification" action; redirect to the received page | REQ-001, REQ-003 |
 | TEST-S1-02 | invalid submissions: missing fields, malformed email, over-long fields, too many fields, oversized body, missing CSRF token | no rows in any slice table; form errors, or 400/403 for size and CSRF | REQ-027 |
 | TEST-S1-03 | repeat submissions: same email key with case, whitespace and Unicode variants; a plus-addressed variant (distinct key); repeat after the challenge expired; repeat after a failed send; repeat after verification | per S1.2: correct attach-or-new; superseded and new challenge only where S1.2 says; "unverified repeat" version and staff item after verification; status, body and redirect target identical to TEST-S1-01 | REQ-002, REQ-006, REQ-027 |
-| TEST-S1-04 | concurrent submissions with one email key, using a deterministic seam (both requests pass the "no open application" read, then a barrier, then insert), plus a repeated smoke loop; the seam proves one interleaving, the loop is supporting evidence only | one application, both submissions recorded with distinct version numbers, one send action, no server error | REQ-006 |
-| TEST-S1-05 | database failure injected after the application insert and after the action insert; connection loss; failure injected during confirmation after the verification write | acceptance: zero rows in every slice table and the applicant never sees the received page; confirmation: verification, event and next action all absent, challenge still active | REQ-003, REQ-007 |
+| TEST-S1-04 | concurrent submissions with one email key, using a deterministic seam (both requests pass the "no open application" read, then a barrier, then insert); two concurrent repeats on an **existing** application, coordinated by a lock holder that both requests queue behind before it releases, once with a reusable challenge and once with a challenge that must be replaced; plus a repeated smoke loop (fresh key per pair, supporting evidence only) | one application, every submission recorded with distinct version numbers and the counter advanced once per submission, one active challenge and exactly one new send action where a replacement was needed, no server error | REQ-006 |
+| TEST-S1-05 | database failure injected after the application insert and after the action insert; connection loss before the commit; a simulated lost commit acknowledgment (the commit succeeds, the caller sees a failure) followed by a resubmission; failure injected during confirmation after the verification write | acceptance before the commit: zero rows in every slice table and the applicant never sees the received page; lost acknowledgment: the first attempt's records stand, the resubmission adds one version and no second application, challenge or send; confirmation: verification, event and next action all absent, challenge still active | REQ-003, REQ-007 |
 | TEST-S1-06 | worker processes the send action | one message in the local sink to the synthetic address with a link built from `PUBLIC_BASE_URL`; outbound message recorded; action done; event written | REQ-004 |
 | TEST-S1-07 | worker interruption: (a) claimed, then stopped before sending; (b) the sink accepted the message, then stopped before recording (explicit fault seam); (c) a real worker subprocess, `filebased` sink, committed test data, killed with SIGKILL mid-action | lease expiry is simulated by writing a past lease time (no clock mocking); (a) exactly one message; (b) two identical links, one challenge, attempts recorded; (c) recovery without manual steps | REQ-004, REQ-005 |
 | TEST-S1-08 | open the link (GET), then confirm (POST) | GET shows the current version's answers, changes nothing, sets the CSRF cookie and the no-referrer and no-store headers; POST sets verified once, adopts the named version, writes one event and one `held` action whose input is that version | REQ-007, REQ-033 |

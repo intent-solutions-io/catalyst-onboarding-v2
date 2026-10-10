@@ -1,0 +1,10 @@
+{% extends "applications/base.html" %}
+{% block content %}
+<h1>Request access</h1>
+<p>Synthetic placeholder form (first slice).</p>
+<form method="post" novalidate>
+  {% csrf_token %}
+  {{ form.as_div }}
+  <button type="submit">Send request</button>
+</form>
+{% endblock %}
