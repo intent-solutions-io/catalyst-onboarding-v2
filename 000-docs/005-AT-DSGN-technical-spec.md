@@ -80,9 +80,11 @@ error **for the named constraint only** (read from the database error's diagnost
 then re-reads under `select_for_update`; any other integrity error propagates. Idempotency keys
 (proposed): "send verification" keyed by challenge; "start evidence collection" keyed by application.
 
-**Ledger rules (ADR-03, ADR-15).** These are behavioural requirements for whichever mechanism ADR-03
-selects. The field names describe the custom-ledger candidate; a library candidate must show the same
-behaviour in S1-T1's comparison.
+**Ledger rules (ADR-03, ADR-15).** ADR-03 was decided on 2026-10-10 (D-16): the custom ledger. These rules
+are its requirements. The `012` proof demonstrated claiming and fenced completion only; automatic recovery
+by a polling worker, pause handling, bounded attempts with the poison rule's history event, `uncertain`
+outcomes, reconciliation and operational visibility are **not yet demonstrated** and are proved by S1-T5
+and S1-T8 (TEST-S1-07, TEST-S1-17 to TEST-S1-19, and later phases).
 
 1. **Claim** is one short transaction: select one due row (`status` queued, or running with an expired
    lease) with `select_for_update(skip_locked=True, of=("self",))` and no outer joins, skip it if an
@@ -136,23 +138,23 @@ psycopg2), and is a long-term-support release with security updates for at least
 
 | Component | Proposed choice | Why | Compatibility check in S1-T1 |
 |---|---|---|---|
-| Python | 3.12.x | matches the development machine and the Ubuntu 24.04 system Python | latest 3.12 patch; supported by the chosen Django patch |
+| Python | **3.14.8** (decided, D-18) | longest support of the lines tested; all `012` proofs passed on it | the official image pinned by digest; no change to the system interpreter |
 | Django | 5.2 LTS, latest patch | long-term support; the line the charter references | latest patch on the Django download page |
 | PostgreSQL | 16.x | charter's reference version; inside Django 5.2's range | production host server version (NEEDS VERIFICATION) |
 | Driver | psycopg 3 (binary wheel in development and CI) | Django-supported modern driver | production wheel choice belongs to P6 |
-| Test runner | pytest with pytest-django | integrates with the estate testing SOP tooling | versions compatible with the chosen Django and Python |
+| Test runner | pytest 9.1.1 with pytest-django 4.14.0 | integrates with the estate testing SOP tooling | **reported, not run at decision time:** 1B.1 first shows they install, load, collect and run a PostgreSQL-backed check |
 | Network guard in tests | a small fixture in the test configuration that blocks non-loopback sockets (no dependency) or `pytest-socket` | TEST-S1-14 | pick one in S1-T1 |
 | Coverage | `coverage` (through pytest) | GATE-S1 evidence | version check; mutation tooling deferred until code exists |
 | Settings source | environment variables read with the standard library; production values from SOPS at runtime (P6) | no extra dependency | none |
-| Job mechanism | **pending ADR-03**: the custom ledger and management command, or a PostgreSQL-backed library | one mechanism either way | bounded comparison in S1-T1 against the S1.4 ledger rules (S1.6a) |
+| Job mechanism | **custom ledger and management-command worker** (decided, D-16) | one mechanism; one source of truth | `012` comparison; unproven behaviours carried into S1-T5 and S1-T8 |
 | Environment and lock | `uv` with a hash-pinned lockfile | reproducible installs | lockfile resolves on the CI runner |
-| CI database | official PostgreSQL 16 image pinned by digest, as a service container | parity with the reference version | job starts, migrations apply, `connection.vendor == "postgresql"` |
+| CI database | official PostgreSQL 16.15 image **pinned by digest**, as a service container | parity with the decided version | job starts, migrations apply, `connection.vendor == "postgresql"`, server version 16.15 |
 
 Nothing else: no Celery, Redis, Mailpit, HTTP client or model SDK in S1.
 
 ### S1.6a S1-T1 compatibility and comparison checks (what the owner receives before deciding)
 
-S1-T1 returns evidence, not a choice made on the owner's behalf. **Result (2026-10-09): `012`.** Do not copy versions from any older
+S1-T1 returns evidence, not a choice made on the owner's behalf. **Result (2026-10-09): `012`. Decisions (2026-10-10): D-16 to D-19, recorded on the ADR rows in `003`.** Do not copy versions from any older
 worktree; record exact versions from current official sources.
 
 | Decision | S1-T1 must return |
@@ -191,7 +193,7 @@ PASS, FAIL, SKIPPED, NOT RUN or BLOCKED with the run link. **None has run; all a
 | TEST-S1-18 | poison action: a handler that always crashes the worker, and one that always raises | attempts count at claim; the action reaches `failed` at the maximum and is not run again; event written | REQ-004 |
 | TEST-S1-19 | the worker ignores `held` actions and actions of a paused subject; two workers racing for one action; re-running a completed action | never claimed; exactly one claim; no-op on `done` | REQ-004, REQ-013 |
 | TEST-S1-20 | schema integrity: constraints exist by introspection; `makemigrations --check` reports no drift; no `workflow` row points at a missing subject | all present; no drift; no orphans | REQ-003, REQ-006 |
-| TEST-S1-21 | append-only enforcement, in the one form ADR-14's decision fixes before S1-T2 (bead S1-D) | trigger adopted: `UPDATE` and `DELETE` on versions and events raise at the database, including raw SQL. Trigger declined: an architecture test finds no update, delete, `bulk_update` or raw SQL path to those tables | REQ-001, REQ-002 |
+| TEST-S1-21 | append-only enforcement on the protected history tables (ADR-14 decided: privileges plus triggers, D-17) | the application role is refused `UPDATE`, `DELETE` and `TRUNCATE` by privilege, and the migration-owner role is refused them by the trigger, including raw SQL; the application role cannot disable the trigger | REQ-001, REQ-002 |
 | TEST-S1-22 | intervening unverified submissions: version 1 submitted and its link sent; version 2 (different answers, same email key) submitted before confirmation; then confirm. Variant: version 3 arrives between GET and POST | contact control recorded once; only the version shown and named in the POST is adopted; the others stay `unverified` and are kept; the `held` action names the adopted version, never "the latest"; in the variant, version 3 stays `unverified` and raises a staff item | REQ-007, REQ-033 |
 
 GATE-S1 (`002` section 6) passes only when every `TEST-S1-` case is PASS at the PR head, with QA review
@@ -206,7 +208,6 @@ compatibility plan is the separate epic PL and blocks cutover, not this slice.
 ### S1.9 What blocks S1 implementation
 
 1. Owner approval of this contract and slice scope.
-2. Owner decisions on ADR-03's form, ADR-17's versions, ADR-18 (custom user model) and ADR-14's
-   database trigger, informed by S1-T1's checks; tracked by bead S1-D, which blocks S1-T2.
+2. ~~Owner decisions on ADR-03, ADR-14, ADR-17 and ADR-18.~~ Decided 2026-10-10 (D-16 to D-19).
 3. Confirmation or replacement of the POL-01 defaults (identity key, repeat after verification) before
    GATE-S1 (not before coding).

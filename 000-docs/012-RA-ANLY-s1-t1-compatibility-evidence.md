@@ -4,7 +4,7 @@
 |---|---|
 | Document | `012-RA-ANLY-s1-t1-compatibility-evidence` |
 | Version | 0.2.0 (independent review findings applied; proofs re-run on exact Python patches) |
-| Status | **EVIDENCE FOR OWNER DECISIONS.** Recommendations only. ADR-03, ADR-14, ADR-17 and ADR-18 stay **PENDING OWNER DECISION** (bead S1-D). Nothing here is application code, a migration, or approval to start 1B. |
+| Status | **EVIDENCE.** The owner decided ADR-03, ADR-14, ADR-17 and ADR-18 on 2026-10-10 against this evidence (D-16 to D-19, recorded on the ADR rows in `003`); the evidence below is unchanged. Nothing here is application code or a migration. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-09 |
 | Bead | S1-T1, "Select and verify the Django, Python, PostgreSQL, driver and job-runner versions for the first slice" |
