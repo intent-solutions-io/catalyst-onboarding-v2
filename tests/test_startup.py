@@ -46,7 +46,8 @@ def test_production_environment_refuses_to_start():
     assert "CATALYST_ENV='production' is not allowed" in result.stderr
 
 
-@pytest.mark.parametrize("missing", ["CATALYST_SECRET_KEY", "CATALYST_DB_NAME", "CATALYST_ENV", "CATALYST_CHALLENGE_LIFETIME_SECONDS"])
+@pytest.mark.parametrize("missing", ["CATALYST_SECRET_KEY", "CATALYST_DB_NAME", "CATALYST_ENV", "CATALYST_CHALLENGE_LIFETIME_SECONDS",
+                                     "CATALYST_PUBLIC_BASE_URL", "CATALYST_VERIFICATION_KEY"])
 def test_required_setting_missing_refuses_to_start(missing):
     result = run(CHECK, **{missing: None})
     assert result.returncode != 0

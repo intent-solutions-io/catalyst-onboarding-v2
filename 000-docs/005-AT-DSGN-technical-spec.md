@@ -92,6 +92,28 @@ failure is a 503 "please try again"), and the request limits (64 KiB body, 10 fi
 lifetime is the required setting `CATALYST_CHALLENGE_LIFETIME_SECONDS` (synthetic in compose and CI;
 POL-02 open). Submission queues the send; nothing is sent until S1-T5. **Failure guarantee:** acceptance is atomic (all of these records commit together or none do); a failure before the commit records nothing, but a connection lost at the commit leaves the caller unable to tell whether it committed, so the 503 page asks the applicant to resubmit and the resubmission follows the duplicate rules (one application, a new version, no extra challenge or send while the existing one is reusable). No request identifier or two-phase commit is added.
 
+**Implemented in S1-T5 (1B.4, draft).** `workflow/ledger.py` (claim, poison rule, fenced result),
+`manage.py run_worker` (the loop), `correspondence/verification.py` (the send handler) and
+`applications/links.py` (the signed link from `PUBLIC_BASE_URL`; the endpoint it names arrives in S1-T6).
+Only kinds in the fixed `CATALYST_ACTION_HANDLERS` mapping are ever claimed, so an unknown kind stays queued,
+visible and unexecuted. Lock order: the claim locks only the action row; the eligibility check locks the
+application, then the challenge (intake's order), and reads the action without locking it; the result
+transaction locks the application, then updates the action. No path locks the action and then a domain row.
+There is no heartbeat: a handler that outlives its lease may be reclaimed while running, and the fence
+discards its late result. If the sink accepted a message but the result could not be recorded, the action
+stays `running` for lease recovery (D-20 redelivery), never `failed`. **Final pre-send boundary:** the
+handler's eligibility check (lease still held; the subject, challenge and idempotency key match; not paused;
+challenge unused, not superseded and unexpired by the database clock; contact unverified and application
+open) commits before the sink is called. Anything that changes after it (a repeat, a pause, a confirmation,
+a lost lease) cannot recall a message already in flight; the fence discards the stale result, and the
+confirmation step must reject an invalid challenge on its own. Outcomes that send nothing: an ineligible
+challenge ends `cancelled`, a mismatched reference ends `failed` (both terminal, with an event where an
+application exists), a pause found at the check returns the action to the queue with its attempt refunded.
+Settings: `CATALYST_WORKER_LEASE_SECONDS` (default 300), `CATALYST_WORKER_POLL_SECONDS` (5),
+`CATALYST_WORKER_RETRY_SECONDS` (60, doubled per attempt, capped at eight times), `EMAIL_TIMEOUT` at most
+half the lease; `max_attempts` stays the model default of 3 (POL-16 open). Sink acceptance is recorded as
+`accepted`, which is not inbox delivery.
+
 **Allocation and locking.** Version numbers come from the application's counter while its row is locked.
 Lock order everywhere is application, then challenge. The losing side of a race catches the integrity
 error **for the named constraint only** (read from the database error's diagnostics), inside a savepoint,
@@ -193,7 +215,7 @@ worktree; record exact versions from current official sources.
 Every case runs on PostgreSQL in CI. Cases that involve locking or concurrency use real transactions
 (`TransactionTestCase`, or pytest-django's `transaction=True`), each thread with its own connection,
 closed at the end; Django's `TestCase` cannot test `select_for_update` behaviour. Results are reported
-PASS, FAIL, SKIPPED, NOT RUN or BLOCKED with the run link. **Status (S1-T4 closeout, 2026-10-10):** the intake parts of TEST-S1-01 to TEST-S1-05 run in `tests/test_intake.py` (counts and the CI run for the merged head are on the S1-T4 bead); every other case is NOT RUN until its task. GATE-S1 still needs every case PASS at one head.
+PASS, FAIL, SKIPPED, NOT RUN or BLOCKED with the run link. **Status (S1-T4 closeout, 2026-10-10):** the intake parts of TEST-S1-01 to TEST-S1-05 run in `tests/test_intake.py` (counts and the CI run for the merged head are on the S1-T4 bead). S1-T5 (draft) runs TEST-S1-06, 07, 17, 18 and 19 and the worker parts of 13, 14 and 16 in `tests/test_worker.py`. Every other case is NOT RUN until its task. GATE-S1 still needs every case PASS at one head.
 
 | ID | Case | Expected | Requirement |
 |---|---|---|---|

@@ -6,6 +6,7 @@ database URL and no engine variable: the engine is PostgreSQL, and config.guards
 
 import os
 import re
+from urllib.parse import urlsplit
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -85,14 +86,44 @@ if len(set(CATALYST_DB_ROLES.values())) != 3:
 # CATALYST_DB_USER / CATALYST_DB_PASSWORD are the login of whichever role this process uses.
 CATALYST_PROCESS = os.environ.get("CATALYST_PROCESS", "management")
 
+def number(name: str, default: str | None = None, cast=int, minimum=1):
+    try:
+        value = cast(env(name, default))
+    except ValueError:
+        raise ImproperlyConfigured(f"{name} must be a number") from None
+    if value < minimum:
+        raise ImproperlyConfigured(f"{name} must be at least {minimum}")
+    return value
+
+
 # Verification challenge lifetime (POL-02 open: no production value is proposed). Required, so no number
 # is invented here; compose and CI pass a synthetic value.
-try:
-    CATALYST_CHALLENGE_LIFETIME_SECONDS = int(env("CATALYST_CHALLENGE_LIFETIME_SECONDS"))
-except ValueError:
-    raise ImproperlyConfigured("CATALYST_CHALLENGE_LIFETIME_SECONDS must be a whole number of seconds") from None
-if CATALYST_CHALLENGE_LIFETIME_SECONDS <= 0:
-    raise ImproperlyConfigured("CATALYST_CHALLENGE_LIFETIME_SECONDS must be positive")
+CATALYST_CHALLENGE_LIFETIME_SECONDS = number("CATALYST_CHALLENGE_LIFETIME_SECONDS")
+
+# Verification links (ADR-16, D-24). Built from this base URL, never from a request's Host header (the
+# worker has no request). The signing key is dedicated: independent of SECRET_KEY, with fallback keys for
+# rotation. The confirmation endpoint the link names arrives in S1-T6.
+_base = urlsplit(env("CATALYST_PUBLIC_BASE_URL"))
+if _base.scheme not in ("http", "https") or not _base.hostname or _base.path not in ("", "/") or _base.query or _base.fragment:
+    raise ImproperlyConfigured("CATALYST_PUBLIC_BASE_URL must be an http(s) origin such as https://example.test")
+CATALYST_PUBLIC_BASE_URL = f"{_base.scheme}://{_base.netloc}"
+CATALYST_VERIFICATION_KEY = env("CATALYST_VERIFICATION_KEY")
+CATALYST_VERIFICATION_FALLBACK_KEYS = [
+    k.strip() for k in os.environ.get("CATALYST_VERIFICATION_FALLBACK_KEYS", "").split(",") if k.strip()
+]
+if SECRET_KEY in [CATALYST_VERIFICATION_KEY, *CATALYST_VERIFICATION_FALLBACK_KEYS]:
+    raise ImproperlyConfigured("the verification signing key must differ from SECRET_KEY (ADR-16)")
+
+# Worker (ADR-03, D-16; 005 S1.4). Times are compared with the database clock; these are only lengths.
+# The mail timeout must stay well below the lease, so a slow send cannot outlive its claim.
+CATALYST_WORKER_LEASE_SECONDS = number("CATALYST_WORKER_LEASE_SECONDS", "300")
+CATALYST_WORKER_POLL_SECONDS = number("CATALYST_WORKER_POLL_SECONDS", "5", cast=float, minimum=0.05)
+CATALYST_WORKER_RETRY_SECONDS = number("CATALYST_WORKER_RETRY_SECONDS", "60", minimum=0)  # doubles per attempt
+EMAIL_TIMEOUT = number("CATALYST_EMAIL_TIMEOUT_SECONDS", "10")
+if EMAIL_TIMEOUT * 2 > CATALYST_WORKER_LEASE_SECONDS:
+    raise ImproperlyConfigured("CATALYST_EMAIL_TIMEOUT_SECONDS must be at most half of CATALYST_WORKER_LEASE_SECONDS")
+# The only action kinds the worker may execute: a fixed mapping in code, never read from the database.
+CATALYST_ACTION_HANDLERS = {"send_verification": "correspondence.verification.SendVerification"}
 
 # ADR-18 (D-19): the custom user model exists before the first migration.
 AUTH_USER_MODEL = "accounts.User"
@@ -115,3 +146,5 @@ EMAIL_BACKEND = env(
     if CATALYST_ENV == "test"
     else "django.core.mail.backends.console.EmailBackend",
 )
+EMAIL_FILE_PATH = os.environ.get("CATALYST_EMAIL_FILE_PATH") or None  # the filebased sink's private directory
+DEFAULT_FROM_EMAIL = env("CATALYST_FROM_EMAIL", "onboarding@example.invalid")  # synthetic (POL-17)

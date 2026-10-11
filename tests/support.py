@@ -37,3 +37,36 @@ def manage_as_owner(*args):
     )
     assert result.returncode == 0, result.stderr
     return result
+
+
+# Settings a spawned worker receives, and nothing else: no owner, retention or administrator login.
+WORKER_SETTINGS = ("CATALYST_SECRET_KEY", "CATALYST_DB_HOST", "CATALYST_DB_PORT", "CATALYST_CHALLENGE_LIFETIME_SECONDS",
+                   "CATALYST_PUBLIC_BASE_URL", "CATALYST_VERIFICATION_KEY")
+
+
+def worker_env(sink_dir, **overrides):
+    """An explicit, minimal environment for a worker subprocess: the application role's login, synthetic
+    settings, a run-owned file sink and short synthetic timings. Built from scratch, not inherited."""
+    from django.conf import settings
+    from django.db import connection
+
+    env = {name: os.environ[name] for name in ("PATH", "LANG") if name in os.environ}
+    env.update({name: os.environ[name] for name in WORKER_SETTINGS})
+    env.update(
+        HOME="/tmp", PYTHONDONTWRITEBYTECODE="1", DJANGO_SETTINGS_MODULE="config.settings", CATALYST_ENV="test",
+        CATALYST_DB_NAME=connection.settings_dict["NAME"],
+        CATALYST_DB_USER=settings.CATALYST_DB_ROLES["app"], CATALYST_DB_PASSWORD=os.environ["CATALYST_DB_APP_PASSWORD"],
+        CATALYST_EMAIL_BACKEND="django.core.mail.backends.filebased.EmailBackend", CATALYST_EMAIL_FILE_PATH=str(sink_dir),
+        CATALYST_WORKER_LEASE_SECONDS="2", CATALYST_WORKER_POLL_SECONDS="0.1", CATALYST_WORKER_RETRY_SECONDS="0",
+        CATALYST_EMAIL_TIMEOUT_SECONDS="1",
+    )
+    env.update(overrides)
+    return {k: v for k, v in env.items() if v is not None}
+
+
+def worker_process(sink_dir, *args, module=None, **overrides):
+    """Start a worker subprocess: the real `manage.py run_worker`, or `module` (a test child that installs
+    a fault seam and then runs the same command)."""
+    cmd = [sys.executable, "-m", module] if module else [sys.executable, "manage.py", "run_worker"]
+    return subprocess.Popen([*cmd, *args], cwd=ROOT, env=worker_env(sink_dir, **overrides),
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
