@@ -118,6 +118,7 @@ def test_s1_08_opening_the_link_shows_the_answers_and_changes_nothing(method):
         assert all(value in body for value in VALID.values())
         assert f'name="version" value="{version(app, 1).public_id}"' in body
         assert token_of(link) not in body  # the form posts to its own URL; the token is not repeated
+        assert "these answers, and only these" in body and "stays unconfirmed" in body  # no claim over other versions
 
 
 @pytest.mark.django_db

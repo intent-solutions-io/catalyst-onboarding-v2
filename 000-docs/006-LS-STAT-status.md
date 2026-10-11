@@ -56,6 +56,8 @@
 | POL-01 duplicate policy confirmation | Jeremy Longshore | GATE-S1 sign-off |
 | POL-10 retention: no real retention or deletion until the policy and an operating authorization exist (ADR-14); the policy must cover adopted versions with their adoptions, challenges and audit (D-22) | Jeremy Longshore | any real deletion; GATE-PILOT |
 | Release workflow swallows test failures (`\|\| true`), bead `catalyst-v2-2xy` | Jeremy Longshore | any real release (not 1B.1) |
+| Confirmation link in access logs: the signed token is in the URL path; proxy and application-server access logs must not record `/confirm/` paths, or the owner moves the token out of the path (`005` S1-T6 paragraph; bead `catalyst-v2-9kg`) | Jeremy Longshore | any deployment |
+| Production transport settings: HTTPS-only links, `CSRF_COOKIE_SECURE`, `SESSION_COOKIE_SECURE`, SSL redirect and HSTS are not set (bead `catalyst-v2-9kg`) | Jeremy Longshore | any deployment |
 
 ## Next steps
 
