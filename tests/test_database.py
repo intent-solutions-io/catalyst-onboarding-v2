@@ -27,6 +27,9 @@ APPROVED_MIGRATIONS = {
     ("applications", "0001_initial"), ("applications", "0002_history_protection"),
     ("applications", "0003_protect_version_adoption"),
     ("correspondence", "0001_initial"), ("correspondence", "0002_role_grants"),
+    # S1-T7: Django Admin's log, database sessions, and the staff grants and read-only group.
+    ("admin", "0001_initial"), ("admin", "0002_logentry_remove_auto_add"), ("admin", "0003_logentry_add_action_flag_choices"),
+    ("sessions", "0001_initial"), ("accounts", "0003_staff_view"),
 }
 
 

@@ -115,7 +115,9 @@ def pytest_terminal_summary(terminalreporter):
 
 # This run's identity, stamped on its test database. A dict only so the identity probe can tamper with it.
 RUN_IDENTITY = {"marker": f"catalyst-test-run:{uuid.uuid4()}"}
-SLICE_TABLES = re.compile(r"^(applications|workflow|correspondence)_")
+# Slice data plus staff accounts, their sessions and the admin log (S1-T7); the read-only group and its
+# permissions come from migrations and are kept.
+SLICE_TABLES = re.compile(r"^((applications|workflow|correspondence)_|accounts_user|django_session$|django_admin_log$)")
 RESET_TRIGGER = "catalyst_no_truncate"
 _session = {}
 
