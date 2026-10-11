@@ -135,16 +135,16 @@ traceability, not written); their phase refines them at handoff A.
 | REQ-002 | `applications`, ADR-14 | P1 S1-T3 | TEST-S1-03, TEST-S1-15, TEST-S1-21 | CI run | GATE-S1 |
 | REQ-003 | `applications`, `workflow`, ADR-03, ADR-13 | P1 S1-T4 | TEST-S1-01, TEST-S1-05, TEST-S1-20 | CI run incl. forced-failure cases | GATE-S1 |
 | REQ-004 | `workflow`, ADR-03 | P1 S1-T5 | TEST-S1-06, TEST-S1-07, TEST-S1-17, TEST-S1-18, TEST-S1-19 | CI run with worker interruption case | GATE-S1 |
-| REQ-005 | `workflow`, ADR-15 | P1 S1-T5; P2, P4, P5 | TEST-S1-07, TEST-S1-17; planned TEST-P2-03 (uncertain send), TEST-P4-03 (duplicate envelope), TEST-P5-02 (uncertain provisioning) | CI runs | GATE-S1; phase gates |
+| REQ-005 | `workflow`, ADR-15 | P1 S1-T5; P2, P4, P5 | TEST-S1-07, TEST-S1-17; planned TEST-P2-03 (uncertain send), TEST-P2-25 to TEST-P2-27 (ambiguous SMTP, Sent-copy reconciliation, crash after acceptance; `016`), TEST-P4-03 (duplicate envelope), TEST-P5-02 (uncertain provisioning) | CI runs | GATE-S1; phase gates |
 | REQ-006 | `applications`, POL-01 | P1 S1-T4 | TEST-S1-03, TEST-S1-04, TEST-S1-20 | CI run with concurrent transactions on PostgreSQL | GATE-S1 |
 | REQ-007 | `applications`, ADR-16 | P1 S1-T6 | TEST-S1-05 (confirmation case), TEST-S1-08, TEST-S1-09, TEST-S1-10, TEST-S1-22 | CI run | GATE-S1 |
 | REQ-008 | `applications`, ADR-13 | P1 (verification gate); P3, P4, P5 | TEST-S1-10; planned TEST-P3-04 (no decision without authority), TEST-P4-01 (no next agreement before completion), TEST-P5-01 (no provisioning before prerequisites) | CI runs | GATE-S1; phase gates |
 | REQ-009 | `assessments`, D-04 | P3 | planned TEST-P3-01 (typed output), TEST-P3-02 (model failure goes to staff), TEST-P3-03 (prompt-injection evidence), TEST-P3-07 (an answer re-enters assessment once) | CI with PydanticAI test model | GATE-P3 |
 | REQ-010 | staff views, POL-05 | P3 | planned TEST-P3-04 | CI run | GATE-P3 |
 | REQ-011 | `agreements`, D-05 | P4 | planned TEST-P4-01, TEST-P4-02 (fresh re-read), TEST-P4-08 (webhook authentication per installed version) | CI with Documenso fake; staging canary | GATE-P4; GATE-PILOT |
-| REQ-012 | `correspondence`, POL-06 | P2 | planned TEST-P2-01 (reply correlation), TEST-P2-02 (autoresponder and loop stop), TEST-P2-04 (reminder race), TEST-P2-07 (`UIDVALIDITY` change) | CI with local IMAP test server | GATE-P2 |
-| REQ-013 | `workflow`, staff views | P1 S1-T5 (worker honours pauses); P2 | TEST-S1-19; planned TEST-P2-05 (pause stops all automated kinds; resume reschedules without a burst), TEST-P2-11 (staff message sent while paused, no automated action runs) | CI run | GATE-P2 |
-| REQ-014 | staff views | P1 S1-T7 (read-only); P2 onward | TEST-S1-12; planned TEST-P2-06 (resolve an exception without SSH) | CI run; operator walkthrough record | GATE-S1; GATE-P2 |
+| REQ-012 | `correspondence`, POL-06 | P2 | planned TEST-P2-01 (reply correlation), TEST-P2-02 (autoresponder and loop stop), TEST-P2-04 (reminder race), TEST-P2-07 (`UIDVALIDITY` change); proposed in `016`: TEST-P2-12 to TEST-P2-24 (duplicates, MIME and size limits, sender trust, unmatched mail, collector crash and cursor recovery, TLS), TEST-P2-28 to TEST-P2-30, TEST-P2-33 to TEST-P2-38, TEST-P2-40, TEST-P2-43, TEST-P2-44, TEST-P2-46, TEST-P2-47 (no confirmation token stored from inbound mail) | CI with local IMAP test server | GATE-P2 |
+| REQ-013 | `workflow`, staff views | P1 S1-T5 (worker honours pauses); P2 | TEST-S1-19; planned TEST-P2-05 (pause stops all automated kinds; resume reschedules without a burst), TEST-P2-11 (staff message sent while paused, no automated action runs); proposed in `016`: TEST-P2-31 (pause during a running reminder; resume across applications), TEST-P2-45 (staff message has no side effects) | CI run | GATE-P2 |
+| REQ-014 | staff views | P1 S1-T7 (read-only); P2 onward | TEST-S1-12; planned TEST-P2-06 (resolve an exception without SSH); proposed in `016`: TEST-P2-32 (staff confirmation race), TEST-P2-39 (grants), TEST-P2-41 (health queries), TEST-P2-42 (admin permissions) | CI run; operator walkthrough record | GATE-S1; GATE-P2 |
 | REQ-015 | staff views, D-12 | P1 S1-T7 (authorization only); P6 | TEST-S1-11; planned TEST-P6-01 (MFA and host restriction) | CI run; staging check | GATE-S1; GATE-STAGING |
 | REQ-016 | `provisioning`, POL-11 | P5 | planned TEST-P5-01, TEST-P5-02 | CI with MXroute fake; staging canary | GATE-P5; GATE-PILOT |
 | REQ-017 | `provisioning` | P5 | planned TEST-P5-03 (welcome only after verified provisioning) | CI run | GATE-P5 |
@@ -152,7 +152,7 @@ traceability, not written); their phase refines them at handoff A.
 | REQ-019 | all | every PR | gitleaks in CI (exists); manual sensitive-content review (`009` section 5.1) | CI log; PR review note | every merge |
 | REQ-020 | all | P1 S1-T4, S1-T6 | TEST-S1-16 | CI run | GATE-S1 |
 | REQ-021 | settings, D-02 | P1 S1-T2 | TEST-S1-13 | CI run | GATE-S1 |
-| REQ-022 | settings | P1 S1-T2 | TEST-S1-14 | CI run | GATE-S1; GATE-STAGING |
+| REQ-022 | settings | P1 S1-T2; P2 (`016` A-4, a PROPOSED amendment for local test mail servers) | TEST-S1-14; proposed in `016`: TEST-P2-40 (mail hosts and connect-time peer check) | CI run | GATE-S1; GATE-P2; GATE-STAGING |
 | REQ-023 | `009` section 6 | all | review check: no workflow operation from hooks or CI | PR review | every merge |
 | REQ-024 | epic PL | PL | planned TEST-PL-01 (reconciliation counts of migrated versus source records) | migration rehearsal record | GATE-CUTOVER |
 | REQ-025 | operations | P6 | planned TEST-P6-02 (restore drill) | drill record with MET-09 | GATE-PILOT |
