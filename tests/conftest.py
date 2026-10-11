@@ -37,6 +37,8 @@ import psycopg
 import pytest
 from psycopg import sql
 
+from tests import acceptance
+
 _real_connect = socket.socket.connect
 _real_connect_ex = socket.socket.connect_ex
 
@@ -91,6 +93,9 @@ _skipped = []
 def pytest_runtest_logreport(report):
     if report.skipped or hasattr(report, "wasxfail"):
         _skipped.append(report.nodeid)
+    if report.failed or (report.when == "call" and report.passed):
+        for name in {acceptance.key(report.nodeid), acceptance.instance_key(report.nodeid)}:
+            _acceptance["outcomes"].setdefault(name, set()).add(report.outcome)
 
 
 def pytest_collectreport(report):
@@ -98,8 +103,36 @@ def pytest_collectreport(report):
         _skipped.append(report.nodeid)
 
 
+# The acceptance report (005 S1.7, tests/acceptance.py): every case's status at the end of the run. A full
+# run (no file, -k or -m selection, nothing deselected) fails unless every case is PASS: that is GATE-S1's
+# "every case PASS at one head", enforced wherever the whole suite runs (CI and scripts/test.sh).
+_acceptance = {"outcomes": {}, "deselected": False, "statuses": {}, "full": False}
+
+
+def pytest_deselected(items):
+    _acceptance["deselected"] = True
+
+
+def case_status(names, outcomes):
+    seen = [outcomes.get(name, set()) for name in names]
+    if any("failed" in o for o in seen):
+        return "FAIL"
+    if all(o == {"passed"} for o in seen):
+        return "PASS"
+    return "NOT RUN" if not any(seen) else "INCOMPLETE"
+
+
 def pytest_sessionfinish(session, exitstatus):
-    if _skipped and session.exitstatus == 0:
+    config = session.config
+    outcomes = _acceptance["outcomes"]
+    groups = {**acceptance.CASES, **acceptance.SUPPORTING}
+    _acceptance["statuses"] = {case: case_status(names, outcomes) for case, names in groups.items()}
+    mapped = {name for names in groups.values() for name in names}
+    _acceptance["full"] = (
+        config.args_source != pytest.Config.ArgsSource.ARGS and not config.option.keyword
+        and not config.option.markexpr and not _acceptance["deselected"] and bool(mapped & outcomes.keys())
+    )
+    if session.exitstatus == 0 and (_skipped or (_acceptance["full"] and set(_acceptance["statuses"].values()) != {"PASS"})):
         session.exitstatus = 1
 
 
@@ -109,6 +142,16 @@ def pytest_terminal_summary(terminalreporter):
             "FAILED GATE: skipped, xfailed or xpassed tests cannot satisfy required cases: " + ", ".join(_skipped),
             red=True,
         )
+    statuses = _acceptance["statuses"]
+    if not any(s != "NOT RUN" for s in statuses.values()):
+        return  # nothing mapped ran (a child probe or an unrelated file): no report
+    terminalreporter.section("first-slice acceptance (005 S1.7)")
+    groups = {**acceptance.CASES, **acceptance.SUPPORTING}
+    for case, status in statuses.items():
+        terminalreporter.write_line(f"{case:<34} {status:<10} {len(groups[case])} mapped tests")
+    summary = ", ".join(f"{s} {list(statuses.values()).count(s)}" for s in ("PASS", "FAIL", "INCOMPLETE", "NOT RUN"))
+    scope = "full run: GATE-S1 requires every case PASS" if _acceptance["full"] else "selected subset: not gated"
+    terminalreporter.write_line(f"{summary} ({scope})", green=_acceptance["full"] and set(statuses.values()) == {"PASS"})
 
 
 # --- database roles and the privileged reset (D-21) -----------------------------------------------------
