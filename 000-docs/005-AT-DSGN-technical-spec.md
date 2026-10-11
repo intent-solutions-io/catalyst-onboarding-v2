@@ -114,6 +114,28 @@ Settings: `CATALYST_WORKER_LEASE_SECONDS` (default 300), `CATALYST_WORKER_POLL_S
 half the lease; `max_attempts` stays the model default of 3 (POL-16 open). Sink acceptance is recorded as
 `accepted`, which is not inbox delivery.
 
+**Implemented in S1-T6 (1B.5, draft).** `applications/confirmation.py` (the rules) and the `confirm/<token>/`
+view. The token is checked with the dedicated signer; the raw challenge id never authorizes. GET reads the
+current version's answers in one transaction and writes nothing. POST is one transaction: application lock,
+then challenge lock; refused unless the challenge is unused, not superseded and unexpired by the database
+clock, the application is open and the named version belongs to it; then the challenge is marked used,
+contact control and stage `contact_verified` are recorded, only the named version is adopted, a
+`contact_verified` event is written (plus `needs_staff_attention` with reason `newer_unverified_version` if a
+newer version exists), and `start_evidence_collection` is created `held` with the adopted version's public id
+as input and the key `start_evidence_collection:<application public_ref>`. A used challenge answers "already
+confirmed" and changes nothing. Responses: invalid signature or unknown challenge 404, expired, superseded
+or closed 410, a version not of this application 400, a database failure 503. Every response under the
+confirmation path, including those Django builds outside the view (CSRF 403, 405, the resolver's 404,
+the trailing-slash redirect, a 500), is sent with `Cache-Control: no-store` and `Referrer-Policy:
+no-referrer` by the outermost middleware in `config/redaction.py`; `SECURE_REFERRER_POLICY` is
+`no-referrer` site-wide. Refusals are logged as a reason code. Django's request, CSRF and server loggers
+name the path, so the same module replaces the token in those records and drops their `request`
+attribute; `ADMINS` is unset, so no error mail is built. **Stated limits (deployment, P6):** a proxy's or
+application server's access log is outside the application and must not record the confirmation path
+(or the token must move out of the path, an owner decision), and HTTPS-only links with secure cookies
+and HSTS are production settings not made in this slice. A send still queued when the
+link is used is cancelled by the worker's check.
+
 **Allocation and locking.** Version numbers come from the application's counter while its row is locked.
 Lock order everywhere is application, then challenge. The losing side of a race catches the integrity
 error **for the named constraint only** (read from the database error's diagnostics), inside a savepoint,
@@ -215,7 +237,7 @@ worktree; record exact versions from current official sources.
 Every case runs on PostgreSQL in CI. Cases that involve locking or concurrency use real transactions
 (`TransactionTestCase`, or pytest-django's `transaction=True`), each thread with its own connection,
 closed at the end; Django's `TestCase` cannot test `select_for_update` behaviour. Results are reported
-PASS, FAIL, SKIPPED, NOT RUN or BLOCKED with the run link. **Status (S1-T4 closeout, 2026-10-10):** the intake parts of TEST-S1-01 to TEST-S1-05 run in `tests/test_intake.py` (counts and the CI run for the merged head are on the S1-T4 bead). S1-T5 (draft) runs TEST-S1-06, 07, 17, 18 and 19 and the worker parts of 13, 14 and 16 in `tests/test_worker.py`. Every other case is NOT RUN until its task. GATE-S1 still needs every case PASS at one head.
+PASS, FAIL, SKIPPED, NOT RUN or BLOCKED with the run link. **Status (S1-T4 closeout, 2026-10-10):** the intake parts of TEST-S1-01 to TEST-S1-05 run in `tests/test_intake.py` (counts and the CI run for the merged head are on the S1-T4 bead). S1-T5 (merged) runs TEST-S1-06, 07, 17, 18 and 19 and the worker parts of 13, 14 and 16 in `tests/test_worker.py`. S1-T6 (draft) runs TEST-S1-08, 09, 10 and 22 and the confirmation parts of 05 and 16 in `tests/test_confirmation.py`. Every other case is NOT RUN until its task. GATE-S1 still needs every case PASS at one head.
 
 | ID | Case | Expected | Requirement |
 |---|---|---|---|

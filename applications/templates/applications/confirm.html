@@ -1,0 +1,16 @@
+{% extends "applications/base.html" %}
+{% block title %}Confirm your email address{% endblock %}
+{% block content %}
+<h1>Confirm your email address</h1>
+<p>These are the most recent answers we received for this address. Confirming proves that you control this email address and takes these answers, and only these, as your request. Any other submission made with this address stays unconfirmed.</p>
+<dl>
+  <dt>Name</dt><dd>{{ preview.fields.name }}</dd>
+  <dt>Email</dt><dd>{{ preview.fields.email }}</dd>
+  <dt>Reason</dt><dd>{{ preview.fields.reason }}</dd>
+</dl>
+<form method="post">
+  {% csrf_token %}
+  <input type="hidden" name="version" value="{{ preview.version_public_id }}">
+  <button type="submit">Confirm</button>
+</form>
+{% endblock %}
