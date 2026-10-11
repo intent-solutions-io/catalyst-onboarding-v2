@@ -3,8 +3,7 @@
 The link is built from CATALYST_PUBLIC_BASE_URL, never from a request. Signing is deterministic, so a
 permitted redelivery (D-20) carries the identical link under the same configuration. The signature only
 makes the link unguessable; expiry, use and supersession are decided by the database alone when the link
-is used. The confirmation endpoint at CONFIRM_PATH arrives in S1-T6: until then the link resolves to
-nothing. Never log, store in an event, or show staff the token or the link (D-24).
+is used (applications/confirmation.py, the view at CONFIRM_PATH). Never log, store in an event, or show staff the token or the link (D-24).
 """
 
 from django.conf import settings

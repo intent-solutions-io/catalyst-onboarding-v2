@@ -13,7 +13,7 @@
 
 | Item | State | Evidence |
 |---|---|---|
-| Application code | 1B.1 skeleton (PR #9) and 1B.2 data model with ADR-14 roles (PR #11, merged `6f7fbc8`); 1B.3 public intake (S1-T4, PR #12): form, service transaction, duplicate and race handling (including concurrent repeats on an existing application), queued (not sent) verification, and a stated failure guarantee (atomic; a lost commit acknowledgment is resolved by resubmission). 1B.4 worker (S1-T5) in a draft PR, not merged: claim loop, poison rule, fenced results, verification send to a local sink. No confirmation, staff views or providers | PR #9, PR #11, PR #12; 1B.4 draft PR |
+| Application code | 1B.1 skeleton (PR #9) and 1B.2 data model with ADR-14 roles (PR #11, merged `6f7fbc8`); 1B.3 public intake (S1-T4, PR #12): form, service transaction, duplicate and race handling (including concurrent repeats on an existing application), queued (not sent) verification, and a stated failure guarantee (atomic; a lost commit acknowledgment is resolved by resubmission). 1B.4 worker (S1-T5, PR #13, merged `06f7dbb`): claim loop, poison rule, fenced results, verification send to a local sink. 1B.5 confirmation (S1-T6) in a draft PR, not merged: signed link, GET preview without state change, one-transaction POST adopting only the named version, `held` next-stage action, token redaction in Django's logs. No staff views or providers | PR #9, PR #11, PR #12, PR #13; 1B.5 draft PR |
 | Build contract (`011`, `002`, `003`, `004`, `005` S1) | APPROVED IN SCOPE 2026-10-09 (`011` section 10) | PR #7 |
 | Owner approval of the contract and first slice | given 2026-10-09 for the scope in `011` section 10 | bead "Obtain the owner's approval of the build contract and the first-slice scope" |
 | Owner-directed amendment of 2026-10-09 | applied | `011` section 9 |
@@ -62,9 +62,9 @@
 1. Done: contract approved in scope (`011` section 10).
 2. Done: handoff 1A evidence (`012`), and the owner's ADR-03, ADR-14, ADR-17 and ADR-18 decisions
    (2026-10-10, D-16 to D-19).
-3. Done: 1B.1 (PR #9), 1B.2 (PR #11) and the 1B.3 intake closeout (PR #12).
-   Now: 1B.4, S1-T5 only (the worker and the verification send to a local sink), as one draft PR.
-   S1-T6 (confirmation) waits for separate authorization.
+3. Done: 1B.1 (PR #9), 1B.2 (PR #11), the 1B.3 intake closeout (PR #12) and the 1B.4 worker (PR #13).
+   Now: 1B.5, S1-T6 only (contact confirmation), as one draft PR.
+   S1-T7 (read-only staff view) waits for separate authorization.
 4. Policy decisions in `011` section 6, each before the milestone it blocks.
 
 ## Decision log

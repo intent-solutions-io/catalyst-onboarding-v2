@@ -33,11 +33,13 @@ INSTALLED_APPS = [
     "correspondence",
 ]
 MIDDLEWARE = [
+    "config.redaction.PrivateConfirmationResponses",  # outermost: covers responses built outside the view
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+SECURE_REFERRER_POLICY = "no-referrer"  # no page needs to tell another site where a visitor came from
 ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
@@ -102,7 +104,7 @@ CATALYST_CHALLENGE_LIFETIME_SECONDS = number("CATALYST_CHALLENGE_LIFETIME_SECOND
 
 # Verification links (ADR-16, D-24). Built from this base URL, never from a request's Host header (the
 # worker has no request). The signing key is dedicated: independent of SECRET_KEY, with fallback keys for
-# rotation. The confirmation endpoint the link names arrives in S1-T6.
+# rotation. The link names the confirmation view (applications/views.py, S1-T6).
 _base = urlsplit(env("CATALYST_PUBLIC_BASE_URL"))
 if _base.scheme not in ("http", "https") or not _base.hostname or _base.path not in ("", "/") or _base.query or _base.fragment:
     raise ImproperlyConfigured("CATALYST_PUBLIC_BASE_URL must be an http(s) origin such as https://example.test")

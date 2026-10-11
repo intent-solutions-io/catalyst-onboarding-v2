@@ -1,0 +1,7 @@
+{% extends "applications/base.html" %}
+{% block title %}Email address confirmed{% endblock %}
+{% block content %}
+<h1>Email address confirmed</h1>
+{% if already %}<p>This address was already confirmed. There is nothing more to do with this link.</p>
+{% else %}<p>Thank you. Your email address is confirmed and your request will move to the next step.</p>{% endif %}
+{% endblock %}
