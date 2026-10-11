@@ -54,7 +54,7 @@
 | Blocker | Owner | Blocks |
 |---|---|---|
 | POL-10 retention: no real retention or deletion until the policy and an operating authorization exist (ADR-14); the policy must cover adopted versions with their adoptions, challenges and audit (D-22) | Jeremy Longshore | any real deletion; GATE-PILOT |
-| Release workflow swallows test failures (`\|\| true`), bead `catalyst-v2-2xy` | Jeremy Longshore | any real release (not 1B.1) |
+| Release workflow pushes its version-bump commit straight to `main` (no PR, required checks or merge guard), bead `catalyst-v2-oyu`. The test-swallowing bug `catalyst-v2-2xy` is fixed: the release now refuses unless every required CI check succeeded on the release commit (`scripts/require_green_ci.py`) | Jeremy Longshore | any real release |
 | Confirmation link in access logs: the signed token is in the URL path; proxy and application-server access logs must not record `/confirm/` paths, or the owner moves the token out of the path (`005` S1-T6 paragraph; bead `catalyst-v2-9kg`) | Jeremy Longshore | any deployment |
 | Production transport settings: HTTPS-only links, `CSRF_COOKIE_SECURE`, `SESSION_COOKIE_SECURE`, SSL redirect and HSTS are not set (bead `catalyst-v2-9kg`) | Jeremy Longshore | any deployment |
 | POL-13 staff roles, MFA and the staff hostname or network restriction; the slice has one PROPOSED read-only group, local only | Jeremy Longshore | GATE-STAGING |

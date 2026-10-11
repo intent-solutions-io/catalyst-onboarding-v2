@@ -103,4 +103,4 @@ Some tests prove more than one case, for example two `test_db_roles` tests serve
 - **Granularity:** a plain map entry counts every parametrized instance. Only the instances named in the map are required individually.
 - **Test harness credentials:** the test session itself still holds the bootstrap administrator's credentials, tracked by bead `catalyst-v2-6hl.10` (unsolved). Spawned workers receive only application-role credentials.
 - **Policies:** POL-01 is confirmed for the slice (D-25). POL-02 (challenge lifetime), POL-13 (staff roles) and POL-16 (send attempts) use synthetic or proposed values.
-- **Release blocker:** `catalyst-v2-2xy` (the release workflow swallows test failures) stays open and blocks any real release.
+- **Release blocker:** `catalyst-v2-2xy` (the release workflow swallowed test failures) was fixed after GATE-S1: a release now requires every required CI check green on its commit. `catalyst-v2-oyu` (the release pushes its version bump straight to `main`) still blocks any real release.
