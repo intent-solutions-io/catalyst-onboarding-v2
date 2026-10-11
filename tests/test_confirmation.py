@@ -217,13 +217,16 @@ def test_s1_09_a_tampered_or_forged_token_is_refused(caplog):
 
 
 @pytest.mark.django_db
-def test_s1_09_a_token_signed_with_a_retired_key_past_its_fallback_is_refused(settings):
+def test_s1_09_a_token_signed_with_a_retired_key_past_its_fallback_is_refused(settings, caplog):
+    caplog.set_level(logging.INFO)
     app = intake()
     old_link = link_for(app)  # signed with the current key
     v1 = version(app, 1).public_id
     settings.CATALYST_VERIFICATION_KEY = "synthetic-rotated-verification-key"
     settings.CATALYST_VERIFICATION_FALLBACK_KEYS = []
     refused(Client(), old_link, v1, 404)
+    assert "confirmation refused: bad signature; nothing changed" in caplog.text
+    assert_no_secrets(caplog, old_link)
     # Positive control: while the old key is still a fallback, the same link confirms.
     settings.CATALYST_VERIFICATION_FALLBACK_KEYS = [settings_value("CATALYST_VERIFICATION_KEY")]
     assert post_confirm(Client(), old_link, v1).status_code == 200
@@ -236,7 +239,8 @@ def settings_value(name):
     return getattr(built, name)
 
 
-def test_s1_09_an_expired_challenge_is_refused_by_the_database_clock(privileged_reset):
+def test_s1_09_an_expired_challenge_is_refused_by_the_database_clock(privileged_reset, caplog):
+    caplog.set_level(logging.INFO)
     app = intake()
     link = link_for(app)
     owner = privileged_reset.connect("owner", autocommit=True)
@@ -245,10 +249,13 @@ def test_s1_09_an_expired_challenge_is_refused_by_the_database_clock(privileged_
                   " expires_at = now() - interval '1 hour'")
     refused(Client(), link, version(app, 1).public_id, 410)
     assert active_challenge(app).used_at is None
+    assert "confirmation refused: challenge expired; nothing changed" in caplog.text
+    assert_no_secrets(caplog, link)
 
 
 @pytest.mark.django_db
-def test_s1_09_a_superseded_challenge_is_refused_and_the_new_one_works():
+def test_s1_09_a_superseded_challenge_is_refused_and_the_new_one_works(caplog):
+    caplog.set_level(logging.INFO)
     app = intake()
     old_link = link_for(app)
     PendingAction.objects.update(status="failed")  # its send failed, so a repeat reissues the challenge
@@ -256,16 +263,21 @@ def test_s1_09_a_superseded_challenge_is_refused_and_the_new_one_works():
     new_link = link_for(app)
     assert new_link != old_link
     refused(Client(), old_link, version(app, 2).public_id, 410)
+    assert "confirmation refused: challenge superseded; nothing changed" in caplog.text
+    assert_no_secrets(caplog, old_link, new_link)
     assert post_confirm(Client(), new_link, version(app, 2).public_id).status_code == 200
     assert_confirmed_once(app, 2)
 
 
 @pytest.mark.django_db
-def test_s1_09_a_closed_application_cannot_be_confirmed():
+def test_s1_09_a_closed_application_cannot_be_confirmed(caplog):
+    caplog.set_level(logging.INFO)
     app = intake()
     link = link_for(app)
     Application.objects.filter(pk=app.pk).update(stage="withdrawn")  # stand-in for a later terminal stage
     refused(Client(), link, version(app, 1).public_id, 410)
+    assert "confirmation refused: application closed; nothing changed" in caplog.text
+    assert_no_secrets(caplog, link)
 
 
 @pytest.mark.django_db

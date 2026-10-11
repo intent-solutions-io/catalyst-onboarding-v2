@@ -18,11 +18,13 @@ Every document in this directory is **preliminary and subject to review** until 
 | [010-DR-REFF-hook-and-memory-responsibility-register.md](010-DR-REFF-hook-and-memory-responsibility-register.md) | Hook and Memory Responsibility Register: observed hooks, costs, event matrix, memory stores, changes applied outside the repo | Proposed 2026-10-09; subject to review |
 | [011-PP-PLAN-master-blueprint.md](011-PP-PLAN-master-blueprint.md) | **Master blueprint (start here):** document map, owner decisions, authority, open policy register, phased work graph with bead references, approval record | Approved in scope 2026-10-09 (section 10) |
 | [012-RA-ANLY-s1-t1-compatibility-evidence.md](012-RA-ANLY-s1-t1-compatibility-evidence.md) | Handoff 1A evidence: atomic enqueue, worker-death recovery, append-only enforcement, custom user model, versions; decision table for ADR-03, 14, 17, 18 (recommendations only) | Evidence 2026-10-09; ADRs decided 2026-10-10 (D-16 to D-19) |
+| [013-TQ-TEST-first-slice-acceptance-evidence.md](013-TQ-TEST-first-slice-acceptance-evidence.md) | First-slice acceptance evidence (S1-T8): case-to-test map, per-case report and full-run gate, results for TEST-S1-01 to 22, what the evidence does not show | Evidence 2026-10-11; GATE-S1 awaiting owner sign-off |
+| [000-aars/014-AA-AACR-first-slice.md](000-aars/014-AA-AACR-first-slice.md) | After-action report for the first working slice (epic `catalyst-v2-6hl`), full lane | Filed 2026-10-11 |
 
-Next free number: `013`.
+Next free number: `015`.
 
 **After-action reports** go in `000-aars/` inside this directory (filing standard v4.5 §3.1.3): global
-`NNN`, `NNN-AA-AACR-<slug>.md`, from the template above. None filed yet. Cadence: `009` section 10.
+`NNN`, `NNN-AA-AACR-<slug>.md`, from the template above. Filed: `014` (first slice). Cadence: `009` section 10.
 
 **Renamed 2026-10-09** to valid codes (doc-filing audit): `001` BCASE to PLAN, `002` PRD to PROD,
 `004` PP-UJRN to UC-USER, `005` SPEC to DSGN, `006` OD-STAT to LS-STAT.

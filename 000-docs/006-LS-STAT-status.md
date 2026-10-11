@@ -3,23 +3,23 @@
 | Field | Value |
 |---|---|
 | Document | `006-LS-STAT-status` |
-| Last updated | 2026-10-10 |
+| Last updated | 2026-10-11 |
 | Source revision | contract PR #7 (merged `110bfad`); 1A evidence and ADR decisions in PR #8 |
 | Classification | Public |
 
-> **Status: PRELIMINARY, subject to review.** Implementation in progress: skeleton, data model and public intake (1B.1 to 1B.3); the worker (1B.4) is next. No deployment, no real applicant data.
+> **Status: PRELIMINARY, subject to review.** The first slice is implemented (1B.1 to 1B.6, merged) and its acceptance evidence is in review (S1-T8, `013`, `014`); GATE-S1 awaits the owner's sign-off. No deployment, no real applicant data.
 
 ## Current state
 
 | Item | State | Evidence |
 |---|---|---|
-| Application code | 1B.1 skeleton (PR #9) and 1B.2 data model with ADR-14 roles (PR #11, merged `6f7fbc8`); 1B.3 public intake (S1-T4, PR #12): form, service transaction, duplicate and race handling (including concurrent repeats on an existing application), queued (not sent) verification, and a stated failure guarantee (atomic; a lost commit acknowledgment is resolved by resubmission). 1B.4 worker (S1-T5, PR #13, merged `06f7dbb`): claim loop, poison rule, fenced results, verification send to a local sink. 1B.5 confirmation (S1-T6, PR #14, merged `b2138e2`): signed link, GET preview without state change, one-transaction POST adopting only the named version, `held` next-stage action, token redaction in Django's logs. 1B.6 read-only staff view (S1-T7) in a draft PR, not merged: Django Admin dossier, read-only group, session and admin-log grants. No providers | PR #9, PR #11 to #14; 1B.6 draft PR |
+| Application code | 1B.1 skeleton (PR #9) and 1B.2 data model with ADR-14 roles (PR #11, merged `6f7fbc8`); 1B.3 public intake (S1-T4, PR #12): form, service transaction, duplicate and race handling (including concurrent repeats on an existing application), queued (not sent) verification, and a stated failure guarantee (atomic; a lost commit acknowledgment is resolved by resubmission). 1B.4 worker (S1-T5, PR #13, merged `06f7dbb`): claim loop, poison rule, fenced results, verification send to a local sink. 1B.5 confirmation (S1-T6, PR #14, merged `b2138e2`): signed link, GET preview without state change, one-transaction POST adopting only the named version, `held` next-stage action, token redaction in Django's logs. 1B.6 read-only staff view (S1-T7, PR #15, merged `843f974`). S1-T8 acceptance evidence in a draft PR: every TEST-S1 case mapped, reported and gated (`013`), after-action report `014`. No providers | PR #9, PR #11 to #15; S1-T8 draft PR |
 | Build contract (`011`, `002`, `003`, `004`, `005` S1) | APPROVED IN SCOPE 2026-10-09 (`011` section 10) | PR #7 |
 | Owner approval of the contract and first slice | given 2026-10-09 for the scope in `011` section 10 | bead "Obtain the owner's approval of the build contract and the first-slice scope" |
 | Owner-directed amendment of 2026-10-09 | applied | `011` section 9 |
 | Open product policies | 19 open (`011` section 6) | bead "Obtain owner decisions on the open product policies listed in the master blueprint" |
 | Specialist subagents | all eleven discovered in a fresh session; one (`catalyst-django-architect`) probed at runtime | `008` section 5.1 |
-| Documentation and runtime CI | green on `main` `6f7fbc8` (run 38084678198); earlier `main` `95b7537` (run 37891535566) | GitHub Actions |
+| Documentation and runtime CI | green on every merged head through `main` `843f974` (PR #15, run 38106758485: 297 passed); per-task runs on each task's bead | GitHub Actions |
 | Runtime CI lane | job "Runtime checks (Python 3.14.8, PostgreSQL 16.15)", aggregated into the required check; failure path demonstrated (probe run 38030066475: runtime failed, required check failed, `safe-merge` refused) | PR #9, closed probe PR #10 |
 | v0.1.0 tag | an automatic tag, not a release (`CHANGELOG.md`) | |
 
@@ -38,15 +38,15 @@
 | Git-hook timings | NOT RUN |
 | Auto memory behaviour in a fresh session | NOT VERIFIED (not needed by this contract) |
 
-## Not yet demonstrated (carried, not blocking 1B.1)
+## Carried items and where they were proved
 
 | Item | Where it is proved |
 |---|---|
-| ADR-03 worker behaviours: automatic recovery, pause, bounded attempts, staff visibility | S1-T5, S1-T7, S1-T8 (TEST-S1-07, 12, 17, 18, 19) |
+| ADR-03 worker behaviours: automatic recovery, pause, bounded attempts, staff visibility | **demonstrated** in S1-T5 and S1-T7 (TEST-S1-07, 12, 17, 18, 19), gated in S1-T8 (`013`) |
 | Provider-specific reconciliation of `uncertain` outcomes | P2 or the relevant integration phase, before real external actions (D-20). S1 still proves attempts, bounded recovery, lease fencing, interruption and no duplicate challenge, adoption or next-stage action |
 | ADR-14 role non-inheritance, no owner or superuser credentials in web and worker, privileged `search_path` | **implemented and tested in S1-T3** (PR #11): three non-superuser roles with no memberships, per-table grants, append-only triggers (8, adoptions included, D-22), audited retention path, the `catalyst.E002` diagnostic and runtime refusal on the WSGI connection path (fresh-process tests). The suite runs as the application role with a test-only privileged reset (D-21). Configuring deployed web and worker processes with the application role is P6 |
-| TEST-S1-13, still open parts | the worker-command start-up refusal (S1-T5); the remaining parts (manage.py check, WSGI start-up, test-session PostgreSQL assertion) are covered by the 1B.1 tests |
-| TEST-S1-14, still open parts | an assertion that CI holds no provider secrets; protection beyond Python sockets (native libraries such as libpq, child processes, collection-time code) is not provided by the test fixture and is not claimed |
+| TEST-S1-13 | **covered**: the worker-command refusal (S1-T5) plus the 1B.1 tests (manage.py check, WSGI start-up, test-session PostgreSQL assertion) |
+| TEST-S1-14 | **covered**: the assertion that CI references no secret and sets only synthetic credentials (S1-T8). Protection beyond Python sockets (native libraries such as libpq, child processes, collection-time code, UDP or DNS) is not provided by the test fixture and is not claimed |
 | pytest 9.1.1 and pytest-django 4.14.0 | **done**: verified at the start of 1B.1 (bead S1-T2 notes) |
 
 ## Blockers
@@ -65,9 +65,9 @@
 1. Done: contract approved in scope (`011` section 10).
 2. Done: handoff 1A evidence (`012`), and the owner's ADR-03, ADR-14, ADR-17 and ADR-18 decisions
    (2026-10-10, D-16 to D-19).
-3. Done: 1B.1 (PR #9), 1B.2 (PR #11), 1B.3 intake (PR #12), 1B.4 worker (PR #13) and 1B.5 confirmation (PR #14).
-   Now: 1B.6, S1-T7 only (the read-only staff view), as one draft PR.
-   S1-T8 (first-slice acceptance evidence) waits for separate authorization.
+3. Done: 1B.1 (PR #9), 1B.2 (PR #11), 1B.3 intake (PR #12), 1B.4 worker (PR #13), 1B.5 confirmation (PR #14)
+   and 1B.6 staff view (PR #15).
+   Now: S1-T8, the first-slice acceptance evidence (`013`, `014`), as one draft PR; then the owner's GATE-S1 sign-off.
 4. Policy decisions in `011` section 6, each before the milestone it blocks.
 
 ## Decision log
