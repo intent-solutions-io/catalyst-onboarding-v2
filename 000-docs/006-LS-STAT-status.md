@@ -65,8 +65,7 @@
 2. Done: handoff 1A evidence (`012`), and the owner's ADR-03, ADR-14, ADR-17 and ADR-18 decisions
    (2026-10-10, D-16 to D-19).
 3. Done: 1B.1 (PR #9), 1B.2 (PR #11), 1B.3 intake (PR #12), 1B.4 worker (PR #13), 1B.5 confirmation (PR #14)
-   and 1B.6 staff view (PR #15).
-   and S1-T8 acceptance evidence (PR #16). GATE-S1 signed off 2026-10-11 (D-26).
+   and 1B.6 staff view (PR #15), then S1-T8 acceptance evidence (PR #16). GATE-S1 signed off 2026-10-11 (D-26).
    Next: the owner chooses the next work (open blockers below, or the next phase); nothing is started without approval.
 4. Policy decisions in `011` section 6, each before the milestone it blocks.
 
