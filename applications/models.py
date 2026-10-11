@@ -60,6 +60,9 @@ class Application(models.Model):
             models.CheckConstraint(condition=Q(next_version_number__gte=1), name="application_next_version_positive"),
         ]
 
+    def __str__(self):
+        return f"{self.display_name} <{self.email}>"
+
 
 class SubmissionVersion(models.Model):
     class Origin(models.TextChoices):

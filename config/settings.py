@@ -27,6 +27,10 @@ INSTALLED_APPS = [
     "config.apps.CatalystConfig",
     "django.contrib.contenttypes",
     "django.contrib.auth",
+    # The read-only staff view (S1-T7, D-23): Django Admin with database sessions and its messages.
+    "django.contrib.admin",
+    "django.contrib.sessions",
+    "django.contrib.messages",
     "accounts",
     "workflow",
     "applications",
@@ -35,8 +39,11 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "config.redaction.PrivateConfirmationResponses",  # outermost: covers responses built outside the view
     "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 SECURE_REFERRER_POLICY = "no-referrer"  # no page needs to tell another site where a visitor came from
@@ -46,6 +53,11 @@ TEMPLATES = [
         "BACKEND": "django.template.backends.django.DjangoTemplates",
         "DIRS": [],
         "APP_DIRS": True,
+        "OPTIONS": {"context_processors": [
+            "django.template.context_processors.request",
+            "django.contrib.auth.context_processors.auth",
+            "django.contrib.messages.context_processors.messages",
+        ]},
     }
 ]
 # Request limits for the public form (005 S1.5): a larger body or more fields is a 400, not a form error.
@@ -129,6 +141,10 @@ CATALYST_ACTION_HANDLERS = {"send_verification": "correspondence.verification.Se
 
 # ADR-18 (D-19): the custom user model exists before the first migration.
 AUTH_USER_MODEL = "accounts.User"
+# Staff sessions (S1-T7) live in PostgreSQL. Production cookie flags (secure, lifetime) and MFA belong to
+# the staging gate (POL-13, catalyst-v2-9kg); ADMINS stays unset so no error mail carries request data.
+SESSION_ENGINE = "django.contrib.sessions.backends.db"
+LOGIN_URL = "admin:login"
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},

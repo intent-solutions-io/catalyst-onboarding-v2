@@ -136,6 +136,23 @@ application server's access log is outside the application and must not record t
 and HSTS are production settings not made in this slice. A send still queued when the
 link is used is cancelled by the worker's check.
 
+**Implemented in S1-T7 (1B.6, draft).** Django Admin at `/staff/` with database sessions. Every Catalyst model
+admin is view-only for everyone, superusers included (`config/staff_admin.py`): no add, change, delete or
+bulk action. Group and user administration is not registered. The applicant dossier is the application's
+admin page (`applications/admin.py`, `applications/staff.py`). It shows status, contact state (expiry by
+the database clock), the adopted version and how many others stay unverified, open staff-attention items
+marked apart from recorded steps, the next responsible party (applicant, system, staff, or blocked), the
+application's pending actions, and its versions, challenges (state and times only), history and outbound
+messages. The application list can be filtered to applications with a staff-attention item. Never shown:
+challenge public ids, tokens or links, action inputs, idempotency keys, lease tokens, message bodies (not
+stored), signing keys, retention audit. Migration `accounts.0003_staff_view`, run as the owner, grants the
+application role `django_session` SELECT, INSERT, UPDATE and DELETE and `django_admin_log` SELECT only
+(read-only staff never write a log entry), and creates the group "Read-only staff" with exactly the view
+permissions on the eight slice models (not RetentionAudit). Accounts are created by the owner with
+`manage.py add_readonly_staff <username>`; the application role cannot insert users, memberships or
+permissions, or change `is_staff`, `is_superuser` or `is_active`. POL-13 (roles, MFA, staff host) stays
+open for GATE-STAGING; session cookie flags are a deployment gate (`006`).
+
 **Allocation and locking.** Version numbers come from the application's counter while its row is locked.
 Lock order everywhere is application, then challenge. The losing side of a race catches the integrity
 error **for the named constraint only** (read from the database error's diagnostics), inside a savepoint,
@@ -237,7 +254,7 @@ worktree; record exact versions from current official sources.
 Every case runs on PostgreSQL in CI. Cases that involve locking or concurrency use real transactions
 (`TransactionTestCase`, or pytest-django's `transaction=True`), each thread with its own connection,
 closed at the end; Django's `TestCase` cannot test `select_for_update` behaviour. Results are reported
-PASS, FAIL, SKIPPED, NOT RUN or BLOCKED with the run link. **Status (S1-T4 closeout, 2026-10-10):** the intake parts of TEST-S1-01 to TEST-S1-05 run in `tests/test_intake.py` (counts and the CI run for the merged head are on the S1-T4 bead). S1-T5 (merged) runs TEST-S1-06, 07, 17, 18 and 19 and the worker parts of 13, 14 and 16 in `tests/test_worker.py`. S1-T6 (draft) runs TEST-S1-08, 09, 10 and 22 and the confirmation parts of 05 and 16 in `tests/test_confirmation.py`. Every other case is NOT RUN until its task. GATE-S1 still needs every case PASS at one head.
+PASS, FAIL, SKIPPED, NOT RUN or BLOCKED with the run link. **Status (S1-T4 closeout, 2026-10-10):** the intake parts of TEST-S1-01 to TEST-S1-05 run in `tests/test_intake.py` (counts and the CI run for the merged head are on the S1-T4 bead). S1-T5 (merged) runs TEST-S1-06, 07, 17, 18 and 19 and the worker parts of 13, 14 and 16 in `tests/test_worker.py`. S1-T6 (merged) runs TEST-S1-08, 09, 10 and 22 and the confirmation parts of 05 and 16 in `tests/test_confirmation.py`. S1-T7 (draft) runs TEST-S1-11 and 12 and the staff parts of 16 and the role tests in `tests/test_staff.py`. Every other case is NOT RUN until its task. GATE-S1 still needs every case PASS at one head.
 
 | ID | Case | Expected | Requirement |
 |---|---|---|---|
