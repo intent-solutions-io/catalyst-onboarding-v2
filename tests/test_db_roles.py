@@ -394,6 +394,7 @@ def test_history_protection_migrations_reverse_and_reapply_and_keep_data(connect
     assert owner.execute("SELECT count(*) FROM applications_submissionversion WHERE id = %s AND application_id = %s",
                          [version_id, app_id]).fetchone()[0] == 1
     assert owner.execute("SELECT count(*) FROM applications_versionadoption WHERE id = %s", [adoption_id]).fetchone()[0] == 1
+    manage_as_owner("migrate", "--verbosity", "0")  # reversing applications also reversed accounts.0003 (staff view)
 
 
 def test_grant_migrations_reverse_and_reapply(connect):
@@ -405,6 +406,14 @@ def test_grant_migrations_reverse_and_reapply(connect):
     assert not app_can("workflow_pendingaction", "INSERT") and not app_can("workflow_pendingaction", "SELECT")
     manage_as_owner("migrate", "workflow", "0002", "--verbosity", "0")
     assert app_can("workflow_pendingaction", "INSERT")
+    # accounts.0003 (the staff view) depended on workflow.0002, so it was reversed too.
+    assert not app_can("django_session", "INSERT")
+    assert owner.execute("SELECT count(*) FROM auth_group WHERE name = 'Read-only staff'").fetchone()[0] == 0
+    manage_as_owner("migrate", "--verbosity", "0")
+    assert app_can("django_session", "INSERT") and app_can("django_admin_log", "SELECT")
+    assert not app_can("django_admin_log", "INSERT")
+    assert owner.execute("SELECT count(*) FROM auth_group_permissions p JOIN auth_group g ON g.id = p.group_id"
+                         " WHERE g.name = 'Read-only staff'").fetchone()[0] == 8
 
 
 def test_the_owner_still_runs_management_commands(privileged_reset):

@@ -14,14 +14,21 @@ def _q(schema_editor, name):
     return schema_editor.quote_name(name)
 
 
+def _id_sequence(cursor, table):
+    """The sequence behind the table's `id` column, or None (django_session, for one, has no `id`)."""
+    cursor.execute(
+        "SELECT pg_get_serial_sequence(%s, 'id') FROM information_schema.columns"
+        " WHERE table_schema = current_schema() AND table_name = %s AND column_name = 'id'", [table, table])
+    return cursor.fetchone()
+
+
 def grant(schema_editor, table, role_key, privileges):
     role = settings.CATALYST_DB_ROLES[role_key]
     schema_editor.execute(f"GRANT {', '.join(privileges)} ON TABLE {_q(schema_editor, table)} TO {_q(schema_editor, role)}")
     # Identity columns draw from a sequence; INSERT needs USAGE on it.
     if any(p.startswith("INSERT") for p in privileges):
         with schema_editor.connection.cursor() as cursor:
-            cursor.execute("SELECT pg_get_serial_sequence(%s, 'id')", [table])
-            row = cursor.fetchone()
+            row = _id_sequence(cursor, table)
         if row and row[0]:
             schema_editor.execute(f"GRANT USAGE ON SEQUENCE {row[0]} TO {_q(schema_editor, role)}")
 
@@ -30,8 +37,7 @@ def revoke_all(schema_editor, table, role_key):
     role = settings.CATALYST_DB_ROLES[role_key]
     schema_editor.execute(f"REVOKE ALL ON TABLE {_q(schema_editor, table)} FROM {_q(schema_editor, role)}")
     with schema_editor.connection.cursor() as cursor:
-        cursor.execute("SELECT pg_get_serial_sequence(%s, 'id')", [table])
-        row = cursor.fetchone()
+        row = _id_sequence(cursor, table)
     if row and row[0]:
         schema_editor.execute(f"REVOKE ALL ON SEQUENCE {row[0]} FROM {_q(schema_editor, role)}")
 
