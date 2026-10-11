@@ -20,8 +20,9 @@ Every document in this directory is **preliminary and subject to review** until 
 | [012-RA-ANLY-s1-t1-compatibility-evidence.md](012-RA-ANLY-s1-t1-compatibility-evidence.md) | Handoff 1A evidence: atomic enqueue, worker-death recovery, append-only enforcement, custom user model, versions; decision table for ADR-03, 14, 17, 18 (recommendations only) | Evidence 2026-10-09; ADRs decided 2026-10-10 (D-16 to D-19) |
 | [013-TQ-TEST-first-slice-acceptance-evidence.md](013-TQ-TEST-first-slice-acceptance-evidence.md) | First-slice acceptance evidence (S1-T8): case-to-test map, per-case report and full-run gate, results for TEST-S1-01 to 22, what the evidence does not show | Evidence 2026-10-11; GATE-S1 awaiting owner sign-off |
 | [000-aars/014-AA-AACR-first-slice.md](000-aars/014-AA-AACR-first-slice.md) | After-action report for the first working slice (epic `catalyst-v2-6hl`), full lane | Filed 2026-10-11 |
+| [015-AA-AUDT-appaudit-devops-playbook.md](015-AA-AUDT-appaudit-devops-playbook.md) | Operator-grade system analysis after GATE-S1: architecture, tradeoffs, operations, sharp edges, security, current state, roadmap; health score 68/100 | Audit 2026-10-11 at `ef17aa6` |
 
-Next free number: `015`.
+Next free number: `016`.
 
 **After-action reports** go in `000-aars/` inside this directory (filing standard v4.5 §3.1.3): global
 `NNN`, `NNN-AA-AACR-<slug>.md`, from the template above. Filed: `014` (first slice). Cadence: `009` section 10.
