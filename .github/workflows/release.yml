@@ -23,6 +23,7 @@ permissions:
   contents: write
   issues: write
   discussions: write
+  checks: read  # the release gate reads the commit's CI check runs
 
 concurrency:
   group: release-${{ github.ref }}
@@ -53,20 +54,15 @@ jobs:
           fi
           echo "Working tree is clean."
 
-          echo "--- Running tests (if available) ---"
-          if [ -f "Makefile" ] && grep -q "^test:" Makefile; then
-            make test || true
-          elif [ -f "package.json" ] && grep -q '"test"' package.json; then
-            npm test || true
-          elif [ -f "requirements.txt" ] || [ -f "pyproject.toml" ]; then
-            python -m pytest || true
-          elif [ -f "Cargo.toml" ]; then
-            cargo test || true
-          elif [ -f "go.mod" ]; then
-            go test ./... || true
-          else
-            echo "No test runner detected, skipping."
-          fi
+      # Bead catalyst-v2-2xy. The release must not tag, push or publish a commit whose required CI checks
+      # did not all succeed. Tests are not re-run here: the suite needs ci.yml's pinned Python and
+      # PostgreSQL containers and database roles, so CI is the one source of test truth. The gate
+      # fails closed (missing, running, failed, cancelled or skipped checks all refuse), and a failed
+      # step stops this job before any later step runs.
+      - name: Require green CI on the release commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/require_green_ci.py "${{ github.sha }}"
 
       - name: Determine previous tag
         id: prev
