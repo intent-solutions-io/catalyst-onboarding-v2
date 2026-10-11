@@ -73,7 +73,7 @@ direct database edits or a coding agent. The learning site itself is not replace
 
 ## 4. Owner decisions and boundaries
 
-### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-24)
+### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-26)
 
 The owner gave this project direction in the build-contract instruction of 2026-10-09, in the
 invoking session. It is recorded here verbatim so a fresh session can check the source. The owner
@@ -206,6 +206,8 @@ summary a reader needs first.
 | D-22 | `VersionAdoption` is protected history: no role may update, delete or truncate it; no retention path for adoptions until POL-10; same-application foreign keys unchanged | OWNER-DECIDED | section 4.1 (PR #11 closeout); `003` ADR-14; migration `applications.0003` |
 | D-23 | Django Admin in S1-T7: only the session and admin-log grants it needs, and the read-only staff group's permissions, created through an authorized setup or migration path; the runtime application never grants itself staff, superuser or group rights | OWNER-DECIDED | section 4.1 (PR #11 closeout); bead S1-T7 |
 | D-24 | Confirmation token contract: the signed challenge `public_id` (ADR-16); the raw `public_id` is not authorization, a valid signature plus the database checks are; the token, signature and link are never shown, exported, logged or stored in events, and no staff action can mint a link | OWNER-DECIDED | section 4.1 (PR #11 closeout); `003` ADR-16; bead S1-T6 |
+| D-25 | POL-01 confirmed for the first slice with its PROPOSED defaults (`005` S1.3): the identity key is the trimmed, Unicode-normalized, case-folded email with plus-addressing kept distinct and IDN domains in ASCII form; one open application per key; a repeat becomes a new submission version; a repeat after verification is recorded unverified with a staff item and never overwrites verified data; terminal applications do not count as open. Duplicates around terminal stages (decline, withdrawal, reopening) stay with POL-12 (P5) | OWNER-DECIDED 2026-10-11 | owner, in session after the S1-T8 handoff ("ok please do it", answering the request to sign off GATE-S1 and confirm POL-01) |
+| D-26 | GATE-S1 signed off: every TEST-S1 case PASS on PostgreSQL in CI at one head (CI run 38109732065 on `93fc22c`, merged as `3bd31ac`; 315 passed; PASS 25, FAIL 0, INCOMPLETE 0, NOT RUN 0), independent QA review of the evidence (`catalyst-independent-qa`, confirmed), after-action report `014` filed, POL-01 confirmed (D-25). The first-slice epic `catalyst-v2-6hl` closes; deployment gates (`006` Blockers), `catalyst-v2-2xy` and `catalyst-v2-6hl.10` stay open | OWNER-DECIDED 2026-10-11 | owner, same instruction; evidence `013`, `014` |
 
 **Contradictions found:**
 
@@ -237,7 +239,7 @@ open product policies listed in the master blueprint".
 
 | ID | Open question | Decides | Earliest milestone blocked | First-slice handling |
 |---|---|---|---|---|
-| POL-01 | Applicant identity key and duplicate policy: is "same applicant" the normalized email address; may a person hold more than one open application; what happens after a decline or withdrawal | owner | GATE-S1 acceptance sign-off (the slice encodes a default) | PROPOSED defaults (`005` S1.3): identity is a case-folded email key with plus-addressing kept distinct; one open application per key; a repeat becomes a new submission version; a repeat after verification is recorded as unverified and goes to staff, never overwriting verified data |
+| POL-01 | Applicant identity key and duplicate policy: is "same applicant" the normalized email address; may a person hold more than one open application; what happens after a decline or withdrawal | owner | GATE-S1 acceptance sign-off (the slice encodes a default) | **DECIDED for the slice (D-25, 2026-10-11)**: the `005` S1.3 defaults are confirmed; terminal-stage duplicates (decline, withdrawal, reopening) stay with POL-12 (P5) |
 | POL-02 | Verification link lifetime, resend limits, what an expired link offers | owner | GATE-STAGING | PROPOSED default: lifetime is a setting; no number is approved; tests use a short synthetic value |
 | POL-03 | Which evidence is required and how it is collected (and from which sources the system may fetch); the final intake form fields | owner | P3 start (evidence); GATE-PILOT (form fields shown to real applicants) | S1 uses a synthetic placeholder field set (name, email, reason) only |
 | POL-04 | Assessment rubric, what the model may see, what it may recommend | owner | P3 start | not in slice |
