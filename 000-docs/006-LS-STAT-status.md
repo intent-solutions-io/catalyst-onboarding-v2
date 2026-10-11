@@ -7,13 +7,13 @@
 | Source revision | contract PR #7 (merged `110bfad`); 1A evidence and ADR decisions in PR #8 |
 | Classification | Public |
 
-> **Status: PRELIMINARY, subject to review.** The first slice is implemented (1B.1 to 1B.6, merged) and its acceptance evidence is in review (S1-T8, `013`, `014`); GATE-S1 awaits the owner's sign-off. No deployment, no real applicant data.
+> **Status: first slice complete.** GATE-S1 signed off by the owner on 2026-10-11 (D-26; evidence `013`, after-action report `014`); POL-01 confirmed for the slice (D-25). No deployment, no real applicant data; the deployment gates below stay open.
 
 ## Current state
 
 | Item | State | Evidence |
 |---|---|---|
-| Application code | 1B.1 skeleton (PR #9) and 1B.2 data model with ADR-14 roles (PR #11, merged `6f7fbc8`); 1B.3 public intake (S1-T4, PR #12): form, service transaction, duplicate and race handling (including concurrent repeats on an existing application), queued (not sent) verification, and a stated failure guarantee (atomic; a lost commit acknowledgment is resolved by resubmission). 1B.4 worker (S1-T5, PR #13, merged `06f7dbb`): claim loop, poison rule, fenced results, verification send to a local sink. 1B.5 confirmation (S1-T6, PR #14, merged `b2138e2`): signed link, GET preview without state change, one-transaction POST adopting only the named version, `held` next-stage action, token redaction in Django's logs. 1B.6 read-only staff view (S1-T7, PR #15, merged `843f974`). S1-T8 acceptance evidence in a draft PR: every TEST-S1 case mapped, reported and gated (`013`), after-action report `014`. No providers | PR #9, PR #11 to #15; S1-T8 draft PR |
+| Application code | 1B.1 skeleton (PR #9) and 1B.2 data model with ADR-14 roles (PR #11, merged `6f7fbc8`); 1B.3 public intake (S1-T4, PR #12): form, service transaction, duplicate and race handling (including concurrent repeats on an existing application), queued (not sent) verification, and a stated failure guarantee (atomic; a lost commit acknowledgment is resolved by resubmission). 1B.4 worker (S1-T5, PR #13, merged `06f7dbb`): claim loop, poison rule, fenced results, verification send to a local sink. 1B.5 confirmation (S1-T6, PR #14, merged `b2138e2`): signed link, GET preview without state change, one-transaction POST adopting only the named version, `held` next-stage action, token redaction in Django's logs. 1B.6 read-only staff view (S1-T7, PR #15, merged `843f974`). S1-T8 acceptance evidence (PR #16, merged `3bd31ac`): every TEST-S1 case mapped, reported and gated (`013`), after-action report `014`; GATE-S1 signed off (D-26). No providers | PR #9, PR #11 to #16 |
 | Build contract (`011`, `002`, `003`, `004`, `005` S1) | APPROVED IN SCOPE 2026-10-09 (`011` section 10) | PR #7 |
 | Owner approval of the contract and first slice | given 2026-10-09 for the scope in `011` section 10 | bead "Obtain the owner's approval of the build contract and the first-slice scope" |
 | Owner-directed amendment of 2026-10-09 | applied | `011` section 9 |
@@ -53,7 +53,6 @@
 
 | Blocker | Owner | Blocks |
 |---|---|---|
-| POL-01 duplicate policy confirmation | Jeremy Longshore | GATE-S1 sign-off |
 | POL-10 retention: no real retention or deletion until the policy and an operating authorization exist (ADR-14); the policy must cover adopted versions with their adoptions, challenges and audit (D-22) | Jeremy Longshore | any real deletion; GATE-PILOT |
 | Release workflow swallows test failures (`\|\| true`), bead `catalyst-v2-2xy` | Jeremy Longshore | any real release (not 1B.1) |
 | Confirmation link in access logs: the signed token is in the URL path; proxy and application-server access logs must not record `/confirm/` paths, or the owner moves the token out of the path (`005` S1-T6 paragraph; bead `catalyst-v2-9kg`) | Jeremy Longshore | any deployment |
@@ -66,8 +65,8 @@
 2. Done: handoff 1A evidence (`012`), and the owner's ADR-03, ADR-14, ADR-17 and ADR-18 decisions
    (2026-10-10, D-16 to D-19).
 3. Done: 1B.1 (PR #9), 1B.2 (PR #11), 1B.3 intake (PR #12), 1B.4 worker (PR #13), 1B.5 confirmation (PR #14)
-   and 1B.6 staff view (PR #15).
-   Now: S1-T8, the first-slice acceptance evidence (`013`, `014`), as one draft PR; then the owner's GATE-S1 sign-off.
+   and 1B.6 staff view (PR #15), then S1-T8 acceptance evidence (PR #16). GATE-S1 signed off 2026-10-11 (D-26).
+   Next: the owner chooses the next work (open blockers below, or the next phase); nothing is started without approval.
 4. Policy decisions in `011` section 6, each before the milestone it blocks.
 
 ## Decision log

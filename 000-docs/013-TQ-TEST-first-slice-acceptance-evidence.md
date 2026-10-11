@@ -11,7 +11,7 @@
 > reviewed, and the epic's after-action report exists. The owner signs the gate off; this report does
 > not.
 
-- **Status:** evidence for owner review. GATE-S1 is not yet signed off.
+- **Status:** GATE-S1 signed off by the owner on 2026-10-11 (D-26) on this evidence. Run of record: CI run 38109732065 on `93fc22c` (merged as `3bd31ac`), 315 passed, every case PASS.
 - **Epic:** Build the first working slice (bead `catalyst-v2-6hl`); this task is bead `catalyst-v2-6hl.8`.
 - **After-action report:** `000-aars/014-AA-AACR-first-slice.md`.
 
@@ -102,5 +102,5 @@ Some tests prove more than one case, for example two `test_db_roles` tests serve
   - The race tests prove the application lock serializes requests, not interleavings the lock rules out.
 - **Granularity:** a plain map entry counts every parametrized instance. Only the instances named in the map are required individually.
 - **Test harness credentials:** the test session itself still holds the bootstrap administrator's credentials, tracked by bead `catalyst-v2-6hl.10` (unsolved). Spawned workers receive only application-role credentials.
-- **Open policies GATE-S1 still needs:** the owner's POL-01 duplicate-policy confirmation (`006` Blockers). POL-02 (challenge lifetime), POL-13 (staff roles) and POL-16 (send attempts) use synthetic or proposed values.
+- **Policies:** POL-01 is confirmed for the slice (D-25). POL-02 (challenge lifetime), POL-13 (staff roles) and POL-16 (send attempts) use synthetic or proposed values.
 - **Release blocker:** `catalyst-v2-2xy` (the release workflow swallows test failures) stays open and blocks any real release.

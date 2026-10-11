@@ -7,7 +7,7 @@
 > the whole record without being able to change it. No real email, AI model, signing service or
 > deployment was involved.
 
-- **Status:** filed for owner review. The epic stays open until the owner signs GATE-S1 off.
+- **Status:** GATE-S1 signed off by the owner on 2026-10-11 (D-26); the epic is closed.
 - **Lane:** full. The epic had incidents during the work (section 5).
 - **Epic or milestone:** Build the first working slice: synthetic intake, email verification to a local
   mail sink, and a read-only staff view (bead: `catalyst-v2-6hl`).
@@ -16,9 +16,9 @@
 - **GitHub:**
   - specification: PRs #7 and #8;
   - implementation: PRs #9 (S1-T2), #11 (S1-T3), #12 (S1-T4), #13 (S1-T5), #14 (S1-T6) and #15 (S1-T7);
-  - evidence: the S1-T8 pull request (its number and CI run are on bead `catalyst-v2-6hl.8`);
+  - evidence: PR #16, merged as `3bd31ac` (CI run 38109732065 on `93fc22c`);
   - umbrella issue: none (this repository tracks work in Beads, not GitHub issues).
-- **Period:** 2026-10-09 → open (S1-T8 filed 2026-10-11; GATE-S1 sign-off pending)
+- **Period:** 2026-10-09 → 2026-10-11
 - **Author:** Jeremy Longshore, with Claude Code as implementer and the Catalyst specialist subagents as reviewers
 - **Template:** 000-AA-TMPL v1.0.0
 
@@ -105,7 +105,7 @@ The acceptance test in the header is checked in `013-TQ-TEST-first-slice-accepta
 - child-run tests of that gate;
 - a test pinning CI to a full run.
 
-**Evidence of record:** the runtime check on the S1-T8 pull request's final head. Its run link, counts and report lines are recorded on that pull request and on bead `catalyst-v2-6hl.8` after the run. This file cannot link a run of the commit that contains it.
+**Evidence of record:** [CI run 38109732065](https://github.com/intent-solutions-io/catalyst-onboarding-v2/actions/runs/38109732065) on the S1-T8 head `93fc22c` (PR #16, merged as `3bd31ac`): 315 passed in 80.6 s, every TEST-S1 case PASS, "PASS 25, FAIL 0, INCOMPLETE 0, NOT RUN 0 (full run)". The owner signed GATE-S1 off on it (D-26).
 
 **Per-task CI runs** on the head each pull request was merged from:
 
@@ -116,7 +116,7 @@ The acceptance test in the header is checked in `013-TQ-TEST-first-slice-accepta
 | S1-T6 | `b2138e2` | 38104654472 | 270 |
 | S1-T7 | `843f974` | 38106758485 | 297 |
 
-**Result categories at the S1-T8 head:** reported per case by the run itself (PASS, FAIL, INCOMPLETE, NOT RUN). SKIPPED and xfail are impossible in a passing run, because the skip gate fails it. BLOCKED: none. Locally, before the final head, every case and supporting group was PASS, with FAIL 0, INCOMPLETE 0, NOT RUN 0 and SKIPPED 0.
+**Result categories at the S1-T8 head:** PASS 25 (22 cases and 3 supporting groups), FAIL 0, INCOMPLETE 0, NOT RUN 0, SKIPPED 0 (a skip fails the run), BLOCKED 0.
 
 **Mutation checks**, recorded in each pull request's body (each change made at least one test fail):
 
@@ -193,7 +193,7 @@ The acceptance test in the header is checked in `013-TQ-TEST-first-slice-accepta
 
 ## 9. Next steps
 
-1. **Owner:** review `013` and this report; confirm POL-01; sign off GATE-S1 (`002` section 6).
+1. Done 2026-10-11: the owner confirmed POL-01 (D-25) and signed off GATE-S1 (D-26).
 2. Fix the release workflow that swallows test failures (bead `catalyst-v2-2xy`) before any release.
 3. Remove the bootstrap administrator's credentials from the test process (bead `catalyst-v2-6hl.10`).
 4. **P2:** reminders, inbound mail, resolving staff-attention items and `uncertain` reconciliation. Each needs a new handoff and approval.
