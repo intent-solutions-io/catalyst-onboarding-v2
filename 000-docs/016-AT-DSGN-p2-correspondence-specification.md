@@ -4,7 +4,7 @@
 |---|---|
 | Document | `016-AT-DSGN-p2-correspondence-specification` |
 | Version | 0.3.2 (consolidated 2A closeout: corrections 1 to 9 applied; independent QA review and re-check recorded in sections 10.3 and 10.4) |
-| Status | **PROPOSED.** Handoff 2A of phase P2 (`011` section 7: specify and decide; no application code). Nothing here is built, approved or configured. Every choice marked PROPOSED waits for the owner decision named beside it (section 8). |
+| Status | **APPROVED by the owner 2026-10-12 (version 0.3.2; decisions D-27 to D-32 in `011` section 4).** Handoff 2A of phase P2. Approval covers synthetic P2 only: no real email, applicant data, provider credentials, deployment or production staff access. Items still marked PROPOSED or open in section 8.2 to 8.4 are not covered. Only task 2B.1 is authorized. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-12 |
 | Epic | P2, "Run the applicant correspondence loop: outbound policy, inbox correlation, reminders, stop rules and human takeover" (`catalyst-v2-7hu`); this task is `catalyst-v2-7hu.1` |
@@ -12,11 +12,10 @@
 | Primary sources | RFC 5321 (SMTP) sections 2.1, 4.1.1.4, 4.2.1, 6.1; RFC 9051 (IMAP4rev2) sections 2.3.1.1, 4.1.1, 6.3.12; RFC 8601 (Authentication-Results) sections 1.6, 5; RFC 9989 (DMARC, Proposed Standard, obsoletes RFC 7489) section 5.3.5; RFC 3834 (automatic responses). Each is cited where it is used. |
 | Classification | Public; synthetic data only (`example.test` addresses); no provider, mailbox or credential is named |
 
-> **Status: PRELIMINARY, subject to review.** This document specifies P2 in enough detail that an
-> engineer can implement each task without guessing. It does not authorize code, real mail, MXroute,
-> the VPS or any provider. Provider-specific behaviour stays unverified until a separately authorized
-> check. The P2 task beads (section 9) start only after the owner decisions they depend on are recorded
-> in `011` section 4 (section 8 lists exactly which).
+> **Status: APPROVED for synthetic P2 (2026-10-12).** The owner approved version 0.3.2 and recorded D-27
+> to D-32. That approval unblocks 2B.1 only. It does not authorize real mail, MXroute, the VPS or any
+> provider; provider-specific behaviour stays unverified until a separately authorized check. Any later
+> substantive change to this document is reviewed by one independent specialist.
 
 **The standard this document must meet.**
 
@@ -820,8 +819,11 @@ reaches a real provider.
 
 ## 8. Owner decisions brief
 
-Nothing below is approved. Recording a decision in `011` section 4 is a separate owner act. Synthetic
-settings stay synthetic. Outbound foundations (2B.1) do **not** need production cadence, the later
+**Decision state (2026-10-12).** The owner approved the architecture of 0.3.2 as a whole, and the named
+decisions are D-27 to D-32. Section 8.1 is decided (D-27 to D-31). In 8.2, A-5, A-6, A-8, A-9, A-10 and
+POL-19 are decided (D-28, D-31). The 8.2 items not named in a decision (the trust table, the autoresponder
+rule, and POL-06 cadence and stop values, which stay synthetic settings) are confirmed when their task is
+released. Sections 8.3 and 8.4 remain open. Section 8.6 is decided (D-32). Outbound foundations (2B.1) do **not** need production cadence, the later
 policies or the deployment design.
 
 ### 8.1 What blocks 2B.1 (outbound foundations)

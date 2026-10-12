@@ -25,7 +25,8 @@
 >    it as a qualitative summary.
 > 6. **PDF footer.** A PDF rendering of this report carried a "Confidential" footer. That came from the
 >    rendering theme's default, not from a classification decision. The source file is public in this
->    repository; whether the report is classified at all is an open owner question (`016` section 8).
+>    repository. **Decided 2026-10-12 (D-32):** the report is public technical documentation while its
+>    content stays public-safe, and future public PDF renderings use unclassified labelling.
 > 7. **Since fixed.** The stale README and CHANGELOG findings (sections 1, 8.9 and the roadmap) were
 >    true at `ef17aa6` and were fixed in handoff 2A: the README describes the accepted first slice and how
 >    to run the tests, and the CHANGELOG lists the merged pull requests. They stay below as dated findings.
