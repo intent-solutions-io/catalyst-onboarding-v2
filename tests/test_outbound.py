@@ -891,3 +891,28 @@ def test_the_seeded_question_template_is_a_valid_synthetic_draft():
     version = MessageTemplateVersion.objects.select_related("template").get(template__key="question_request", version=1)
     assert (version.status, version.synthetic, version.secret_bearing) == ("draft", True, False)
     check_version(version)
+
+
+def test_p2_a7_evidence_after_the_poison_rule_resolves_its_item(ready, settings):
+    settings.CATALYST_SEND_EVIDENCE_SOURCE = "tests.smtp_server.ServerEvidence"
+    ready.use(ScriptedSMTP({"end": "silent"}))
+    _, message = ask(ready)
+    claim = ledger.claim_next(ledger.handlers())
+    decision = ledger.handlers()["send_message"].check(claim)
+    transport.send(decision.payload, settings.DEFAULT_FROM_EMAIL, decision.recipient)  # reaches the server, no reply
+    PendingAction.objects.filter(pk=claim.id).update(attempts=claim.max_attempts, lease_expires_at=Now() - timedelta(seconds=1))
+    run_worker()  # the poison rule: uncertain, an item at once, then reconciliation finds admissible evidence
+    message.refresh_from_db()
+    assert message.disposition == "accepted_by_evidence"
+    [item] = items(message)
+    assert item.status == "resolved" and item.resolution.resolution_code == "accepted_by_evidence"
+    assert send_health()["anomalies"] == []
+
+
+def test_p2_a7_an_uncertain_send_without_an_unknown_attempt_reaches_staff(ready):
+    _, message = ask(ready)
+    [action] = sends(message)
+    PendingAction.objects.filter(pk=action.pk).update(status="uncertain")  # a defect ended it before any exchange
+    outbound.enqueue_reconcile(message, 0, 1)
+    run_worker()
+    assert [i.reason_code for i in items(message)] == ["send_outcome_unknown"] and ready.server.messages == []

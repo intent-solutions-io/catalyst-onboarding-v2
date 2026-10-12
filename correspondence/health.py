@@ -5,8 +5,8 @@
 from datetime import timedelta
 
 from django.conf import settings
-from django.db.models import Count
-from django.db.models.functions import Now
+from django.db.models import CharField, Count
+from django.db.models.functions import Cast, Now
 
 from workflow.models import PendingAction
 
@@ -35,7 +35,8 @@ def send_health() -> dict:
         "held_sends": PendingAction.objects.filter(kind="send_message", status=PendingAction.Status.HELD).count(),
         "uncertain_sends": PendingAction.objects.filter(
             kind="send_message", status=PendingAction.Status.UNCERTAIN,
-            input_ref__in=[str(r) for r in ApprovedMessage.objects.filter(disposition=Disposition.ACTIVE).values_list("send_ref", flat=True)],
+            input_ref__in=ApprovedMessage.objects.filter(disposition=Disposition.ACTIVE).annotate(
+                ref=Cast("send_ref", CharField())).values("ref"),
         ).count(),
         "open_send_items": StaffItem.objects.filter(status=StaffItem.Status.OPEN, reason_code__in=DECIDABLE).count(),
     }

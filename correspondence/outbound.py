@@ -44,9 +44,10 @@ from .models import (
     MessageTemplateVersion,
     OutboundMessage,
     Question,
+    StaffItem,
 )
 from .rendering import TemplateRefused, canonical_digest, check_version, render
-from .staff_items import event, open_item
+from .staff_items import event, open_item, resolve_item
 
 logger = logging.getLogger(__name__)
 Status = PendingAction.Status
@@ -506,7 +507,10 @@ class ReconcileSend:
         message = ApprovedMessage.objects.select_related("application").filter(send_ref=claim.input_ref).first()
         key = PendingAction.objects.filter(pk=claim.id).values_list("idempotency_key", flat=True).first() or ""
         parts = key.split(":")
-        if message is None or message.application.public_ref != claim.subject_id or len(parts) != 4:
+        if len(parts) != 4 or not parts[2].isdigit():
+            ledger.finish(claim, self, status=Status.FAILED, error="reconcile_key_malformed")
+            return
+        if message is None or message.application.public_ref != claim.subject_id:
             ledger.finish(claim, self, status=Status.FAILED, error="approved_message_not_found")
             return
         series = int(parts[2])
@@ -539,6 +543,12 @@ class ReconcileSend:
                     event(message.application, "message_accepted_by_evidence",
                           {"send_ref": str(message.send_ref), "evidence_origin": found.origin},
                           actor_ref=f"pending_action:{claim.id}")
+                    # Items opened earlier (the poison rule opens one at once) no longer need a decision.
+                    for item in StaffItem.objects.filter(approved_message=message, status=StaffItem.Status.OPEN,
+                                                         reason_code__in=DECIDABLE):
+                        resolve_item(item, code="accepted_by_evidence", actor_ref=f"pending_action:{claim.id}",
+                                     effects={"send_ref": str(message.send_ref)},
+                                     actor_type=ApplicationEvent.ActorType.SYSTEM)
             elif n < settings.CATALYST_MAIL_RECONCILE_CHECKS:
                 enqueue_reconcile(message, series, n + 1)
             else:

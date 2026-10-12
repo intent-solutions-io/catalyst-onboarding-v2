@@ -59,7 +59,8 @@ def open_item(reason_code: str, dedupe_key: str, *, application=None, approved_m
     return item
 
 
-def resolve_item(item: StaffItem, *, code: str, actor_ref: str, note: str = "", effects: dict | None = None) -> bool:
+def resolve_item(item: StaffItem, *, code: str, actor_ref: str, note: str = "", effects: dict | None = None,
+                 actor_type=ApplicationEvent.ActorType.STAFF) -> bool:
     """Compare-and-set the item from open to resolved and record the resolution. Returns False (no change)
     if the item was already resolved."""
     note = clean_note(note)
@@ -69,5 +70,5 @@ def resolve_item(item: StaffItem, *, code: str, actor_ref: str, note: str = "", 
                                        effects=effects or {})
     event(item.application, "staff_item_resolved", {"item": str(item.public_id), "reason": item.reason_code,
                                                     "resolution": code},
-          actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor_ref)
+          actor_type=actor_type, actor_ref=actor_ref)
     return True
