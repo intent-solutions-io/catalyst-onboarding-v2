@@ -323,12 +323,14 @@ MATRIX = [
     ({"end": 554}, ["rejected_permanent"], "rejected_permanent", "failed", "send_rejected_permanent", 1),
     ({"end": "silent"}, ["unknown"], "active", "uncertain", "send_outcome_unknown", 1),
     ({"end": "drop"}, ["unknown"], "active", "uncertain", "send_outcome_unknown", 1),
+    ({"end": "garbage"}, ["unknown"], "active", "uncertain", "send_outcome_unknown", 1),  # unparseable: code not recorded
+    ({"ehlo": "garbage"}, ["transport_blocked"] * 3, "transport_blocked", "held", "smtp_transport_blocked", 0),
 ]
 
 
 @pytest.mark.parametrize(("script", "statuses", "disposition", "action_status", "item", "received"), MATRIX,
                          ids=["accepted", "greeting-421", "ehlo-drop", "mail-550", "rcpt-450", "rcpt-550", "data-554",
-                              "end-451", "end-554", "end-silent", "end-drop"])
+                              "end-451", "end-554", "end-silent", "end-drop", "end-garbage", "ehlo-garbage"])
 def test_p2_48_each_protocol_phase_maps_to_its_outcome_class(ready, monkeypatch, script, statuses, disposition,
                                                              action_status, item, received):
     no_blind_retry(monkeypatch)
@@ -348,6 +350,8 @@ def test_p2_48_each_protocol_phase_maps_to_its_outcome_class(ready, monkeypatch,
     if statuses == ["unknown"]:
         # Never an ordinary retry: one exchange, then reconciliation, which found no admissible evidence.
         assert PendingAction.objects.filter(kind="reconcile_send", status="done").count() == 2
+    codes = list(OutboundMessage.objects.filter(approved_message=message).values_list("smtp_reply_code", flat=True))
+    assert all(c is None or 100 <= c <= 599 for c in codes)
     if disposition == "accepted_by_server":
         parsed = ready.server.parsed()
         assert parsed["Auto-Submitted"] == "auto-generated" and parsed["Message-ID"] == outbound.message_id(message.send_ref)
@@ -377,15 +381,25 @@ def test_p2_48_starttls_is_required_unless_the_host_is_loopback_with_tls_off(rea
     assert "MAIL" not in ready.server.commands and ready.server.messages == []
 
 
-def test_p2_48_events_and_logs_carry_no_address_subject_or_body(ready, caplog):
+@pytest.mark.parametrize("script", [{}, {"end": "silent"}, {"rcpt": 550}], ids=["accepted", "unknown", "rejected"])
+def test_p2_48_events_logs_errors_and_items_carry_no_address_subject_body_or_credential(ready, caplog, settings, script):
     caplog.set_level(logging.DEBUG)
+    settings.CATALYST_MAIL_USER, settings.CATALYST_MAIL_PASSWORD = "sentinel-user-91d2", "sentinel-password-4be8"
+    ready.use(ScriptedSMTP(script))
     _, message = ask(ready, text="Sentinel question text 7c1f?")
     run_worker()
-    history = json.dumps(list(ApplicationEvent.objects.values("kind", "data", "actor_ref")))
-    for sentinel in ("ada@example.test", "Sentinel question text 7c1f", QUESTION_SUBJECT, "synthetic-password-only"):
-        assert sentinel not in history and sentinel not in caplog.text
-    resolutions = json.dumps(list(StaffItem.objects.values("reason_code", "dedupe_key")))
-    assert "ada@example.test" not in resolutions
+    if StaffItem.objects.filter(status="open").exists():
+        staff_actions.decide_uncertain_send(message.pk, ready.decider, "abandon", note="synthetic note")
+    stored = json.dumps([
+        list(ApplicationEvent.objects.values("kind", "data", "actor_ref")),
+        list(PendingAction.objects.values("idempotency_key", "last_error")),
+        list(StaffItem.objects.values("reason_code", "dedupe_key")),
+        list(StaffItemResolution.objects.values("resolution_code", "note", "effects")),
+    ], default=str)
+    for sentinel in ("ada@example.test", "Sentinel question text 7c1f", QUESTION_SUBJECT, "sentinel-user-91d2",
+                     "sentinel-password-4be8", "synthetic auth", "synthetic rcpt reply"):
+        assert sentinel not in stored and sentinel not in caplog.text, sentinel
+    assert "AUTH" in ready.server.commands  # the credential was really used
 
 
 # --- TEST-P2-03, 25, 26, 27: unknown outcomes, evidence and staff decisions ----------------------------------
@@ -645,7 +659,9 @@ def test_p2_41_g3_reports_the_send_anomalies(ready):
     report = send_health()
     assert report["messages_by_disposition"]["rejected_permanent"] == 1 and report["needs_decision"] == 1
     assert report["unknown_attempts"] == 1 and report["uncertain_sends"] == 1 and report["stale_sending_attempts"] == 1
-    assert report["anomalies"] == ["needs_decision", "stale_sending_attempts", "uncertain_sends", "unknown_attempts"]
+    assert report["open_send_items"] == 2
+    assert report["anomalies"] == ["needs_decision", "open_send_items", "stale_sending_attempts", "uncertain_sends",
+                                   "unknown_attempts"]
     with pytest.raises(SystemExit) as exit_:
         call_command("correspondence_health", stdout=StringIO())
     assert exit_.value.code == 1
@@ -667,3 +683,211 @@ def test_p2_52_each_2b1_service_needs_its_role(ready):
     for user in (reader, superuser, ready.owner, ready.operator):
         with pytest.raises(PermissionDenied):
             staff_actions.decide_uncertain_send(message.pk, user, "abandon")
+
+
+def test_p2_41_g3_clears_once_staff_have_decided(ready):
+    ready.use(ScriptedSMTP({"end": "silent", "rcpt": [250, 550]}))
+    _, unknown = ask(ready)
+    run_worker()
+    _, rejected = ask(ready, text="A second synthetic question?")
+    run_worker()
+    assert send_health()["anomalies"]
+    staff_actions.decide_uncertain_send(unknown.pk, ready.decider, "abandon")
+    staff_actions.decide_uncertain_send(rejected.pk, ready.decider, "abandon")
+    assert send_health()["anomalies"] == []  # the unknown attempt stays in history but no longer alarms
+    call_command("correspondence_health", stdout=StringIO())
+
+
+# --- review fixes: races, bounds, poison, evidence, refusals ---------------------------------------------------
+
+def test_p2_27_a_reclaim_during_the_exchange_discards_the_stale_result_and_sends_once(ready, monkeypatch):
+    no_blind_retry(monkeypatch)
+    seen = []
+
+    def reclaim_mid_exchange(claim, result):
+        if seen:
+            return
+        seen.append(result.outcome)
+        PendingAction.objects.filter(pk=claim.id).update(lease_expires_at=Now() - timedelta(seconds=1))
+        assert ledger.run_one(ledger.handlers())  # a second worker reclaims while the first is between SMTP and recording
+    monkeypatch.setattr(outbound, "_after_send", reclaim_mid_exchange)
+    _, message = ask(ready)
+    run_worker()
+    assert seen == ["accepted_by_server"]
+    [action] = sends(message)
+    assert action.status == "uncertain"  # the stale worker's "accepted" was discarded by the fence
+    assert attempts(message) == [(1, 0, "unknown")] and len(ready.server.messages) == 1
+    message.refresh_from_db()
+    assert message.disposition == "active" and [i.reason_code for i in items(message)] == ["send_outcome_unknown"]
+
+
+def test_p2_12_two_concurrent_approvals_freeze_one_message(ready):
+    import threading
+
+    question = Question.objects.create(application=ready.app, text="Synthetic concurrent question?")
+    barrier, results = threading.Barrier(2), []
+
+    def approve():
+        barrier.wait(10)
+        results.append(outbound.approve_question(question.pk, ready.operator).pk)
+    threads = [ready.committed.thread(approve) for _ in range(2)]
+    for t in threads:
+        t.join(30)
+    assert len(results) == 2 and len(set(results)) == 1
+    assert ApprovedMessage.objects.count() == 1 and PendingAction.objects.filter(kind="send_message").count() == 1
+
+
+def test_p2_26_a_resend_that_ends_unknown_again_gets_its_own_reconciliation_checks(ready):
+    ready.use(ScriptedSMTP({"end": "silent"}))
+    _, message = ask(ready)
+    run_worker()
+    staff_actions.decide_uncertain_send(message.pk, ready.decider, "authorize_resend")
+    run_worker()
+    keys = sorted(PendingAction.objects.filter(kind="reconcile_send").values_list("idempotency_key", flat=True))
+    assert keys == sorted(f"reconcile:{message.send_ref}:{series}:{n}" for series in (0, 1) for n in (1, 2))
+    assert attempts(message) == [(1, 0, "unknown"), (2, 1, "unknown")]
+    assert [i.status for i in items(message, "send_outcome_unknown")] == ["resolved", "open"]
+
+
+def test_p2_a7_the_poison_rule_ends_a_send_unknown_with_a_staff_item(ready, monkeypatch):
+    no_blind_retry(monkeypatch)
+    _, message = ask(ready)
+    [action] = sends(message)
+    PendingAction.objects.filter(pk=action.pk).update(attempts=action.max_attempts)  # every attempt died
+    run_worker()
+    action.refresh_from_db()
+    assert action.status == "uncertain" and ready.server.messages == []
+    assert [i.reason_code for i in items(message)] == ["send_outcome_unknown"]
+
+
+def test_p2_25_a_catalyst_filed_copy_is_never_evidence_whatever_its_label(ready):
+    _, message = ask(ready)
+    record = outbound.Evidence(origin="provider", message_id=outbound.message_id(message.send_ref),
+                               recipient=message.recipient, content_sha256=message.content_sha256)
+    assert outbound.admissible(record, message, {message.content_sha256})
+    filed = outbound.Evidence(**{**record.__dict__, "filed_by_catalyst": True})
+    assert not outbound.admissible(filed, message, {message.content_sha256})
+
+
+def test_p2_40_an_evidence_source_is_refused_outside_test():
+    fake = FakeSettings(env="development")
+    fake.CATALYST_SEND_EVIDENCE_SOURCE = "tests.smtp_server.ServerEvidence"
+    assert any("CATALYST_SEND_EVIDENCE_SOURCE" in p for p in guards.mail_problems(fake))
+
+
+def test_p2_05_a_paused_application_sends_nothing_until_resumed(ready):
+    from workflow.models import AutomationPause
+
+    pause = AutomationPause.objects.create(subject_type="application", subject_id=ready.app.public_ref,
+                                           reason="synthetic", actor_ref="user:0")
+    _, message = ask(ready)
+    run_worker()
+    assert sends(message)[0].status == "queued" and ready.server.messages == [] and attempts(message) == []
+    pause.delete()
+    run_worker()
+    message.refresh_from_db()
+    assert message.disposition == "accepted_by_server" and len(ready.server.messages) == 1
+
+
+def test_approve_question_refusals(p2):
+    operator, owner = staff(p2, "operator", OPERATOR), staff(p2, "owner", TEMPLATE_OWNER)
+    MessageTemplateVersion.objects.filter(template__key="question_request").exists() or question_template()
+    outbound.approve_template_version(MessageTemplateVersion.objects.get(template__key="question_request", version=1).pk, owner)
+    assert Client().post(FORM, urlencode({**VALID, "email": "unverified@example.test"}),
+                         content_type="application/x-www-form-urlencoded").status_code == 302
+    unverified = Application.objects.get(email_key="unverified@example.test")
+    with pytest.raises(outbound.Refused, match="contact_not_verified"):
+        outbound.approve_question(Question.objects.create(application=unverified, text="q?").pk, operator)
+    app = verified_application()
+    withdrawn = Question.objects.create(application=app, text="q?", status="withdrawn")
+    with pytest.raises(outbound.Refused, match="question_withdrawn"):
+        outbound.approve_question(withdrawn.pk, operator)
+    owner_conn = p2.committed.connect("owner", autocommit=True)
+    owner_conn.execute("UPDATE applications_application SET stage = 'closed' WHERE id = %s", [app.pk])
+    with pytest.raises(outbound.Refused, match="application_closed"):
+        outbound.approve_question(Question.objects.create(application=app, text="q?").pk, operator)
+    assert ApprovedMessage.objects.count() == 0
+
+
+def test_p2_26_a_resend_is_refused_for_a_withdrawn_question_and_a_note_with_a_link_changes_nothing(ready):
+    from correspondence.staff_items import NoteRefused
+
+    ready.use(ScriptedSMTP({"end": "silent"}))
+    question, message = ask(ready)
+    run_worker()
+    with pytest.raises(NoteRefused):
+        staff_actions.decide_uncertain_send(message.pk, ready.decider, "abandon",
+                                            note="see http://catalyst.example.test/confirm/abc/")
+    message.refresh_from_db()
+    assert message.disposition == "active" and StaffItemResolution.objects.count() == 0  # rolled back whole
+    Question.objects.filter(pk=question.pk).update(status="withdrawn")
+    with pytest.raises(outbound.Refused, match="question_withdrawn"):
+        staff_actions.decide_uncertain_send(message.pk, ready.decider, "authorize_resend")
+
+
+@pytest.mark.parametrize(("auth", "statuses"), [(535, ["transport_blocked"]), (454, ["transport_blocked"] * 3)],
+                         ids=["auth-535-held-now", "auth-454-retried"])
+def test_p2_48_an_authentication_refusal_is_a_channel_fault(ready, settings, monkeypatch, auth, statuses):
+    no_blind_retry(monkeypatch)
+    settings.CATALYST_MAIL_USER, settings.CATALYST_MAIL_PASSWORD = "synthetic-user", "synthetic-password-only"
+    ready.use(ScriptedSMTP({"auth": auth}))
+    _, message = ask(ready)
+    run_worker()
+    message.refresh_from_db()
+    assert [s for _, _, s in attempts(message)] == statuses and message.disposition == "transport_blocked"
+    assert "MAIL" not in ready.server.commands and sends(message)[0].attempts == 0
+
+
+def test_p2_48_a_refused_connection_is_a_channel_fault(ready, settings, monkeypatch):
+    no_blind_retry(monkeypatch)
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    settings.CATALYST_MAIL_PORT = probe.getsockname()[1]
+    probe.close()  # nothing listens there now
+    _, message = ask(ready)
+    run_worker()
+    message.refresh_from_db()
+    assert [s for _, _, s in attempts(message)] == ["transport_blocked"] * 3 and message.disposition == "transport_blocked"
+
+
+def test_p2_48_a_real_disconnect_after_354_is_never_accepted_or_retried_blindly(ready, monkeypatch):
+    """The server replies 354 and closes. Whether the buffered end-of-data marker reached it cannot be known
+    when the socket accepted the bytes, so that is `unknown`; only a failed hand-off is `rejected_temporary`.
+    Never accepted, and an unknown is never retried as ordinary."""
+    no_blind_retry(monkeypatch)
+    ready.use(ScriptedSMTP({"data": "354-then-drop"}))
+    _, message = ask(ready)
+    run_worker()
+    statuses = [s for _, _, s in attempts(message)]
+    assert ready.server.messages == [] and "accepted_by_server" not in statuses
+    assert statuses == ["unknown"] or statuses == ["rejected_temporary"] * 3
+
+
+def test_p2_38_a_recipient_with_a_line_break_cannot_be_framed(ready):
+    _, message = ask(ready)
+    message.recipient = "ada@example.test\r\nBcc: attacker@example.test"
+    with pytest.raises(ValueError):
+        outbound.build_email(message, message.frozen_subject, message.frozen_body)
+
+
+def test_a7_fence_extends_the_lease(p2):
+    app = verified_application()
+    PendingAction.objects.create(kind="probe", subject_type="application", subject_id=app.public_ref,
+                                 input_ref="", idempotency_key="probe:fence")
+
+    class Probe:
+        kind, redeliverable, automated = "probe", True, True
+    claim = ledger.claim_next({"probe": Probe()})
+    PendingAction.objects.filter(pk=claim.id).update(lease_expires_at=Now() + timedelta(seconds=5))
+    with transaction.atomic():
+        ledger.fence(claim)
+    assert PendingAction.objects.filter(pk=claim.id, lease_expires_at__gt=Now() + timedelta(seconds=60)).exists()
+
+
+@pytest.mark.django_db
+def test_the_seeded_question_template_is_a_valid_synthetic_draft():
+    from correspondence.rendering import check_version
+
+    version = MessageTemplateVersion.objects.select_related("template").get(template__key="question_request", version=1)
+    assert (version.status, version.synthetic, version.secret_bearing) == ("draft", True, False)
+    check_version(version)

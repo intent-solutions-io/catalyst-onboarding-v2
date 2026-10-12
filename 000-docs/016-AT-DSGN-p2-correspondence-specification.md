@@ -76,7 +76,7 @@ Every P2 component extends existing code. No parallel mechanism is introduced.
 
 | Existing piece | File | What P2 reuses | What P2 changes (PROPOSED) |
 |---|---|---|---|
-| Pending-action ledger: claim with SKIP LOCKED, pause skip for automated kinds, poison rule, lease-fenced `finish` | `workflow/ledger.py` | Every P2 effect is a `PendingAction` kind with a handler registered in `settings.CATALYST_ACTION_HANDLERS` | Two small additions (A-7). (1) A `due_at` argument on `finish`. Today `finish(status=queued, refund_attempt=True)` sets `due_at = Now()` (lines 123-127), so a deferral would loop hot. (2) A `fence(claim)` function that checks and extends a lease inside a transaction without finishing the action. (3) `finish(status=held)` treated as non-terminal: no `completed_at` is set. |
+| Pending-action ledger: claim with SKIP LOCKED, pause skip for automated kinds, poison rule, lease-fenced `finish` | `workflow/ledger.py` | Every P2 effect is a `PendingAction` kind with a handler registered in `settings.CATALYST_ACTION_HANDLERS` | Two small additions (A-7). (1) A `due_at` argument on `finish` (implemented in 2B.1 as `due_in`, an offset from the database clock, because application clocks are never trusted). Today `finish(status=queued, refund_attempt=True)` sets `due_at = Now()` (lines 123-127), so a deferral would loop hot. (2) A `fence(claim)` function that checks and extends a lease inside a transaction without finishing the action. (3) `finish(status=held)` treated as non-terminal: no `completed_at` is set. |
 | `AutomationPause`, one per subject | `workflow/models.py` | Pause semantics (J-09) | None. Pause and resume become staff services (F). |
 | `uncertain` status | `workflow/models.py` | Kept for provider reconciliation (ADR-15, D-20) | Used for the first time, by non-redeliverable send kinds |
 | Pre-send boundary, the fault seam after send, and `LeftForRecovery` (defined in `workflow/ledger.py` line 61, raised by `verification.py` line 153) | `correspondence/verification.py` | The three-phase handler shape: a check transaction, then the send with no lock held, then a fenced result | Generalized into a base send handler (A). `SendVerification` keeps its D-20 redelivery behaviour; no other kind inherits it. |
@@ -678,7 +678,9 @@ built and tested **in the B task that creates its tables**, never first in 2C.
 5. approved message, then outbound attempts;
 6. pending-action rows, by id.
 
-Nothing takes the application and then the cursor, so the order has no cycle. For reminder, processing
+Nothing takes the application and then the cursor, so the order has no cycle. Inside the ledger's fenced
+result transaction the action row is updated before the handler writes message rows; that is safe
+because every path that touches either has already locked the application (2B.1 review). For reminder, processing
 and send kinds, `lock_subject` locks the application, then the named questions, before the fenced action
 update. Providers are never called while a row lock is held (`ledger.py` rule 3).
 

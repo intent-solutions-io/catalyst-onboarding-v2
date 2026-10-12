@@ -10,7 +10,13 @@ from django.contrib.auth.management import create_permissions
 from django.db import migrations
 
 from config.db_roles import apply_grants, grant, revoke_all
-from correspondence.roles import GROUP_PERMISSIONS
+
+# Frozen copy of correspondence.roles at this migration (later tasks add permissions in their own migrations).
+GROUP_PERMISSIONS = {
+    "Correspondence operator": ["approve_question"],
+    "Correspondence decision-maker": ["approve_question", "decide_uncertain_send"],
+    "Template owner": ["approve_template_version"],
+}
 
 OUTBOUND_S1 = ["SELECT", "INSERT", "UPDATE (status, message_id, sent_at)"]
 OUTBOUND_P2 = ["SELECT", "INSERT",

@@ -85,8 +85,9 @@ def send_key(send_ref, series: int) -> str:
     return f"send:{send_ref}:{series}"
 
 
-def reconcile_key(send_ref, n: int) -> str:
-    return f"reconcile:{send_ref}:{n}"
+def reconcile_key(send_ref, series: int, n: int) -> str:
+    """Bounded per attempt series (016 A5): a staff resend that ends unknown again gets its own checks."""
+    return f"reconcile:{send_ref}:{series}:{n}"
 
 
 def message_id(send_ref) -> str:
@@ -112,10 +113,10 @@ def enqueue_send(message: ApprovedMessage, series: int) -> PendingAction:
     )
 
 
-def enqueue_reconcile(message: ApprovedMessage, n: int) -> PendingAction:
+def enqueue_reconcile(message: ApprovedMessage, series: int, n: int) -> PendingAction:
     return PendingAction.objects.create(
         kind=RECONCILE, subject_type="application", subject_id=message.application.public_ref,
-        input_ref=str(message.send_ref), idempotency_key=reconcile_key(message.send_ref, n),
+        input_ref=str(message.send_ref), idempotency_key=reconcile_key(message.send_ref, series, n),
         due_at=Now() + timedelta(seconds=settings.CATALYST_MAIL_RECONCILE_GRACE_SECONDS),
         max_attempts=settings.CATALYST_MAIL_SEND_ATTEMPTS,
     )
@@ -259,10 +260,14 @@ class SendMessage:
         application = Application.objects.filter(public_ref=claim.subject_id).first()
         event(application, kind, data, actor_ref=f"pending_action:{claim.id}")
         if kind == "action_attempts_exhausted":  # the poison rule finished this send uncertain (ledger rule 2)
-            message = ApprovedMessage.objects.filter(send_ref=claim.input_ref).first()
+            message = ApprovedMessage.objects.select_related("application").filter(send_ref=claim.input_ref).first()
             if message is not None:
                 OutboundMessage.objects.filter(approved_message=message, status=Attempt.SENDING).update(status=Attempt.UNKNOWN)
-                _next_reconcile(message)
+                # 016 A7: the poison rule ends `unknown` with a staff item, whatever reconciliation later finds.
+                open_item(SEND_OUTCOME_UNKNOWN, str(message.send_ref), application=message.application,
+                          approved_message=message, pending_action_id=claim.id)
+                key = PendingAction.objects.filter(pk=claim.id).values_list("idempotency_key", flat=True).first() or ""
+                _next_reconcile(message, _parse_series(key, message.send_ref) or 0)
 
     # --- one claim ----------------------------------------------------------------------------------------
 
@@ -373,7 +378,8 @@ class SendMessage:
             message = self._message(claim)
             event(message.application, "message_send_unknown", {"send_ref": str(message.send_ref), "attempt": claim.attempt},
                   actor_ref=f"pending_action:{claim.id}")
-            _next_reconcile(message)
+            series = OutboundMessage.objects.filter(pk__in=decision.attempt_ids).values_list("attempt_series", flat=True).first()
+            _next_reconcile(message, series or 0)
         ledger.finish(claim, self, status=Status.UNCERTAIN, error="earlier_exchange_outcome_unknown", write=write)
 
     def _record_result(self, claim, attempt_id: int, result: transport.SendResult) -> bool:
@@ -436,7 +442,7 @@ class SendMessage:
         def write():  # unknown: the end-of-data marker was sent and no reply was observed
             attempt(Attempt.UNKNOWN)
             event(message.application, "message_send_unknown", data, actor_ref=f"pending_action:{claim.id}")
-            _next_reconcile(message)
+            _next_reconcile(message, OutboundMessage.objects.get(pk=attempt_id).attempt_series)
         return ledger.finish(claim, self, status=Status.UNCERTAIN, error="outcome_unknown", write=write)
 
 
@@ -452,9 +458,12 @@ def _trailing_blocks(message, series, before: int) -> int:
     return count
 
 
-def _next_reconcile(message) -> None:
-    n = PendingAction.objects.filter(kind=RECONCILE, input_ref=str(message.send_ref)).count() + 1
-    enqueue_reconcile(message, n)
+def _reconciles(message, series):
+    return PendingAction.objects.filter(kind=RECONCILE, idempotency_key__startswith=f"reconcile:{message.send_ref}:{series}:")
+
+
+def _next_reconcile(message, series: int) -> None:
+    enqueue_reconcile(message, series, _reconciles(message, series).count() + 1)
 
 
 # --- reconciliation (016 A5) -----------------------------------------------------------------------------
@@ -468,6 +477,7 @@ class Evidence:
     message_id: str
     recipient: str
     content_sha256: str
+    filed_by_catalyst: bool = False  # the record carries X-Catalyst-Filed-Copy: never evidence, whatever its origin
 
 
 def evidence_source():
@@ -476,7 +486,7 @@ def evidence_source():
 
 
 def admissible(record: Evidence, message: ApprovedMessage, digests: set) -> bool:
-    return (record.origin == "provider" and record.message_id == message_id(message.send_ref)
+    return (record.origin == "provider" and not record.filed_by_catalyst and record.message_id == message_id(message.send_ref)
             and record.recipient == message.recipient and record.content_sha256 in digests)
 
 
@@ -494,18 +504,28 @@ class ReconcileSend:
 
     def run(self, claim) -> None:
         message = ApprovedMessage.objects.select_related("application").filter(send_ref=claim.input_ref).first()
-        if message is None or message.application.public_ref != claim.subject_id:
+        key = PendingAction.objects.filter(pk=claim.id).values_list("idempotency_key", flat=True).first() or ""
+        parts = key.split(":")
+        if message is None or message.application.public_ref != claim.subject_id or len(parts) != 4:
             ledger.finish(claim, self, status=Status.FAILED, error="approved_message_not_found")
             return
-        unknown = OutboundMessage.objects.filter(approved_message=message, status=Attempt.UNKNOWN)
+        series = int(parts[2])
+        unknown = OutboundMessage.objects.filter(approved_message=message, attempt_series=series, status=Attempt.UNKNOWN)
         if message.disposition != Disposition.ACTIVE or not unknown.exists():
-            ledger.finish(claim, self, status=Status.DONE, error="nothing_to_reconcile")
+            def no_unknown_attempt():
+                # A send that ended uncertain without an unknown attempt (a defect before any exchange) is not
+                # left silent: staff decide it (016 A7).
+                if message.disposition == Disposition.ACTIVE and PendingAction.objects.filter(
+                        kind=SEND, input_ref=str(message.send_ref), status=Status.UNCERTAIN).exists():
+                    open_item(SEND_OUTCOME_UNKNOWN, str(message.send_ref), application=message.application,
+                              approved_message=message, pending_action_id=claim.id)
+            ledger.finish(claim, self, status=Status.DONE, error="nothing_to_reconcile", write=no_unknown_attempt)
             return
         digests = {message.content_sha256, *unknown.values_list("rendered_sha256", flat=True)} - {""}
         source = evidence_source()
         records = list(source.find(message_id(message.send_ref))) if source else []  # no lock is held here
         found = next((r for r in records if admissible(r, message, digests)), None)
-        n = PendingAction.objects.filter(kind=RECONCILE, input_ref=str(message.send_ref)).count()
+        n = _reconciles(message, series).count()
 
         def write():
             if found is not None:
@@ -520,7 +540,7 @@ class ReconcileSend:
                           {"send_ref": str(message.send_ref), "evidence_origin": found.origin},
                           actor_ref=f"pending_action:{claim.id}")
             elif n < settings.CATALYST_MAIL_RECONCILE_CHECKS:
-                enqueue_reconcile(message, n + 1)
+                enqueue_reconcile(message, series, n + 1)
             else:
                 open_item(SEND_OUTCOME_UNKNOWN, str(message.send_ref), application=message.application,
                           approved_message=message, pending_action_id=claim.id)

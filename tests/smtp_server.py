@@ -4,7 +4,9 @@ dependency, no network beyond 127.0.0.1, no real mail.
 `script` maps a phase to the reply the server gives there. Phases: greeting, ehlo, mail, rcpt, data
 (the reply to the DATA command), end (the reply after the end-of-data marker). A value is a reply code,
 "drop" (close the connection without replying) or "silent" (never reply; the client's deadline decides).
-A value may also be a list, consumed one per connection, so a phase can fail and then recover.
+"garbage" (an unparseable reply line). A value may also be a list, consumed one per connection, so a
+phase can fail and then recover. The server advertises AUTH PLAIN LOGIN and records only that AUTH was
+attempted, never what was sent.
 
 The server records each command verb in order, and each message it fully received with its envelope.
 `ServerEvidence` is the declared synthetic evidence source for reconciliation tests (016 A5): it reports
@@ -20,7 +22,7 @@ from email.policy import default as DEFAULT_POLICY
 from correspondence.outbound import Evidence
 from correspondence.rendering import canonical_digest
 
-DEFAULTS = {"greeting": 220, "ehlo": 250, "mail": 250, "rcpt": 250, "data": 354, "end": 250}
+DEFAULTS = {"greeting": 220, "ehlo": 250, "auth": 235, "mail": 250, "rcpt": 250, "data": 354, "end": 250}
 
 
 class ScriptedSMTP:
@@ -50,9 +52,12 @@ class ScriptedSMTP:
                     with outer._lock:
                         outer.commands.append(verb)
                     if verb in ("EHLO", "HELO"):
-                        lines = ["250-synthetic.example.test"] + (["250-STARTTLS"] if outer.advertise_starttls else []) + ["250 OK"]
+                        lines = (["250-synthetic.example.test", "250-AUTH PLAIN LOGIN"]
+                                 + (["250-STARTTLS"] if outer.advertise_starttls else []) + ["250 OK"])
                         if not self.reply("ehlo", "\r\n".join(lines)):
                             return
+                    elif verb == "AUTH":
+                        self.reply("auth", "235 Authentication succeeded")  # servers keep the session after a refusal
                     elif verb == "MAIL":
                         state["from"] = line.decode(errors="replace")
                         if not self.reply("mail", "250 OK"):
@@ -88,6 +93,12 @@ class ScriptedSMTP:
                     return False
                 if value == "silent":
                     time.sleep(5)
+                    return False
+                if value == "354-then-drop":
+                    self.wfile.write(b"354 End data with <CR><LF>.<CR><LF>\r\n")
+                    return False
+                if value == "garbage":
+                    self.wfile.write(b"not an smtp reply\r\n")
                     return False
                 code = int(value)
                 text = ok_text if code == DEFAULTS[phase] else f"{code} synthetic {phase} reply"
@@ -139,4 +150,5 @@ class ServerEvidence:
                 continue
             digest = self.digest or canonical_digest(str(parsed["Subject"]), parsed.get_content())
             yield Evidence(origin=self.origin, message_id=message_id,
-                           recipient=self.recipient or item["rcpts"][0], content_sha256=digest)
+                           recipient=self.recipient or item["rcpts"][0], content_sha256=digest,
+                           filed_by_catalyst=parsed["X-Catalyst-Filed-Copy"] is not None)

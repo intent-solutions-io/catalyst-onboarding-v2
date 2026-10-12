@@ -50,6 +50,11 @@ class _Deadline(Exception):
     pass
 
 
+def _code(value) -> int | None:
+    """A reply code is recorded only when it is a real SMTP code; smtplib reports an unparseable reply as -1."""
+    return value if isinstance(value, int) and 100 <= value <= 599 else None
+
+
 def peer_allowed(peer_ip: str) -> bool:
     """The connected peer must be loopback, or (in `test` only) the named test service on a private
     address. Checked after connect and before any further command."""
@@ -60,15 +65,18 @@ def peer_allowed(peer_ip: str) -> bool:
     if address.is_loopback:
         return True
     host, test_host = settings.CATALYST_MAIL_HOST, settings.CATALYST_MAIL_TEST_HOST
-    return settings.CATALYST_ENV == "test" and bool(test_host) and host == test_host and address.is_private
+    return (settings.CATALYST_ENV == "test" and bool(test_host) and host == test_host and address.is_private
+            and not address.is_link_local)
 
 
 def _channel(phase: str, code: int | None) -> SendResult:
+    code = _code(code)
     hard = code is not None and not 400 <= code < 500
     return SendResult(TRANSPORT_BLOCKED, phase, code, hard=hard)
 
 
 def _message(phase: str, code: int | None) -> SendResult:
+    code = _code(code)
     if code is not None and 500 <= code < 600:
         return SendResult(REJECTED_PERMANENT, phase, code)
     return SendResult(REJECTED_TEMPORARY, phase, code)
@@ -167,11 +175,12 @@ def send(message_bytes: bytes, mail_from: str, recipient: str) -> SendResult:
             code, _ = smtp.getreply()
         except (smtplib.SMTPException, OSError, _Deadline):
             return SendResult(UNKNOWN, phase, None)
+        code = _code(code)
         if code == 250:
             return SendResult(ACCEPTED, phase, code)
-        if 400 <= code < 600:
+        if code is not None and 400 <= code < 600:
             return _message(phase, code)
-        return SendResult(UNKNOWN, phase, code)
+        return SendResult(UNKNOWN, phase, code)  # an unparseable or unexpected reply after the marker
     finally:
         try:
             if smtp.sock is not None and peer_checked:

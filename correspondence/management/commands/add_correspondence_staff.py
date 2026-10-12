@@ -32,7 +32,9 @@ class Command(BaseCommand):
 
     def handle(self, username, role, existing=False, password_env=None, **options):
         User = get_user_model()
-        group = Group.objects.get(name=ROLES[role])
+        group = Group.objects.filter(name=ROLES[role]).first()
+        if group is None:
+            raise CommandError(f"group {ROLES[role]!r} does not exist; run the migrations first")
         if existing:
             with transaction.atomic():
                 user = User.objects.filter(username=username, is_superuser=False).first()

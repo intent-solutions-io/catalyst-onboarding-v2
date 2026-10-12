@@ -98,6 +98,9 @@ def mail_problems(settings) -> list[str]:
     if (getattr(settings, "CATALYST_MAIL_USER", "") or getattr(settings, "CATALYST_MAIL_PASSWORD", "")) and (
             not host or not mail_host_allowed(settings.CATALYST_ENV, host, test_host)):
         problems.append("mail credentials are set without an allowed local mail host")
+    if getattr(settings, "CATALYST_SEND_EVIDENCE_SOURCE", "") and settings.CATALYST_ENV != "test":
+        # 016 A5 and 8.3: no evidence source is admissible until a separately authorized provider check.
+        problems.append("CATALYST_SEND_EVIDENCE_SOURCE is allowed only in the test environment")
     tls = getattr(settings, "CATALYST_MAIL_TLS", "starttls")
     if tls not in ("starttls", "none"):
         problems.append("CATALYST_MAIL_TLS must be 'starttls' or 'none'")
