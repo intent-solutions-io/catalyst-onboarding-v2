@@ -300,7 +300,7 @@ compatibility plan is the separate epic PL and blocks cutover, not this slice.
 ## S2. P2 correspondence loop (pointer)
 
 The P2 specification is filed separately, because of its size, as
-`016-AT-DSGN-p2-correspondence-specification.md` (handoff 2A, PROPOSED 2026-10-11). It covers outbound
+`016-AT-DSGN-p2-correspondence-specification.md` (handoff 2A, PROPOSED; version 0.3.2 of 2026-10-12). It covers outbound
 templates and sends, IMAP collection, reply association and trust, deterministic reply processing,
 reminders, staff intervention and monitoring, the GATE-P2 acceptance plan and the owner decisions P2
 needs. Section S1 above is unchanged and stays the regression baseline: GATE-S1 cases keep running in

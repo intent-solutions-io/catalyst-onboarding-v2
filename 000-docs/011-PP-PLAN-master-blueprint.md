@@ -282,7 +282,7 @@ its predecessor's gate passes and the policies it needs are decided. Later epics
 |---|---|---|---|---|
 | P0 | Develop the master blueprint, PRD, architecture and phased execution plan before any code is written | `catalyst-v2-211` | none | owner approves this contract (bead `catalyst-v2-211.6`) |
 | P1 | Build the first working slice: synthetic intake, email verification to a local mail sink, and a read-only staff view | `catalyst-v2-6hl` | contract approval (bead `catalyst-v2-211.6`, on S1-T1); not the open policy beads (corrected 2026-10-10) | GATE-S1 |
-| P2 | Run the applicant correspondence loop: outbound policy, inbox correlation, reminders, stop rules and human takeover | `catalyst-v2-7hu` | P1; POL-06, POL-19 (PROPOSED in `016` section 8, not decided: POL-13's P2 slice before task 2B.4; POL-02, POL-10 for messages and POL-13 MFA before any real mail) | GATE-P2 |
+| P2 | Run the applicant correspondence loop: outbound policy, inbox correlation, reminders, stop rules and human takeover | `catalyst-v2-7hu` | P1; POL-06, POL-19 (PROPOSED in `016` section 8, not decided: the POL-13 role matrix (P2 slice) before task 2B.1, as listed in `016` 8.1; POL-19's default part before 2B.2; POL-02, POL-10 for messages and POL-13 MFA before any real mail) | GATE-P2 |
 | P3 | Collect evidence, run the bounded MiniMax assessment, and record the authorized qualification decision | `catalyst-v2-oc4` | P2; POL-03, POL-04, POL-05 | GATE-P3 |
 | P4 | Issue and verify the NDA, User Agreement and other required agreements through Documenso with protected custody | `catalyst-v2-hdg` | P3; POL-07, POL-08, POL-09, POL-18 | GATE-P4 |
 | P5 | Provision the approved mailbox, activate the applicant, and support withdrawal and recovery | `catalyst-v2-tuc` | P4; POL-11, POL-12 | GATE-P5 |
@@ -315,11 +315,11 @@ decisions it needs are recorded in section 4.
 | Key | Bead | Title | Depends on |
 |---|---|---|---|
 | 2A | `catalyst-v2-7hu.1` | Specify the P2 correspondence design and prepare the owner's P2 decisions | GATE-S1 (D-26) |
-| 2B.1 | `catalyst-v2-7hu.2` | Build the outbound communication foundations: versioned templates, a generalized send handler, the uncertain status and SMTP-fake reconciliation | 2A; owner decisions POL-06 (templates, send authority) and ADR-15 generalization |
-| 2B.2 | `catalyst-v2-7hu.3` | Collect inbound mail from the local IMAP test server and correlate it durably with outbound messages | 2B.1 |
-| 2B.3 | `catalyst-v2-7hu.4` | Process replies deterministically and route judgment to staff confirmation or a held interpretation action | 2B.2; POL-19 |
-| 2B.4 | `catalyst-v2-7hu.5` | Run reminders and controlled staff intervention: suppression, stop rules, pause and resume, staff messages and exception resolution | 2B.3; POL-06 cadence; POL-13 (P2 slice) |
-| 2C | `catalyst-v2-7hu.6` | Verify the correspondence loop: reconciliation and health views, the GATE-P2 acceptance run, independent QA and the after-action report | 2B.1 to 2B.4 |
+| 2B.1 | `catalyst-v2-7hu.2` | Build the outbound communication foundations: versioned templates, a generalized send handler, the uncertain status and SMTP-fake reconciliation | 2A; the owner decisions in `016` section 8.1 (ADR-15 generalization, A-11, A-4, A-1, A-2, A-3, A-7, the POL-13 role matrix, POL-06 send authority) |
+| 2B.2 | `catalyst-v2-7hu.3` | Collect inbound mail from the local IMAP test server and correlate it durably with outbound messages | 2B.1; `016` 8.2 (A-9, A-10, trust table, POL-19 default part, A-6) |
+| 2B.3 | `catalyst-v2-7hu.4` | Process replies deterministically and route judgment to staff confirmation or a held interpretation action | 2B.2; POL-19 resolution part; the autoresponder rule |
+| 2B.4 | `catalyst-v2-7hu.5` | Run reminders and controlled staff intervention: suppression, stop rules, pause and resume, staff messages and exception resolution | 2B.3; POL-06 cadence (synthetic settings); A-5, A-8 |
+| 2C | `catalyst-v2-7hu.6` | Verify the correspondence loop: the GATE-P2 acceptance run, independent QA and the after-action report (health and reconciliation behaviour is built in 2B.1 to 2B.4) | 2B.1 to 2B.4 |
 
 ## 8. Definition of success
 

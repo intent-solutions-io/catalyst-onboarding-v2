@@ -21,7 +21,7 @@ Every document in this directory is **preliminary and subject to review** until 
 | [013-TQ-TEST-first-slice-acceptance-evidence.md](013-TQ-TEST-first-slice-acceptance-evidence.md) | First-slice acceptance evidence (S1-T8): case-to-test map, per-case report and full-run gate, results for TEST-S1-01 to 22, what the evidence does not show | Evidence 2026-10-11; GATE-S1 signed off 2026-10-11 (D-26) |
 | [000-aars/014-AA-AACR-first-slice.md](000-aars/014-AA-AACR-first-slice.md) | After-action report for the first working slice (epic `catalyst-v2-6hl`), full lane | Filed 2026-10-11 |
 | [015-AA-AUDT-appaudit-devops-playbook.md](015-AA-AUDT-appaudit-devops-playbook.md) | Operator-grade system analysis after GATE-S1: architecture, tradeoffs, operations, sharp edges, security, current state, roadmap; unscored health judgement 68/100 | Audit 2026-10-11 at `ef17aa6`; errata 2026-10-11 |
-| [016-AT-DSGN-p2-correspondence-specification.md](016-AT-DSGN-p2-correspondence-specification.md) | Handoff 2A: P2 correspondence specification (outbound, IMAP collection, association and trust, reply processing, reminders, staff intervention, monitoring), GATE-P2 acceptance plan `TEST-P2-01`-`47`, owner decision brief, bead map | Proposed 2026-10-11; not built; owner decisions pending |
+| [016-AT-DSGN-p2-correspondence-specification.md](016-AT-DSGN-p2-correspondence-specification.md) | Handoff 2A: P2 correspondence specification (outbound, IMAP collection, association and trust, reply processing, reminders, staff intervention, monitoring), GATE-P2 acceptance plan `TEST-P2-01`-`54`, owner decision brief by blocker, bead map | Proposed, version 0.3.2 (2026-10-12); not built; owner decisions pending |
 
 Next free number: `017`.
 

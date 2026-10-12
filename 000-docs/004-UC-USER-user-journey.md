@@ -200,7 +200,8 @@ proposals.
 - **LLM:** proposes question text only.
 - **Alternate outcomes:** a reply arrives and is processed (J-07); only the parts that answer a question
   become evidence, and reassessment runs with a bounded number of rounds (POL-04). No answer: reminders (J-08). Partial answer: remaining questions stay open.
-  Answer off topic or hostile: staff item.
+  Answer off topic or hostile: staff item. A question asked by mistake is withdrawn by staff: an explicit
+  disposition with actor and reason, never counted as an answer and never reopened (PROPOSED, `016` 3.3).
 - **Retry, timeout, terminal:** after the last reminder the application waits in the staff queue with reason "no answer" (POL-06, POL-12).
 - **Next action owner and visibility:** applicant; staff see open questions and their age.
 - **Acceptance:** planned TEST-P3-07 (answer re-enters assessment once). **References:** REQ-012; POL-04, POL-06.
@@ -213,11 +214,13 @@ correlated**, then **processed** to decide what, if anything, it answered.
 - **Trigger and input:** a collector job polls the MXroute mailbox over IMAP (P2). Collection and
   correlation are deterministic code; no model.
 - **Receives it:** worker; `correspondence` app.
-- **Records:** inbound message (mailbox, folder, `UIDVALIDITY`, UID unique together; Message-ID; headers;
-  body in protected storage) with a processing status: `received`, then `awaiting_processing` (matched) or
+- **Records:** inbound message (each observed location: mailbox, folder, `UIDVALIDITY`, UID unique together;
+  Message-ID; headers; a digest of the original bytes and a sanitized, labelled derivative of the content,
+  with no original bytes stored until POL-10 decides custody, PROPOSED in `016` 3.5) with a processing status: `received`, then `awaiting_processing` (matched) or
   `exception` (unmatched or sender mismatch); after processing: `processed`, `automated_reply` or
   `exception`. Each open question the message relates to gets status `reply_pending` while the message
-  awaits processing. Mailbox cursor.
+  awaits processing, but only when the trust table in `016` C3 marks the message trusted and it is not
+  automatic (PROPOSED). Mailbox cursor.
 - **Transaction and next action (collection):** one transaction per message: insert the message, correlate
   it, set related open questions to `reply_pending`, write the event, enqueue "process reply", then advance
   the cursor last. Collection never marks a question answered and never cancels a reminder.
@@ -242,8 +245,9 @@ correlated**, then **processed** to decide what, if anything, it answered.
   tomorrow"): `not_addressed`; questions return to `open` and reminders resume per POL-06. Partial answer:
   answered parts recorded, question `partially_answered`, a follow-up asks only for the rest. Interpretation
   fails or is invalid: staff item; questions stay `reply_pending` (reminders still suppressed) until staff act.
-  Duplicate fetch: unique key makes it a no-op. `UIDVALIDITY` changes: resynchronize with de-duplication by
-  Message-ID and raise an operator alert. Mailbox unreachable: retry, alert after a bound.
+  Duplicate fetch: unique key makes it a no-op. `UIDVALIDITY` changes: resynchronize, treating Message-ID, size
+  and date only as candidate matches and the digest of the original bytes as identity (`016` B5), and raise
+  an operator alert. Mailbox unreachable: retry, alert after a bound.
 - **Retry, timeout, terminal:** cursor only advances after a committed message, so a crash re-reads safely;
   "process reply" follows the ledger rules. Paused applications: collection and correlation still run (they
   have no outbound effect); "process reply" is an automated action and waits for resume or for staff to
@@ -262,16 +266,18 @@ correlated**, then **processed** to decide what, if anything, it answered.
   messages; history events.
 - **Transaction and next action:** the reminder claim locks the question row in the same lock order as the
   collector and re-checks its status before creating any outbound row (reply-versus-reminder race):
-  `reply_pending` reschedules the reminder (suppressed, not cancelled); `satisfied` cancels it; `open` or
+  `reply_pending` reschedules the reminder (suppressed, not cancelled); `satisfied` cancels it, as does a staff
+  withdrawal of the question (PROPOSED, `016` 3.3), which is not an answer; `open` or
   `partially_answered` sends it within the POL-06 limits.
 - **Deterministic checks:** never reply to a message marked `Auto-Submitted` other than `no` (RFC 3834) or
   carrying common auto-reply or bulk markers; delivery-status reports are bounces; maximum reminders and
   quiet hours from POL-06; more than a set number of automatic exchanges in a window stops automation.
 - **LLM:** none.
-- **Alternate outcomes:** autoresponder: recorded, ignored for reminders, no reply. Bounce: automation
-  paused, staff item. Loop detected: automation paused, staff item. A relevant reply arrives while a
+- **Alternate outcomes:** autoresponder: recorded, ignored for reminders, no reply. Hard bounce: automation
+  paused, staff item; soft bounce: recorded only (PROPOSED, `016` D1). Loop detected: automation paused, staff item. A relevant reply arrives while a
   reminder is pending: the reminder is suppressed while the reply awaits processing, and only a `satisfied`
-  outcome cancels it (J-07).
+  outcome (or an explicit staff withdrawal of the question) cancels it (J-07). Only a reply that the trust
+  table in `016` C3 marks trusted suppresses reminders (PROPOSED).
 - **Retry, timeout, terminal:** after the last reminder the application waits in the staff queue with reason "no response", owner staff.
 - **Next action owner and visibility:** applicant, then staff. Staff see reminder history and stop reasons.
 - **Acceptance:** planned TEST-P2-02, TEST-P2-04, TEST-P2-10. **References:** REQ-012, REQ-034; POL-06.
