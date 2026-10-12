@@ -67,9 +67,11 @@
 3. Done: 1B.1 (PR #9), 1B.2 (PR #11), 1B.3 intake (PR #12), 1B.4 worker (PR #13), 1B.5 confirmation (PR #14)
    and 1B.6 staff view (PR #15), then S1-T8 acceptance evidence (PR #16). GATE-S1 signed off 2026-10-11 (D-26).
 4. Done: handoff 2A for P2 (bead `catalyst-v2-7hu.1`, PR #20): the correspondence specification `016`
-   0.3.2, approved by the owner with decisions D-27 to D-32 (2026-10-12). Next: 2B.1, outbound
-   foundations (bead `catalyst-v2-7hu.2`), the only P2 task authorized.
-5. Policy decisions in `011` section 6, each before the milestone it blocks.
+   0.3.2, approved by the owner with decisions D-27 to D-32 (2026-10-12); merged as `1a6a25f`.
+5. In review: 2B.1, outbound foundations (bead `catalyst-v2-7hu.2`, draft PR): templates, frozen
+   approved messages, phase-classified SMTP outcomes against a loopback test server, reconciliation,
+   staff send decisions, the P2 role groups, G3. Next: the owner reviews 2B.1; 2B.2 needs a separate release.
+6. Policy decisions in `011` section 6, each before the milestone it blocks.
 
 ## Decision log
 

@@ -1,0 +1,669 @@
+"""P2 task 2B.1, outbound foundations (016 section 4 A, owner decisions D-27 to D-30): the tests 016
+section 9 assigns to 2B.1 (TEST-P2-03, 12, 25 to 27, 36 to 39, 48, 49, the SMTP half of 40, G3 of 41,
+and 52 for 2B.1's services), plus the ledger additions of A-7.
+
+Every test commits real data (`privileged_reset`). An applicant is verified through the real S1 flow
+(intake, worker, confirmation). Sends go to a scripted SMTP server on loopback (tests/smtp_server.py):
+synthetic only, no provider, no real mail. Staff accounts and group memberships are created as the owner
+(the authorized path), never through the application.
+"""
+
+import json
+import logging
+import re
+import socket
+import sys
+from datetime import timedelta
+from io import StringIO
+from urllib.parse import urlencode
+
+import pytest
+from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import make_password
+from django.core import mail
+from django.core.exceptions import PermissionDenied
+from django.core.management import call_command
+from django.db import IntegrityError, transaction
+from django.db.models.functions import Now
+from django.test import Client
+from django.urls import reverse
+from psycopg import errors
+
+from applications.models import Application, ApplicationEvent
+from config import guards, runtime
+from correspondence import outbound, staff_actions, transport
+from correspondence.health import send_health
+from correspondence.models import (
+    ApprovedMessage,
+    ApprovedMessageQuestion,
+    MessageTemplate,
+    MessageTemplateVersion,
+    OutboundMessage,
+    Question,
+    StaffItem,
+    StaffItemResolution,
+)
+from correspondence.rendering import TemplateRefused, canonical_digest, render
+from correspondence.roles import DECISION_MAKER, OPERATOR, TEMPLATE_OWNER
+from tests import support
+from tests.smtp_server import ScriptedSMTP, ServerEvidence
+from workflow import ledger
+from workflow.models import PendingAction
+
+FORM = reverse("applications:request_access")
+VALID = {"name": "Ada Example", "email": "ada@example.test", "reason": "Synthetic reason for access."}
+QUESTION_SUBJECT = "A question about your application"
+QUESTION_BODY = "Hello $display_name,\n\nWe have a question about your application:\n\n$question_text\n\nPlease reply to this message.\n"
+Attempt = OutboundMessage.Status
+Disposition = ApprovedMessage.Disposition
+_hash = {}
+
+
+class Env:
+    def __init__(self, committed, server, settings):
+        self.committed, self.server, self.settings = committed, server, settings
+
+    def use(self, server):
+        self.server.stop()
+        self.server = server.start()
+        self.settings.CATALYST_MAIL_PORT = server.port
+        ServerEvidence.server = server
+        return server
+
+
+@pytest.fixture
+def p2(privileged_reset, monkeypatch, settings):
+    monkeypatch.setitem(runtime._declared, "kind", runtime.process_kind())
+    settings.CATALYST_WORKER_POLL_SECONDS = 0.05
+    settings.CATALYST_WORKER_RETRY_SECONDS = 0
+    server = ScriptedSMTP().start()
+    settings.CATALYST_MAIL_HOST = "127.0.0.1"
+    settings.CATALYST_MAIL_PORT = server.port
+    settings.CATALYST_MAIL_TEST_HOST = ""
+    settings.CATALYST_MAIL_TLS = "none"
+    settings.CATALYST_MAIL_USER = settings.CATALYST_MAIL_PASSWORD = ""
+    settings.CATALYST_MAIL_SEND_DEADLINE_SECONDS = 1.5
+    settings.CATALYST_MAIL_SEND_ATTEMPTS = 3
+    settings.CATALYST_MAIL_TRANSPORT_BLOCK_LIMIT = 3
+    settings.CATALYST_MAIL_TRANSPORT_BACKOFF_SECONDS = 0
+    settings.CATALYST_MAIL_RECONCILE_CHECKS = 2
+    settings.CATALYST_MAIL_RECONCILE_GRACE_SECONDS = 0
+    settings.CATALYST_SEND_EVIDENCE_SOURCE = ""
+    ServerEvidence.server, ServerEvidence.origin, ServerEvidence.recipient, ServerEvidence.digest = server, "provider", None, None
+    env = Env(privileged_reset, server, settings)
+    yield env
+    env.server.stop()
+
+
+def run_worker():
+    call_command("run_worker", exit_when_idle=True, stdout=StringIO())
+
+
+def staff(env, username, *groups, superuser=False):
+    """As the owner (the authorized setup path, D-23)."""
+    if "hash" not in _hash:
+        _hash["hash"] = make_password("synthetic-password-only")
+    owner = env.committed.connect("owner", autocommit=True)
+    uid = owner.execute(
+        "INSERT INTO accounts_user (password, is_superuser, username, first_name, last_name, email, is_staff, is_active,"
+        " date_joined) VALUES (%s, %s, %s, '', '', '', true, true, now()) RETURNING id",
+        [_hash["hash"], superuser, username]).fetchone()[0]
+    for group in groups:
+        owner.execute("INSERT INTO accounts_user_groups (user_id, group_id) SELECT %s, id FROM auth_group WHERE name = %s",
+                      [uid, group])
+    return get_user_model().objects.get(pk=uid)
+
+
+def verified_application(email="ada@example.test"):
+    """The S1 flow: intake, the verification send to the locmem sink, the applicant's confirmation."""
+    assert Client().post(FORM, urlencode({**VALID, "email": email}), content_type="application/x-www-form-urlencoded").status_code == 302
+    run_worker()
+    path = re.search(r"http://catalyst\.example\.test(/confirm/\S+/)", mail.outbox[-1].body).group(1)
+    page = Client().get(path)
+    version = re.search(r'name="version" value="([^"]+)"', page.content.decode()).group(1)
+    assert Client().post(path, {"version": version}).status_code == 200
+    app = Application.objects.get(email_key=email)
+    assert app.contact_verified_at is not None
+    return app
+
+
+def question_template(version=1, body=QUESTION_BODY, variables=("display_name", "question_text"), secret=False):
+    template, _ = MessageTemplate.objects.get_or_create(key="question_request", defaults={
+        "purpose": "Ask an applicant an approved question", "secret_bearing": secret})
+    return MessageTemplateVersion.objects.create(
+        template=template, version=version, subject=QUESTION_SUBJECT, body_text=body, variables=list(variables),
+        secret_bearing=secret, content_sha256=canonical_digest(QUESTION_SUBJECT, body))
+
+
+@pytest.fixture
+def ready(p2):
+    """A verified applicant, an approved question template, an operator, a decision-maker and the owner."""
+    app = verified_application()
+    owner = staff(p2, "owner", TEMPLATE_OWNER)
+    MessageTemplateVersion.objects.filter(template__key="question_request").exists() or question_template()
+    version = MessageTemplateVersion.objects.get(template__key="question_request", version=1)
+    outbound.approve_template_version(version.pk, owner)
+    p2.app, p2.owner = app, owner
+    p2.operator = staff(p2, "operator", OPERATOR)
+    p2.decider = staff(p2, "decider", DECISION_MAKER)
+    return p2
+
+
+def ask(env, text="Which synthetic project best shows your work?"):
+    question = Question.objects.create(application=env.app, text=text)
+    return question, outbound.approve_question(question.pk, env.operator)
+
+
+def sends(message):
+    return list(PendingAction.objects.filter(kind="send_message", input_ref=str(message.send_ref)).order_by("id"))
+
+
+def attempts(message):
+    return list(OutboundMessage.objects.filter(approved_message=message).order_by("attempt_number")
+                .values_list("attempt_number", "attempt_series", "status"))
+
+
+def items(message, reason=None):
+    found = StaffItem.objects.filter(approved_message=message)
+    return list(found.filter(reason_code=reason) if reason else found)
+
+
+def no_blind_retry(monkeypatch):
+    """Every classified outcome is recorded with `finish` directly (016 A3)."""
+    def refuse(*args, **kwargs):
+        raise AssertionError("fail_or_retry used for a classified outcome")
+    monkeypatch.setattr(ledger, "fail_or_retry", refuse)
+
+
+# --- A-7: the ledger additions ------------------------------------------------------------------------------
+
+def test_a7_due_in_held_and_fence(p2):
+    app = verified_application()
+    action = PendingAction.objects.create(kind="probe", subject_type="application", subject_id=app.public_ref,
+                                          input_ref="", idempotency_key="probe:due")
+
+    class Probe:
+        kind, redeliverable, automated = "probe", True, True
+
+        def lock_subject(self, claim):
+            pass
+
+    claim = ledger.claim_next({"probe": Probe()})
+    assert claim.id == action.pk
+    with transaction.atomic():
+        ledger.fence(claim)  # still ours: extends the lease
+    with pytest.raises(RuntimeError):
+        ledger.fence(claim)  # outside a transaction it refuses
+    assert ledger.finish(claim, Probe(), status=PendingAction.Status.QUEUED, due_in=timedelta(hours=1), refund_attempt=True)
+    action.refresh_from_db()
+    assert action.status == "queued" and action.attempts == 0 and action.completed_at is None
+    assert PendingAction.objects.filter(pk=action.pk, due_at__gt=Now() + timedelta(minutes=59)).exists()
+    assert ledger.claim_next({"probe": Probe()}) is None  # not due: no hot loop
+    PendingAction.objects.filter(pk=action.pk).update(due_at=Now())
+    claim = ledger.claim_next({"probe": Probe()})
+    PendingAction.objects.filter(pk=action.pk).update(lease_token=None, status="queued")  # another claim took over
+    with pytest.raises(ledger.LeaseLost), transaction.atomic():
+        ledger.fence(claim)
+    claim = ledger.claim_next({"probe": Probe()})
+    assert ledger.finish(claim, Probe(), status=PendingAction.Status.HELD)
+    action.refresh_from_db()
+    assert action.status == "held" and action.completed_at is None  # held is not terminal
+
+
+# --- TEST-P2-37: templates -----------------------------------------------------------------------------------
+
+def test_p2_37_only_owner_approved_versions_render_and_approved_text_is_fixed(p2):
+    app = verified_application()
+    owner, operator = staff(p2, "owner", TEMPLATE_OWNER), staff(p2, "operator", OPERATOR)
+    MessageTemplateVersion.objects.filter(template__key="question_request").exists() or question_template()
+    draft = MessageTemplateVersion.objects.get(template__key="question_request", version=1)
+    with pytest.raises(TemplateRefused, match="not_approved"):
+        render(draft, {"display_name": "x", "question_text": "y"})
+    question = Question.objects.create(application=app, text="Synthetic question?")
+    with pytest.raises(outbound.Refused, match="no_approved_template_version"):
+        outbound.approve_question(question.pk, operator)
+    with pytest.raises(PermissionDenied):
+        outbound.approve_template_version(draft.pk, operator)  # template approval stays with the owner (D-29)
+    approved = outbound.approve_template_version(draft.pk, owner)
+    assert approved.status == "approved" and approved.approved_by == f"user:{owner.pk}" and approved.approved_at
+    for values in ({"display_name": "x"}, {"display_name": "x", "question_text": "y", "extra": "z"}):
+        with pytest.raises(TemplateRefused, match="allow_list"):
+            render(approved, values)
+    app_role = p2.committed.connect("app")
+    for sql in ("UPDATE correspondence_messagetemplateversion SET body_text = 'x' WHERE false",
+                "UPDATE correspondence_messagetemplateversion SET subject = 'x' WHERE false",
+                "UPDATE correspondence_messagetemplateversion SET variables = '[]' WHERE false",
+                "DELETE FROM correspondence_messagetemplateversion WHERE false"):
+        with pytest.raises(errors.InsufficientPrivilege):
+            app_role.execute(sql)
+        app_role.rollback()
+    outside = question_template(version=2, body="Hello $display_name, $secret_value\n")
+    with pytest.raises(TemplateRefused, match="placeholder_outside_allow_list"):
+        outbound.approve_template_version(outside.pk, owner)
+    with pytest.raises(IntegrityError, match="template_version_link_is_secret_bearing"), transaction.atomic():
+        question_template(version=3, body="Open $link\n", variables=("link",))
+
+
+# --- TEST-P2-12, 36, 49: the approved message ----------------------------------------------------------------
+
+def test_p2_12_approving_a_question_twice_freezes_and_queues_one_message(ready):
+    question, first = ask(ready)
+    again = outbound.approve_question(question.pk, ready.operator)
+    assert again.pk == first.pk
+    assert ApprovedMessage.objects.count() == 1 and ApprovedMessageQuestion.objects.count() == 1
+    assert [a.idempotency_key for a in sends(first)] == [f"send:{first.send_ref}:0"]
+    second = ApprovedMessage.objects.create(
+        kind="question", application=ready.app, recipient=first.recipient, template_version=first.template_version,
+        frozen_subject=first.frozen_subject, frozen_body=first.frozen_body, content_sha256=first.content_sha256,
+        authorized_by="user:0", authority="staff")
+    with pytest.raises(IntegrityError, match="question_one_initial_message"), transaction.atomic():
+        ApprovedMessageQuestion.objects.create(approved_message=second, question=question, purpose="initial")
+    question.refresh_from_db()
+    assert (question.approval_state, question.approved_by) == ("approved", f"user:{ready.operator.pk}")
+    assert first.authorized_by == f"user:{ready.operator.pk}" and first.authority == "staff"
+    assert first.content_sha256 == canonical_digest(first.frozen_subject, first.frozen_body)
+    assert "Which synthetic project" in first.frozen_body and "$" not in first.frozen_body
+
+
+def test_p2_36_the_recipient_is_always_the_frozen_verified_address(ready, monkeypatch):
+    no_blind_retry(monkeypatch)
+    _, message = ask(ready)
+    adoption = ready.app.adoptions.select_related("via_challenge").get()
+    assert message.recipient == adoption.via_challenge.email_at_issue == "ada@example.test"
+    run_worker()
+    [delivered] = ready.server.messages
+    assert delivered["rcpts"] == ["ada@example.test"]
+    assert ready.server.parsed()["To"] == "ada@example.test"
+    # A message whose frozen recipient is not the verified address is refused before any SMTP exchange.
+    rogue = ApprovedMessage.objects.create(
+        kind="question", application=ready.app, recipient="someone-else@example.test", template_version=message.template_version,
+        frozen_subject=message.frozen_subject, frozen_body=message.frozen_body, content_sha256=message.content_sha256,
+        authorized_by="user:0", authority="staff")
+    outbound.enqueue_send(rogue, 0)
+    before = list(ready.server.commands)
+    run_worker()
+    assert ready.server.commands == before and len(ready.server.messages) == 1
+    [action] = sends(rogue)
+    assert (action.status, action.last_error) == ("failed", "recipient_changed")
+    assert attempts(rogue) == [] and [i.reason_code for i in items(rogue)] == ["send_refused"]
+
+
+def test_p2_49_a_restarted_worker_sends_exactly_the_frozen_message(ready):
+    _, message = ask(ready)
+    # After freezing: a newer template version is approved and the question text changes in the database.
+    newer = question_template(version=2, body="Changed wording for $display_name: $question_text\n")
+    outbound.approve_template_version(newer.pk, ready.owner)
+    owner = ready.committed.connect("owner", autocommit=True)
+    owner.execute("UPDATE correspondence_question SET text = 'Edited after approval' WHERE id = %s",
+                  [message.question_links.get().question_id])
+    # A first worker claims the send and dies before sending; the lease expires; a fresh worker runs it.
+    claim = ledger.claim_next(ledger.handlers())
+    assert claim.input_ref == str(message.send_ref)
+    PendingAction.objects.filter(pk=claim.id).update(lease_expires_at=Now() - timedelta(seconds=1))
+    run_worker()
+    parsed = ready.server.parsed()
+    assert canonical_digest(str(parsed["Subject"]), parsed.get_content()) == message.content_sha256
+    assert "Changed wording" not in parsed.get_content() and "Edited after approval" not in parsed.get_content()
+    assert parsed["Message-ID"] == outbound.message_id(message.send_ref)
+    assert attempts(message) == [(1, 0, "accepted_by_server")]
+
+
+# --- TEST-P2-48: outcome classes by protocol phase -----------------------------------------------------------
+
+MATRIX = [
+    # script, attempt statuses, disposition, send action status, staff item, messages received
+    ({}, ["accepted_by_server"], "accepted_by_server", "done", None, 1),
+    ({"greeting": 421}, ["transport_blocked"] * 3, "transport_blocked", "held", "smtp_transport_blocked", 0),
+    ({"ehlo": "drop"}, ["transport_blocked"] * 3, "transport_blocked", "held", "smtp_transport_blocked", 0),
+    ({"mail": 550}, ["transport_blocked"], "transport_blocked", "held", "smtp_transport_blocked", 0),
+    ({"rcpt": 450}, ["rejected_temporary"] * 3, "retries_exhausted", "failed", "retries_exhausted", 0),
+    ({"rcpt": 550}, ["rejected_permanent"], "rejected_permanent", "failed", "send_rejected_permanent", 0),
+    ({"data": 554}, ["rejected_permanent"], "rejected_permanent", "failed", "send_rejected_permanent", 0),
+    ({"end": 451}, ["rejected_temporary"] * 3, "retries_exhausted", "failed", "retries_exhausted", 3),
+    ({"end": 554}, ["rejected_permanent"], "rejected_permanent", "failed", "send_rejected_permanent", 1),
+    ({"end": "silent"}, ["unknown"], "active", "uncertain", "send_outcome_unknown", 1),
+    ({"end": "drop"}, ["unknown"], "active", "uncertain", "send_outcome_unknown", 1),
+]
+
+
+@pytest.mark.parametrize(("script", "statuses", "disposition", "action_status", "item", "received"), MATRIX,
+                         ids=["accepted", "greeting-421", "ehlo-drop", "mail-550", "rcpt-450", "rcpt-550", "data-554",
+                              "end-451", "end-554", "end-silent", "end-drop"])
+def test_p2_48_each_protocol_phase_maps_to_its_outcome_class(ready, monkeypatch, script, statuses, disposition,
+                                                             action_status, item, received):
+    no_blind_retry(monkeypatch)
+    ready.use(ScriptedSMTP(script))
+    _, message = ask(ready)
+    run_worker()
+    message.refresh_from_db()
+    assert [s for _, _, s in attempts(message)] == statuses
+    assert [n for n, _, _ in attempts(message)] == list(range(1, len(statuses) + 1))  # numbers never reused
+    assert message.disposition == disposition
+    [action] = sends(message)
+    assert action.status == action_status
+    if statuses[0] == "transport_blocked":
+        assert action.attempts == 0 and action.completed_at is None  # channel faults consume no attempt; held is not final
+    assert [i.reason_code for i in items(message)] == ([item] if item else [])
+    assert len(ready.server.messages) == received
+    if statuses == ["unknown"]:
+        # Never an ordinary retry: one exchange, then reconciliation, which found no admissible evidence.
+        assert PendingAction.objects.filter(kind="reconcile_send", status="done").count() == 2
+    if disposition == "accepted_by_server":
+        parsed = ready.server.parsed()
+        assert parsed["Auto-Submitted"] == "auto-generated" and parsed["Message-ID"] == outbound.message_id(message.send_ref)
+        assert not any("deliver" in k for k in ApplicationEvent.objects.values_list("kind", flat=True))
+
+
+def test_p2_48_a_body_that_never_fully_left_is_not_accepted(ready, monkeypatch):
+    no_blind_retry(monkeypatch)
+
+    def broken(smtp, payload):
+        raise OSError("synthetic: connection lost before the end-of-data marker")
+    monkeypatch.setattr(transport, "_send_body", broken)
+    _, message = ask(ready)
+    run_worker()
+    message.refresh_from_db()
+    assert [s for _, _, s in attempts(message)] == ["rejected_temporary"] * 3
+    assert message.disposition == "retries_exhausted" and ready.server.messages == []
+
+
+def test_p2_48_starttls_is_required_unless_the_host_is_loopback_with_tls_off(ready, settings, monkeypatch):
+    no_blind_retry(monkeypatch)
+    settings.CATALYST_MAIL_TLS = "starttls"  # the scripted server offers no STARTTLS: refused before MAIL
+    _, message = ask(ready)
+    run_worker()
+    message.refresh_from_db()
+    assert attempts(message) == [(1, 0, "transport_blocked")] and message.disposition == "transport_blocked"
+    assert "MAIL" not in ready.server.commands and ready.server.messages == []
+
+
+def test_p2_48_events_and_logs_carry_no_address_subject_or_body(ready, caplog):
+    caplog.set_level(logging.DEBUG)
+    _, message = ask(ready, text="Sentinel question text 7c1f?")
+    run_worker()
+    history = json.dumps(list(ApplicationEvent.objects.values("kind", "data", "actor_ref")))
+    for sentinel in ("ada@example.test", "Sentinel question text 7c1f", QUESTION_SUBJECT, "synthetic-password-only"):
+        assert sentinel not in history and sentinel not in caplog.text
+    resolutions = json.dumps(list(StaffItem.objects.values("reason_code", "dedupe_key")))
+    assert "ada@example.test" not in resolutions
+
+
+# --- TEST-P2-03, 25, 26, 27: unknown outcomes, evidence and staff decisions ----------------------------------
+
+def test_p2_03_25_admissible_evidence_resolves_the_message_and_the_attempt_stays_unknown(ready, settings, monkeypatch):
+    no_blind_retry(monkeypatch)
+    ready.use(ScriptedSMTP({"end": "silent"}))
+    settings.CATALYST_SEND_EVIDENCE_SOURCE = "tests.smtp_server.ServerEvidence"
+    _, message = ask(ready)
+    run_worker()
+    message.refresh_from_db()
+    assert message.disposition == "accepted_by_evidence"
+    assert attempts(message) == [(1, 0, "unknown")]  # evidence shows the message was accepted, not which attempt
+    [action] = sends(message)
+    assert (action.status, action.last_error) == ("done", "accepted_by_evidence")
+    assert len(ready.server.messages) == 1 and items(message) == []
+    assert ApplicationEvent.objects.filter(kind="message_accepted_by_evidence").count() == 1
+
+
+@pytest.mark.parametrize("bad", ["catalyst_filed", "wrong_recipient", "wrong_digest"])
+def test_p2_25_inadmissible_evidence_is_ignored_and_the_outcome_stays_unknown(ready, settings, monkeypatch, bad):
+    no_blind_retry(monkeypatch)
+    ready.use(ScriptedSMTP({"end": "silent"}))
+    settings.CATALYST_SEND_EVIDENCE_SOURCE = "tests.smtp_server.ServerEvidence"
+    if bad == "catalyst_filed":
+        monkeypatch.setattr(ServerEvidence, "origin", "catalyst_filed")
+    elif bad == "wrong_recipient":
+        monkeypatch.setattr(ServerEvidence, "recipient", "other@example.test")
+    else:
+        monkeypatch.setattr(ServerEvidence, "digest", "0" * 64)
+    _, message = ask(ready)
+    run_worker()
+    message.refresh_from_db()
+    assert message.disposition == "active" and attempts(message) == [(1, 0, "unknown")]
+    assert [i.reason_code for i in items(message)] == ["send_outcome_unknown"] and len(ready.server.messages) == 1
+
+
+def test_p2_26_staff_decide_an_unknown_send_and_no_decision_rewrites_the_attempt(ready, monkeypatch):
+    no_blind_retry(monkeypatch)
+    ready.use(ScriptedSMTP({"end": ["silent", 250]}))  # the first exchange gets no reply; later ones are accepted
+    _, message = ask(ready)
+    run_worker()
+    [item] = items(message, "send_outcome_unknown")
+    superuser = staff(ready, "root", superuser=True)
+    for user in (ready.operator, superuser):  # the decision-maker role only (D-30); superusers are refused too
+        with pytest.raises(PermissionDenied):
+            staff_actions.decide_uncertain_send(message.pk, user, "authorize_resend")
+    resent = staff_actions.decide_uncertain_send(message.pk, ready.decider, "authorize_resend", note="synthetic\x00 note")
+    run_worker()
+    resent.refresh_from_db()
+    assert resent.pk == message.pk and resent.disposition == "accepted_by_server"
+    assert attempts(message) == [(1, 0, "unknown"), (2, 1, "accepted_by_server")]  # the unknown attempt is never rewritten
+    assert [a.idempotency_key for a in sends(message)] == [f"send:{message.send_ref}:0", f"send:{message.send_ref}:1"]
+    assert [a.status for a in sends(message)] == ["uncertain", "done"]
+    first, second = (ready.server.parsed(i) for i in (0, 1))
+    assert first["Message-ID"] == second["Message-ID"]  # the same logical message: the duplicate risk is explicit
+    item.refresh_from_db()
+    resolution = StaffItemResolution.objects.get(item=item)
+    assert (item.status, resolution.resolution_code, resolution.resolved_by) == ("resolved", "authorize_resend", f"user:{ready.decider.pk}")
+    assert resolution.note == "synthetic note" and resolution.effects["unknown_attempts"] is True
+    with pytest.raises(outbound.Refused, match="nothing_to_decide|message_already_closed"):
+        staff_actions.decide_uncertain_send(message.pk, ready.decider, "abandon")
+
+
+def test_p2_26_abandon_records_the_operator_decision_not_a_provider_verdict(ready, monkeypatch):
+    no_blind_retry(monkeypatch)
+    ready.use(ScriptedSMTP({"end": "silent"}))
+    _, message = ask(ready)
+    run_worker()
+    staff_actions.decide_uncertain_send(message.pk, ready.decider, "abandon")
+    message.refresh_from_db()
+    assert message.disposition == "operator_abandoned" and message.disposition_by == f"user:{ready.decider.pk}"
+    assert attempts(message) == [(1, 0, "unknown")] and sends(message)[0].status == "uncertain"
+    run_worker()
+    assert len(ready.server.messages) == 1  # nothing is sent after abandonment
+
+
+def test_p2_26_a_permanent_rejection_is_never_resent_unchanged_only_revised(ready, monkeypatch):
+    no_blind_retry(monkeypatch)
+    ready.use(ScriptedSMTP({"rcpt": [550, 250]}))
+    _, message = ask(ready)
+    run_worker()
+    with pytest.raises(outbound.Refused, match="permanent_rejection_needs_a_revised_message"):
+        staff_actions.decide_uncertain_send(message.pk, ready.decider, "authorize_resend")
+    revised = staff_actions.decide_uncertain_send(message.pk, ready.decider, "revise")
+    run_worker()
+    message.refresh_from_db()
+    revised.refresh_from_db()
+    assert message.disposition == "superseded" and revised.supersedes_id == message.pk
+    assert revised.send_ref != message.send_ref and revised.disposition == "accepted_by_server"
+    assert ready.server.parsed()["Message-ID"] == outbound.message_id(revised.send_ref) != outbound.message_id(message.send_ref)
+    assert list(revised.question_links.values_list("purpose", flat=True)) == ["revision"]
+
+
+def test_p2_26_a_resend_after_a_held_channel_cancels_the_held_action_and_counts_blocks_per_series(ready, monkeypatch):
+    no_blind_retry(monkeypatch)
+    ready.use(ScriptedSMTP({"greeting": [421, 421, 421, 421, 220]}))
+    _, message = ask(ready)
+    run_worker()
+    message.refresh_from_db()
+    assert message.disposition == "transport_blocked" and [a.status for a in sends(message)] == ["held"]
+    staff_actions.decide_uncertain_send(message.pk, ready.decider, "authorize_resend")
+    assert [a.status for a in sends(message)] == ["cancelled", "queued"]  # no held action is left behind
+    run_worker()
+    message.refresh_from_db()
+    # The new series is counted from zero: one more block, then acceptance, without re-holding at once.
+    assert [(s, st) for _, s, st in attempts(message)] == [(0, "transport_blocked")] * 3 + [(1, "transport_blocked"), (1, "accepted_by_server")]
+    assert message.disposition == "accepted_by_server"
+
+
+def test_p2_27_a_crash_after_acceptance_and_before_recording_is_reconciled_never_resent(ready, monkeypatch):
+    no_blind_retry(monkeypatch)
+    crashed = []
+
+    def crash_once(claim, result):
+        if not crashed:
+            crashed.append(result.outcome)
+            raise RuntimeError("synthetic: the worker stopped before recording")
+    monkeypatch.setattr(outbound, "_after_send", crash_once)
+    _, message = ask(ready)
+    run_worker()
+    assert crashed == ["accepted_by_server"]
+    [action] = sends(message)
+    assert action.status == "running" and attempts(message) == [(1, 0, "sending")]  # left for lease recovery
+    PendingAction.objects.filter(pk=action.pk).update(lease_expires_at=Now() - timedelta(seconds=1))
+    run_worker()
+    action.refresh_from_db()
+    assert action.status == "uncertain" and attempts(message) == [(1, 0, "unknown")]
+    assert len(ready.server.messages) == 1  # reconciled, never sent again
+    assert [i.reason_code for i in items(message)] == ["send_outcome_unknown"]
+
+
+# --- TEST-P2-38: header injection ----------------------------------------------------------------------------
+
+def test_p2_38_no_input_can_add_a_header(ready):
+    _, message = ask(ready, text="Line one\r\nBcc: attacker@example.test\r\n\r\nInjected body?")
+    with pytest.raises(ValueError):
+        outbound.build_email(message, "Subject\r\nBcc: attacker@example.test", message.frozen_body)
+    run_worker()
+    [delivered] = ready.server.messages
+    parsed = ready.server.parsed()
+    assert delivered["rcpts"] == ["ada@example.test"] and parsed["Bcc"] is None and parsed["Cc"] is None
+    assert ready.server.commands.count("RCPT") == 1
+
+
+# --- TEST-P2-39: grants on the 2B.1 tables --------------------------------------------------------------------
+
+@pytest.mark.parametrize("sql", [
+    "UPDATE correspondence_approvedmessage SET frozen_body = 'x' WHERE false",
+    "UPDATE correspondence_approvedmessage SET recipient = 'x@example.test' WHERE false",
+    "UPDATE correspondence_approvedmessage SET authorized_by = 'x' WHERE false",
+    "UPDATE correspondence_approvedmessage SET content_sha256 = 'x' WHERE false",
+    "UPDATE correspondence_approvedmessage SET template_version_id = NULL WHERE false",
+    "DELETE FROM correspondence_approvedmessage WHERE false",
+    "UPDATE correspondence_approvedmessagequestion SET purpose = 'initial' WHERE false",
+    "DELETE FROM correspondence_approvedmessagequestion WHERE false",
+    "UPDATE correspondence_question SET text = 'x' WHERE false",
+    "UPDATE correspondence_question SET application_id = 1 WHERE false",
+    "DELETE FROM correspondence_question WHERE false",
+    "UPDATE correspondence_staffitem SET reason_code = 'x' WHERE false",
+    "DELETE FROM correspondence_staffitem WHERE false",
+    "UPDATE correspondence_staffitemresolution SET resolution_code = 'x' WHERE false",
+    "DELETE FROM correspondence_staffitemresolution WHERE false",
+    "UPDATE correspondence_outboundmessage SET rendered_sha256 = 'x' WHERE false",
+    "UPDATE correspondence_outboundmessage SET approved_message_id = NULL WHERE false",
+    "DELETE FROM correspondence_outboundmessage WHERE false",
+    "UPDATE correspondence_messagetemplate SET secret_bearing = false WHERE false",
+    "TRUNCATE correspondence_approvedmessage",
+])
+def test_p2_39_the_application_role_cannot_rewrite_or_remove_outbound_records(p2, sql):
+    conn = p2.committed.connect("app")
+    with pytest.raises(errors.InsufficientPrivilege):
+        conn.execute(sql)
+    conn.rollback()
+
+
+def test_p2_39_the_application_role_updates_only_the_status_columns(p2):
+    conn = p2.committed.connect("app")
+    for sql in ("UPDATE correspondence_approvedmessage SET disposition = disposition, disposition_at = now(), disposition_by = '' WHERE false",
+                "UPDATE correspondence_staffitem SET status = status WHERE false",
+                "UPDATE correspondence_outboundmessage SET status = status, protocol_phase_reached = '', smtp_reply_code = NULL,"
+                " server_accepted_at = NULL WHERE false",
+                "UPDATE correspondence_question SET status = status, approval_state = approval_state WHERE false"):
+        conn.execute(sql)
+    conn.rollback()
+
+
+def test_p2_39_the_p2_groups_hold_exactly_the_matrix_permissions(p2):
+    from django.contrib.auth.models import Group
+
+    held = {g.name: set(g.permissions.values_list("codename", flat=True))
+            for g in Group.objects.filter(name__in=[OPERATOR, DECISION_MAKER, TEMPLATE_OWNER])}
+    assert held == {OPERATOR: {"approve_question"}, DECISION_MAKER: {"approve_question", "decide_uncertain_send"},
+                    TEMPLATE_OWNER: {"approve_template_version"}}
+
+
+# --- TEST-P2-40 (SMTP half): guards ----------------------------------------------------------------------------
+
+class FakeSettings:
+    def __init__(self, env="test", host="", test_host="", tls="none", user="", password=""):
+        self.CATALYST_ENV, self.CATALYST_MAIL_HOST, self.CATALYST_MAIL_TEST_HOST = env, host, test_host
+        self.CATALYST_MAIL_TLS, self.CATALYST_MAIL_USER, self.CATALYST_MAIL_PASSWORD = tls, user, password
+
+
+@pytest.mark.parametrize(("kwargs", "ok"), [
+    ({}, True),
+    ({"host": "127.0.0.1"}, True),
+    ({"host": "::1"}, True),
+    ({"env": "development", "host": "127.0.0.1"}, True),
+    ({"host": "smtp.example.test", "tls": "starttls"}, False),
+    ({"host": "localhost"}, False),  # a name, not a literal: it could resolve anywhere
+    ({"host": "203.0.113.9", "tls": "starttls"}, False),
+    ({"host": "mailtest", "test_host": "mailtest", "tls": "starttls"}, True),
+    ({"host": "mailtest", "test_host": "mailtest", "tls": "none"}, False),  # TLS off only for loopback
+    ({"env": "development", "host": "mailtest", "test_host": "mailtest", "tls": "starttls"}, False),
+    ({"user": "synthetic"}, False),  # credentials with no allowed host
+    ({"host": "127.0.0.1", "user": "synthetic", "password": "synthetic"}, True),
+    ({"host": "127.0.0.1", "tls": "opportunistic"}, False),
+])
+def test_p2_40_only_loopback_or_the_named_test_host_may_be_configured(kwargs, ok):
+    assert (guards.mail_problems(FakeSettings(**kwargs)) == []) is ok
+
+
+def test_p2_40_a_non_loopback_mail_host_refuses_to_start():
+    result = support.run([sys.executable, "manage.py", "check"], CATALYST_MAIL_HOST="smtp.example.test")
+    assert result.returncode != 0 and "CATALYST_MAIL_HOST must be a literal loopback address" in result.stderr
+
+
+def test_p2_40_the_connected_peer_is_checked_before_any_credential(p2, settings, monkeypatch):
+    settings.CATALYST_MAIL_USER, settings.CATALYST_MAIL_PASSWORD = "synthetic-user", "synthetic-password-only"
+    monkeypatch.setattr(socket.socket, "getpeername", lambda self: ("203.0.113.9", 25))  # a name that resolved elsewhere
+    result = transport.send(b"Subject: x\r\n\r\nbody\r\n", "from@example.test", "ada@example.test")
+    assert (result.outcome, result.hard) == ("transport_blocked", True)
+    assert p2.server.commands == []  # not even EHLO, so no AUTH could carry the credential
+
+
+# --- TEST-P2-41 (G3) and TEST-P2-52 ---------------------------------------------------------------------------
+
+def test_p2_41_g3_reports_the_send_anomalies(ready):
+    assert send_health()["anomalies"] == []
+    out = StringIO()
+    call_command("correspondence_health", stdout=out)
+    ready.use(ScriptedSMTP({"rcpt": 550}))
+    _, rejected = ask(ready)
+    run_worker()
+    ready.use(ScriptedSMTP({"end": "silent"}))
+    _, unknown = ask(ready, text="A second synthetic question?")
+    run_worker()
+    stale = ApprovedMessage.objects.create(
+        kind="question", application=ready.app, recipient=rejected.recipient, template_version=rejected.template_version,
+        frozen_subject="s", frozen_body="b", content_sha256=canonical_digest("s", "b"), authorized_by="user:0", authority="staff")
+    action = outbound.enqueue_send(stale, 0)
+    OutboundMessage.objects.create(application=ready.app, pending_action=action, attempt_number=1, template_key="question_request",
+                                   template_version="1", recipient=stale.recipient, status="sending", approved_message=stale)
+    owner = ready.committed.connect("owner", autocommit=True)
+    owner.execute("UPDATE correspondence_outboundmessage SET created_at = now() - interval '1 day' WHERE approved_message_id = %s", [stale.pk])
+    report = send_health()
+    assert report["messages_by_disposition"]["rejected_permanent"] == 1 and report["needs_decision"] == 1
+    assert report["unknown_attempts"] == 1 and report["uncertain_sends"] == 1 and report["stale_sending_attempts"] == 1
+    assert report["anomalies"] == ["needs_decision", "stale_sending_attempts", "uncertain_sends", "unknown_attempts"]
+    with pytest.raises(SystemExit) as exit_:
+        call_command("correspondence_health", stdout=StringIO())
+    assert exit_.value.code == 1
+
+
+def test_p2_52_each_2b1_service_needs_its_role(ready):
+    question = Question.objects.create(application=ready.app, text="Synthetic question?")
+    reader = staff(ready, "reader", "Read-only staff")
+    superuser = staff(ready, "root", superuser=True)
+    for user in (reader, superuser, ready.owner):
+        with pytest.raises(PermissionDenied):
+            outbound.approve_question(question.pk, user)
+    version = question_template(version=2)
+    for user in (reader, superuser, ready.operator, ready.decider):
+        with pytest.raises(PermissionDenied):
+            outbound.approve_template_version(version.pk, user)
+    outbound.approve_question(question.pk, ready.decider)  # the decision-maker may also approve questions
+    message = ApprovedMessage.objects.get()
+    for user in (reader, superuser, ready.owner, ready.operator):
+        with pytest.raises(PermissionDenied):
+            staff_actions.decide_uncertain_send(message.pk, user, "abandon")

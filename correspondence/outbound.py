@@ -1,0 +1,527 @@
+"""Outbound foundations (016 section 4 A; P2 task 2B.1; owner decisions D-27 to D-30). Synthetic only.
+
+Services (one transaction each, the application locked first; 016 section 5):
+- `approve_template_version`: the owner approves one template version (D-29).
+- `approve_question`: an operator approves a question; one transaction freezes the `ApprovedMessage`
+  (verified recipient, exact template version, rendered content and its digest, authorization), links the
+  question and queues the send (A2). Approving twice does nothing more.
+
+Handlers (registered in settings.CATALYST_ACTION_HANDLERS; ledger rules in workflow/ledger.py):
+- `SendMessage` (`send_message`, non-redeliverable, automated). Three phases as in S1: a check
+  transaction that re-verifies everything and writes the attempt row `sending`; the SMTP exchange with no
+  lock held; a fenced result transaction. Each outcome class is recorded with `ledger.finish` directly,
+  never `fail_or_retry` (016 A3). An earlier `sending` or `unknown` attempt of the current series means the
+  outcome of a previous exchange is unknown, so the handler reconciles instead of sending (A5).
+- `ReconcileSend` (`reconcile_send`, internal and idempotent, D-27): looks only for admissible evidence
+  (A5). None is configured for real providers; without it the outcome stays unknown and goes to staff.
+
+A worker rebuilds every message from its `ApprovedMessage` alone: never from the latest template version,
+current answers or the application's current address.
+"""
+
+import logging
+from dataclasses import dataclass
+from datetime import timedelta
+from email.message import EmailMessage
+from email.policy import SMTP as SMTP_POLICY
+from email.utils import formatdate
+
+from django.conf import settings
+from django.core.exceptions import PermissionDenied
+from django.db import connection, transaction
+from django.db.models import Max
+from django.db.models.functions import Now
+from django.utils.module_loading import import_string
+
+from applications.models import TERMINAL_STAGES, Application, ApplicationEvent
+from workflow import ledger
+from workflow.models import AutomationPause, PendingAction
+
+from . import transport
+from .models import (
+    ApprovedMessage,
+    ApprovedMessageQuestion,
+    MessageTemplateVersion,
+    OutboundMessage,
+    Question,
+)
+from .rendering import TemplateRefused, canonical_digest, check_version, render
+from .staff_items import event, open_item
+
+logger = logging.getLogger(__name__)
+Status = PendingAction.Status
+Attempt = OutboundMessage.Status
+Disposition = ApprovedMessage.Disposition
+
+SEND = "send_message"
+RECONCILE = "reconcile_send"
+QUESTION_TEMPLATE = "question_request"
+
+# Staff-item reason codes opened by 2B.1 (016 F, reason-to-permission table: decide_uncertain_send).
+SEND_OUTCOME_UNKNOWN = "send_outcome_unknown"
+RETRIES_EXHAUSTED = "retries_exhausted"
+TRANSPORT_BLOCKED = "smtp_transport_blocked"
+REJECTED_PERMANENT = "send_rejected_permanent"
+SEND_REFUSED = "send_refused"  # a pre-send re-check failed (recipient changed, content refused)
+DECIDABLE = (SEND_OUTCOME_UNKNOWN, RETRIES_EXHAUSTED, TRANSPORT_BLOCKED, REJECTED_PERMANENT, SEND_REFUSED)
+
+
+class Refused(Exception):
+    """A service refused; the message is a reason code."""
+
+
+def actor_ref(user) -> str:
+    return f"user:{user.pk}"
+
+
+def require(user, permission: str) -> None:
+    """Named staff actions need the permission through the owner-created groups (016 F, D-30). A superuser
+    is refused like everyone else, as in the read-only admin (S1-T7): authority comes from the matrix."""
+    if user is None or not user.is_active or user.is_superuser or not user.has_perm(f"correspondence.{permission}"):
+        raise PermissionDenied(permission)
+
+
+def send_key(send_ref, series: int) -> str:
+    return f"send:{send_ref}:{series}"
+
+
+def reconcile_key(send_ref, n: int) -> str:
+    return f"reconcile:{send_ref}:{n}"
+
+
+def message_id(send_ref) -> str:
+    return f"<c{send_ref.hex}@{settings.CATALYST_MAIL_DOMAIN}>"
+
+
+def verified_address(application) -> str | None:
+    """The address the applicant proved control of: the challenge named by the adoption (016 section 2)."""
+    if application.contact_verified_at is None:
+        return None
+    adoption = application.adoptions.select_related("via_challenge").first()
+    return adoption.via_challenge.email_at_issue if adoption else None
+
+
+def _lock_application(application_id) -> Application:
+    return Application.objects.select_for_update(of=("self",)).get(pk=application_id)
+
+
+def enqueue_send(message: ApprovedMessage, series: int) -> PendingAction:
+    return PendingAction.objects.create(
+        kind=SEND, subject_type="application", subject_id=message.application.public_ref, input_ref=str(message.send_ref),
+        idempotency_key=send_key(message.send_ref, series), max_attempts=settings.CATALYST_MAIL_SEND_ATTEMPTS,
+    )
+
+
+def enqueue_reconcile(message: ApprovedMessage, n: int) -> PendingAction:
+    return PendingAction.objects.create(
+        kind=RECONCILE, subject_type="application", subject_id=message.application.public_ref,
+        input_ref=str(message.send_ref), idempotency_key=reconcile_key(message.send_ref, n),
+        due_at=Now() + timedelta(seconds=settings.CATALYST_MAIL_RECONCILE_GRACE_SECONDS),
+        max_attempts=settings.CATALYST_MAIL_SEND_ATTEMPTS,
+    )
+
+
+# --- services ---------------------------------------------------------------------------------------------
+
+def approve_template_version(version_id: int, user) -> MessageTemplateVersion:
+    require(user, "approve_template_version")
+    with transaction.atomic():
+        version = MessageTemplateVersion.objects.select_for_update(of=("self",)).select_related("template").get(pk=version_id)
+        if version.status == MessageTemplateVersion.Status.APPROVED:
+            return version
+        if version.status != MessageTemplateVersion.Status.DRAFT:
+            raise Refused("template_version_not_draft")
+        check_version(version)
+        MessageTemplateVersion.objects.filter(pk=version.pk).update(
+            status=MessageTemplateVersion.Status.APPROVED, approved_by=actor_ref(user), approved_at=Now())
+    version.refresh_from_db()
+    return version
+
+
+def current_template_version(key: str) -> MessageTemplateVersion | None:
+    return (MessageTemplateVersion.objects.select_related("template")
+            .filter(template__key=key, status=MessageTemplateVersion.Status.APPROVED).order_by("-version").first())
+
+
+def _freeze(application, kind, recipient, version, values, authorized_by, authority, supersedes=None) -> ApprovedMessage:
+    subject, body = render(version, values)
+    if version.secret_bearing:
+        raise Refused("secret_bearing_kind_not_in_this_task")  # reproducible-inputs kinds arrive with their task
+    return ApprovedMessage.objects.create(
+        kind=kind, application=application, recipient=recipient, template_version=version, frozen_subject=subject,
+        frozen_body=body, content_sha256=canonical_digest(subject, body), authorized_by=authorized_by,
+        authority=authority, supersedes=supersedes,
+    )
+
+
+def approve_question(question_id: int, user) -> ApprovedMessage:
+    """016 A2 and J-06: an authorized operator approves a question, which freezes and queues its message."""
+    require(user, "approve_question")
+    question = Question.objects.get(pk=question_id)
+    with transaction.atomic():
+        application = _lock_application(question.application_id)
+        question = Question.objects.select_for_update(of=("self",)).get(pk=question_id)
+        existing = ApprovedMessageQuestion.objects.filter(question=question, purpose=ApprovedMessageQuestion.Purpose.INITIAL).first()
+        if question.approval_state == Question.Approval.APPROVED and existing is not None:
+            return existing.approved_message  # approving twice does nothing more (TEST-P2-12)
+        if question.status == Question.Status.WITHDRAWN:
+            raise Refused("question_withdrawn")
+        if application.stage in TERMINAL_STAGES:
+            raise Refused("application_closed")
+        recipient = verified_address(application)
+        if recipient is None:
+            raise Refused("contact_not_verified")
+        version = current_template_version(QUESTION_TEMPLATE)
+        if version is None:
+            raise Refused("no_approved_template_version")
+        try:
+            message = _freeze(application, ApprovedMessage.Kind.QUESTION, recipient, version,
+                              {"display_name": application.display_name, "question_text": question.text},
+                              actor_ref(user), ApprovedMessage.Authority.STAFF)
+        except TemplateRefused as exc:
+            raise Refused(str(exc)) from None
+        Question.objects.filter(pk=question.pk).update(
+            approval_state=Question.Approval.APPROVED, approved_by=actor_ref(user), approved_at=Now(), updated_at=Now())
+        ApprovedMessageQuestion.objects.create(approved_message=message, question=question,
+                                               purpose=ApprovedMessageQuestion.Purpose.INITIAL)
+        enqueue_send(message, 0)
+        event(application, "question_approved", {"question": str(question.public_id), "send_ref": str(message.send_ref)},
+              actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor_ref(user))
+    return message
+
+
+# --- building the wire message ----------------------------------------------------------------------------
+
+def build_email(message: ApprovedMessage, subject: str, body: str) -> bytes:
+    """Static headers from the frozen record only. The standard-library header policy refuses a CR or LF in
+    any header value, so no input can add a header (TEST-P2-38). No CC or BCC exists."""
+    email = EmailMessage(policy=SMTP_POLICY)
+    email["From"] = settings.DEFAULT_FROM_EMAIL
+    email["To"] = message.recipient
+    email["Subject"] = subject
+    email["Message-ID"] = message_id(message.send_ref)
+    email["Date"] = formatdate(usegmt=True)
+    if message.kind != ApprovedMessage.Kind.STAFF_MESSAGE:
+        email["Auto-Submitted"] = "auto-generated"  # RFC 3834: automated mail is marked
+    email.set_content(body)
+    return email.as_bytes()
+
+
+# --- the send handler -------------------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Proceed:
+    attempt_id: int
+    payload: bytes
+    recipient: str
+
+
+@dataclass(frozen=True)
+class Stop:
+    status: str
+    reason: str  # a reason code only
+
+
+@dataclass(frozen=True)
+class Reconcile:
+    attempt_ids: tuple
+
+
+def _parse_series(key: str, send_ref) -> int | None:
+    prefix = f"send:{send_ref}:"
+    if not key.startswith(prefix):
+        return None
+    try:
+        return int(key[len(prefix):])
+    except ValueError:
+        return None
+
+
+def _after_send(claim, result) -> None:
+    """Test seam (TEST-P2-27): called after the SMTP exchange, before the result is recorded."""
+
+
+class SendMessage:
+    kind = SEND
+    redeliverable = False  # D-27: reconcile before any further send
+    automated = True
+
+    # --- ledger interface ---------------------------------------------------------------------------------
+
+    def lock_subject(self, claim) -> None:
+        """Application, then the message's questions by id (016 section 5), before the fenced action update."""
+        application = Application.objects.select_for_update(of=("self",)).filter(public_ref=claim.subject_id).first()
+        if application is not None:
+            list(Question.objects.select_for_update(of=("self",))
+                 .filter(message_links__approved_message__send_ref=claim.input_ref).order_by("id"))
+
+    def record(self, claim, kind, data) -> None:
+        application = Application.objects.filter(public_ref=claim.subject_id).first()
+        event(application, kind, data, actor_ref=f"pending_action:{claim.id}")
+        if kind == "action_attempts_exhausted":  # the poison rule finished this send uncertain (ledger rule 2)
+            message = ApprovedMessage.objects.filter(send_ref=claim.input_ref).first()
+            if message is not None:
+                OutboundMessage.objects.filter(approved_message=message, status=Attempt.SENDING).update(status=Attempt.UNKNOWN)
+                _next_reconcile(message)
+
+    # --- one claim ----------------------------------------------------------------------------------------
+
+    def run(self, claim) -> None:
+        decision = self.check(claim)
+        if decision is None:
+            logger.warning("action %s attempt %s: lease lost before sending; nothing sent", claim.id, claim.attempt)
+            return
+        if isinstance(decision, Stop):
+            self._stop(claim, decision)
+            return
+        if isinstance(decision, Reconcile):
+            self._to_reconcile(claim, decision)
+            return
+        if connection.in_atomic_block:
+            raise RuntimeError("refusing to send inside a transaction")
+        result = transport.send(decision.payload, settings.DEFAULT_FROM_EMAIL, decision.recipient)
+        try:
+            _after_send(claim, result)
+            recorded = self._record_result(claim, decision.attempt_id, result)
+        except Exception as exc:
+            # The exchange happened and its result could not be recorded. The attempt row stays `sending`,
+            # so the next claim reconciles (016 A3, TEST-P2-27); it never sends again blindly.
+            raise ledger.LeftForRecovery from exc
+        if not recorded:
+            logger.warning("action %s attempt %s: exchange finished, but a newer claim owns the action", claim.id, claim.attempt)
+
+    def check(self, claim):
+        refuse = lambda reason: Stop(Status.FAILED, reason)  # noqa: E731
+        skip = lambda reason: Stop(Status.CANCELLED, reason)  # noqa: E731
+        with transaction.atomic():
+            if claim.subject_type != "application":
+                return refuse("subject_is_not_an_application")
+            application = Application.objects.select_for_update(of=("self",)).filter(public_ref=claim.subject_id).first()
+            if application is None:
+                return refuse("subject_application_not_found")
+            message = (ApprovedMessage.objects.select_related("template_version__template")
+                       .filter(send_ref=claim.input_ref, application=application).first())
+            if message is None:
+                return refuse("approved_message_not_found")
+            questions = list(Question.objects.select_for_update(of=("self",))
+                             .filter(message_links__approved_message=message).order_by("id"))
+            ApprovedMessage.objects.select_for_update(of=("self",)).filter(pk=message.pk).first()
+            key = (PendingAction.objects.filter(pk=claim.id, status=Status.RUNNING, lease_token=claim.lease_token)
+                   .values_list("idempotency_key", flat=True).first())
+            if key is None:
+                return None
+            series = _parse_series(key, message.send_ref)
+            if series is None:
+                return refuse("idempotency_key_does_not_match_the_message")
+            if AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists():
+                return Stop(Status.QUEUED, "automation_paused")
+            if message.disposition != Disposition.ACTIVE:
+                return skip("message_not_active")
+            if application.stage in TERMINAL_STAGES:
+                return skip("application_closed")
+            if any(q.status == Question.Status.WITHDRAWN for q in questions):
+                return skip("question_withdrawn")
+            if verified_address(application) != message.recipient:
+                return refuse("recipient_changed")
+            pending = list(OutboundMessage.objects.filter(
+                approved_message=message, attempt_series=series, status__in=(Attempt.SENDING, Attempt.UNKNOWN))
+                .values_list("pk", flat=True))
+            if pending:
+                return Reconcile(tuple(pending))
+            subject, body = message.frozen_subject, message.frozen_body
+            digest = canonical_digest(subject, body)
+            if digest != message.content_sha256:
+                return refuse("content_digest_mismatch")
+            try:
+                payload = build_email(message, subject, body)
+            except ValueError:
+                return refuse("message_refused_by_header_policy")
+            number = (OutboundMessage.objects.filter(approved_message=message).aggregate(n=Max("attempt_number"))["n"] or 0) + 1
+            version = message.template_version
+            attempt = OutboundMessage.objects.create(
+                application=application, pending_action_id=claim.id, attempt_number=number,
+                template_key=version.template.key if version else "staff_message",
+                template_version=str(version.version) if version else "", recipient=message.recipient,
+                message_id=message_id(message.send_ref), status=Attempt.SENDING, approved_message=message,
+                attempt_series=series, rendered_sha256=digest,
+            )
+            return Proceed(attempt.pk, payload, message.recipient)
+
+    # --- recording ----------------------------------------------------------------------------------------
+
+    def _message(self, claim) -> ApprovedMessage:
+        return ApprovedMessage.objects.select_related("application").get(send_ref=claim.input_ref)
+
+    def _stop(self, claim, decision: Stop) -> None:
+        if decision.status == Status.QUEUED:
+            ledger.finish(claim, self, status=Status.QUEUED, error=decision.reason, refund_attempt=True,
+                          due_in=timedelta(seconds=settings.CATALYST_WORKER_POLL_SECONDS))
+            return
+
+        def write():
+            self.record(claim, "message_send_refused" if decision.status == Status.FAILED else "message_send_skipped",
+                        {"attempt": claim.attempt, "reason": decision.reason})
+            message = ApprovedMessage.objects.select_related("application").filter(send_ref=claim.input_ref).first()
+            if decision.status == Status.FAILED and message is not None:
+                open_item(SEND_REFUSED, f"{message.send_ref}:{decision.reason}", application=message.application,
+                          approved_message=message, pending_action_id=claim.id)
+        ledger.finish(claim, self, status=decision.status, error=decision.reason, write=write)
+
+    def _to_reconcile(self, claim, decision: Reconcile) -> None:
+        def write():
+            OutboundMessage.objects.filter(pk__in=decision.attempt_ids, status=Attempt.SENDING).update(status=Attempt.UNKNOWN)
+            message = self._message(claim)
+            event(message.application, "message_send_unknown", {"send_ref": str(message.send_ref), "attempt": claim.attempt},
+                  actor_ref=f"pending_action:{claim.id}")
+            _next_reconcile(message)
+        ledger.finish(claim, self, status=Status.UNCERTAIN, error="earlier_exchange_outcome_unknown", write=write)
+
+    def _record_result(self, claim, attempt_id: int, result: transport.SendResult) -> bool:
+        message = self._message(claim)
+        data = {"send_ref": str(message.send_ref), "attempt": claim.attempt, "phase": result.phase, "code": result.code}
+
+        def attempt(status, **extra):
+            OutboundMessage.objects.filter(pk=attempt_id).update(
+                status=status, protocol_phase_reached=result.phase, smtp_reply_code=result.code, **extra)
+
+        def dispose(disposition):
+            ApprovedMessage.objects.filter(pk=message.pk, disposition=Disposition.ACTIVE).update(
+                disposition=disposition, disposition_at=Now(), disposition_by=f"pending_action:{claim.id}")
+
+        def item(reason):
+            open_item(reason, str(message.send_ref), application=message.application, approved_message=message,
+                      pending_action_id=claim.id)
+
+        if result.outcome == transport.ACCEPTED:
+            def write():
+                attempt(Attempt.ACCEPTED_BY_SERVER, server_accepted_at=Now(), sent_at=Now())
+                dispose(Disposition.ACCEPTED_BY_SERVER)
+                event(message.application, "message_accepted_by_server", data, actor_ref=f"pending_action:{claim.id}")
+            return ledger.finish(claim, self, status=Status.DONE, write=write)
+
+        if result.outcome == transport.REJECTED_PERMANENT:
+            def write():
+                attempt(Attempt.REJECTED_PERMANENT)
+                dispose(Disposition.REJECTED_PERMANENT)
+                item(REJECTED_PERMANENT)
+                event(message.application, "message_rejected_permanent", data, actor_ref=f"pending_action:{claim.id}")
+            return ledger.finish(claim, self, status=Status.FAILED, error="rejected_permanent", write=write)
+
+        if result.outcome == transport.REJECTED_TEMPORARY:
+            if claim.final:
+                def write():
+                    attempt(Attempt.REJECTED_TEMPORARY)
+                    dispose(Disposition.RETRIES_EXHAUSTED)
+                    item(RETRIES_EXHAUSTED)
+                    event(message.application, "message_retries_exhausted", data, actor_ref=f"pending_action:{claim.id}")
+                return ledger.finish(claim, self, status=Status.FAILED, error="retries_exhausted", write=write)
+            return ledger.finish(claim, self, status=Status.QUEUED, error="rejected_temporary",
+                                 write=lambda: attempt(Attempt.REJECTED_TEMPORARY))
+
+        if result.outcome == transport.TRANSPORT_BLOCKED:
+            series = OutboundMessage.objects.get(pk=attempt_id).attempt_series
+            blocks = _trailing_blocks(message, series, before=attempt_id) + 1  # this attempt included
+            if result.hard or blocks >= settings.CATALYST_MAIL_TRANSPORT_BLOCK_LIMIT:
+                def write():
+                    attempt(Attempt.TRANSPORT_BLOCKED)
+                    dispose(Disposition.TRANSPORT_BLOCKED)
+                    item(TRANSPORT_BLOCKED)
+                    event(message.application, "message_transport_blocked", data, actor_ref=f"pending_action:{claim.id}")
+                return ledger.finish(claim, self, status=Status.HELD, error="transport_blocked", refund_attempt=True,
+                                     write=write)
+            return ledger.finish(claim, self, status=Status.QUEUED, error="transport_blocked", refund_attempt=True,
+                                 due_in=timedelta(seconds=settings.CATALYST_MAIL_TRANSPORT_BACKOFF_SECONDS),
+                                 write=lambda: attempt(Attempt.TRANSPORT_BLOCKED))
+
+        def write():  # unknown: the end-of-data marker was sent and no reply was observed
+            attempt(Attempt.UNKNOWN)
+            event(message.application, "message_send_unknown", data, actor_ref=f"pending_action:{claim.id}")
+            _next_reconcile(message)
+        return ledger.finish(claim, self, status=Status.UNCERTAIN, error="outcome_unknown", write=write)
+
+
+def _trailing_blocks(message, series, before: int) -> int:
+    """Consecutive `transport_blocked` attempts at the end of the current series, before this attempt
+    (016 A3, as clarified: a new series starts the count again)."""
+    count = 0
+    for status in (OutboundMessage.objects.filter(approved_message=message, attempt_series=series).exclude(pk=before)
+                   .order_by("-attempt_number").values_list("status", flat=True)):
+        if status != Attempt.TRANSPORT_BLOCKED:
+            break
+        count += 1
+    return count
+
+
+def _next_reconcile(message) -> None:
+    n = PendingAction.objects.filter(kind=RECONCILE, input_ref=str(message.send_ref)).count() + 1
+    enqueue_reconcile(message, n)
+
+
+# --- reconciliation (016 A5) -----------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Evidence:
+    """A record from an evidence source. Only origin "provider" can be admissible, and only from a source
+    whose creation semantics a separately authorized provider check has verified (016 8.3)."""
+
+    origin: str
+    message_id: str
+    recipient: str
+    content_sha256: str
+
+
+def evidence_source():
+    path = settings.CATALYST_SEND_EVIDENCE_SOURCE
+    return import_string(path)() if path else None
+
+
+def admissible(record: Evidence, message: ApprovedMessage, digests: set) -> bool:
+    return (record.origin == "provider" and record.message_id == message_id(message.send_ref)
+            and record.recipient == message.recipient and record.content_sha256 in digests)
+
+
+class ReconcileSend:
+    kind = RECONCILE
+    redeliverable = True  # internal and idempotent: it reads evidence and sends nothing (D-27)
+    automated = True
+
+    def lock_subject(self, claim) -> None:
+        Application.objects.select_for_update(of=("self",)).filter(public_ref=claim.subject_id).first()
+
+    def record(self, claim, kind, data) -> None:
+        event(Application.objects.filter(public_ref=claim.subject_id).first(), kind, data,
+              actor_ref=f"pending_action:{claim.id}")
+
+    def run(self, claim) -> None:
+        message = ApprovedMessage.objects.select_related("application").filter(send_ref=claim.input_ref).first()
+        if message is None or message.application.public_ref != claim.subject_id:
+            ledger.finish(claim, self, status=Status.FAILED, error="approved_message_not_found")
+            return
+        unknown = OutboundMessage.objects.filter(approved_message=message, status=Attempt.UNKNOWN)
+        if message.disposition != Disposition.ACTIVE or not unknown.exists():
+            ledger.finish(claim, self, status=Status.DONE, error="nothing_to_reconcile")
+            return
+        digests = {message.content_sha256, *unknown.values_list("rendered_sha256", flat=True)} - {""}
+        source = evidence_source()
+        records = list(source.find(message_id(message.send_ref))) if source else []  # no lock is held here
+        found = next((r for r in records if admissible(r, message, digests)), None)
+        n = PendingAction.objects.filter(kind=RECONCILE, input_ref=str(message.send_ref)).count()
+
+        def write():
+            if found is not None:
+                if ApprovedMessage.objects.filter(pk=message.pk, disposition=Disposition.ACTIVE).update(
+                        disposition=Disposition.ACCEPTED_BY_EVIDENCE, disposition_at=Now(),
+                        disposition_by=f"pending_action:{claim.id}"):
+                    # The send's own action finished uncertain; its work is complete. Attempts stay `unknown`:
+                    # evidence shows the logical message was accepted, not which attempt was.
+                    PendingAction.objects.filter(kind=SEND, input_ref=str(message.send_ref), status=Status.UNCERTAIN).update(
+                        status=Status.DONE, last_error="accepted_by_evidence", completed_at=Now(), updated_at=Now())
+                    event(message.application, "message_accepted_by_evidence",
+                          {"send_ref": str(message.send_ref), "evidence_origin": found.origin},
+                          actor_ref=f"pending_action:{claim.id}")
+            elif n < settings.CATALYST_MAIL_RECONCILE_CHECKS:
+                enqueue_reconcile(message, n + 1)
+            else:
+                open_item(SEND_OUTCOME_UNKNOWN, str(message.send_ref), application=message.application,
+                          approved_message=message, pending_action_id=claim.id)
+        ledger.finish(claim, self, status=Status.DONE, write=write)

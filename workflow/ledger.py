@@ -18,6 +18,14 @@ code) supplies the domain side.
    it is still running under the same lease token, then writes the handler's outbound record and history.
    If the fence matches no row the whole transaction rolls back: a stale worker leaves no completion, no
    outbound record and no history event.
+
+P2 additions (016 A-7, owner decision D-28):
+- `finish(..., due_in=...)` schedules a returned (`queued`) action at the database clock plus `due_in`, so a
+  deferral (a refunded attempt, a channel fault) never loops hot. This is A-7's `due_at` argument,
+  expressed as an offset because application clocks are never trusted.
+- `finish(status=held)` is non-terminal: it sets no `completed_at`.
+- `fence(claim)` checks that the claim still holds its lease and extends it, inside the caller's
+  transaction, without finishing the action; a lost lease raises `LeaseLost` so the caller rolls back.
 """
 
 import logging
@@ -115,17 +123,23 @@ def retry_delay(attempt: int) -> timedelta:
     return timedelta(seconds=settings.CATALYST_WORKER_RETRY_SECONDS * min(2 ** (attempt - 1), 8))
 
 
-def finish(claim: Claim, handler, *, status, error: str = "", write=None, refund_attempt: bool = False) -> bool:
+def finish(claim: Claim, handler, *, status, error: str = "", write=None, refund_attempt: bool = False,
+           due_in: timedelta | None = None) -> bool:
     """Record a result under the lease fence (module docstring, rule 4). `status` queued means retry after
-    the backoff; `error` must already be sanitized (a reason code or exception class name, never data).
-    Returns False, having changed nothing, if the lease was lost."""
+    the backoff, or after `due_in` when given; `held` is non-terminal. `error` must already be sanitized (a
+    reason code or exception class name, never data). Returns False, having changed nothing, if the lease
+    was lost."""
     fields = {"status": status, "lease_token": None, "lease_expires_at": None, "last_error": error, "updated_at": Now()}
     if status == Status.QUEUED:
-        fields["due_at"] = Now() + (timedelta(0) if refund_attempt else retry_delay(claim.attempt))
-        if refund_attempt:
-            fields["attempts"] = F("attempts") - 1
-    else:
+        if due_in is not None:
+            delay = due_in
+        else:
+            delay = timedelta(0) if refund_attempt else retry_delay(claim.attempt)
+        fields["due_at"] = Now() + delay
+    elif status != Status.HELD:
         fields["completed_at"] = Now()
+    if refund_attempt:  # the attempt did not count: a pause found at the check, or a channel fault (016 A3)
+        fields["attempts"] = F("attempts") - 1
     try:
         with transaction.atomic():
             handler.lock_subject(claim)
@@ -138,6 +152,17 @@ def finish(claim: Claim, handler, *, status, error: str = "", write=None, refund
         logger.warning("action %s (%s) attempt %s: lease lost; result discarded", claim.id, claim.kind, claim.attempt)
         return False
     return True
+
+
+def fence(claim: Claim) -> None:
+    """Inside the caller's transaction: confirm the claim still holds its lease and extend it (016 A-7).
+    Raises LeaseLost when another claim owns the action, so the caller's transaction rolls back."""
+    if not transaction.get_connection().in_atomic_block:
+        raise RuntimeError("fence() must run inside the transaction it protects")
+    lease = timedelta(seconds=settings.CATALYST_WORKER_LEASE_SECONDS)
+    fenced = PendingAction.objects.filter(pk=claim.id, status=Status.RUNNING, lease_token=claim.lease_token)
+    if fenced.update(lease_expires_at=Now() + lease, updated_at=Now()) != 1:
+        raise LeaseLost
 
 
 def fail_or_retry(claim: Claim, handler, error: str, write=None) -> bool:

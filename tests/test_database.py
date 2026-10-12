@@ -30,6 +30,8 @@ APPROVED_MIGRATIONS = {
     # S1-T7: Django Admin's log, database sessions, and the staff grants and read-only group.
     ("admin", "0001_initial"), ("admin", "0002_logentry_remove_auto_add"), ("admin", "0003_logentry_add_action_flag_choices"),
     ("sessions", "0001_initial"), ("accounts", "0003_staff_view"),
+    # P2 2B.1 (owner decisions D-27 to D-30): outbound foundations, their grants, the P2 role groups.
+    ("correspondence", "0003_outbound_foundations"), ("correspondence", "0004_role_grants_and_groups"),
 }
 
 

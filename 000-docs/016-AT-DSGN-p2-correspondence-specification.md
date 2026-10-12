@@ -169,7 +169,8 @@ or address.
   - UPDATE is limited to `(disposition, disposition_at, disposition_by)`;
   - unique `send_ref`.
 - **`ApprovedMessageQuestion`** (replaces the earlier Message-ID-keyed join): `(approved_message,
-  question, purpose)` with purpose `initial` or `reminder`, unique `(approved_message, question)`. A
+  question, purpose)` with purpose `initial`, `reminder` or `revision` (a revised message, A6; added in
+  2B.1), unique `(approved_message, question)`. A
   partial unique `(question)` where `purpose = 'initial'` stops a double approval from sending twice.
 - **Content digest (the comparison basis for A5):** `content_sha256` is SHA-256 over the canonical
   rendered form: the decoded subject, a line feed, and the decoded text body with line endings normalized
@@ -222,8 +223,8 @@ for it.
   - `withdrawn` is an explicit staff disposition (A-8). It is **not** an answer.
 - Withdrawal fields: `withdrawn_by`, `withdrawn_reason` (a reason code and a short sanitized note) and
   `withdrawn_at`. An append-only `question_withdrawn` event is written in the same transaction.
-- Grants: UPDATE of `(status, approval_state, withdrawn_by, withdrawn_reason, withdrawn_at,
-  updated_at)`.
+- Grants: UPDATE of `(status, approval_state, approved_by, approved_at, withdrawn_by, withdrawn_reason,
+  withdrawn_at, updated_at)`. The approver and time are recorded with the approval (added in 2B.1).
 
 **`status` is derived by one function, `refresh_question_status`,** inside every transaction that changes
 a link, an outcome or a disposition:
@@ -639,7 +640,7 @@ Services live in `correspondence/staff_actions.py` (A-3). Each is one transactio
 | `unmatched` (dismiss), `processing_error`, `message_id_conflict`, `mailbox_uidvalidity_changed`, `collector_stale`, `filed_copy_failed`, hard or soft bounce items, loop-threshold items | `resolve_exception` |
 | `reply_needs_review` | `confirm_question_outcome` (D3, or D4 when no outcome remains) |
 | `unmatched` (associate with an application), `reply_unverified`, `reply_auth_failed`, `sender_mismatch`, any item that would mark a message as spoofed, the S1 POL-19 items | `resolve_identity_exception` |
-| `send_outcome_unknown`, `retries_exhausted`, `smtp_transport_blocked`, `send_rejected_permanent` (abandon or revise only) | `decide_uncertain_send` |
+| `send_outcome_unknown`, `retries_exhausted`, `smtp_transport_blocked`, `send_rejected_permanent` (abandon or revise only), `send_refused` (a pre-send re-check refused the message, for example the recipient no longer equals the verified address; added in 2B.1) | `decide_uncertain_send` |
 | `mailbox_auth_failed` and other blocked-cursor items | `restart_collector` (admin action); the bootstrap and recovery commands are host-level (B0) |
 | `escalate_unanswered` ("no response") | `resolve_exception`, or `withdraw_question` |
 

@@ -242,6 +242,15 @@ DATABASE_CONSTRAINTS = {
     "adoption_challenge_same_application", "event_actor_type_valid", "pending_action_status_valid",
     "pending_action_max_attempts_positive", "pending_action_attempts_bounded", "pending_action_running_has_lease",
     "pause_one_per_subject", "outbound_unique_per_attempt", "outbound_attempt_positive", "outbound_status_valid",
+    # P2 2B.1 outbound foundations (016 section 3; correspondence migration 0003)
+    "outbound_attempt_number_per_message", "template_version_unique", "template_version_positive",
+    "template_version_status_valid", "template_version_approved_has_approver", "template_version_link_is_secret_bearing",
+    "question_status_valid", "question_approval_valid", "question_origin_valid", "question_approved_has_approver",
+    "approved_message_kind_valid", "approved_message_authority_valid", "approved_message_disposition_valid",
+    "approved_message_template_required", "approved_message_has_content", "approved_message_authorized",
+    "approved_message_not_self_superseding", "message_question_unique", "question_one_initial_message",
+    "message_question_purpose_valid", "staff_item_one_open_per_key", "staff_item_status_valid",
+    "staff_item_resolution_has_actor",
 }
 
 
