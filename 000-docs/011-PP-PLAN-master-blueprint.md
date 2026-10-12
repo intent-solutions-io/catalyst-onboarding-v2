@@ -73,7 +73,7 @@ direct database edits or a coding agent. The learning site itself is not replace
 
 ## 4. Owner decisions and boundaries
 
-### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-26)
+### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-32)
 
 The owner gave this project direction in the build-contract instruction of 2026-10-09, in the
 invoking session. It is recorded here verbatim so a fresh session can check the source. The owner
@@ -175,6 +175,39 @@ test-tool verification) are recorded on each ADR row in `003`.
 > "Retention: POL-10 must include adopted versions and associated records. No real deletion, retention
 > schedule or retention UI is authorized."
 
+**P2 decisions, 2026-10-12** (source of D-27 to D-32). The owner reviewed `016` version 0.3.2 at PR #20 head
+`70818a6` and decided, in the invoking session (quoted from the owner's authorization):
+
+> "I approve the revised P2 architecture in document `016`, version 0.3.2, with the decisions below. This
+> authorizes recording the decisions, merging the documentation PR after normal checks, and proceeding
+> with 2B.1 only."
+>
+> "Approve ADR-15's generalized reconciliation-before-retry contract for non-redeliverable sends,
+> preserving D-20 exclusively for the S1 verification invitation." "Internal, idempotent collection and
+> reply-processing jobs may retry under their documented recovery rules. External sends with uncertain
+> outcomes may not blindly resend."
+>
+> "Approve architecture decisions A-1 through A-11 exactly as specified in version 0.3.2." A-6: "Do not
+> build aggregation unless needed." A-5: "for synthetic testing only." A-4: "Real MXroute remains
+> prohibited."
+>
+> "Approve POL-06 for synthetic P2 sending authority: Owner approves template versions. Authorized
+> operators approve applicant-specific questions. Only approved/frozen messages may be executed. No real
+> applicant-facing message wording or production cadence is approved."
+>
+> "Approve POL-13's P2 role matrix in section F for synthetic operation only. Identity-affecting
+> resolutions, uncertain-send decisions, and collector restarts require elevated decision-maker
+> authorization. Template approval remains owner-controlled."
+>
+> "Approve POL-19's fail-closed identity-dispute handling: mismatches and unverifiable identity produce
+> staff exceptions, not automatic identity or dossier changes."
+>
+> "Approve document 015 as public-safe technical documentation, with future public PDF renderings using
+> appropriate unclassified labeling."
+>
+> "None of these decisions authorizes real email, applicant-data ingestion, provider credentials,
+> deployment, or a production staff-access change."
+
 ### 4.2 Decision summary
 
 Decision records with rationale live in `003` section "Architecture decisions". This table is the
@@ -208,6 +241,12 @@ summary a reader needs first.
 | D-24 | Confirmation token contract: the signed challenge `public_id` (ADR-16); the raw `public_id` is not authorization, a valid signature plus the database checks are; the token, signature and link are never shown, exported, logged or stored in events, and no staff action can mint a link | OWNER-DECIDED | section 4.1 (PR #11 closeout); `003` ADR-16; bead S1-T6 |
 | D-25 | POL-01 confirmed for the first slice with its PROPOSED defaults (`005` S1.3): the identity key is the trimmed, Unicode-normalized, case-folded email with plus-addressing kept distinct and IDN domains in ASCII form; one open application per key; a repeat becomes a new submission version; a repeat after verification is recorded unverified with a staff item and never overwrites verified data; terminal applications do not count as open. Duplicates around terminal stages (decline, withdrawal, reopening) stay with POL-12 (P5) | OWNER-DECIDED 2026-10-11 | owner, in session after the S1-T8 handoff ("ok please do it", answering the request to sign off GATE-S1 and confirm POL-01) |
 | D-26 | GATE-S1 signed off: every TEST-S1 case PASS on PostgreSQL in CI at one head (CI run 38109732065 on `93fc22c`, merged as `3bd31ac`; 315 passed; PASS 25, FAIL 0, INCOMPLETE 0, NOT RUN 0), independent QA review of the evidence (`catalyst-independent-qa`, confirmed), after-action report `014` filed, POL-01 confirmed (D-25). The first-slice epic `catalyst-v2-6hl` closes; deployment gates (`006` Blockers), `catalyst-v2-2xy` and `catalyst-v2-6hl.10` stay open | OWNER-DECIDED 2026-10-11 | owner, same instruction; evidence `013`, `014` |
+| D-27 | ADR-15 generalized: every non-redeliverable external send reconciles before any further send (`016` A3 to A6: outcome classes by protocol phase, admissible evidence only, unknown stays unknown and goes to staff). D-20 remains the only redelivery exception (the S1 verification invitation). Internal idempotent jobs (`collect`, `process_reply`) may retry under their documented recovery rules | OWNER-DECIDED 2026-10-12 | section 4.1 (P2 decisions); `003` ADR-15; `016` |
+| D-28 | Architecture choices A-1 to A-11 of `016` 0.3.2 approved as specified: questions in `correspondence`; `StaffItem` with immutable `StaffItemResolution`; staff services in `correspondence/staff_actions.py`; isolated local test mail servers with connect-time peer checks (amends REQ-022; real MXroute prohibited); previewed, digest-confirmed staff messages for synthetic testing only; per-message hashed deduplication with no aggregation unless needed; the `due_at` and `fence()` ledger extensions; explicit question withdrawal; sanitized derivatives and metadata only, no persistent original MIME bytes in synthetic P2; explicit bootstrap and recovery modes that never silently skip; immutable `ApprovedMessage` records distinct from attempts | OWNER-DECIDED 2026-10-12 | section 4.1; `016` section 8.5 |
+| D-29 | POL-06, synthetic P2 send authority only: the owner approves each template version; authorized operators approve applicant-specific questions; only approved, frozen messages execute. No real applicant-facing wording, production cadence, quiet hours, limits or stop thresholds are approved | OWNER-DECIDED 2026-10-12 (partial) | section 4.1; `016` 8.1 |
+| D-30 | POL-13, P2 role matrix (`016` section F) for synthetic operation only: operators handle routine correspondence; identity-affecting resolutions, uncertain-send decisions and collector restarts need the decision-maker role; template approval stays with the owner. MFA, network restriction and production staff access remain undecided | OWNER-DECIDED 2026-10-12 (P2 slice) | section 4.1; `016` F |
+| D-31 | POL-19 fail-closed: a mismatched or unverifiable identity produces a staff exception with no automatic positive effect and no identity or dossier change; only the decision-maker resolves identity-affecting cases | OWNER-DECIDED 2026-10-12 | section 4.1; `016` C3, C4, F |
+| D-32 | `015` is public technical documentation, provided its content stays public-safe; future public PDF renderings use unclassified labelling, not the theme's "Confidential" footer | OWNER-DECIDED 2026-10-12 | section 4.1; `016` 8.6; `015` errata item 6 |
 
 **Contradictions found:**
 
@@ -244,20 +283,20 @@ open product policies listed in the master blueprint".
 | POL-03 | Which evidence is required and how it is collected (and from which sources the system may fetch); the final intake form fields | owner | P3 start (evidence); GATE-PILOT (form fields shown to real applicants) | S1 uses a synthetic placeholder field set (name, email, reason) only |
 | POL-04 | Assessment rubric, what the model may see, what it may recommend | owner | P3 start | not in slice |
 | POL-05 | Qualification authority: who may admit, decline or hold; whether two people are needed; appeal or reconsideration | owner | P3 decision stage (J-10) | not in slice |
-| POL-06 | Communications policy: approved templates, reminder cadence and maximum, quiet hours, stop rules for autoresponders, bounces and loops, when staff take over | owner | P2 start | slice sends one verification message only, to a local sink |
+| POL-06 | Communications policy: approved templates, reminder cadence and maximum, quiet hours, stop rules for autoresponders, bounces and loops, when staff take over | owner | P2 start | slice sends one verification message only, to a local sink. **DECIDED for synthetic P2 send authority only (D-29, 2026-10-12)**; production wording, cadence, quiet hours, limits and stop thresholds stay open |
 | POL-07 | Agreement inventory: the exact approved NDA and User Agreement templates and versions, any other required agreements and their order after the NDA (the NDA-before-User-Agreement rule itself is decided, D-15) | owner with counsel | P4 start | not in slice |
 | POL-08 | Signing roles: required participants, signing order, countersigner | owner with counsel | P4 start | not in slice |
 | POL-09 | Document custody and its gate: where signed documents are stored, encryption, who may retrieve them, audit, and whether verified custody is required (in addition to verified signing completion) before the next agreement or stage | owner | P4 start | not in slice |
 | POL-10 | Retention and deletion for applications, declined and withdrawn records, messages, documents and logs; must cover adopted submission versions together with their adoption records, challenges and audit evidence (D-22) | owner with counsel | GATE-PILOT (no real applicant data before) | synthetic data only; no deletion, retention schedule or retention UI is authorized |
 | POL-11 | Provisioning scope: mailbox naming, aliases, any other access granted at activation; who approves | owner | P5 start | not in slice |
 | POL-12 | Withdrawal, closure and reopening rules | owner | P5 (J-16); duplicate interaction affects POL-01 | not in slice |
-| POL-13 | Staff roles and groups (read-only, operator, decision-maker), MFA package | owner | GATE-STAGING | slice uses one PROPOSED read-only group, local only |
+| POL-13 | Staff roles and groups (read-only, operator, decision-maker), MFA package | owner | GATE-STAGING | slice uses one PROPOSED read-only group, local only. **P2 role matrix DECIDED for synthetic operation (D-30, 2026-10-12)**; MFA, network restriction and production access stay open |
 | POL-14 | Staff hostname and network access method | owner | GATE-STAGING | not in slice (local only) |
 | POL-15 | Legacy data: which live first-generation records move, coexistence period, cutover rules | owner | GATE-CUTOVER | not in slice; separate epic |
 | POL-16 | Numerical operating targets for the measures in `002` (`MET-`) | owner | GATE-PILOT | measures defined, no targets |
 | POL-17 | Applicant-facing notices (privacy notice, what the applicant is told about automated assessment) | owner with counsel | GATE-PILOT | placeholder synthetic text only |
 | POL-18 | Required details: which personal or business details the agreements and provisioning need, when they are collected and who may see them | owner with counsel | P4 start | not in slice |
-| POL-19 | Identity disputes: what staff do when a repeat submission, a reply or a signer conflicts with the verified identity, and who resolves it | owner | P2 start (first staff item from an unverified repeat appears in S1 but needs no resolution there) | S1 records the conflict as a staff item only |
+| POL-19 | Identity disputes: what staff do when a repeat submission, a reply or a signer conflicts with the verified identity, and who resolves it | owner | P2 start (first staff item from an unverified repeat appears in S1 but needs no resolution there) | S1 records the conflict as a staff item only. **DECIDED fail-closed (D-31, 2026-10-12)**: staff exception, no automatic positive effect; decision-maker resolves |
 
 ## 7. Phased work graph
 
@@ -282,7 +321,7 @@ its predecessor's gate passes and the policies it needs are decided. Later epics
 |---|---|---|---|---|
 | P0 | Develop the master blueprint, PRD, architecture and phased execution plan before any code is written | `catalyst-v2-211` | none | owner approves this contract (bead `catalyst-v2-211.6`) |
 | P1 | Build the first working slice: synthetic intake, email verification to a local mail sink, and a read-only staff view | `catalyst-v2-6hl` | contract approval (bead `catalyst-v2-211.6`, on S1-T1); not the open policy beads (corrected 2026-10-10) | GATE-S1 |
-| P2 | Run the applicant correspondence loop: outbound policy, inbox correlation, reminders, stop rules and human takeover | `catalyst-v2-7hu` | P1; POL-06, POL-19 | GATE-P2 |
+| P2 | Run the applicant correspondence loop: outbound policy, inbox correlation, reminders, stop rules and human takeover | `catalyst-v2-7hu` | P1; POL-06, POL-19 (P2 decisions D-27 to D-31 recorded 2026-10-12 for synthetic P2; still open: POL-06 production values, POL-02, POL-10 for messages and POL-13 MFA before any real mail) | GATE-P2 |
 | P3 | Collect evidence, run the bounded MiniMax assessment, and record the authorized qualification decision | `catalyst-v2-oc4` | P2; POL-03, POL-04, POL-05 | GATE-P3 |
 | P4 | Issue and verify the NDA, User Agreement and other required agreements through Documenso with protected custody | `catalyst-v2-hdg` | P3; POL-07, POL-08, POL-09, POL-18 | GATE-P4 |
 | P5 | Provision the approved mailbox, activate the applicant, and support withdrawal and recovery | `catalyst-v2-tuc` | P4; POL-11, POL-12 | GATE-P5 |
@@ -306,6 +345,22 @@ working, tested behaviour; no phase defers all integration to the end.
 | S1-T6 | `catalyst-v2-6hl.6` | Confirm contact control once through an explicit, expiring, single-use confirmation | S1-T5 |
 | S1-T7 | `catalyst-v2-6hl.7` | Give authorized staff a read-only view of applications and their history, and refuse everyone else | S1-T4 |
 | S1-T8 | `catalyst-v2-6hl.8` | Prove the first slice against its acceptance plan and record the evidence | S1-T6, S1-T7 |
+
+**Correspondence loop tasks (P2), specified in handoff 2A (`016`).** Handoff 2A is the P2 specification and
+the owner's P2 decision brief (`016` section 8); 2B is the four implementation tasks, one PR each, and 2C
+is the GATE-P2 verification. The owner approved `016` 0.3.2 and recorded D-27 to D-32 on 2026-10-12,
+which unblock 2B.1 (`016` 8.1). **Only 2B.1 is authorized**; 2B.2 to 2B.4 and 2C each need the owner's
+release, and the items in `016` 8.2 not covered by D-27 to D-31 are decided before the task that needs
+them.
+
+| Key | Bead | Title | Depends on |
+|---|---|---|---|
+| 2A | `catalyst-v2-7hu.1` | Specify the P2 correspondence design and prepare the owner's P2 decisions | GATE-S1 (D-26) |
+| 2B.1 | `catalyst-v2-7hu.2` | Build the outbound communication foundations: versioned templates, a generalized send handler, the uncertain status and SMTP-fake reconciliation | 2A; the owner decisions in `016` section 8.1 (ADR-15 generalization, A-11, A-4, A-1, A-2, A-3, A-7, the POL-13 role matrix, POL-06 send authority) |
+| 2B.2 | `catalyst-v2-7hu.3` | Collect inbound mail from the local IMAP test server and correlate it durably with outbound messages | 2B.1; `016` 8.2 (A-9, A-10, trust table, POL-19 default part, A-6) |
+| 2B.3 | `catalyst-v2-7hu.4` | Process replies deterministically and route judgment to staff confirmation or a held interpretation action | 2B.2; POL-19 resolution part; the autoresponder rule |
+| 2B.4 | `catalyst-v2-7hu.5` | Run reminders and controlled staff intervention: suppression, stop rules, pause and resume, staff messages and exception resolution | 2B.3; POL-06 cadence (synthetic settings); A-5, A-8 |
+| 2C | `catalyst-v2-7hu.6` | Verify the correspondence loop: the GATE-P2 acceptance run, independent QA and the after-action report (health and reconciliation behaviour is built in 2B.1 to 2B.4) | 2B.1 to 2B.4 |
 
 ## 8. Definition of success
 

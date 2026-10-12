@@ -4,6 +4,33 @@
 *Version: `v0.1.0-19-gef17aa6` (main `ef17aa6`, after PR #18)*
 *Scope: the `catalyst-onboarding-v2` repository as merged; no deployment exists to inspect.*
 
+> **Errata (2026-10-11, handoff 2A).** This is a dated report and stays one; the corrections below
+> do not re-run the analysis. Each sentence they name has also been corrected in place, marked
+> "(corrected, see errata)".
+>
+> 1. **Phase count.** The plan does not have "eight phases, P1 to P8". `011` section 7 defines eight
+>    engineering epics, `P0` to `P6` plus `PL`. P0 is the planning epic, P1 (the first slice) is
+>    implemented, and six (P2 to P6, PL) remain unbuilt. The "7 of the 8 product phases" figure was
+>    wrong.
+> 2. **Secret scanning.** The claim "secret scanning in CI (gitleaks runs locally only)" was false.
+>    `ci.yml` runs gitleaks 8.30.1 (checksum-verified) over the full git history (step "Secret scan
+>    (gitleaks, full history)") in the job "Markdown lint and doc index check", which is the required
+>    check. The bullet is removed from the "Not implemented" list in section 9.
+> 3. **Policy names.** POL-16 is the numerical operating targets for the `002` measures, not "attempts";
+>    POL-17 is the applicant-facing notices, not "wording" (`011` section 6). The policies the
+>    correspondence loop relies on at P2 start are POL-06 (communications) and POL-19 (identity
+>    disputes); POL-02 and the P2 slice of POL-13 follow before real email (`016` section 8).
+> 4. **Worker throughput.** The "roughly hundreds per minute" estimate was not measured and is removed.
+> 5. **Health score.** "68/100" is the author's unscored judgement, not the output of a scored rubric; read
+>    it as a qualitative summary.
+> 6. **PDF footer.** A PDF rendering of this report carried a "Confidential" footer. That came from the
+>    rendering theme's default, not from a classification decision. The source file is public in this
+>    repository. **Decided 2026-10-12 (D-32):** the report is public technical documentation while its
+>    content stays public-safe, and future public PDF renderings use unclassified labelling.
+> 7. **Since fixed.** The stale README and CHANGELOG findings (sections 1, 8.9 and the roadmap) were
+>    true at `ef17aa6` and were fixed in handoff 2A: the README describes the accepted first slice and how
+>    to run the tests, and the CHANGELOG lists the merged pull requests. They stay below as dated findings.
+
 ---
 
 ## 1. This System in 5 Minutes
@@ -27,9 +54,9 @@ The engineering quality of what was built is high for its size, about 2,150 line
 
 The **biggest risks are not in the code that exists**:
 
-- **Distance to production.** Real email, the AI assessment, signing, provisioning, deployment, backup and staff MFA are all unbuilt. Roughly 7 of the 8 product phases remain.
+- **Distance to production.** Real email, the AI assessment, signing, provisioning, deployment, backup and staff MFA are all unbuilt. Six of the eight planned epics (P2 to P6, PL) remain (corrected, see errata).
 - **The release path.** The release workflow still pushes its version-bump commit straight to `main`, bypassing review (bead `catalyst-v2-oyu`, P1).
-- **Stale front-door documentation.** The README still describes a skeleton with "no applicant feature".
+- **Stale front-door documentation.** The README still describes a skeleton with "no applicant feature" (since fixed, see errata).
 - **Single-maintainer dependency.** Every decision, review approval and merge runs through one person and AI agents.
 
 ---
@@ -40,7 +67,7 @@ The **biggest risks are not in the code that exists**:
 
 Today the system does one complete, narrow thing. It accepts a synthetic access request, verifies the email address through a worker-sent link, and shows staff the result, with every state change recorded once and in order. It handles duplicates and concurrent submissions without creating a second application, recovers from a worker killed mid-send without duplicating anything but the identical invitation, and refuses stale, tampered, expired, superseded or reused links. These behaviours are specified in `000-docs/005-AT-DSGN-technical-spec.md` (section S1) and proven by `tests/` (section 11 below).
 
-Implementation status is uneven by design. The planning record is extensive: blueprint `011`, PRD `002`, architecture `003`, user journey `004`, specification `005`, and an agent charter and registry (`007`, `008`). It describes eight phases, P1 to P8. Only P1 (the first slice) is implemented. The correspondence loop (P2), evidence and assessment with MiniMax through PydanticAI (P3), agreements through Documenso (P4), provisioning and activation (P5), deployment and operations (P6), and legacy data compatibility (PL) are planned and tracked as Beads epics, with no code.
+Implementation status is uneven by design. The planning record is extensive: blueprint `011`, PRD `002`, architecture `003`, user journey `004`, specification `005`, and an agent charter and registry (`007`, `008`). It describes eight engineering epics, P0 to P6 plus PL (corrected, see errata). P0 is the planning epic; only P1 (the first slice) is implemented. The correspondence loop (P2), evidence and assessment with MiniMax through PydanticAI (P3), agreements through Documenso (P4), provisioning and activation (P5), deployment and operations (P6), and legacy data compatibility (PL) are planned and tracked as Beads epics, with no code.
 
 The technical foundation:
 
@@ -55,7 +82,7 @@ The key risks are:
 - **No path to production yet** (P6 unbuilt, with deployment gates recorded in `006`).
 - **A release workflow that can still write directly to `main`.**
 - **18 open product policies**, mostly owner decisions due at later gates.
-- **Documentation drift** in README and CHANGELOG.
+- **Documentation drift** in README and CHANGELOG (since fixed, see errata).
 - **A bus factor of one.**
 
 None of these is a defect in the shipped slice. They are the work between here and a pilot.
@@ -274,7 +301,7 @@ What happens when each dependency is unavailable:
 ### Assumptions the Architecture Rests On
 
 - **One PostgreSQL instance carries everything.** The schema is small (9 slice tables plus Django's); slice volumes are tiny.
-- **One polling worker is enough.** The poll interval defaults to 5 s, and each claim is one short transaction. At one action per claim, a single worker handles roughly hundreds per minute for sink sends. Real SMTP latency (`EMAIL_TIMEOUT` 10 s, at most half the 300 s lease) will lower that.
+- **One polling worker is enough.** The poll interval defaults to 5 s, and each claim is one short transaction. Throughput has not been measured (corrected, see errata); real SMTP latency (`EMAIL_TIMEOUT` 10 s, at most half the 300 s lease) bounds a single send.
 - **Email ownership is the identity proof** for the slice (POL-01 confirmed for the slice, D-25). Plus-addressed variants are deliberately different identities.
 - **The database clock is the only clock** for expiry, due times and leases. Application clocks are never trusted (tested).
 - **Applicants never get accounts.** Only staff are Django users (ADR-18).
@@ -529,7 +556,6 @@ Playbooks are a P6 deliverable (`catalyst-release-operations` agent scope). The 
 - a security headers review beyond the referrer policy;
 - dependency vulnerability scanning in CI (no Dependabot alerts check, no `pip-audit`);
 - CodeQL or SAST;
-- secret scanning in CI (gitleaks runs locally only, by habit);
 - an unpinned action in `release.yml` (`actions/checkout@v7`), whereas `ci.yml` pins by SHA.
 
 **Stated limitations:**
@@ -586,7 +612,7 @@ Playbooks are a P6 deliverable (`catalyst-release-operations` agent scope). The 
 
 - **[HIGH]** The release still pushes its bump commit to `main` → Impact: unreviewed commits on `main`, and the tag on an untested commit → Fix: bead `catalyst-v2-oyu` before any real release.
 - **[HIGH]** No deployment path, backup, restore, monitoring or staff MFA → Impact: nothing can be piloted → Fix: P6 (`catalyst-v2-9kg`) after the correspondence loop. Define staging first.
-- **[HIGH]** 18 open product policies (`011` section 6, bead `catalyst-v2-211.7`); POL-01 is the only one decided → Impact: later phases block on owner decisions → Fix: schedule decision sessions by gate, starting with those the correspondence loop relies on (POL-02 link lifetime, POL-06 delivery, POL-16 attempts, POL-17 wording).
+- **[HIGH]** 18 open product policies (`011` section 6, bead `catalyst-v2-211.7`); POL-01 is the only one decided → Impact: later phases block on owner decisions → Fix: schedule decision sessions by gate, starting with those the correspondence loop relies on (POL-06 communications and POL-19 identity disputes at P2 start; POL-02 link lifetime and resends before real email) (corrected, see errata).
 - **[MEDIUM]** README and CHANGELOG are stale → Impact: misleads every new reader and any outside reviewer → Fix: one docs PR.
 - **[MEDIUM]** No Python lint, format or type check, and no SAST or dependency audit in CI → Impact: style drift and unseen vulnerable dependencies as the code grows → Fix: add Ruff (lint and format), `pip-audit` and CodeQL as required checks.
 - **[MEDIUM]** There is no local "run the app" recipe → Impact: demos and manual QA need tribal knowledge → Fix: add `web` and `worker` services to `compose.yaml` (development only, filebased sink) and a README section.
@@ -627,7 +653,7 @@ Playbooks are a P6 deliverable (`catalyst-release-operations` agent scope). The 
 - **Refresh the README and CHANGELOG.** Outcome: the README describes the merged slice and how to run it, and the CHANGELOG lists PRs #9 to #18 under `[Unreleased]`.
 - **Add Ruff, `pip-audit` and CodeQL to CI**, keeping one stable required-check name per lane (`009` section 5.5). Outcome: all green on `main`.
 - **Pin `actions/checkout` in `release.yml` by SHA.**
-- **Owner:** decide the policies the correspondence loop relies on (POL-02 link lifetime and resends, POL-06 delivery, POL-16 attempts, POL-17 wording), ahead of their formal gates.
+- **Owner:** decide the policies the correspondence loop relies on (POL-06 communications and POL-19 identity disputes at P2 start; POL-02 link lifetime and resends before real email), ahead of their formal gates (corrected, see errata).
 
 ### Month 1 — Foundation
 
@@ -708,4 +734,4 @@ Playbooks are a P6 deliverable (`catalyst-release-operations` agent scope). The 
 
 ---
 
-**Health score: 68/100.** The engineering of the shipped slice is strong (about 85). The score is pulled down by a pre-production posture: no deployment, monitoring or backup; the open release-path defect; stale front-door docs; and no static analysis or dependency audit in CI. That is appropriate for the phase, but it is the distance to a pilot.
+**Health score: 68/100 (an unscored judgement, not a rubric result; corrected, see errata).** The engineering of the shipped slice is strong (about 85). The score is pulled down by a pre-production posture: no deployment, monitoring or backup; the open release-path defect; stale front-door docs; and no static analysis or dependency audit in CI. That is appropriate for the phase, but it is the distance to a pilot.

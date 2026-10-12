@@ -4,10 +4,10 @@
 |---|---|
 | Document | `006-LS-STAT-status` |
 | Last updated | 2026-10-11 |
-| Source revision | contract PR #7 (merged `110bfad`); 1A evidence and ADR decisions in PR #8 |
+| Source revision | handoff 2A, PR #20 (`016` 0.3.2 approved, D-27 to D-32) |
 | Classification | Public |
 
-> **Status: first slice complete.** GATE-S1 signed off by the owner on 2026-10-11 (D-26; evidence `013`, after-action report `014`); POL-01 confirmed for the slice (D-25). No deployment, no real applicant data; the deployment gates below stay open.
+> **Status: first slice complete; P2 specified and approved for synthetic work (D-27 to D-32, 2026-10-12); 2B.1 authorized, not yet built.** GATE-S1 signed off by the owner on 2026-10-11 (D-26; evidence `013`, after-action report `014`); POL-01 confirmed for the slice (D-25). No deployment, no real applicant data; the deployment gates below stay open.
 
 ## Current state
 
@@ -17,9 +17,9 @@
 | Build contract (`011`, `002`, `003`, `004`, `005` S1) | APPROVED IN SCOPE 2026-10-09 (`011` section 10) | PR #7 |
 | Owner approval of the contract and first slice | given 2026-10-09 for the scope in `011` section 10 | bead "Obtain the owner's approval of the build contract and the first-slice scope" |
 | Owner-directed amendment of 2026-10-09 | applied | `011` section 9 |
-| Open product policies | 19 open (`011` section 6) | bead "Obtain owner decisions on the open product policies listed in the master blueprint" |
+| Open product policies | POL-01 decided for the slice (D-25); POL-19 decided (D-31); POL-06 and POL-13 decided for synthetic P2 only (D-29, D-30); the rest open (`011` section 6). The P2 decision brief is `016` section 8 | bead "Obtain owner decisions on the open product policies listed in the master blueprint" |
 | Specialist subagents | all eleven discovered in a fresh session; one (`catalyst-django-architect`) probed at runtime | `008` section 5.1 |
-| Documentation and runtime CI | green on every merged head through `main` `843f974` (PR #15, run 38106758485: 297 passed); per-task runs on each task's bead | GitHub Actions |
+| Documentation and runtime CI | green on every merged head through `main` `1cc96ec` (PR #19, run 38118996279); per-task runs on each task's bead | GitHub Actions |
 | Runtime CI lane | job "Runtime checks (Python 3.14.8, PostgreSQL 16.15)", aggregated into the required check; failure path demonstrated (probe run 38030066475: runtime failed, required check failed, `safe-merge` refused) | PR #9, closed probe PR #10 |
 | v0.1.0 tag | an automatic tag, not a release (`CHANGELOG.md`) | |
 
@@ -66,8 +66,10 @@
    (2026-10-10, D-16 to D-19).
 3. Done: 1B.1 (PR #9), 1B.2 (PR #11), 1B.3 intake (PR #12), 1B.4 worker (PR #13), 1B.5 confirmation (PR #14)
    and 1B.6 staff view (PR #15), then S1-T8 acceptance evidence (PR #16). GATE-S1 signed off 2026-10-11 (D-26).
-   Next: the owner chooses the next work (open blockers below, or the next phase); nothing is started without approval.
-4. Policy decisions in `011` section 6, each before the milestone it blocks.
+4. Done: handoff 2A for P2 (bead `catalyst-v2-7hu.1`, PR #20): the correspondence specification `016`
+   0.3.2, approved by the owner with decisions D-27 to D-32 (2026-10-12). Next: 2B.1, outbound
+   foundations (bead `catalyst-v2-7hu.2`), the only P2 task authorized.
+5. Policy decisions in `011` section 6, each before the milestone it blocks.
 
 ## Decision log
 
