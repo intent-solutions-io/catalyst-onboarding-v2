@@ -57,6 +57,16 @@ def _before_insert(key: str) -> None:
     A no-op in the application."""
 
 
+def open_staff_item(application, reason: str, attention_event) -> None:
+    """The staff queue entry for a `needs_staff_attention` event (016 3.8, A-2; P2 2B.3), in the same
+    transaction. Resolving the item is what clears staff attention; the event stays as history. The
+    correspondence model is reached through the app registry: correspondence depends on applications."""
+    from django.apps import apps
+
+    apps.get_model("correspondence", "StaffItem").objects.create(
+        reason_code=reason, dedupe_key=f"event:{attention_event.pk}", application=application)
+
+
 def send_verification_key(challenge_public_id) -> str:
     return f"{SEND_VERIFICATION}:{challenge_public_id}"
 
@@ -149,7 +159,8 @@ def accept_submission(data) -> Outcome:
         event = dict(application=application, actor_type=ApplicationEvent.ActorType.APPLICANT, data={"version_number": number})
         ApplicationEvent.objects.create(kind="submission_received" if new_application else "repeat_submission", **event)
         if verified:
-            ApplicationEvent.objects.create(
+            attention = ApplicationEvent.objects.create(
                 kind="needs_staff_attention", **{**event, "data": {"version_number": number, "reason": "repeat_after_verification"}}
             )
+            open_staff_item(application, "repeat_after_verification", attention)
     return Outcome(application.public_ref, number, new_application, new_challenge, verified)

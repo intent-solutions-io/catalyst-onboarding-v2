@@ -256,6 +256,10 @@ class StaffItem(models.Model):
     opened_at = models.DateTimeField(db_default=Now())
 
     class Meta:
+        permissions = [
+            ("resolve_exception", "Resolve a non-identity staff item (operator, D-30)"),
+            ("resolve_identity_exception", "Resolve an identity-affecting staff item (decision-maker, D-30, D-31)"),
+        ]
         constraints = [
             models.UniqueConstraint(fields=["reason_code", "dedupe_key"], condition=Q(status="open"), name="staff_item_one_open_per_key"),
             models.CheckConstraint(condition=Q(status__in=["open", "resolved"]), name="staff_item_status_valid"),
@@ -366,6 +370,7 @@ class InboundMessage(models.Model):
     identity_state = models.CharField(max_length=16, default="established")  # established | unestablished
 
     class Meta:
+        permissions = [("confirm_question_outcome", "Confirm question outcomes or close a reply (operator, D-30)")]
         constraints = [
             models.CheckConstraint(condition=Q(status__in=INBOUND_STATUSES), name="inbound_status_valid"),
             models.CheckConstraint(condition=Q(is_derivative=True), name="inbound_is_derivative"),

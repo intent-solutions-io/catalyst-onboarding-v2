@@ -143,6 +143,7 @@ CATALYST_ACTION_HANDLERS = {
     "reconcile_send": "correspondence.outbound.ReconcileSend",  # 016 A5
     "collect": "correspondence.inbound.Collect",  # 016 B (P2 2B.2)
     "file_copy": "correspondence.inbound.FileCopy",  # 016 A4
+    "process_reply": "correspondence.processing.ProcessReply",  # 016 D (P2 2B.3)
 }
 
 # P2 outbound mail (016 A3 to A6, section 6; owner decisions D-27, D-28). Synthetic only: real MXroute is
@@ -177,6 +178,10 @@ CATALYST_MAIL_MAX_MESSAGE_BYTES = number("CATALYST_MAIL_MAX_MESSAGE_BYTES", "104
 CATALYST_MAIL_MAX_TEXT_CHARS = number("CATALYST_MAIL_MAX_TEXT_CHARS", "20000")
 CATALYST_MAIL_COLLECT_FAILURE_LIMIT = number("CATALYST_MAIL_COLLECT_FAILURE_LIMIT", "5")
 CATALYST_MAIL_COLLECTOR_STALE_FACTOR = number("CATALYST_MAIL_COLLECTOR_STALE_FACTOR", "3")
+# Loop detection (016 D1, J-08): this many automatic messages for one application within the window pause
+# automation and open a staff item. Synthetic values; POL-06 production values are not decided.
+CATALYST_MAIL_LOOP_THRESHOLD = number("CATALYST_MAIL_LOOP_THRESHOLD", "3")
+CATALYST_MAIL_LOOP_WINDOW_SECONDS = number("CATALYST_MAIL_LOOP_WINDOW_SECONDS", "86400")
 # Synthetic values; POL-06 production values are not decided (D-29).
 CATALYST_MAIL_SEND_ATTEMPTS = number("CATALYST_MAIL_SEND_ATTEMPTS", "3")
 # The whole SMTP exchange must end well inside the worker lease; unset, it is half the lease, at most 20 s.

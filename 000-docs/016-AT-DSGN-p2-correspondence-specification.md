@@ -1069,3 +1069,24 @@ One independent `catalyst-independent-qa` review of PR #22 found 4 HIGH, 14 MEDI
 - Bootstrap and recovery cannot write an application event (there is no application). The cursor keeps the
   start mode; a `from_now` bootstrap opens the `mailbox_history_out_of_scope` item; and the command logs the
   host user.
+
+### 10.8 Implementation notes from 2B.3 (2026-10-13)
+
+- Staff attention reads open staff items (3.8, M9, 2B.3 part). The S1 intake and confirmation code opens a
+  staff item alongside each `needs_staff_attention` event (dedupe `event:<id>`). Migration correspondence
+  0008 opened one for each earlier event. The events stay as history; resolving the item clears the mark.
+- Reason-to-resolution allow-list (F):
+  - **Identity reasons**, decision-maker only:
+    - `unmatched` associate;
+    - `reply_unverified` and `reply_auth_failed`: associate, dismiss or mark as spoofed;
+    - `sender_mismatch`: dismiss or mark as spoofed, never associate;
+    - the two S1 reasons: acknowledge.
+  - **Operational reasons**, acknowledge with `resolve_exception`. `unmatched` dismissal is also
+    `resolve_exception`.
+- A staff association sets `trust_decision = staff_associated` for that message only, links its answerable
+  questions, and queues `process_reply`. It changes no identity, recipient, adoption or stage.
+- Bounces read the delivery-status report's first per-recipient `Status` and `Final-Recipient`, stored in
+  `auto_markers`.
+- The P3 interface is the `ReplyInterpreter` protocol in `correspondence/processing.py` (not a separate
+  `interpreter.py`). `strip_quotes` provides the quote-stripped view, version 1.
+

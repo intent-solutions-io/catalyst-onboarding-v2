@@ -186,7 +186,8 @@ def test_p2_01_a_trusted_reply_is_correlated_and_makes_its_question_reply_pendin
     assert received.application_id == mailbox.app.pk and received.approved_message_id == message.pk
     assert question.status == "reply_pending"
     assert list(QuestionReplyLink.objects.values_list("state", flat=True)) == ["pending"]
-    assert PendingAction.objects.filter(kind="process_reply", input_ref=str(received.public_id), status="queued").exists()
+    # Collection queued process_reply; since 2B.3 the worker runs it, which holds interpretation and asks staff.
+    assert PendingAction.objects.filter(kind="process_reply", input_ref=str(received.public_id), status="done").exists()
     assert received.is_derivative and received.original_sha256 and "My synthetic answer." in received.derived_text
     state = cursor(mailbox)
     assert state.last_uid == 1 and state.complete_through_uid == 1 and state.complete_through_at is not None
@@ -336,7 +337,8 @@ def test_p2_18_a_bounce_is_matched_only_through_its_embedded_message_id(mailbox)
     mailbox.imap.deliver(bounce)
     collect()
     received = InboundMessage.objects.get()
-    assert (received.classification, received.status, received.approved_message_id) == ("bounce", "awaiting_processing", message.pk)
+    # Matched through the embedded Message-ID; since 2B.3 process_reply records it (016 D1).
+    assert (received.classification, received.status, received.approved_message_id) == ("bounce", "processed", message.pk)
     assert QuestionReplyLink.objects.count() == 0  # a bounce never makes a question reply_pending
 
 

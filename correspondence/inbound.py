@@ -212,7 +212,10 @@ def _store(cursor, derived, size, internal_date, digest):
         in_reply_to=" ".join(derived.in_reply_to)[:4000], references=" ".join(derived.references)[:8000],
         from_address=(derived.from_addresses[0] if len(derived.from_addresses) == 1 else "")[:320],
         from_normalized=(derived.from_addresses[0].casefold() if len(derived.from_addresses) == 1 else "")[:320],
-        auto_markers=derived.auto_markers, date_header=derived.date_header, internal_date=internal_date[:64], size=size,
+        auto_markers={**derived.auto_markers, **({"dsn_status": derived.dsn_status,
+                                                    "dsn_final_recipient": derived.dsn_final_recipient}
+                                                   if derived.dsn_status else {})},
+        date_header=derived.date_header, internal_date=internal_date[:64], size=size,
         original_sha256=digest, derived_text=derived.text, derivation_version=mime.DERIVATION_VERSION,
         redaction_version=mime.REDACTION_VERSION, truncated=derived.truncated, truncated_at_chars=derived.truncated_at_chars,
         omitted_parts=derived.omitted_parts, redactions=derived.redactions, attachments=derived.attachments,
