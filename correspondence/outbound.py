@@ -98,10 +98,14 @@ def enqueue_reconcile(message: ApprovedMessage, series: int, n: int) -> PendingA
 
 # --- services ---------------------------------------------------------------------------------------------
 
-def approve_template_version(version_id: int, user) -> MessageTemplateVersion:
+def approve_template_version(version_id: int, user, expected_digest: str | None = None) -> MessageTemplateVersion:
+    """A1 and D-29. A staff screen passes the digest of the version it showed, so the owner approves exactly
+    what they read (2B.4)."""
     require(user, "approve_template_version")
     with transaction.atomic():
         version = MessageTemplateVersion.objects.select_for_update(of=("self",)).select_related("template").get(pk=version_id)
+        if expected_digest is not None and expected_digest != version.content_sha256:
+            raise Refused("template_changed_since_shown")
         if version.status == MessageTemplateVersion.Status.APPROVED:
             return version
         if version.status != MessageTemplateVersion.Status.DRAFT:
@@ -180,6 +184,7 @@ class Proceed:
 class Stop:
     status: str
     reason: str  # a reason code only
+    due_seconds: float | None = None  # for a deferral (QUEUED): when to look again; default the poll interval
 
 
 @dataclass(frozen=True)
@@ -286,6 +291,13 @@ class SendMessage:
                 return skip("application_closed")
             if any(q.status == Question.Status.WITHDRAWN for q in questions):
                 return skip("question_withdrawn")
+            if message.kind == ApprovedMessage.Kind.REMINDER and questions:
+                # A frozen reminder still waiting to be sent follows its question (2B.4 review): an answered
+                # question cancels it, and a pending reply defers it until staff decide.
+                if all(q.status == Question.Status.SATISFIED for q in questions):
+                    return skip("question_satisfied")
+                if any(q.status == Question.Status.REPLY_PENDING for q in questions):
+                    return Stop(Status.QUEUED, "reply_pending", settings.CATALYST_REMINDER_STALE_RETRY_SECONDS)
             if verified_address(application) != message.recipient:
                 return refuse("recipient_changed")
             pending = list(OutboundMessage.objects.filter(
@@ -319,8 +331,9 @@ class SendMessage:
 
     def _stop(self, claim, decision: Stop) -> None:
         if decision.status == Status.QUEUED:
+            wait = settings.CATALYST_WORKER_POLL_SECONDS if decision.due_seconds is None else decision.due_seconds
             ledger.finish(claim, self, status=Status.QUEUED, error=decision.reason, refund_attempt=True,
-                          due_in=timedelta(seconds=settings.CATALYST_WORKER_POLL_SECONDS))
+                          due_in=timedelta(seconds=wait))
             return
 
         def write():
@@ -463,7 +476,7 @@ class SendStaffMessage(SendMessage):
 class ReconcileSend:
     kind = RECONCILE
     redeliverable = True  # internal and idempotent: it reads evidence and sends nothing (D-27)
-    automated = True
+    automated = False  # it sends nothing, so a pause never holds it: an unknown staff send stays reconcilable (2B.4)
 
     def lock_subject(self, claim) -> None:
         Application.objects.select_for_update(of=("self",)).filter(public_ref=claim.subject_id).first()

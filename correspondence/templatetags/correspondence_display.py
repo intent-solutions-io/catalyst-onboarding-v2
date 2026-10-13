@@ -17,7 +17,8 @@ def visible(text) -> str:
     for ch in str(text or ""):
         if ch in "\n\t":
             out.append(ch)
-        elif unicodedata.category(ch) in ("Cc", "Cf", "Cs", "Co", "Zl", "Zp"):
+        elif unicodedata.category(ch) in ("Cc", "Cf", "Cs", "Co", "Zl", "Zp") or (
+                unicodedata.category(ch) == "Zs" and ch != " ") or ch in "\u115f\u1160\u3164\u2800\uffa0":
             out.append(f"[U+{ord(ch):04X}]")
         else:
             out.append(ch)

@@ -1,7 +1,7 @@
 {% extends "correspondence/staff/base.html" %}{% load correspondence_display %}
 {% block content %}
 <h1>Correspondence: <bdi>{{ application.display_name|visible }}</bdi></h1>
-<p>Stage {{ application.stage }}. Automation {% if paused %}paused by {{ paused.actor_ref }} at {{ paused.created_at|date:"Y-m-d H:i" }} UTC{% else %}running{% endif %}.</p>
+<p>Stage {{ application.stage }}. Automation {% if paused %}paused by {{ paused.actor_ref }} at {{ paused.created_at|date:"Y-m-d H:i" }} UTC. Reason: <bdi>{{ paused.reason|visible }}</bdi>{% else %}running{% endif %}.</p>
 {% if paused and can_resume %}
 <form method="post" action="{% url 'correspondence_staff:resume' application.public_ref %}">{% csrf_token %}
 <label>Note <input name="note" maxlength="500"></label> <button>Resume automation</button></form>
@@ -15,20 +15,15 @@
 <tr><td><bdi>{{ q.text|visible }}</bdi></td><td>{{ q.approval_state }}</td><td>{{ q.status }}</td><td>
 {% if can_approve and q.approval_state == "proposed" and q.status != "withdrawn" %}<form class="inline" method="post" action="{% url 'correspondence_staff:approve' q.public_id %}">{% csrf_token %}<button>Approve and send</button></form>{% endif %}
 {% if can_withdraw and q.status != "withdrawn" and q.status != "satisfied" %}<form class="inline" method="post" action="{% url 'correspondence_staff:withdraw' q.public_id %}">{% csrf_token %}
-<select name="reason">{% for r in withdraw_reasons %}<option value="{{ r }}">{{ r }}</option>{% endfor %}</select>
-<input name="note" maxlength="150" placeholder="note"> <button>Withdraw</button></form>{% endif %}
+<select name="reason" required><option value="">withdraw: choose a reason</option>{% for r in withdraw_reasons %}<option value="{{ r }}">{{ r }}</option>{% endfor %}</select>
+<input name="note" maxlength="150" placeholder="note"> <button>Withdraw (permanent; never an answer)</button></form>{% endif %}
 </td></tr>
 {% empty %}<tr><td colspan="4">No questions.</td></tr>{% endfor %}
 </table>
 <h2>Open items</h2>
 <ul>{% for item in items %}<li><a href="{% url 'correspondence_staff:item' item.public_id %}">{{ item.reason_code }}</a></li>{% empty %}<li>None.</li>{% endfor %}</ul>
 {% if can_message %}
-<h2>Staff message</h2>
-<p>Sent to the verified address only, after a preview. It is sent even while automation is paused, and never resumes it.</p>
-<form method="post" action="{% url 'correspondence_staff:preview_message' application.public_ref %}">{% csrf_token %}
-<p><label>Subject <input name="subject" maxlength="200" required></label></p>
-<p><label>Body<br><textarea name="body" rows="8" cols="80" maxlength="5000" required></textarea></label></p>
-<button>Preview</button></form>
+{% include "correspondence/staff/compose_form.html" %}
 <ul>{% for m in staff_messages %}<li><bdi>{{ m.frozen_subject|visible }}</bdi>: {{ m.disposition }}</li>{% endfor %}</ul>
 {% endif %}
 {% endblock %}

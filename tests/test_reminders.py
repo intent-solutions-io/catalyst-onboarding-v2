@@ -137,10 +137,12 @@ def test_p2_29_quiet_hours_wrap_midnight(settings, start, end, hour, inside):
 def test_p2_28_a_reminder_waits_for_a_complete_collection_after_its_due_time(remind):
     question, _ = sent_question(remind)
     cursor = MailboxCursor.objects.get()
-    # A recent partial batch moves last_batch_at but not the completed watermark: it does not count.
-    MailboxCursor.objects.filter(pk=cursor.pk).update(last_batch_at=Now())
     for attempt in (1, 2, 3):
         PendingAction.objects.filter(kind="remind").update(due_at=Now())  # due after the last completed pass
+        # A recent partial batch moves last_batch_at past the due time, but not the completed watermark.
+        MailboxCursor.objects.filter(pk=cursor.pk).update(last_batch_at=Now() + timedelta(hours=1))
+        cursor.refresh_from_db()
+        assert cursor.complete_through_at < PendingAction.objects.get(kind="remind").due_at < cursor.last_batch_at
         run_worker()
         [action] = actions(question)
         assert (action.status, action.last_error) == ("queued", "watermark_stale")
@@ -281,7 +283,11 @@ def test_p2_05_a_pause_stops_every_automated_kind_and_resume_spreads_reminders_w
     now = reminders.db_now()
     assert [round((d - now).total_seconds() / 60) for d in due] == [1, 11]  # grace, then grace + 1 x gap
     assert {q.pk: q.status for q in Question.objects.all()} == statuses  # resume changes no question
-    assert ApplicationEvent.objects.filter(kind__in=("automation_paused", "automation_resumed")).count() == 2
+    paused_event = ApplicationEvent.objects.get(kind="automation_paused")
+    resumed_event = ApplicationEvent.objects.get(kind="automation_resumed")
+    assert paused_event.data["reason"] == "synthetic pause for the test"  # kept after resume deletes the pause row
+    assert resumed_event.data["pause_reason"] == "synthetic pause for the test" and resumed_event.data["note"] == "back to normal"
+    assert ApplicationEvent.objects.filter(kind="automation_pause_requested_while_paused").count() == 1
     with pytest.raises(Refused, match="not_paused"):
         staff_actions.resume(remind.app.pk, remind.operator)
     run_worker()
@@ -329,8 +335,10 @@ def test_p2_11_a_confirmed_staff_message_is_sent_while_paused_and_nothing_automa
     assert PendingAction.objects.get(input_ref=str(message.send_ref)).kind == "send_staff_message"
 
 
-@pytest.mark.parametrize("tamper", ["digest", "address", "permission", "twice", "author"])
-def test_p2_45_confirmation_refuses_any_change_since_the_preview(remind, tamper):
+@pytest.mark.parametrize(("tamper", "code"), [("digest", "digest_mismatch"), ("address", "recipient_no_longer_verified"),
+                                              ("permission", None), ("twice", "draft_already_confirmed"),
+                                              ("author", "only_the_author_confirms"), ("expired", "preview_expired")])
+def test_p2_45_confirmation_refuses_any_change_since_the_preview(remind, tamper, code):
     draft = staff_actions.preview_staff_message(remind.app.pk, remind.operator, "Subject", "A synthetic body.")
     digest, user = draft.content_sha256, remind.operator
     if tamper == "digest":
@@ -345,14 +353,20 @@ def test_p2_45_confirmation_refuses_any_change_since_the_preview(remind, tamper)
         staff_actions.confirm_staff_message(draft.pk, digest, user)
     elif tamper == "author":
         user = remind.decider
+    elif tamper == "expired":
+        owner = remind.committed.connect("owner", autocommit=True)
+        owner.execute("UPDATE correspondence_staffmessagedraft SET created_at = now() - interval '2 hours' WHERE id = %s",
+                      [draft.pk])
     before = PendingAction.objects.filter(kind="send_staff_message").count()
-    with pytest.raises((Refused, PermissionDenied)):
+    with pytest.raises(PermissionDenied if code is None else Refused, match=code):
         staff_actions.confirm_staff_message(draft.pk, digest, user)
     assert PendingAction.objects.filter(kind="send_staff_message").count() == before
 
 
 @pytest.mark.parametrize(("subject", "body", "code"), [
     ("Subject", "Use this link: http://catalyst.example.test/confirm/abc/", "confirmation_link"),
+    ("Subject", "Use http://catalyst.example.test/%63onfirm/abc/ instead", "confirmation_link"),
+    ("Subject", "nbsp\u0085 next line", "control_characters"),
     ("Subject", "password: hunter2-synthetic", "credential_like"),
     ("Subject", "key " + "A" * 48, "credential_like"),
     ("Line\nbreak", "Body", "control_characters"),
@@ -417,7 +431,7 @@ def test_g7_mail_behaviour_health(remind):
     collect()
     report = mail_behaviour_health()
     assert report["max_automatic_per_application"] == 3 and report["anomalies"] == ["automatic_mail_at_loop_threshold"]
-    assert report["inbound_messages"] == 3
+    assert report["inbound_received_in_window"] == 3 and report["automatic_unassociated"] == 0
 
 
 def test_resolving_an_escalation_needs_resolve_exception(remind):
@@ -428,3 +442,112 @@ def test_resolving_an_escalation_needs_resolve_exception(remind):
     [item] = StaffItem.objects.filter(reason_code="escalate_unanswered")
     processing.resolve_exception(item.pk, "acknowledge", remind.operator)
     assert StaffItemResolution.objects.filter(item=item).exists()
+
+
+
+# --- review fixes (QA, correspondence, security and monitoring reviews of PR #24) --------------------------
+
+def test_e2_reminders_due_together_never_leave_in_a_burst(remind, settings):
+    settings.CATALYST_REMINDER_MIN_GAP_SECONDS = 3600
+    first, _ = sent_question(remind)
+    second, _ = sent_question(remind, text="A second synthetic question?")
+    owner = remind.committed.connect("owner", autocommit=True)  # age the earlier mail past the gap
+    owner.execute("UPDATE correspondence_outboundmessage SET server_accepted_at = now() - interval '2 hours'")
+    owner.execute("UPDATE correspondence_approvedmessage SET authorized_at = now() - interval '2 hours'")
+    fire()
+    assert len(reminder_mails(remind)) == 1  # the second waits for the gap after the first is frozen
+    deferred = [a for a in PendingAction.objects.filter(kind="remind") if a.last_error == "minimum_gap"]
+    assert len(deferred) == 1 and deferred[0].due_at > reminders.db_now() + timedelta(minutes=55)
+
+
+def test_e2_a_frozen_reminder_send_follows_its_question(remind, settings):
+    question, message = sent_question(remind)
+    staff_actions.pause(remind.app.pk, remind.operator, "hold the reminder mail")
+    collect()
+    PendingAction.objects.filter(kind="remind").update(due_at=MailboxCursor.objects.get().complete_through_at)
+    AutomationPause.objects.all().delete()
+    reminders.SendReminder().run(ledger.claim_next(ledger.handlers()))  # frozen and queued, not yet sent
+    send = PendingAction.objects.get(kind="send_message", input_ref=str(ApprovedMessage.objects.get(kind="reminder").send_ref))
+    PendingAction.objects.filter(pk=send.pk).update(due_at=Now() + timedelta(hours=1))  # it waits (backoff, say)
+    remind.imap.deliver(reply(message))
+    collect()  # the reply arrives while the reminder mail waits
+    PendingAction.objects.filter(pk=send.pk).update(due_at=Now())
+    run_worker()
+    send.refresh_from_db()
+    assert (send.status, send.last_error) == ("queued", "reply_pending") and reminder_mails(remind) == []
+    received = processing.InboundMessage.objects.get()
+    processing.confirm_question_outcome(received.pk, {question.pk: "satisfied"}, remind.operator)
+    PendingAction.objects.filter(pk=send.pk).update(due_at=Now())
+    run_worker()
+    send.refresh_from_db()
+    assert (send.status, send.last_error) == ("cancelled", "question_satisfied") and reminder_mails(remind) == []
+
+
+def test_e2_an_unapproved_reminder_template_waits_for_staff_and_the_chain_survives(remind):
+    question, _ = sent_question(remind)
+    MessageTemplateVersion.objects.filter(template__key="question_reminder").update(status="retired")
+    fire()
+    [action] = actions(question)
+    assert (action.status, action.last_error, action.attempts) == ("queued", "no_approved_reminder_template", 0)
+    assert StaffItem.objects.filter(reason_code="reminder_refused", status="open").count() == 1
+    MessageTemplateVersion.objects.filter(template__key="question_reminder").update(status="approved")
+    fire()
+    assert states(question)[0] == ("1", "done") and len(reminder_mails(remind)) == 1
+
+
+def test_e1_a_released_reminder_waits_at_least_the_grace(remind):
+    question, message = sent_question(remind)
+    remind.imap.deliver(reply(message))
+    collect()
+    PendingAction.objects.filter(kind="remind").update(due_at=Now() - timedelta(days=1))  # long overdue while held
+    processing.confirm_question_outcome(processing.InboundMessage.objects.get().pk, {question.pk: "partial"}, remind.operator)
+    [action] = actions(question)
+    assert action.status == "queued" and action.due_at > reminders.db_now() + timedelta(seconds=50)
+
+
+def test_e2_an_incomplete_cursor_makes_the_watermark_stale(remind):
+    question, _ = sent_question(remind)
+    collect()
+    MailboxCursor.objects.create(mailbox_ref="applicants", folder="Other", state="ok")  # never completed a pass
+    PendingAction.objects.filter(kind="remind").update(due_at=MailboxCursor.objects.get(folder="INBOX").complete_through_at)
+    run_worker()
+    assert actions(question)[0].last_error == "watermark_stale"
+
+
+def test_reconciliation_is_not_held_by_a_pause():
+    from correspondence.outbound import ReconcileSend
+
+    assert ReconcileSend.automated is False  # it sends nothing; an unknown staff send stays reconcilable
+
+
+def test_g4_ignores_closed_applications_and_a_reminder_still_in_flight(remind):
+    question, _ = sent_question(remind)
+    PendingAction.objects.filter(kind="remind").update(status="done")
+    ApprovedMessage.objects.create(kind="reminder", application=remind.app, recipient="ada@example.test",
+                                   template_version=MessageTemplateVersion.objects.get(template__key="question_reminder"),
+                                   frozen_subject="s", frozen_body="b", content_sha256="0" * 64, authorized_by="test",
+                                   authority="system_policy")
+    from correspondence.models import ApprovedMessageQuestion
+
+    ApprovedMessageQuestion.objects.create(approved_message=ApprovedMessage.objects.get(kind="reminder"), question=question,
+                                           purpose="reminder")
+    assert "question_without_live_reminder" not in reminder_health()["anomalies"]  # its mail is still in flight
+    ApprovedMessage.objects.filter(kind="reminder").update(disposition="accepted_by_server")
+    assert "question_without_live_reminder" in reminder_health()["anomalies"]
+    Application.objects.filter(pk=remind.app.pk).update(stage="closed")
+    assert "question_without_live_reminder" not in reminder_health()["anomalies"]
+
+
+def test_health_command_exit_codes(remind, monkeypatch):
+    from django.core.management import call_command
+
+    from correspondence import health
+    from correspondence.management.commands import correspondence_health as command
+
+    def broken():
+        raise RuntimeError("database unavailable")
+    monkeypatch.setattr(command, "send_health", broken)
+    with pytest.raises(SystemExit) as exit_info:
+        call_command("correspondence_health")
+    assert exit_info.value.code == 2  # a failed check is never reported as a health anomaly
+    assert health.send_health  # untouched

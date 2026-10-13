@@ -17,7 +17,10 @@ attempt stays `unknown` whatever staff decide.
 """
 
 import re
+import unicodedata
+from datetime import timedelta
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Max
 from django.db.models.functions import Now
@@ -48,6 +51,7 @@ from .outbound import (
     require,
     verified_address,
 )
+from . import mime
 from .inbound import enqueue_pass, refresh_question_status
 from .models import MailboxCursor
 from .rendering import TemplateRefused, canonical_digest
@@ -174,7 +178,11 @@ WITHDRAW_REASONS = ("no_longer_needed", "asked_in_error", "replaced_by_new_quest
 SUBJECT_LIMIT, BODY_LIMIT = 200, 5000
 # Defence in depth, never authorization (016 3.4 step 4): refuses obvious credentials, not every secret.
 _CREDENTIAL = re.compile(r"(?i)(password|passwd|api[_-]?key|secret|token)\s*[:=]|\b[A-Za-z0-9+/_-]{40,}\b")
-_CONTROL_TEXT = re.compile(r"[\x00-\x08\x0b-\x1f\x7f؜​-‏‪-‮⁦-⁩﻿]")
+
+
+def _has_control(text: str) -> bool:
+    """Any control or format character except newline and tab (the categories the `visible` filter marks)."""
+    return any(ch not in "\n\t" and unicodedata.category(ch) in ("Cc", "Cf", "Cs", "Co", "Zl", "Zp") for ch in text)
 
 
 def _pause_row(application):
@@ -193,10 +201,14 @@ def pause(application_id: int, user, reason: str) -> AutomationPause:
         application = _lock_application(application_id)
         existing = _pause_row(application).first()
         if existing is not None:
+            event(application, "automation_pause_requested_while_paused", {"reason": reason},
+                  actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
             return existing
         row = AutomationPause.objects.create(subject_type="application", subject_id=application.public_ref,
                                              reason=reason, actor_ref=actor)
-        event(application, "automation_paused", {"by": "staff"}, actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
+        # The reason lives in the append-only history too: resume deletes the pause row (2B.4 review).
+        event(application, "automation_paused", {"by": "staff", "reason": reason},
+              actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
     return row
 
 
@@ -211,10 +223,10 @@ def resume(application_id: int, user, note: str = "") -> int:
         row = _pause_row(application).first()
         if row is None:
             raise Refused("not_paused")
-        prior = {"paused_by": row.actor_ref, "paused_at": row.created_at.isoformat()}
+        prior = {"paused_by": row.actor_ref, "paused_at": row.created_at.isoformat(), "pause_reason": row.reason}
         _pause_row(application).delete()
         moved = reschedule_on_resume(application)
-        event(application, "automation_resumed", {**prior, "rescheduled": moved, "note": bool(note)},
+        event(application, "automation_resumed", {**prior, "rescheduled": moved, "note": note},
               actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
     return moved
 
@@ -266,9 +278,10 @@ def _check_staff_content(subject: str, body: str) -> None:
         raise Refused("subject_and_body_are_required")
     if len(subject) > SUBJECT_LIMIT or len(body) > BODY_LIMIT:
         raise Refused("message_too_long")
-    if "\r" in subject or "\n" in subject or _CONTROL_TEXT.search(subject) or _CONTROL_TEXT.search(body.replace("\t", " ")):
+    if "\n" in subject or "\t" in subject or _has_control(subject) or _has_control(body):
         raise Refused("control_characters_refused")
-    if CONFIRM_PATH in body or CONFIRM_PATH in subject:
+    # The same decoding as inbound redaction (percent-encoding, HTML references, any case) finds a link.
+    if mime.redact(body)[1] or mime.redact(subject)[1] or CONFIRM_PATH in body.lower():
         raise Refused("confirmation_link_refused")
     if _CREDENTIAL.search(body) or _CREDENTIAL.search(subject):
         raise Refused("credential_like_text_refused")
@@ -301,6 +314,9 @@ def confirm_staff_message(draft_id: int, digest: str, user) -> ApprovedMessage:
         application = _lock_application(draft.application_id)
         if draft.author != actor:
             raise Refused("only_the_author_confirms")
+        if StaffMessageDraft.objects.filter(pk=draft.pk, created_at__lt=Now() - timedelta(
+                seconds=settings.CATALYST_STAFF_DRAFT_TTL_SECONDS)).exists():
+            raise Refused("preview_expired")  # an old preview is never sent: preview again (2B.4 review)
         if digest != draft.content_sha256 or canonical_digest(draft.subject, draft.body) != draft.content_sha256:
             raise Refused("digest_mismatch")
         if application.stage in TERMINAL_STAGES:

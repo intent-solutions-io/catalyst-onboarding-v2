@@ -1,0 +1,6 @@
+<h2>Staff message</h2>
+<p>Sent to the verified address only, after a preview. It is sent even while automation is paused, and never resumes it.</p>
+<form method="post" action="{% url 'correspondence_staff:preview_message' application.public_ref %}">{% csrf_token %}
+<p><label>Subject <input name="subject" maxlength="200" required value="{{ draft.subject }}"></label></p>
+<p><label>Body<br><textarea name="body" rows="8" cols="80" maxlength="5000" required>{{ draft.body }}</textarea></label></p>
+<button>Preview</button></form>

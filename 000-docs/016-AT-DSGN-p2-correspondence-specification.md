@@ -4,7 +4,7 @@
 |---|---|
 | Document | `016-AT-DSGN-p2-correspondence-specification` |
 | Version | 0.3.2 (consolidated 2A closeout: corrections 1 to 9 applied; independent QA review and re-check recorded in sections 10.3 and 10.4) |
-| Status | **APPROVED by the owner 2026-10-12 (version 0.3.2; decisions D-27 to D-32 in `011` section 4).** Handoff 2A of phase P2. Approval covers synthetic P2 only: no real email, applicant data, provider credentials, deployment or production staff access. Items still marked PROPOSED or open in section 8.2 to 8.4 are not covered. Only task 2B.1 is authorized. |
+| Status | **APPROVED by the owner 2026-10-12 (version 0.3.2; decisions D-27 to D-32 in `011` section 4).** Handoff 2A of phase P2. Approval covers synthetic P2 only: no real email, applicant data, provider credentials, deployment or production staff access. Items still marked PROPOSED or open in section 8.2 to 8.4 are not covered. The owner released 2B.1 on 2026-10-12 and 2B.2 to 2C on 2026-10-13 (autonomous build); GATE-P2 sign-off stays the owner's. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-12 |
 | Epic | P2, "Run the applicant correspondence loop: outbound policy, inbox correlation, reminders, stop rules and human takeover" (`catalyst-v2-7hu`); this task is `catalyst-v2-7hu.1` |
@@ -1206,3 +1206,63 @@ for now the screens link to the dossier.
 
 **Monitoring.** `reminder_health` covers G4, G5 and G6 for reminders; `mail_behaviour_health` covers G7. Both
 are reported by `correspondence_health`.
+
+### 10.11 2B.4 specialist reviews (2026-10-13)
+
+PR #24 was reviewed by `catalyst-independent-qa`, `catalyst-security-privacy`, `catalyst-workflow-correspondence`,
+`catalyst-django-operator` and `catalyst-release-operations`. The operator review raised one blocker (no screen
+offered template approval). Applied:
+
+**Reminders.**
+
+- The minimum gap counts every automated message already frozen for the application, so reminders due together
+  never leave in a burst.
+- A frozen reminder still waiting to be sent follows its question: it is cancelled when the question is
+  satisfied and deferred while a reply is pending.
+- A reminder released after a reply waits at least the resume grace.
+- A configuration problem (no approved template, no verified address) defers the reminder with a staff item
+  instead of ending the chain. A chain ended by a defect opens `reminder_failed`.
+- A cursor that never completed a pass makes the watermark stale.
+- Escalations take no rank in the resume spread, and queued reminder mails are spread with the reminders.
+- Deviation reversed: `reconcile_send` is no longer automated (it sends nothing), so a pause never holds the
+  reconciliation of an unknown staff send. This amends 3.7, which listed it among the automated kinds.
+
+**Staff services.**
+
+- The pause reason, the resume note and a pause attempted while paused are kept in the append-only history.
+- A staff-message preview expires after `CATALYST_STAFF_DRAFT_TTL_SECONDS` (30 minutes).
+- The content checks use the inbound redaction decoding for links, and the character categories of the display
+  filter for controls.
+- Template approval takes the digest of the version shown.
+
+**Screens.**
+
+- Each page names the permissions whose holders need it: a template owner reads only templates, never
+  applicant mail.
+- Added pages for templates (read and approve), for applications (list, find, filter paused or with a proposed
+  question) and for mail collection state on the queue.
+- The item page shows the message evidence (trust, authentication, sender match, a link to the text) or the
+  send (recipient, subject, disposition, attempts). Decisions are offered per reason; a permanent rejection
+  offers no resend.
+- A malformed target is refused with a code. A refused preview keeps the typed text. Withdrawal needs a chosen
+  reason. The queue shows its count, age and the 200 limit.
+- The `visible` filter also marks non-ASCII spaces and blank fillers.
+
+**Monitoring.**
+
+- G4 ignores closed applications and a reminder still in flight, counts only completed escalations, and
+  reports a chain ended by a failed action separately (`broken_reminder_chain`).
+- G7 is windowed (hard bounces, inbound growth) and counts automatic mail matched to no application.
+- `correspondence_health` exits 2 when the check itself fails, never 1, and stamps `generated_at`.
+
+**Not changed, owner questions:**
+
+- who may read derivative text beyond the resolving roles (POL-10);
+- whether an operator may resume after an automatic pause;
+- whether staff mail may go to an address that hard-bounced;
+- retention of unconfirmed drafts and free-text notes;
+- alert thresholds and ages for G2, G5 and G7 (P6);
+- a staff re-arm for a broken reminder chain.
+
+Recorded: in P2 each approval creates one message per question (a revision carries the same questions), so a
+message mixing a withdrawn and a live question cannot arise yet.

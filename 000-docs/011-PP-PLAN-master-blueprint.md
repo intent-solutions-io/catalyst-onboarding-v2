@@ -349,9 +349,9 @@ working, tested behaviour; no phase defers all integration to the end.
 **Correspondence loop tasks (P2), specified in handoff 2A (`016`).** Handoff 2A is the P2 specification and
 the owner's P2 decision brief (`016` section 8); 2B is the four implementation tasks, one PR each, and 2C
 is the GATE-P2 verification. The owner approved `016` 0.3.2 and recorded D-27 to D-32 on 2026-10-12,
-which unblock 2B.1 (`016` 8.1). **Only 2B.1 is authorized**; 2B.2 to 2B.4 and 2C each need the owner's
-release, and the items in `016` 8.2 not covered by D-27 to D-31 are decided before the task that needs
-them.
+which unblock 2B.1 (`016` 8.1). The owner released 2B.1 on 2026-10-12 and 2B.2 to 2B.4 and 2C on
+2026-10-13; the items in `016` 8.2 not covered by D-27 to D-31 use the synthetic defaults recorded in `016`
+section 10, and GATE-P2 sign-off stays the owner's.
 
 | Key | Bead | Title | Depends on |
 |---|---|---|---|

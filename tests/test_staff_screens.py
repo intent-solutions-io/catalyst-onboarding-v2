@@ -166,3 +166,103 @@ def test_p2_52_a_service_refusal_reaches_staff_as_a_code(mailbox):
     staff_actions.withdraw_question(question.pk, mailbox.operator, "asked_in_error")
     response = client(mailbox.operator).post(url("withdraw", question.public_id), {"reason": "because"}, follow=True)
     assert "Refused: unknown_withdrawal_reason" in response.content.decode()
+
+
+# --- review fixes (operator, security and QA reviews of PR #24) --------------------------------------------
+
+def test_p2_42_a_role_reads_only_the_pages_its_work_needs(mailbox):
+    from correspondence.roles import TEMPLATE_OWNER
+
+    _, message = sent_question(mailbox)
+    mailbox.imap.deliver(reply(message))
+    collect()
+    received = InboundMessage.objects.get()
+    item = StaffItem.objects.get(reason_code="reply_needs_review")
+    owner_only = staff(mailbox, "template-owner-2", TEMPLATE_OWNER)
+    c = client(owner_only)
+    for page in (url("queue"), url("item", item.public_id), url("reply", received.public_id),
+                 url("application", mailbox.app.public_ref), url("applications")):
+        assert c.get(page).status_code == 403, page  # a template owner never reads applicant mail
+    assert c.get(url("templates")).status_code == 200
+    assert client(mailbox.operator).get(url("templates")).status_code == 403
+
+
+def test_p2_42_template_approval_through_the_screen_approves_exactly_what_was_shown(mailbox):
+    from correspondence.models import MessageTemplateVersion
+    from tests.test_outbound import question_template
+
+    draft = question_template(version=2, body="Hello $display_name,\n\n$question_text\n")
+    c = client(mailbox.owner)
+    page = c.get(url("template", draft.pk)).content.decode()
+    assert "Approve exactly this version" in page and draft.content_sha256 in page
+    stale = c.post(url("approve_template", draft.pk), {"digest": "0" * 64}, follow=True)
+    assert "Refused: template_changed_since_shown" in stale.content.decode()
+    c.post(url("approve_template", draft.pk), {"digest": draft.content_sha256})
+    assert MessageTemplateVersion.objects.get(pk=draft.pk).status == "approved"
+
+
+def test_p2_42_the_item_page_shows_the_evidence_and_offers_only_lawful_decisions(mailbox):
+    from correspondence.models import ApprovedMessage
+
+    _, message = sent_question(mailbox)
+    mailbox.imap.deliver(reply(message, auth="dmarc=fail"))
+    collect()
+    identity = StaffItem.objects.get(reason_code="reply_auth_failed")
+    page = client(mailbox.decider).get(url("item", identity.public_id)).content.decode()
+    assert "trust auth_failed" in page and "authentication fail" in page and "Read the message" in page
+    sent = ApprovedMessage.objects.get(kind="question")
+    rejected = StaffItem.objects.create(reason_code="send_rejected_permanent", dedupe_key=str(sent.send_ref),
+                                        application=mailbox.app, approved_message=sent)
+    page = client(mailbox.decider).get(url("item", rejected.public_id)).content.decode()
+    assert ">abandon<" in page and ">revise<" in page and ">authorize_resend<" not in page
+    refused = client(mailbox.decider).post(url("send_decision", rejected.public_id), {"decision": "authorize_resend"},
+                                           follow=True)
+    assert "Refused: decision_not_offered_for_this_reason" in refused.content.decode()
+    assert client(mailbox.operator).post(url("send_decision", rejected.public_id), {"decision": "abandon"}).status_code == 403
+
+
+def test_p2_42_a_malformed_target_is_refused_not_an_error(mailbox):
+    _, message = sent_question(mailbox)
+    mailbox.imap.deliver(reply(message, in_reply_to=False))
+    collect()
+    item = StaffItem.objects.get(reason_code="unmatched")
+    response = client(mailbox.decider).post(url("resolve", item.public_id), {"code": "associate", "target": "not-a-uuid"},
+                                            follow=True)
+    assert response.status_code == 200 and "Refused: unknown_application" in response.content.decode()
+
+
+def test_p2_42_applications_can_be_found_without_an_open_item(mailbox):
+    Question.objects.create(application=mailbox.app, text="A proposed synthetic question?")
+    c = client(mailbox.operator)
+    listed = c.get(url("applications") + "?show=proposed").content.decode()
+    assert "proposed question" in listed and str(mailbox.app.public_ref) in listed
+    found = c.get(url("applications") + f"?ref={mailbox.app.public_ref}").content.decode()
+    assert str(mailbox.app.public_ref) in found
+    assert c.get(url("applications") + "?ref=junk").status_code == 200
+
+
+def test_p2_42_a_refused_preview_keeps_the_typed_text_escaped(mailbox):
+    response = client(mailbox.operator).post(url("preview_message", mailbox.app.public_ref),
+                                             {"subject": "Subject", "body": "<b>keep me</b> password: x"})
+    page = response.content.decode()
+    assert response.status_code == 200 and "Refused: credential_like_text_refused" in page
+    assert "&lt;b&gt;keep me&lt;/b&gt;" in page and "<b>keep me" not in page
+
+
+@pytest.mark.parametrize("name", ["resume", "pause"])
+def test_p2_52_operator_actions_need_the_matching_permission_through_the_screens(mailbox, name):
+    owner = mailbox.committed.connect("owner", autocommit=True)
+    holder = staff(mailbox, f"only-approve-{name}")
+    owner.execute("INSERT INTO accounts_user_user_permissions (user_id, permission_id) SELECT %s, id FROM auth_permission"
+                  " WHERE codename = 'approve_question'", [holder.pk])
+    holder = type(holder).objects.get(pk=holder.pk)
+    assert client(holder).post(url(name, mailbox.app.public_ref), {"reason": "a long enough reason"}).status_code == 403
+
+
+def test_p2_52_restart_and_close_need_their_roles_through_the_screens(mailbox):
+    from correspondence.models import MailboxCursor
+
+    MailboxCursor.objects.filter(pk=mailbox.cursor.pk).update(state="blocked", blocked_reason="tls_refused")
+    assert client(mailbox.operator).post(url("restart", mailbox.cursor.public_id)).status_code == 403
+    client(mailbox.decider).post(url("restart", mailbox.cursor.public_id))
+    assert MailboxCursor.objects.get(pk=mailbox.cursor.pk).state != "blocked"

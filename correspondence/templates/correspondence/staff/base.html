@@ -13,7 +13,7 @@ form.inline { display: inline; } .refused { color: #a00; } .ok { color: #060; }
 </style>
 </head>
 <body>
-<nav><a href="{% url 'correspondence_staff:queue' %}">Staff queue</a> · <a href="{% url 'admin:index' %}">Read-only dossier</a></nav>
+<nav><a href="{% url 'correspondence_staff:queue' %}">Staff queue</a> · <a href="{% url 'correspondence_staff:applications' %}">Applications</a> · <a href="{% url 'correspondence_staff:templates' %}">Templates</a> · <a href="{% url 'admin:index' %}">Read-only dossier</a></nav>
 {% if messages %}<ul>{% for m in messages %}<li class="{% if m.level_tag == 'error' %}refused{% else %}ok{% endif %}">{{ m }}</li>{% endfor %}</ul>{% endif %}
 <main>{% block content %}{% endblock %}</main>
 </body>

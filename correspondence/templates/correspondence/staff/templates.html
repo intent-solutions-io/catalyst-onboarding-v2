@@ -1,0 +1,8 @@
+{% extends "correspondence/staff/base.html" %}{% load correspondence_display %}
+{% block content %}
+<h1>Message templates</h1>
+<table><tr><th>Template</th><th>Version</th><th>Status</th><th>Synthetic</th><th></th></tr>
+{% for v in versions %}<tr><td>{{ v.template.key }}</td><td>{{ v.version }}</td><td>{{ v.status }}</td><td>{{ v.synthetic|yesno }}</td>
+<td><a href="{% url 'correspondence_staff:template' v.pk %}">Read</a></td></tr>{% empty %}<tr><td colspan="5">None.</td></tr>{% endfor %}
+</table>
+{% endblock %}

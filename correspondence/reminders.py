@@ -78,8 +78,11 @@ class _QuestionAction:
                 public_id=self._question_ref(claim), application=application).first()
 
     def record(self, claim, kind, data) -> None:
-        event(Application.objects.filter(public_ref=claim.subject_id).first(), kind, data,
-              actor_ref=f"pending_action:{claim.id}")
+        application = Application.objects.filter(public_ref=claim.subject_id).first()
+        event(application, kind, data, actor_ref=f"pending_action:{claim.id}")
+        if kind == "action_attempts_exhausted" or (kind == "action_failed" and data.get("final")):
+            # A reminder chain that ends by a defect never ends silently (2B.4 review M4).
+            open_item("reminder_failed", claim.input_ref, application=application, pending_action_id=claim.id)
 
     def run(self, claim) -> None:
         with transaction.atomic():
@@ -109,13 +112,23 @@ class _QuestionAction:
             quiet = quiet_until(now)
             if quiet is not None:
                 return Decision(Status.QUEUED, "quiet_hours", due_in=quiet - now, refund=True)
-            last = OutboundMessage.objects.filter(application=application, server_accepted_at__isnull=False).aggregate(
+            # The gap counts every automated message already frozen for this application, sent or still queued,
+            # so reminders due together never leave in a burst (2B.4 review H1). The application lock orders them.
+            frozen = ApprovedMessage.objects.filter(
+                application=application, kind__in=(ApprovedMessage.Kind.QUESTION, ApprovedMessage.Kind.REMINDER),
+                disposition__in=(ApprovedMessage.Disposition.ACTIVE, ApprovedMessage.Disposition.ACCEPTED_BY_SERVER,
+                                 ApprovedMessage.Disposition.ACCEPTED_BY_EVIDENCE)).aggregate(last=Max("authorized_at"))["last"]
+            accepted = OutboundMessage.objects.filter(application=application, server_accepted_at__isnull=False).aggregate(
                 last=Max("server_accepted_at"))["last"]
+            last = max((t for t in (frozen, accepted) if t is not None), default=None)
             gap = timedelta(seconds=settings.CATALYST_REMINDER_MIN_GAP_SECONDS)
             if last is not None and now - last < gap:
                 return Decision(Status.QUEUED, "minimum_gap", due_in=last + gap - now, refund=True)
-        watermark = MailboxCursor.objects.aggregate(w=Min("complete_through_at"))["w"]
-        if watermark is None or watermark < due_at:
+        cursors = MailboxCursor.objects.all()
+        # A cursor that never completed a pass (or is resyncing) makes the watermark stale: SQL MIN ignores NULLs.
+        incomplete = cursors.filter(complete_through_at__isnull=True).exists()
+        watermark = cursors.aggregate(w=Min("complete_through_at"))["w"]
+        if incomplete or watermark is None or watermark < due_at:
             retry = timedelta(seconds=settings.CATALYST_REMINDER_STALE_RETRY_SECONDS)
             if not claim.final:
                 return Decision(Status.QUEUED, "watermark_stale", due_in=retry)  # counts toward the bound
@@ -133,14 +146,17 @@ class SendReminder(_QuestionAction):
         application = Application.objects.filter(public_ref=claim.subject_id).first()
         ref, _, n = claim.input_ref.partition(":")
         question = Question.objects.filter(public_id=ref, application=application).first() if application else None
+        if not n.isdigit() or int(n) > settings.CATALYST_REMINDER_MAX:
+            return Decision(Status.CANCELLED, "beyond_maximum")
         early = self._common(claim, application, question)
         if early is not None:
             return early
-        if not n.isdigit() or int(n) > settings.CATALYST_REMINDER_MAX:
-            return Decision(Status.CANCELLED, "beyond_maximum")
-        refused = lambda reason: Decision(Status.FAILED, reason, write=lambda: open_item(  # noqa: E731
-            "reminder_refused", f"remind:{question.public_id}:{n}", application=application, question_id=question.pk,
-            pending_action_id=claim.id))
+        # A configuration problem (no approved template, no verified address) waits for staff instead of ending
+        # the chain: the reminder is deferred, refunded, and one item says why (2B.4 review M5).
+        refused = lambda reason: Decision(  # noqa: E731
+            Status.QUEUED, reason, refund=True, due_in=timedelta(seconds=settings.CATALYST_REMINDER_STALE_RETRY_SECONDS),
+            write=lambda: open_item("reminder_refused", f"remind:{question.public_id}:{n}", application=application,
+                                    question_id=question.pk, pending_action_id=claim.id))
         recipient = verified_address(application)
         version = current_template_version(REMINDER_TEMPLATE)
         if recipient is None:

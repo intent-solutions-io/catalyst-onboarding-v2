@@ -1,27 +1,39 @@
 {% extends "correspondence/staff/base.html" %}{% load correspondence_display %}
 {% block content %}
 <h1>Staff item: {{ item.reason_code }}</h1>
-<p>Status: {{ item.status }}. Opened {{ item.opened_at|date:"Y-m-d H:i" }} UTC.
+<p>Status: {{ item.status }}. Opened {{ item.opened_at|date:"Y-m-d H:i" }} UTC ({{ item.opened_at|timesince }} ago).
 {% if item.application %}Application: <a href="{% url 'correspondence_staff:application' item.application.public_ref %}"><bdi>{{ item.application.display_name|visible }}</bdi></a>.{% endif %}</p>
-{% if review %}<p><a href="{% url 'correspondence_staff:reply' message.public_id %}">Read the reply and confirm its outcome</a></p>{% endif %}
-{% if message and not review %}<p>Message from <bdi>{{ message.from_address|visible }}</bdi>, status {{ message.status }}{% if message.exception_reason %} ({{ message.exception_reason }}){% endif %}.</p>{% endif %}
+{% if message %}
+<h2>Message</h2>
+<p>From <bdi>{{ message.from_address|visible }}</bdi>; status {{ message.status }}{% if message.exception_reason %} ({{ message.exception_reason }}){% endif %};
+classification {{ message.classification }}; trust {{ message.trust_decision }}; authentication {{ message.auth_evidence }};
+sender matches the verified address: {{ message.from_matches_verified_address|yesno:"yes,no,unknown" }}.</p>
+<p><a href="{% url 'correspondence_staff:reply' message.public_id %}">Read the message{% if item.reason_code == "reply_needs_review" %} and confirm its outcome{% endif %}</a> before deciding.</p>
+{% endif %}
+{% if sent %}
+<h2>The send</h2>
+<p>Kind {{ sent.kind }}; to <bdi>{{ sent.recipient|visible }}</bdi>; subject <bdi>{{ sent.frozen_subject|visible }}</bdi>; disposition {{ sent.disposition }}.</p>
+<table><tr><th>Attempt</th><th>Series</th><th>Status</th><th>Phase</th><th>Code</th></tr>
+{% for a in attempts %}<tr><td>{{ a.attempt_number }}</td><td>{{ a.attempt_series }}</td><td>{{ a.status }}</td><td>{{ a.protocol_phase_reached }}</td><td>{{ a.smtp_reply_code|default:"" }}</td></tr>{% empty %}<tr><td colspan="5">No attempt was recorded.</td></tr>{% endfor %}</table>
+{% endif %}
+{% if cursor %}<p>Mailbox {{ cursor.mailbox_ref }}: {{ cursor.state }}{% if cursor.blocked_reason %} ({{ cursor.blocked_reason }}){% endif %}.</p>{% endif %}
 {% for code in codes %}
 <form method="post" action="{% url 'correspondence_staff:resolve' item.public_id %}">{% csrf_token %}
 <input type="hidden" name="code" value="{{ code }}">
 {% if code == "associate" and not item.application %}<label>Application reference <input name="target" required></label>{% endif %}
 <label>Note <input name="note" maxlength="500"></label>
-<button>{{ code }}</button></form>
+<button>{{ code }}</button>{% if code == "mark_spoof" %} (records the message as spoofed; it changes no identity){% elif code == "associate" %} (links the message to the application; it changes no identity){% endif %}</form>
 {% endfor %}
 {% if decide %}
 {% for d in decisions %}
 <form method="post" action="{% url 'correspondence_staff:send_decision' item.public_id %}">{% csrf_token %}
 <input type="hidden" name="decision" value="{{ d }}"><label>Note <input name="note" maxlength="500"></label>
-<button>{{ d }}</button>{% if d == "authorize_resend" %} (same Message-ID: the applicant may receive a duplicate){% endif %}</form>
+<button>{{ d }}</button>{% if d == "authorize_resend" %} (same Message-ID: the applicant may receive a duplicate){% elif d == "revise" %} (a new message from the current approved template){% endif %}</form>
 {% endfor %}
 {% endif %}
 {% if restart %}
 <form method="post" action="{% url 'correspondence_staff:restart' cursor.public_id %}">{% csrf_token %}
 <label>Note <input name="note" maxlength="500"></label><button>Restart the collector</button></form>
 {% endif %}
-{% if not codes and not decide and not restart and not review and item.status == "open" %}<p>You hold no permission that resolves this item.</p>{% endif %}
+{% if item.status == "open" and not codes and not decide and not restart %}<p>You hold no permission that resolves this item here.</p>{% endif %}
 {% endblock %}

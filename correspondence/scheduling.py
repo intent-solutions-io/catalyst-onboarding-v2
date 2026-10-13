@@ -17,7 +17,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Q
-from django.db.models.functions import Now
+from django.db.models.functions import Greatest, Now
 
 from workflow.models import PendingAction
 
@@ -28,6 +28,7 @@ Status = PendingAction.Status
 REMIND = "remind"
 ESCALATE = "escalate_unanswered"
 REMINDER_KINDS = (REMIND, ESCALATE)
+SEND_MESSAGE = "send_message"  # the outbound kind (named here so this leaf module imports no service)
 LIVE = (Status.QUEUED, Status.HELD)
 STILL_ASKED = (Question.Status.OPEN, Question.Status.PARTIALLY_ANSWERED, Question.Status.REPLY_PENDING)
 
@@ -82,7 +83,10 @@ def sync_reminders(question, status: str) -> int:
     """E3: project the question's status onto its live reminder and escalation actions only."""
     actions = reminder_actions(question)
     if status in (Question.Status.OPEN, Question.Status.PARTIALLY_ANSWERED):
-        return actions.filter(status=Status.HELD).update(status=Status.QUEUED, last_error="", updated_at=Now())
+        # A reminder released after a reply is never sent at once: no sooner than the resume grace (2B.4 review).
+        released = Now() + timedelta(seconds=settings.CATALYST_REMINDER_RESUME_GRACE_SECONDS)
+        return actions.filter(status=Status.HELD).update(status=Status.QUEUED, last_error="", updated_at=Now(),
+                                                         due_at=Greatest("due_at", released))
     if status == Question.Status.REPLY_PENDING:
         return actions.filter(status=Status.QUEUED).update(status=Status.HELD, last_error="reply_pending", updated_at=Now())
     reason = "question_satisfied" if status == Question.Status.SATISFIED else "question_withdrawn"
@@ -93,11 +97,19 @@ def sync_reminders(question, status: str) -> int:
 def reschedule_on_resume(application) -> int:
     """E4: queued reminders that fell due during the pause get now + grace + rank x the minimum gap. Held
     reminders, counts and question statuses are untouched; no catch-up copies are made."""
+    reminder_refs = [str(r) for r in ApprovedMessage.objects.filter(
+        application=application, kind=ApprovedMessage.Kind.REMINDER).values_list("send_ref", flat=True)]
+    # Reminders that fell due, and frozen reminder mails whose send waited behind the pause (2B.4 review).
     due = list(PendingAction.objects.select_for_update(of=("self",)).filter(
-        kind__in=REMINDER_KINDS, subject_type="application", subject_id=application.public_ref,
+        Q(kind__in=REMINDER_KINDS) | Q(kind=SEND_MESSAGE, input_ref__in=reminder_refs),
+        subject_type="application", subject_id=application.public_ref,
         status=Status.QUEUED, due_at__lte=Now()).order_by("due_at", "id"))
     grace, gap = settings.CATALYST_REMINDER_RESUME_GRACE_SECONDS, settings.CATALYST_REMINDER_MIN_GAP_SECONDS
-    for rank, action in enumerate(due):
-        PendingAction.objects.filter(pk=action.pk).update(
-            due_at=Now() + timedelta(seconds=grace + rank * gap), updated_at=Now())
+    rank = 0
+    for action in due:
+        # Only mail is spread by the gap; an escalation opens a staff item and takes no rank.
+        mail = action.kind != ESCALATE
+        offset = grace + rank * gap if mail else grace
+        PendingAction.objects.filter(pk=action.pk).update(due_at=Now() + timedelta(seconds=offset), updated_at=Now())
+        rank += mail
     return len(due)
