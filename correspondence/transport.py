@@ -7,10 +7,16 @@ mail backend cannot tell a rejection from an unknown outcome. Outcomes (016 A3; 
 - Channel phases (connect, greeting, EHLO, STARTTLS, AUTH, MAIL FROM) concern the sending channel, not the
   message. A failure, or a 4yz reply, is `transport_blocked`; a 5yz reply is `transport_blocked` with
   `hard=True` (a configuration fault, held at once).
-- Message phases (RCPT TO, DATA, the body, the end of data): a 4yz reply, or a connection lost before the
-  end-of-data marker was fully handed to the socket, is `rejected_temporary`; a 5yz reply is
-  `rejected_permanent`; a 250 reply after the end of data is `accepted_by_server` (never "delivered").
-- The end-of-data marker was sent and then a timeout, a disconnect or an unparseable reply: `unknown`.
+- Message phases (RCPT TO, DATA): a 4yz reply, or a failure known to happen before the body write starts,
+  is `rejected_temporary`; a 5yz reply is `rejected_permanent`.
+- The body and the end-of-data marker go to the socket in one `sendall` (through `SMTP.send`). Python's
+  documentation says that after a `sendall` error "there is no way to determine how much data, if any,
+  was successfully sent", so the marker may have reached the server. **Once that write starts**, a failure
+  of the write, a timeout, a disconnect or an unparseable reply is `unknown`, never a retryable rejection
+  (016 A3, owner closeout of PR #21). A 250 reply after the end of data is `accepted_by_server` (never
+  "delivered"); a 4yz or 5yz reply after it is a temporary or permanent rejection.
+- After the body write has started, nothing more is sent on the connection (no QUIT): the socket is only
+  closed, so cleanup can never complete or alter a partial DATA transaction.
 
 Guards (A-4, amends REQ-022): the configured host must already pass `config.guards`; after connecting,
 the transport also checks the connected peer address and refuses before any command that could carry a
@@ -110,6 +116,7 @@ def send(message_bytes: bytes, mail_from: str, recipient: str) -> SendResult:
     smtp = smtplib.SMTP(timeout=remaining())
     phase = "connect"
     peer_checked = False
+    body_started = False
     try:
         try:
             code, _ = smtp.connect(host, settings.CATALYST_MAIL_PORT)
@@ -163,12 +170,18 @@ def send(message_bytes: bytes, mail_from: str, recipient: str) -> SendResult:
             if code != 354:
                 return _message(phase, code)
             phase = "body"
+            payload = _payload(message_bytes)
             smtp.sock.settimeout(remaining())
-            _send_body(smtp, _payload(message_bytes))
         except smtplib.SMTPResponseException as exc:
             return _message(phase, exc.smtp_code)
         except (smtplib.SMTPException, OSError, _Deadline):
-            return _message(phase, None)  # the end-of-data marker was not fully handed over: not accepted
+            return _message(phase, None)  # known before the body write started: nothing was accepted
+        body_started = True
+        try:
+            _send_body(smtp, payload)
+        except (smtplib.SMTPException, OSError):
+            # sendall's progress is unknowable after an error: the marker may have reached the server.
+            return SendResult(UNKNOWN, phase, None)
         phase = "end"
         try:
             smtp.sock.settimeout(remaining())
@@ -183,7 +196,7 @@ def send(message_bytes: bytes, mail_from: str, recipient: str) -> SendResult:
         return SendResult(UNKNOWN, phase, code)  # an unparseable or unexpected reply after the marker
     finally:
         try:
-            if smtp.sock is not None and peer_checked:
+            if smtp.sock is not None and peer_checked and not body_started:
                 smtp.sock.settimeout(1)
                 smtp.quit()
         except (smtplib.SMTPException, OSError):

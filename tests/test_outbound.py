@@ -358,12 +358,36 @@ def test_p2_48_each_protocol_phase_maps_to_its_outcome_class(ready, monkeypatch,
         assert not any("deliver" in k for k in ApplicationEvent.objects.values_list("kind", flat=True))
 
 
-def test_p2_48_a_body_that_never_fully_left_is_not_accepted(ready, monkeypatch):
+def test_p2_48_a_write_failure_once_the_marker_write_started_is_unknown_and_never_resent(ready, monkeypatch):
+    """SIMULATION (not a reproduced OS-level fault): the body and end-of-data marker are really handed to the
+    socket and the synthetic server receives the complete message, then the sending call reports failure.
+    sendall's progress is unknowable after an error, so the outcome is unknown: reconciled, then staff;
+    never an automatic second send."""
     no_blind_retry(monkeypatch)
+    real_send = transport._send_body
 
-    def broken(smtp, payload):
-        raise OSError("synthetic: connection lost before the end-of-data marker")
-    monkeypatch.setattr(transport, "_send_body", broken)
+    def delivered_then_reported_failure(smtp, payload):
+        real_send(smtp, payload)
+        raise OSError("simulated: the sending call reports failure after handing over the whole payload")
+    monkeypatch.setattr(transport, "_send_body", delivered_then_reported_failure)
+    _, message = ask(ready)
+    run_worker()
+    message.refresh_from_db()
+    assert len(ready.server.messages) == 1  # the server has the complete message
+    assert attempts(message) == [(1, 0, "unknown")] and message.disposition == "active"
+    assert sends(message)[0].status == "uncertain"
+    assert PendingAction.objects.filter(kind="reconcile_send", status="done").count() == 2
+    assert [i.reason_code for i in items(message)] == ["send_outcome_unknown"]
+    run_worker()
+    assert len(ready.server.messages) == 1 and ready.server.commands.count("DATA") == 1  # no second send
+    assert "QUIT" not in ready.server.commands  # nothing was sent after the body write started
+
+
+def test_p2_48_a_failure_known_before_the_marker_write_is_retried_within_its_bound(ready, monkeypatch):
+    """The connection is closed at the DATA command, before any body byte is written: provably not accepted,
+    so the bounded retry policy applies (and nothing reaches the server)."""
+    no_blind_retry(monkeypatch)
+    ready.use(ScriptedSMTP({"data": "drop"}))
     _, message = ask(ready)
     run_worker()
     message.refresh_from_db()
@@ -851,16 +875,15 @@ def test_p2_48_a_refused_connection_is_a_channel_fault(ready, settings, monkeypa
 
 
 def test_p2_48_a_real_disconnect_after_354_is_never_accepted_or_retried_blindly(ready, monkeypatch):
-    """The server replies 354 and closes. Whether the buffered end-of-data marker reached it cannot be known
-    when the socket accepted the bytes, so that is `unknown`; only a failed hand-off is `rejected_temporary`.
+    """The server replies 354 and closes. Once the marker-carrying write has started, whether the marker
+    reached the server cannot be known, so the outcome is `unknown` whether or not the write itself raised.
     Never accepted, and an unknown is never retried as ordinary."""
     no_blind_retry(monkeypatch)
     ready.use(ScriptedSMTP({"data": "354-then-drop"}))
     _, message = ask(ready)
     run_worker()
     statuses = [s for _, _, s in attempts(message)]
-    assert ready.server.messages == [] and "accepted_by_server" not in statuses
-    assert statuses == ["unknown"] or statuses == ["rejected_temporary"] * 3
+    assert ready.server.messages == [] and statuses == ["unknown"]  # the marker write started: unknown
 
 
 def test_p2_38_a_recipient_with_a_line_break_cannot_be_framed(ready):
@@ -916,3 +939,57 @@ def test_p2_a7_an_uncertain_send_without_an_unknown_attempt_reaches_staff(ready)
     outbound.enqueue_reconcile(message, 0, 1)
     run_worker()
     assert [i.reason_code for i in items(message)] == ["send_outcome_unknown"] and ready.server.messages == []
+
+
+def wait_until(predicate, seconds, what):
+    import time
+
+    deadline = time.monotonic() + seconds
+    while not predicate():
+        if time.monotonic() > deadline:
+            raise AssertionError(f"timed out after {seconds}s waiting for {what}")
+        time.sleep(0.1)
+
+
+def test_p2_27_a_real_worker_killed_after_acceptance_is_recovered_without_a_second_send(ready, tmp_path):
+    """M7 (owner closeout of PR #21): a real `run_worker` process sends to the synthetic server, is killed
+    with SIGKILL after the server accepted the complete message and before the result is recorded, and a
+    fresh real worker recovers the action through the normal lease path. The synthetic server lives in this
+    test process, so it survives the kill and keeps its count."""
+    import signal
+
+    question, message = ask(ready)  # through the real services
+    sink = tmp_path / "sink"
+    sink.mkdir(mode=0o700)
+    marker = tmp_path / "exchange-finished"
+    mail_env = dict(CATALYST_MAIL_HOST="127.0.0.1", CATALYST_MAIL_PORT=str(ready.server.port), CATALYST_MAIL_TLS="none",
+                    CATALYST_MAIL_RECONCILE_GRACE_SECONDS="0", CATALYST_MAIL_RECONCILE_CHECKS="2")
+    killed = support.worker_process(sink, str(marker), module="tests.worker_child_outbound", **mail_env)
+    survivor = None
+    try:
+        wait_until(marker.exists, 30, "the first worker to finish its SMTP exchange")
+        assert marker.read_text() == "accepted_by_server" and len(ready.server.messages) == 1
+        assert attempts(message) == [(1, 0, "sending")] and sends(message)[0].status == "running"
+        killed.send_signal(signal.SIGKILL)
+        assert killed.wait(10) == -signal.SIGKILL
+        survivor = support.worker_process(sink, **mail_env)  # the real command, no seam
+        wait_until(lambda: StaffItem.objects.filter(approved_message=message, reason_code="send_outcome_unknown").exists(),
+                   40, "recovery through reconciliation to a staff item")
+        survivor.send_signal(signal.SIGTERM)
+        out, err = survivor.communicate(timeout=20)
+        assert survivor.returncode == 0, err
+    finally:
+        for proc in (killed, survivor):
+            if proc is not None and proc.poll() is None:
+                proc.kill()
+                proc.wait(10)
+    message.refresh_from_db()
+    assert len(ready.server.messages) == 1 and ready.server.commands.count("DATA") == 1  # no second SMTP send
+    assert attempts(message) == [(1, 0, "unknown")]  # uncertainty preserved; no invented acceptance
+    assert message.disposition == "active" and sends(message)[0].status == "uncertain"
+    assert not ApplicationEvent.objects.filter(kind__in=["message_accepted_by_server", "message_accepted_by_evidence"]).exists()
+    assert ApprovedMessage.objects.count() == 1 and Question.objects.count() == 1
+    assert ApprovedMessageQuestion.objects.count() == 1 and StaffItemResolution.objects.count() == 0
+    assert [i.status for i in items(message)] == ["open"]
+    for text in (out, err):
+        assert "ada@example.test" not in text and "Which synthetic project" not in text
