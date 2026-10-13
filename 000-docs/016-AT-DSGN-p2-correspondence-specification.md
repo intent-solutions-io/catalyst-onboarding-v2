@@ -76,7 +76,7 @@ Every P2 component extends existing code. No parallel mechanism is introduced.
 
 | Existing piece | File | What P2 reuses | What P2 changes (PROPOSED) |
 |---|---|---|---|
-| Pending-action ledger: claim with SKIP LOCKED, pause skip for automated kinds, poison rule, lease-fenced `finish` | `workflow/ledger.py` | Every P2 effect is a `PendingAction` kind with a handler registered in `settings.CATALYST_ACTION_HANDLERS` | Two small additions (A-7). (1) A `due_at` argument on `finish`. Today `finish(status=queued, refund_attempt=True)` sets `due_at = Now()` (lines 123-127), so a deferral would loop hot. (2) A `fence(claim)` function that checks and extends a lease inside a transaction without finishing the action. (3) `finish(status=held)` treated as non-terminal: no `completed_at` is set. |
+| Pending-action ledger: claim with SKIP LOCKED, pause skip for automated kinds, poison rule, lease-fenced `finish` | `workflow/ledger.py` | Every P2 effect is a `PendingAction` kind with a handler registered in `settings.CATALYST_ACTION_HANDLERS` | Two small additions (A-7). (1) A `due_at` argument on `finish` (implemented in 2B.1 as `due_in`, an offset from the database clock, because application clocks are never trusted). Today `finish(status=queued, refund_attempt=True)` sets `due_at = Now()` (lines 123-127), so a deferral would loop hot. (2) A `fence(claim)` function that checks and extends a lease inside a transaction without finishing the action. (3) `finish(status=held)` treated as non-terminal: no `completed_at` is set. |
 | `AutomationPause`, one per subject | `workflow/models.py` | Pause semantics (J-09) | None. Pause and resume become staff services (F). |
 | `uncertain` status | `workflow/models.py` | Kept for provider reconciliation (ADR-15, D-20) | Used for the first time, by non-redeliverable send kinds |
 | Pre-send boundary, the fault seam after send, and `LeftForRecovery` (defined in `workflow/ledger.py` line 61, raised by `verification.py` line 153) | `correspondence/verification.py` | The three-phase handler shape: a check transaction, then the send with no lock held, then a fenced result | Generalized into a base send handler (A). `SendVerification` keeps its D-20 redelivery behaviour; no other kind inherits it. |
@@ -169,7 +169,8 @@ or address.
   - UPDATE is limited to `(disposition, disposition_at, disposition_by)`;
   - unique `send_ref`.
 - **`ApprovedMessageQuestion`** (replaces the earlier Message-ID-keyed join): `(approved_message,
-  question, purpose)` with purpose `initial` or `reminder`, unique `(approved_message, question)`. A
+  question, purpose)` with purpose `initial`, `reminder` or `revision` (a revised message, A6; added in
+  2B.1), unique `(approved_message, question)`. A
   partial unique `(question)` where `purpose = 'initial'` stops a double approval from sending twice.
 - **Content digest (the comparison basis for A5):** `content_sha256` is SHA-256 over the canonical
   rendered form: the decoded subject, a line feed, and the decoded text body with line endings normalized
@@ -222,8 +223,8 @@ for it.
   - `withdrawn` is an explicit staff disposition (A-8). It is **not** an answer.
 - Withdrawal fields: `withdrawn_by`, `withdrawn_reason` (a reason code and a short sanitized note) and
   `withdrawn_at`. An append-only `question_withdrawn` event is written in the same transaction.
-- Grants: UPDATE of `(status, approval_state, withdrawn_by, withdrawn_reason, withdrawn_at,
-  updated_at)`.
+- Grants: UPDATE of `(status, approval_state, approved_by, approved_at, withdrawn_by, withdrawn_reason,
+  withdrawn_at, updated_at)`. The approver and time are recorded with the approval (added in 2B.1).
 
 **`status` is derived by one function, `refresh_question_status`,** inside every transaction that changes
 a link, an outcome or a disposition:
@@ -476,10 +477,10 @@ not this message. **Message phases** (RCPT TO, DATA, the body, the end of data) 
 |---|---|---|
 | Connection refused or failed, TLS failure, or a 4yz reply in a channel phase | `transport_blocked` | Not accepted, and not a verdict on the message. The attempt row is kept (it has its own number, 3.2), but **no ledger attempt is consumed**: `finish(status=queued, refund_attempt=True, due_at=<backoff>)` uses the A-7 `due_at` argument, so there is no hot loop. The count of consecutive blocks is the run of trailing `transport_blocked` attempt rows **in the current attempt series**, so no extra counter is stored and a staff resume (a new series) starts the count again. When it reaches the bound, the disposition becomes `transport_blocked`, the action is `held` (non-terminal, A-7) and one deduplicated staff item `smtp_transport_blocked` is opened. Staff resume it through `decide_uncertain_send`. |
 | A 5yz reply in a channel phase (for example, authentication refused) | `transport_blocked` | As above, but held immediately with the staff item: a configuration fault, not a message rejection |
-| A 4yz reply at RCPT TO, DATA or the end of data, or a connection lost after the 354 reply but **before** the end-of-data marker was sent | `rejected_temporary` | Definitely not accepted. Bounded automatic retry with backoff. When the bound is reached, the disposition becomes `retries_exhausted` with a staff item; staff may authorize a resend of the same message. |
+| A 4yz reply at RCPT TO, DATA or the end of data, or a failure **known to happen before the body write starts** (for example, the connection closed at the DATA command) | `rejected_temporary` | Definitely not accepted. Bounded automatic retry with backoff. When the bound is reached, the disposition becomes `retries_exhausted` with a staff item; staff may authorize a resend of the same message. |
 | A 5yz reply at RCPT TO, DATA or the end of data | `rejected_permanent` | Terminal for this `ApprovedMessage`. **No unchanged retry, automatic or staff-authorized.** A staff item for correction; a correction is a revised message. |
 | A 250 reply after the end of data | `accepted_by_server` | Record server acceptance. **This is not delivery to the recipient's inbox**, and nothing calls it that. |
-| The end-of-data marker was sent, then a timeout, a disconnect or an unparseable reply | `unknown` | The action becomes `uncertain` and goes to A5. **Never** an ordinary retry. RFC 5321 section 6.1 notes that timeouts at this point can cause duplicate delivery. |
+| The write carrying the body and the end-of-data marker has **started**, then that write fails, or a timeout, a disconnect or an unparseable reply follows | `unknown` | The action becomes `uncertain` and goes to A5. **Never** an ordinary retry. Python's `socket.sendall` (used by `smtplib.SMTP.send`) documents that after an error "there is no way to determine how much data, if any, was successfully sent", so a failed write may still have delivered the marker; RFC 5321 section 6.1 notes that timeouts at this point can cause duplicate delivery. After the write has started nothing more is sent on the connection (no QUIT), so cleanup cannot complete or alter a partial DATA transaction (owner closeout of PR #21, 2026-10-13). |
 
 "Definitely not accepted" and "safe to retry automatically" are separate questions. A permanent rejection
 is the first without the second.
@@ -639,7 +640,7 @@ Services live in `correspondence/staff_actions.py` (A-3). Each is one transactio
 | `unmatched` (dismiss), `processing_error`, `message_id_conflict`, `mailbox_uidvalidity_changed`, `collector_stale`, `filed_copy_failed`, hard or soft bounce items, loop-threshold items | `resolve_exception` |
 | `reply_needs_review` | `confirm_question_outcome` (D3, or D4 when no outcome remains) |
 | `unmatched` (associate with an application), `reply_unverified`, `reply_auth_failed`, `sender_mismatch`, any item that would mark a message as spoofed, the S1 POL-19 items | `resolve_identity_exception` |
-| `send_outcome_unknown`, `retries_exhausted`, `smtp_transport_blocked`, `send_rejected_permanent` (abandon or revise only) | `decide_uncertain_send` |
+| `send_outcome_unknown`, `retries_exhausted`, `smtp_transport_blocked`, `send_rejected_permanent` (abandon or revise only), `send_refused` (a pre-send re-check refused the message, for example the recipient no longer equals the verified address; added in 2B.1) | `decide_uncertain_send` |
 | `mailbox_auth_failed` and other blocked-cursor items | `restart_collector` (admin action); the bootstrap and recovery commands are host-level (B0) |
 | `escalate_unanswered` ("no response") | `resolve_exception`, or `withdraw_question` |
 
@@ -677,7 +678,9 @@ built and tested **in the B task that creates its tables**, never first in 2C.
 5. approved message, then outbound attempts;
 6. pending-action rows, by id.
 
-Nothing takes the application and then the cursor, so the order has no cycle. For reminder, processing
+Nothing takes the application and then the cursor, so the order has no cycle. Inside the ledger's fenced
+result transaction the action row is updated before the handler writes message rows; that is safe
+because every path that touches either has already locked the application (2B.1 review). For reminder, processing
 and send kinds, `lock_subject` locks the application, then the named questions, before the fenced action
 update. Providers are never called while a row lock is held (`ledger.py` rule 3).
 
@@ -716,7 +719,7 @@ update. Providers are never called while a row lock is held (`ledger.py` rule 3)
 | Prompt injection aimed at P3 | P2 interprets nothing; text is stored as a labelled, untrusted derivative |
 | Confirmation tokens in inbound mail (D-24) | Decoded before redaction, redacted in quoted, forwarded and encoded forms, and no original bytes stored; not a universal secret detector |
 | Untrusted mail accumulating | No original-bytes store; bounded derivatives; G7; original custody waits for POL-10 |
-| IMAP or SMTP downgrade | TLS-only clients, a verifying context passed explicitly, no plaintext fallback |
+| IMAP or SMTP downgrade | TLS-only clients, a verifying context passed explicitly, no plaintext fallback. **Status after 2B.1: implemented but unverified** for SMTP (only the "server offers no STARTTLS" refusal is tested). The certificate tests (verified TLS, untrusted certificate, wrong hostname, no plaintext fallback when TLS is required) on the real SMTP and IMAP transport paths are owed at the start of 2B.2 (owner decision M6, 2026-10-13) |
 | Secrets or bodies in logs | **The control is a tested rule:** reason codes, identifiers and exception class names only; no `logger.exception`, no exception text, no `set_debuglevel`. `config/redaction.py` is a backstop. |
 | Preview tampering on staff messages | Digest and recipient re-checked on confirmation (3.4) |
 | Silent identity change | No association, resolution or staff message can change the verified address, the recipient, adopted evidence or the stage (C4) |
@@ -785,7 +788,7 @@ the local IMAP test server, plus the phase after-action report.
 | TEST-P2-24 | A plaintext server and a bad certificate are refused |
 | TEST-P2-25 | *(revised)* An unknown outcome becomes `uncertain`. Test-declared provider evidence with the matching Message-ID, recipient and canonical digest moves the message to `accepted_by_evidence`, and the attempt stays `unknown`; evidence with the wrong recipient or digest is ignored (2B.1). A Catalyst-filed copy never resolves it (2B.2). |
 | TEST-P2-26 | *(revised)* With no admissible evidence the outcome stays unknown and goes to staff. `abandon` records `operator_abandoned` and the attempt stays `unknown`. `authorize_resend` opens a new attempt series that **is** sent, while the earlier attempt stays `unknown`; it is refused after `rejected_permanent` (2B.1). An APPEND failure or lost APPEND acknowledgment never triggers SMTP (2B.2). |
-| TEST-P2-27 | *(revised)* A crash after a 250 reply and before recording leaves the attempt `sending`; the next claim goes to reconciliation, never to a new send |
+| TEST-P2-27 | *(revised)* A crash after a 250 reply and before recording leaves the attempt `sending`; the next claim goes to reconciliation, never to a new send. Proven twice: in-process through a seam, and with a **real worker process killed with SIGKILL** and a fresh real worker recovering through the normal lease path (owner decision M7, 2026-10-13) |
 | TEST-P2-28 | *(revised)* Reminder-race matrix, including a recent partial batch that does **not** satisfy the watermark |
 | TEST-P2-29 | Cadence, maximum, quiet hours and minimum gap (synthetic settings); escalation after the last reminder |
 | TEST-P2-30 | *(revised)* Only `satisfied` and `withdrawn` cancel; a partial answer keeps reminders; the projection never revives `done`, `failed`, `uncertain` or `cancelled` actions, never resets exhaustion and never creates reminders |
@@ -806,7 +809,7 @@ the local IMAP test server, plus the phase after-action report.
 | TEST-P2-45 | *(revised)* Staff message: preview and confirmation of the exact content and recipient. A changed digest, a changed verified address, a permission removed between preview and confirmation, or a second confirmation of the same draft all refuse. No side effects. A credential-like or confirmation-link body is refused. The send cannot reach a non-test host. |
 | TEST-P2-46 | A `UIDVALIDITY` change mid-batch, and a crash during resync |
 | TEST-P2-47 | *(revised)* Confirmation links are redacted from base64, quoted-printable (soft breaks), percent-encoded, HTML-link, quoted and forwarded forms. The stored text is flagged as a derivative with versions, truncation and omissions recorded. No original bytes are stored. A redaction-version bump re-derives from the mailbox, or from the derivative when the source is gone, and keeps no old text. |
-| TEST-P2-48 | *(new)* SMTP outcome matrix by protocol phase. Channel phases (connection, greeting, TLS, AUTH, MAIL FROM) give `transport_blocked` with no attempt consumed and a hold after 5yz or repeated 4yz. A 4yz at RCPT, DATA or the end of data, or a disconnect between 354 and the end-of-data marker, gives a bounded retry, then `retries_exhausted`. A 5yz at RCPT, DATA or the end of data gives `rejected_permanent` with no unchanged retry. A 250 after data gives `accepted_by_server` (never "delivered"). A disconnect after the end-of-data marker gives `unknown`. Each classified outcome is recorded without `fail_or_retry`. |
+| TEST-P2-48 | *(new)* SMTP outcome matrix by protocol phase. Channel phases (connection, greeting, TLS, AUTH, MAIL FROM) give `transport_blocked` with no attempt consumed and a hold after 5yz or repeated 4yz. A 4yz at RCPT, DATA or the end of data, or a failure known before the body write starts, gives a bounded retry, then `retries_exhausted`. A failure once the marker-carrying write has started (including a simulated write error after the server received the whole message) gives `unknown`, reconciliation and staff, never a second send. A 5yz at RCPT, DATA or the end of data gives `rejected_permanent` with no unchanged retry. A 250 after data gives `accepted_by_server` (never "delivered"). A disconnect after the end-of-data marker gives `unknown`. Each classified outcome is recorded without `fail_or_retry`. |
 | TEST-P2-49 | *(new)* A restarted worker sends exactly the frozen approved message, even after a new template version is approved or an answer changes; a revised message has a new identity and Message-ID and links to its predecessor |
 | TEST-P2-50 | *(new)* Withdrawal: it records actor, reason and an event; cancels only that question's `queued` and `held` reminder and escalation actions; voids pending links without dropping the reply; cancels held `interpret_reply`; resolves its own items; never counts as an answer; never reopens. A reply left with no pending link is closed through D4. |
 | TEST-P2-51 | *(new)* Bootstrap records its start mode, and `from_now` records the omitted history; bootstrap refuses when locations exist; recovery never uses `from_now` |
@@ -1010,3 +1013,17 @@ scoped to the current attempt series; an authorized resend cancels any earlier h
 leftovers (an uncited RFC 9051 section in the header; this paragraph's stale wording). All four were
 applied after the owner's approval as clarifications within the approved design, recorded here. The
 owner approved 0.3.2 with D-27 to D-32, and 2B.1 is the only P2 task authorized.
+
+### 10.5 2B.1 closeout decisions (owner, 2026-10-13)
+
+The owner reviewed PR #21 at `23d4a34` and decided:
+
+- **M6, TLS certificate tests:** deferred to the start of 2B.2, on the real SMTP and IMAP transport paths
+  (verified TLS, untrusted certificate, wrong hostname, refusal of plaintext fallback when TLS is
+  required). Until then TLS verification is implemented but unverified.
+- **M7, real-process crash test:** required before merging PR #21, and added (TEST-P2-27).
+- **M9, staff-screen visibility:** 2B.3 projects staff items into staff attention and migrates the S1
+  attention events; 2B.4 builds the permissioned staff screens and resolution actions. The staff experience
+  is complete before GATE-P2. Until then the records and `correspondence_health` are the inspection path.
+- **Transport correction:** a failure of the write carrying the end-of-data marker is `unknown`, not a
+  retryable rejection (A3 table), because `sendall`'s progress is unknowable after an error.

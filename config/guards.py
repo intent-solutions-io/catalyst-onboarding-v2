@@ -5,6 +5,7 @@ them reports a problem, so every process (web server, management command, future
 start; the same functions back a system check for ``manage.py check`` output.
 """
 
+import ipaddress
 from collections.abc import Mapping
 
 POSTGRESQL_ENGINE = "django.db.backends.postgresql"
@@ -68,9 +69,50 @@ def provider_problems(email_backend: str, environ: Mapping[str, str]) -> list[st
     return problems
 
 
+def is_loopback_literal(host: str) -> bool:
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def mail_host_allowed(environment: str, host: str, test_host: str) -> bool:
+    """016 section 6, A-4 (D-28, amends REQ-022): a literal loopback address in `development` and `test`,
+    or, in `test` only, the one named test-service host. Names other than that one are refused, so a
+    real provider can never be configured outside production."""
+    if environment not in ALLOWED_ENVIRONMENTS:
+        return False
+    if is_loopback_literal(host):
+        return True
+    return environment == "test" and bool(test_host) and host == test_host
+
+
+def mail_problems(settings) -> list[str]:
+    host = getattr(settings, "CATALYST_MAIL_HOST", "")
+    test_host = getattr(settings, "CATALYST_MAIL_TEST_HOST", "")
+    problems = []
+    if test_host and settings.CATALYST_ENV != "test":
+        problems.append("CATALYST_MAIL_TEST_HOST is allowed only in the test environment")
+    if host and not mail_host_allowed(settings.CATALYST_ENV, host, test_host):
+        problems.append("CATALYST_MAIL_HOST must be a literal loopback address (or the named test host in test)")
+    if (getattr(settings, "CATALYST_MAIL_USER", "") or getattr(settings, "CATALYST_MAIL_PASSWORD", "")) and (
+            not host or not mail_host_allowed(settings.CATALYST_ENV, host, test_host)):
+        problems.append("mail credentials are set without an allowed local mail host")
+    if getattr(settings, "CATALYST_SEND_EVIDENCE_SOURCE", "") and settings.CATALYST_ENV != "test":
+        # 016 A5 and 8.3: no evidence source is admissible until a separately authorized provider check.
+        problems.append("CATALYST_SEND_EVIDENCE_SOURCE is allowed only in the test environment")
+    tls = getattr(settings, "CATALYST_MAIL_TLS", "starttls")
+    if tls not in ("starttls", "none"):
+        problems.append("CATALYST_MAIL_TLS must be 'starttls' or 'none'")
+    elif tls == "none" and host and not is_loopback_literal(host):
+        problems.append("CATALYST_MAIL_TLS=none is allowed only for a loopback mail host")
+    return problems
+
+
 def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return (
         database_problems(settings.DATABASES)
         + environment_problems(settings.CATALYST_ENV)
         + provider_problems(settings.EMAIL_BACKEND, environ)
+        + mail_problems(settings)
     )

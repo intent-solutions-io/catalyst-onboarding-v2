@@ -137,7 +137,38 @@ EMAIL_TIMEOUT = number("CATALYST_EMAIL_TIMEOUT_SECONDS", "10")
 if EMAIL_TIMEOUT * 2 > CATALYST_WORKER_LEASE_SECONDS:
     raise ImproperlyConfigured("CATALYST_EMAIL_TIMEOUT_SECONDS must be at most half of CATALYST_WORKER_LEASE_SECONDS")
 # The only action kinds the worker may execute: a fixed mapping in code, never read from the database.
-CATALYST_ACTION_HANDLERS = {"send_verification": "correspondence.verification.SendVerification"}
+CATALYST_ACTION_HANDLERS = {
+    "send_verification": "correspondence.verification.SendVerification",
+    "send_message": "correspondence.outbound.SendMessage",  # 016 A3 (P2 2B.1)
+    "reconcile_send": "correspondence.outbound.ReconcileSend",  # 016 A5
+}
+
+# P2 outbound mail (016 A3 to A6, section 6; owner decisions D-27, D-28). Synthetic only: real MXroute is
+# prohibited (D-28, A-4). The host must be a literal loopback address, or in `test` the one named
+# test-service host; config.guards refuses anything else at start-up and the transport re-checks the
+# connected peer before any credential is sent. Unset means no outbound transport: sends are held.
+# Names are CATALYST_MAIL_*, never SMTP_* or EMAIL_HOST*, which config.guards refuses as provider names.
+CATALYST_MAIL_HOST = os.environ.get("CATALYST_MAIL_HOST", "")
+CATALYST_MAIL_PORT = number("CATALYST_MAIL_PORT", "25")
+CATALYST_MAIL_TEST_HOST = os.environ.get("CATALYST_MAIL_TEST_HOST", "")  # `test` only: a named test service
+CATALYST_MAIL_TLS = os.environ.get("CATALYST_MAIL_TLS", "starttls")  # "starttls", or "none" for loopback only
+CATALYST_MAIL_USER = os.environ.get("CATALYST_MAIL_USER", "")
+CATALYST_MAIL_PASSWORD = os.environ.get("CATALYST_MAIL_PASSWORD", "")
+CATALYST_MAIL_DOMAIN = os.environ.get("CATALYST_MAIL_DOMAIN", "") or _base.hostname  # Message-ID right-hand side
+# Synthetic values; POL-06 production values are not decided (D-29).
+CATALYST_MAIL_SEND_ATTEMPTS = number("CATALYST_MAIL_SEND_ATTEMPTS", "3")
+# The whole SMTP exchange must end well inside the worker lease; unset, it is half the lease, at most 20 s.
+CATALYST_MAIL_SEND_DEADLINE_SECONDS = number(
+    "CATALYST_MAIL_SEND_DEADLINE_SECONDS", str(min(20.0, CATALYST_WORKER_LEASE_SECONDS / 2)), cast=float, minimum=0.1)
+CATALYST_MAIL_TRANSPORT_BLOCK_LIMIT = number("CATALYST_MAIL_TRANSPORT_BLOCK_LIMIT", "3")
+CATALYST_MAIL_TRANSPORT_BACKOFF_SECONDS = number("CATALYST_MAIL_TRANSPORT_BACKOFF_SECONDS", "60", minimum=0)
+CATALYST_MAIL_RECONCILE_CHECKS = number("CATALYST_MAIL_RECONCILE_CHECKS", "3")
+CATALYST_MAIL_RECONCILE_GRACE_SECONDS = number("CATALYST_MAIL_RECONCILE_GRACE_SECONDS", "300", minimum=0)
+if CATALYST_MAIL_SEND_DEADLINE_SECONDS * 2 > CATALYST_WORKER_LEASE_SECONDS:
+    raise ImproperlyConfigured("CATALYST_MAIL_SEND_DEADLINE_SECONDS must be at most half of CATALYST_WORKER_LEASE_SECONDS")
+# Admissible reconciliation evidence (016 A5): none until a provider check verifies a source (8.3). A
+# dotted path to a class with `find(message_id)`; tests point it at a declared synthetic source.
+CATALYST_SEND_EVIDENCE_SOURCE = os.environ.get("CATALYST_SEND_EVIDENCE_SOURCE", "")
 
 # ADR-18 (D-19): the custom user model exists before the first migration.
 AUTH_USER_MODEL = "accounts.User"
