@@ -23,8 +23,9 @@ Every document in this directory is **preliminary and subject to review** until 
 | [000-aars/017-AA-AACR-p2-correspondence.md](000-aars/017-AA-AACR-p2-correspondence.md) | After-action report for P2, the correspondence loop (epic `catalyst-v2-7hu`), full lane | Filed 2026-10-13; GATE-P2 signed off (D-33) |
 | [015-AA-AUDT-appaudit-devops-playbook.md](015-AA-AUDT-appaudit-devops-playbook.md) | Operator-grade system analysis after GATE-S1: architecture, tradeoffs, operations, sharp edges, security, current state, roadmap; unscored health judgement 68/100 | Audit 2026-10-11 at `ef17aa6`; errata 2026-10-11 |
 | [016-AT-DSGN-p2-correspondence-specification.md](016-AT-DSGN-p2-correspondence-specification.md) | Handoff 2A: P2 correspondence specification (outbound, IMAP collection, association and trust, reply processing, reminders, staff intervention, monitoring), GATE-P2 acceptance plan `TEST-P2-01`-`54`, owner decision brief by blocker, bead map | Approved for synthetic P2, version 0.3.2 (D-27 to D-32, 2026-10-12), with implementation notes in section 10; 2B.1 to 2C merged; GATE-P2 signed off 2026-10-13 (D-33) |
+| [018-AT-DSGN-p3-evidence-assessment-specification.md](018-AT-DSGN-p3-evidence-assessment-specification.md) | Handoff 3A: P3 specification (applicant claims, deterministic evidence observations with SSRF controls, bounded MiniMax assessment through PydanticAI test models, clarification and reply interpretation on the existing interface, the authorized qualification decision), acceptance plan `TEST-P3-01`-`50`, owner decision brief, 3B task graph | PROPOSED, version 0.1.0 (draft for owner review) |
 
-Next free number: `018`.
+Next free number: `019`.
 
 **After-action reports** go in `000-aars/` inside this directory (filing standard v4.5 §3.1.3): global
 `NNN`, `NNN-AA-AACR-<slug>.md`, from the template above. Filed: `014` (first slice). Cadence: `009` section 10.
