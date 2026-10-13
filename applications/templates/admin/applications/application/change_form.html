@@ -1,0 +1,5 @@
+{% extends "admin/change_form.html" %}
+{% block object-tools-items %}
+{% if correspondence_link and original %}<li><a href="{% url 'correspondence_staff:application' original.public_ref %}">Correspondence screen</a></li>{% endif %}
+{{ block.super }}
+{% endblock %}

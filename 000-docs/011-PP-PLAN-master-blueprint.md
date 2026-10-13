@@ -351,7 +351,8 @@ the owner's P2 decision brief (`016` section 8); 2B is the four implementation t
 is the GATE-P2 verification. The owner approved `016` 0.3.2 and recorded D-27 to D-32 on 2026-10-12,
 which unblock 2B.1 (`016` 8.1). The owner released 2B.1 on 2026-10-12 and 2B.2 to 2B.4 and 2C on
 2026-10-13; the items in `016` 8.2 not covered by D-27 to D-31 use the synthetic defaults recorded in `016`
-section 10, and GATE-P2 sign-off stays the owner's.
+section 10, and GATE-P2 sign-off stays the owner's. The 2026-10-13 release was an autonomous build of P2 only
+(source quoted in `016`'s status note); it does not extend to P3, a release or a deployment.
 
 | Key | Bead | Title | Depends on |
 |---|---|---|---|

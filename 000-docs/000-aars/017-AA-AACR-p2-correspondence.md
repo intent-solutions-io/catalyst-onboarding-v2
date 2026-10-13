@@ -12,7 +12,8 @@
 > Everything ran against synthetic SMTP and IMAP servers. No real email, AI model, applicant data or
 > deployment was involved.
 
-- **Status:** GATE-P2 is evidenced and awaits the owner's sign-off. The epic stays open until then.
+- **Status:** GATE-P2 is evidenced and awaits the owner's sign-off. The owner held sign-off for one bounded
+  closeout (`016` 10.12). The epic stays open until sign-off.
 - **Lane:** full. There were review findings and fixes in every task (section 5).
 - **Epic:** Run the applicant correspondence loop (bead `catalyst-v2-7hu`).
 - **Acceptance test:** every case TEST-P2-01 to TEST-P2-54 in `016` section 7 is PASS at one head on
@@ -139,7 +140,9 @@ real mailbox is connected:
 
   It also added the mappings the audit named, and renamed two tests whose names overstated them.
 
-**Accepted partial coverage.** The owner decides at sign-off whether these are acceptable:
+**Partial coverage at filing (owner acceptance pending).** The GATE-P2 closeout (`016` 10.12) closed or set a
+scope boundary for each item below. Owner acceptance of those dispositions is still pending. The items as
+filed:
 
 - **TEST-P2-08.** "The rest stays open" is shown with one question per message. In P2 every message carries
   one question.
@@ -173,9 +176,10 @@ real mailbox is connected:
 
 ## 6. Lessons learned
 
-- **Specialist reviewers find different classes of defect.** Running all relevant specialists in parallel on
-  each PR found issues no single review did. Examples: the operator blocker, the burst, and read access.
-  Keep it.
+- **Specialist reviewers find different classes of defect.** In P2, several specialists found issues no
+  single review did. Examples: the operator blocker, the burst, and read access. This is not a standing rule.
+  Later tasks use one primary independent reviewer, plus a narrowly scoped specialist when a change crosses a
+  security, data or integration boundary (`016` 10.12).
 - **Every "final failure" path needs a domain owner.** The ledger is generic, so each handler's `record` must
   turn exhaustion into a staff item.
 - **A gate proves only what is mapped.** The 2C audit showed that generating the map from test names

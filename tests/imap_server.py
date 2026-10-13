@@ -35,6 +35,7 @@ class ScriptedIMAP:
         self.login_reply = login_reply
         self.folders = {name: Folder(uidvalidity=1000 + i) for i, name in enumerate(folders)}
         self.commands = []
+        self.fetches = []  # (uid, requested items, body bytes returned): the client/server boundary for TEST-P2-15
         self.logins = 0
         self._lock = threading.Lock()
         outer = self
@@ -124,11 +125,16 @@ class ScriptedIMAP:
                         upper = items.upper()
                         if "BODY.PEEK[]" in upper:
                             self.wfile.write(f"* {seq} FETCH (UID {uid} BODY[] {{{len(data)}}}\r\n".encode() + data + b")\r\n")
+                            returned = len(data)
                         elif "BODY.PEEK[HEADER]" in upper:
                             head = data.split(b"\r\n\r\n", 1)[0] + b"\r\n\r\n"
                             self.wfile.write(f"* {seq} FETCH (UID {uid} BODY[HEADER] {{{len(head)}}}\r\n".encode() + head + b")\r\n")
+                            returned = len(head)
                         else:
                             self.send(f"* {seq} FETCH (UID {uid} RFC822.SIZE {len(data)} INTERNALDATE {date})".encode())
+                            returned = 0
+                        with outer._lock:
+                            outer.fetches.append((uid, upper.strip(), returned))
                     self.ok(tag)
                 elif verb == "APPEND":
                     match = re.match(r'"?([^"\s]+)"?.*\{(\d+)\}$', args)

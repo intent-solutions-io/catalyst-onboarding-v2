@@ -4,7 +4,7 @@
 |---|---|
 | Document | `016-AT-DSGN-p2-correspondence-specification` |
 | Version | 0.3.2 (consolidated 2A closeout: corrections 1 to 9 applied; independent QA review and re-check recorded in sections 10.3 and 10.4) |
-| Status | **APPROVED by the owner 2026-10-12 (version 0.3.2; decisions D-27 to D-32 in `011` section 4).** Handoff 2A of phase P2. Approval covers synthetic P2 only: no real email, applicant data, provider credentials, deployment or production staff access. Items still marked PROPOSED or open in section 8.2 to 8.4 are not covered. The owner released 2B.1 on 2026-10-12 and 2B.2 to 2C on 2026-10-13 (autonomous build); GATE-P2 sign-off stays the owner's. |
+| Status | **APPROVED by the owner 2026-10-12 (version 0.3.2; decisions D-27 to D-32 in `011` section 4).** Handoff 2A of phase P2. Approval covers synthetic P2 only: no real email, applicant data, provider credentials, deployment or production staff access. Items still marked PROPOSED or open in section 8.2 to 8.4 are not covered. The owner released 2B.1 on 2026-10-12 and 2B.2 to 2C on 2026-10-13 (autonomous build, ending at P2: not P3, a release or a deployment); GATE-P2 sign-off stays the owner's. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-12 |
 | Epic | P2, "Run the applicant correspondence loop: outbound policy, inbox correlation, reminders, stop rules and human takeover" (`catalyst-v2-7hu`); this task is `catalyst-v2-7hu.1` |
@@ -13,7 +13,9 @@
 | Classification | Public; synthetic data only (`example.test` addresses); no provider, mailbox or credential is named |
 
 > **Status: APPROVED for synthetic P2 (2026-10-12).** The owner approved version 0.3.2 and recorded D-27
-> to D-32. That approval unblocks 2B.1 only. It does not authorize real mail, MXroute, the VPS or any
+> to D-32. That approval unblocked 2B.1. The owner separately released 2B.2 to 2C on 2026-10-13 for an
+> autonomous build (source: the owner's instruction in the build session on 2026-10-13: "we will be away from the office for about the next three to four hours. I need you to work autonomously and continue to keep working, completing the beads and building this out"). That release ends at P2: it does not authorize P3, a release or a
+> deployment, and GATE-P2 sign-off stays the owner's. Neither authorizes real mail, MXroute, the VPS or any
 > provider; provider-specific behaviour stays unverified until a separately authorized check. Any later
 > substantive change to this document is reviewed by one independent specialist.
 
@@ -1266,3 +1268,85 @@ offered template approval). Applied:
 
 Recorded: in P2 each approval creates one message per question (a revision carries the same questions), so a
 message mixing a withdrawn and a live question cannot arise yet.
+
+### 10.12 GATE-P2 acceptance closeout (owner direction, 2026-10-13)
+
+The owner reviewed `e049870` and held GATE-P2 sign-off for one bounded closeout. The concern: a mapped test
+passing is not the same as the requirement being proven. This section records what the closeout added and
+how every case that the 2C audit called partial is now settled. It also records the eight policy directions.
+The owner signs GATE-P2; this section does not.
+
+**Proofs added.**
+
+- **TEST-P2-08.** One application has two outstanding questions, each in its own message. Staff confirm a
+  partial answer, then a full answer, to the first question only. Only the first question changes; the
+  second question and its reminder stay as they were, and nothing applies application-wide.
+- **TEST-P2-15.** The scripted IMAP server now records every fetch request and the bytes it returned. For an
+  oversized message, the collector asked for the size and the headers only. It never sent a full-body fetch,
+  and fewer than 4 kB crossed the boundary for a 50 kB message. The cap is the whole-message size; no
+  attachment-specific limit is claimed.
+- **Reminder races.** Four tests run on separate connections. An application-role session holds the
+  application row, and reply ingestion and the reminder or send check queue behind it in a chosen order.
+  No two coordinated sessions hold the same lock, and the waits are bounded.
+
+  | Ordering | Outcome |
+  |---|---|
+  | The reply commits before the reminder check | No reminder is sent; the reminder action is held |
+  | The reminder check commits first | The reminder is authorized once; its frozen send then defers while the reply is pending and is cancelled when the question is satisfied |
+  | The reply commits before a frozen send's check | Nothing is sent |
+  | A frozen send passes its check first | That one mail is sent; the next reminder exists but is held |
+
+  In every ordering there is no deadlock, no duplicate scheduling and no false outcome.
+- **TEST-P2-45.** A confirmed staff message, with the host changed to a non-test host after start-up, is
+  refused before any socket opens: no connection, no AUTH, MAIL or DATA. The message becomes
+  `transport_blocked` with a staff item. No real host was contacted.
+- **Smaller assertions:**
+  - the projection never resets attempt counts (TEST-P2-30);
+  - drafts, resolutions and locations are insert-only for the application role (TEST-P2-39).
+
+**Disposition of every case the 2C audit called partial.**
+
+| Case | Disposition |
+|---|---|
+| 05 | **Closed.** The ledger skips every automated kind of a paused subject (`test_worker::test_s1_19_*`). P2 kinds are covered by `test_p2_05_*`. Reconciliation is deliberately not automated (10.11). |
+| 08 | **Closed** by the two-question proof above. |
+| 09 | **Closed within scope.** P2 never interprets content, so any reply, including an acknowledgement, only makes the question `reply_pending` until staff decide; `not_addressed` returns it to `open` (`test_p2_08_09_*`). Automatic content interpretation is P3. |
+| 12, 20, 22, 48, 49, 51 | **Closed by mapping** the tests the audit named. |
+| 15 | **Closed** by the boundary proof above. |
+| 18, 36, 46, 50, 54 | **Closed** by the tests added in 2C (AAR `017` §4). |
+| 30, 35 | **Closed by mapping**, plus the attempt-count assertion. |
+| 39, 47 | **Closed** by the schema scan (no binary or raw-message column) and the insert-only grant assertions. |
+| 40 | **Closed by mapping** the provider-variable and external-network tests. |
+| 41 | **Approved scope boundary.** P2 proves each measurement and anomaly query. Production threshold values are P6 and POL-16. |
+| 42, 52 | **Closed:** a negative permission test for every screen action, per-model admin read-only (`test_staff::test_every_registered_admin_*`), the dossier link and the operator journey. |
+| 44 | **Closed** for derivation version 1. A golden case is required with every version bump. |
+| 45 | **Closed, with an approved scope boundary.** Refusal is proven before any connection. No real infrastructure is contacted to prove the prohibition. |
+| Reminder races | **Closed** by the four separate-connection tests above. |
+
+**Still open (not claimed):**
+
+- No screen lets staff author a question. In the journey, the question is created as test setup, as P3 or
+  a future staff authoring screen would create it.
+- Multi-question messages do not exist in P2, by design.
+- No attachment-specific size guarantee is made.
+
+**Policy directions (owner, 2026-10-13).**
+
+| Direction | Current implementation | Conforms? | Correction | Gate it blocks |
+|---|---|---|---|---|
+| **Correspondence evidence.** Extend the append-only protections to immutable audit records and frozen identity and content fields. Do not freeze operational state or drafts. | Grants only: resolutions, locations and drafts are insert-only; the frozen columns of approved messages are not updatable by the application role. No triggers. | Partly | Add triggers in the ADR-14 pattern, with the owner and superuser limits documented. These are append-only protections, not tamper-proofing. Bead: "Extend append-only protection to immutable correspondence evidence". | Real applicant data (staging and pilot) |
+| **Mail-text readers.** Correspondence operators and decision-makers may read the sanitized text their work needs. Template-owner, collector-restart, pause-only or generic staff authority alone does not grant it. | The reply page needs `confirm_question_outcome`, `resolve_exception` or `resolve_identity_exception` (operator and decision-maker permissions). A template owner reaches only template pages. Pause-only or restart-only users reach no reply text; the item page shows the sender address and codes, not the body. | Yes | None in P2 | None |
+| **Automatic pauses.** A routine resume does not clear a system safety pause; that needs decision-maker review, a reason, and the cause addressed. | `resume()` checks `resume_automation` and deletes any pause, whatever its cause. | **No** | Bead: "Require decision-maker review to clear an automatic safety pause". | Real mail |
+| **Hard bounces.** No automated or staff mail goes to an address with an unresolved hard bounce; resuming or revising is no bypass. | A hard bounce pauses automated kinds only. A confirmed staff message, or a staff resend, still sends. | **No** | Bead: "Block every send to an address with an unresolved hard bounce". | Real mail |
+| **Retention.** Drafts, notes, approved messages and audit records each get their own POL-10 treatment. No period is invented and nothing is deleted now. | Nothing is deleted. Drafts are insert-only and kept; notes are kept. | Yes, for synthetic use | The POL-10 approval | Real-data ingestion |
+| **Association and confirmation.** The same qualified person may do both, recorded separately. Identity conflicts stay elevated; association alone does not establish trust. | A decision-maker holds both permissions. Association writes its resolution record and event, and confirmation writes its own. Associating unverified or auth-failed mail needs `resolve_identity_exception`. A sender mismatch cannot be associated. Association marks the message `staff_associated`, which lets it be confirmed. | Yes, with a note: that elevated resolution is how an unverified reply becomes confirmable | None in P2 | None |
+| **MiniMax.** No real applicant correspondence goes to a model. | No model client is imported, no handler exists for `interpret_reply`, and no key is read (TEST-P2-43). | Yes | P3 specifies minimized inputs, allowed use, provider handling, budgets, provenance and authority. | Live model use (P3) |
+| **Alerts.** Production thresholds are a P6 decision. | Synthetic settings. `correspondence_health` exits 1 on an anomaly and 2 on a failed check. | Yes | None in P2 | P6 |
+
+**Review policy.** A later task gets one primary independent reviewer, plus one narrowly scoped specialist
+only when the change crosses a specific security, data or integration boundary. The full specialist roster
+is not a standing requirement.
+
+**Test cost.** The full suite now takes about 11.5 minutes locally and about 7.5 minutes in CI. Use focused
+tests while editing and the full suite on the final candidate. The slowest tests are named in the closeout
+pull request.
