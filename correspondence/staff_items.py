@@ -13,15 +13,16 @@ from django.db import IntegrityError, transaction
 from applications.links import CONFIRM_PATH
 from applications.models import ApplicationEvent
 
+from .common import Refused
 from .models import StaffItem, StaffItemResolution
 
 OPEN_KEY = "staff_item_one_open_per_key"
 NOTE_LIMIT = 500
-_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f‎‏‪-‮⁦-⁩]")
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f؜​-‏‪-‮⁦-⁩﻿]")  # controls, bidi, zero-width
 
 
-class NoteRefused(ValueError):
-    pass
+class NoteRefused(Refused):
+    """A refused note; a `Refused`, so every service surfaces one refusal type."""
 
 
 def clean_note(note: str) -> str:

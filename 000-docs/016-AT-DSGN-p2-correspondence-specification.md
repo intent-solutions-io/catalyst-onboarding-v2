@@ -1127,3 +1127,19 @@ None found a blocker. Applied:
 frozen `ApprovedMessage` columns are ADR-14 protected history. If they are, they need protection triggers
 (today grants alone protect them for the application role), a `StaffItem` status transition trigger, and an
 audited retention path under POL-10. This is not decided here.
+
+Re-check round (QA and `catalyst-security-privacy`):
+
+- A `processing_error` item uses the plain `inbound:<id>` key, so staff can resolve it; the test now
+  resolves it.
+- A start-up guard (`config/guards.dispatch_problems`) pins `CATALYST_ATTENTION_OPENER` and
+  `CATALYST_ACTION_HANDLERS` to the Catalyst apps and refuses them from the environment.
+- `validate_proposals` is total (a malformed result is a code). It binds to the stored digest, refuses any
+  overlap with quoted text, caps span length and usage, and checks the model note.
+- Staff association refuses a non-exception message, a non-human message, a closed target and a message
+  that belongs to another application.
+- `NoteRefused` is a `Refused`, and the note filter also removes zero-width characters and U+061C.
+
+Owner questions carried forward (security review): whether staff-associated unverified mail may go to a
+model provider at all, applicant text leaving to MiniMax and its retention, retention of free-text
+resolution notes, and whether one decision-maker may both associate and confirm.

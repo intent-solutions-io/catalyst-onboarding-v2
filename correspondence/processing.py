@@ -26,7 +26,7 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models.functions import Now
 
-from applications.models import Application, ApplicationEvent
+from applications.models import TERMINAL_STAGES, Application, ApplicationEvent
 from workflow import ledger
 from workflow.models import AutomationPause, PendingAction
 
@@ -34,7 +34,7 @@ from .inbound import ANSWERABLE, PROCESS_REPLY, queue_processing, refresh_questi
 from .models import InboundMessage, Question, QuestionReplyLink, StaffItem
 from .common import Refused, actor_ref, require
 from .messages import verified_address
-from .staff_items import event, open_item, resolve_item
+from .staff_items import NOTE_LIMIT, clean_note, event, open_item, resolve_item
 
 Status = PendingAction.Status
 Inbound = InboundMessage.Status
@@ -67,6 +67,8 @@ ACKNOWLEDGE_ONLY = {"processing_error", "message_id_conflict", "mailbox_uidvalid
 # untrusted data. Staff still confirm every outcome while the staff-confirmation default holds.
 
 MAX_SPANS = 10
+MAX_SPAN_CHARS = 2000
+MAX_USAGE_KEYS = 16
 
 
 @dataclass(frozen=True)
@@ -145,21 +147,37 @@ def eligible(message) -> bool:
             and bool(message.derived_text.strip()) and not message.truncated and not degraded)
 
 
-def validate_proposals(request: InterpretRequest, proposals) -> list[str]:
-    """Pure, deterministic checks a P3 result must pass before staff see it; returns problem codes."""
+def validate_proposals(request: InterpretRequest, proposals, stored_sha256: str, provenance=None) -> list[str]:
+    """Pure, deterministic checks a P3 result must pass before staff see it; returns problem codes. Total: a
+    wrongly typed result is a problem code, never an exception. `stored_sha256` is the message's stored
+    `derived_text_sha256`, so a request built from other text is refused."""
     problems = []
+    if not isinstance(proposals, (list, tuple)) or not all(isinstance(p, QuestionProposal) for p in proposals):
+        return ["malformed_result"]
+    for p in proposals:
+        if not (isinstance(p.question_id, str) and isinstance(p.outcome, str) and isinstance(p.note, str)
+                and isinstance(p.spans, (list, tuple)) and all(isinstance(sp, Span) for sp in p.spans)
+                and all(type(sp.start) is int and type(sp.end) is int for sp in p.spans)):
+            return ["malformed_result"]
     wanted = [q.id for q in request.questions]
     seen = [p.question_id for p in proposals]
     if sorted(seen) != sorted(wanted) or len(set(seen)) != len(seen):
         problems.append("questions_do_not_match")
-    if text_sha256(request.text) != request.text_sha256:
+    if not (text_sha256(request.text) == request.text_sha256 == stored_sha256):
         problems.append("text_changed")
+    if provenance is not None and (not isinstance(provenance.usage, dict) or len(provenance.usage) > MAX_USAGE_KEYS):
+        problems.append("usage_unbounded")
     sent = [m.span() for m in re.finditer(re.escape(request.sent_body.strip()), request.text)] if request.sent_body.strip() else []
     for proposal in proposals:
         if proposal.outcome not in OUTCOMES:
             problems.append("unknown_outcome")
         if len(proposal.spans) > MAX_SPANS:
             problems.append("too_many_spans")
+        try:
+            if clean_note(proposal.note) != proposal.note.strip() or len(proposal.note) > NOTE_LIMIT:
+                problems.append("note_not_clean")
+        except Refused:
+            problems.append("note_not_clean")
         if proposal.outcome == "not_addressed":
             if proposal.spans:
                 problems.append("not_addressed_with_spans")
@@ -170,8 +188,10 @@ def validate_proposals(request: InterpretRequest, proposals) -> list[str]:
         for span in proposal.spans:
             if not 0 <= span.start < span.end <= len(request.text):
                 problems.append("span_out_of_bounds")
-            elif any(q.start <= span.start and span.end <= q.end for q in request.quoted):
-                problems.append("span_inside_quoted_text")
+            elif span.end - span.start > MAX_SPAN_CHARS:
+                problems.append("span_too_long")
+            elif any(q.start < span.end and span.start < q.end for q in request.quoted):
+                problems.append("span_inside_quoted_text")  # any overlap with quoted material
             elif any(s < span.end and span.start < e for s, e in sent):
                 problems.append("span_cites_our_own_text")
     return sorted(set(problems))
@@ -251,7 +271,7 @@ class ProcessReply:
             message = InboundMessage.objects.filter(public_id=claim.input_ref, status=Inbound.AWAITING_PROCESSING).first()
             if message is not None:
                 InboundMessage.objects.filter(pk=message.pk).update(status=Inbound.EXCEPTION, exception_reason="processing_error")
-                open_item("processing_error", f"inbound:{message.public_id}:processing", application=application)
+                open_item("processing_error", f"inbound:{message.public_id}", application=application)
 
     def run(self, claim) -> None:
         def write():
@@ -419,7 +439,7 @@ def resolve_exception(item_id: int, code: str, user, note: str = "", target_appl
             raise Refused("item_already_resolved")
         message = None
         if item.dedupe_key.startswith("inbound:"):
-            message = InboundMessage.objects.select_for_update(of=("self",)).filter(public_id=item.dedupe_key.split(":", 1)[1]).first()
+            message = InboundMessage.objects.select_for_update(of=("self",)).filter(public_id=item.dedupe_key.split(":")[1]).first()
         effects = {"reason": item.reason_code}
         if code == "associate":
             effects.update(_associate_by_staff(message, item, target_application_id, actor))
@@ -439,10 +459,18 @@ def _associate_by_staff(message, item, target_application_id, actor) -> dict:
     never changes the verified address, the recipient, an adoption or the stage."""
     if message is None:
         raise Refused("nothing_to_associate")
+    if message.status != Inbound.EXCEPTION:
+        raise Refused("only_an_exception_message_is_associated")
+    if message.classification != "human":
+        raise Refused("only_a_persons_message_is_associated")  # an automatic message would feed another loop count
     application_id = message.application_id or target_application_id
     if application_id is None:
         raise Refused("a_target_application_is_needed")
     application = Application.objects.select_for_update(of=("self",)).get(pk=application_id)
+    if application.stage in TERMINAL_STAGES:
+        raise Refused("application_closed")
+    if message.approved_message_id is not None and message.approved_message.application_id != application.pk:
+        raise Refused("message_belongs_to_another_application")
     questions = list(Question.objects.select_for_update(of=("self",)).filter(
         message_links__approved_message_id=message.approved_message_id).order_by("id")) if message.approved_message_id else []
     prior = {"prior_trust_decision": message.trust_decision, "prior_status": message.status,

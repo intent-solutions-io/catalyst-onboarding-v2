@@ -306,7 +306,10 @@ def test_a_reply_whose_processing_fails_finally_goes_to_staff_not_silence(mailbo
     question, _, received = delivered(mailbox)
     received.refresh_from_db()
     assert (received.status, received.exception_reason) == ("exception", "processing_error")
-    assert StaffItem.objects.filter(reason_code="processing_error", status="open").count() == 1
+    [item] = StaffItem.objects.filter(reason_code="processing_error", status="open")
+    processing.resolve_exception(item.pk, "acknowledge", mailbox.operator)  # resolvable, not stuck
+    item.refresh_from_db()
+    assert item.status == "resolved"
 
 
 def test_p2_32_staff_confirm_while_process_reply_holds_the_lock(mailbox, monkeypatch):
@@ -471,18 +474,18 @@ def test_p3_interface_validation_rules():
     text = "My answer is yes.\n> Which project?\n"
     request = _request(text, sent_body="Which project?")
     good = processing.QuestionProposal("q1", "satisfied", (processing.Span(0, 17),))
-    assert processing.validate_proposals(request, [good]) == []
+    assert processing.validate_proposals(request, [good], request.text_sha256) == []
     assert "span_inside_quoted_text" in processing.validate_proposals(
-        request, [processing.QuestionProposal("q1", "satisfied", (processing.Span(18, 34),))])
-    assert "outcome_without_evidence" in processing.validate_proposals(request, [processing.QuestionProposal("q1", "partial")])
-    assert "questions_do_not_match" in processing.validate_proposals(request, [])
+        request, [processing.QuestionProposal("q1", "satisfied", (processing.Span(18, 34),))], request.text_sha256)
+    assert "outcome_without_evidence" in processing.validate_proposals(request, [processing.QuestionProposal("q1", "partial")], request.text_sha256)
+    assert "questions_do_not_match" in processing.validate_proposals(request, [], request.text_sha256)
     assert "span_out_of_bounds" in processing.validate_proposals(
-        request, [processing.QuestionProposal("q1", "satisfied", (processing.Span(0, 999),))])
+        request, [processing.QuestionProposal("q1", "satisfied", (processing.Span(0, 999),))], request.text_sha256)
     truncated = _request(text, truncated=True)
     assert "not_addressed_on_truncated_text" in processing.validate_proposals(
-        truncated, [processing.QuestionProposal("q1", "not_addressed")])
+        truncated, [processing.QuestionProposal("q1", "not_addressed")], truncated.text_sha256)
     changed = processing.InterpretRequest(**{**request.__dict__, "text_sha256": "0" * 64})
-    assert "text_changed" in processing.validate_proposals(changed, [good])
+    assert "text_changed" in processing.validate_proposals(changed, [good], request.text_sha256)
 
 
 def test_p3_eligibility_refuses_degraded_or_untrusted_text(mailbox):
@@ -499,3 +502,37 @@ def test_p3_eligibility_refuses_degraded_or_untrusted_text(mailbox):
 ])
 def test_p2_44_quote_stripping_keeps_from_lines_and_catches_wrapped_attributions(text, stripped):
     assert processing.strip_quotes(text) == stripped
+
+
+
+def test_p3_validation_is_total_and_refuses_straddling_long_or_stale_spans():
+    text = "Yes, project Alpha.\n> Which project?\n"
+    request = _request(text)
+    straddle = processing.QuestionProposal("q1", "satisfied", (processing.Span(10, 25),))
+    assert "span_inside_quoted_text" in processing.validate_proposals(request, [straddle], request.text_sha256)
+    assert processing.validate_proposals(request, [processing.QuestionProposal("q1", "satisfied", (processing.Span("0", 3),))],
+                                         request.text_sha256) == ["malformed_result"]
+    assert processing.validate_proposals(request, "nonsense", request.text_sha256) == ["malformed_result"]
+    assert "text_changed" in processing.validate_proposals(
+        request, [processing.QuestionProposal("q1", "satisfied", (processing.Span(0, 4),))], "0" * 64)
+    noisy = processing.QuestionProposal("q1", "satisfied", (processing.Span(0, 4),), note="ok\u202eevil")
+    assert "note_not_clean" in processing.validate_proposals(request, [noisy], request.text_sha256)
+    long_text = "a" * 3000
+    long_request = _request(long_text)
+    assert "span_too_long" in processing.validate_proposals(
+        long_request, [processing.QuestionProposal("q1", "satisfied", (processing.Span(0, 2500),))], long_request.text_sha256)
+
+
+def test_c4_association_refuses_a_closed_target_or_an_automatic_message(mailbox):
+    from applications.models import Application
+
+    _, message = sent_question(mailbox)
+    mailbox.imap.deliver(reply(message, in_reply_to=False))
+    collect()
+    [item] = StaffItem.objects.filter(reason_code="unmatched")
+    Application.objects.filter(pk=mailbox.app.pk).update(stage="closed")
+    with pytest.raises(Refused, match="application_closed"):
+        processing.resolve_exception(item.pk, "associate", mailbox.decider, target_application_id=mailbox.app.pk)
+    InboundMessage.objects.filter(pk=InboundMessage.objects.get().pk).update(classification="automatic")
+    with pytest.raises(Refused, match="only_a_persons_message"):
+        processing.resolve_exception(item.pk, "associate", mailbox.decider, target_application_id=mailbox.app.pk)
