@@ -24,7 +24,7 @@ Every document in this directory is **preliminary and subject to review** until 
 | [015-AA-AUDT-appaudit-devops-playbook.md](015-AA-AUDT-appaudit-devops-playbook.md) | Operator-grade system analysis after GATE-S1: architecture, tradeoffs, operations, sharp edges, security, current state, roadmap; unscored health judgement 68/100 | Audit 2026-10-11 at `ef17aa6`; errata 2026-10-11 |
 | [016-AT-DSGN-p2-correspondence-specification.md](016-AT-DSGN-p2-correspondence-specification.md) | Handoff 2A: P2 correspondence specification (outbound, IMAP collection, association and trust, reply processing, reminders, staff intervention, monitoring), GATE-P2 acceptance plan `TEST-P2-01`-`54`, owner decision brief by blocker, bead map | Approved for synthetic P2, version 0.3.2 (D-27 to D-32, 2026-10-12), with implementation notes in section 10; 2B.1 to 2B.4 merged; 2C (GATE-P2 run, AAR `017`) in review |
 
-Next free number: `017`.
+Next free number: `018`.
 
 **After-action reports** go in `000-aars/` inside this directory (filing standard v4.5 §3.1.3): global
 `NNN`, `NNN-AA-AACR-<slug>.md`, from the template above. Filed: `014` (first slice). Cadence: `009` section 10.

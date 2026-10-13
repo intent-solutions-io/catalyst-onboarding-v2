@@ -261,7 +261,10 @@ def test_p2_15_an_oversize_message_never_causes_a_full_body_fetch(mailbox, setti
     collect()
     requests = {uid: [items for u, items, _ in mailbox.imap.fetches if u == uid] for uid in (small, big_uid)}
     assert any("BODY.PEEK[]" in items for items in requests[small])  # an ordinary message is fetched whole
-    assert requests[big_uid] and not any("BODY.PEEK[]" in items for items in requests[big_uid])
+    allowed = ("RFC822.SIZE", "BODY.PEEK[HEADER]")  # an allow-list: no other fetch syntax may reach the big UID
+    assert requests[big_uid] and all(any(a in items for a in allowed) and "BODY[]" not in items
+                                     and "BODY.PEEK[]" not in items and "RFC822 " not in items + " "
+                                     for items in requests[big_uid])
     assert any("RFC822.SIZE" in items for items in requests[big_uid])  # its size was asked first
     returned = sum(n for u, _, n in mailbox.imap.fetches if u == big_uid)
     assert 0 < returned < 4_000  # headers only crossed the boundary, never the 50 kB body
@@ -833,5 +836,7 @@ def test_p2_39_47_no_table_stores_original_message_bytes(mailbox):
     for table, privilege in (("correspondence_staffmessagedraft", "UPDATE"), ("correspondence_staffmessagedraft", "DELETE"),
                              ("correspondence_staffitemresolution", "UPDATE"), ("correspondence_staffitemresolution", "DELETE"),
                              ("correspondence_inboundmessagelocation", "UPDATE")):
-        assert owner.execute("SELECT has_table_privilege(%s, %s, %s)", [app_role, table, privilege]).fetchone()[0] is False, (
+        held = owner.execute("SELECT has_table_privilege(%s, %s, %s) OR (%s = 'UPDATE' AND has_any_column_privilege(%s, %s, %s))",
+                             [app_role, table, privilege, privilege, app_role, table, privilege]).fetchone()[0]
+        assert held is False, (
             table, privilege)  # drafts, resolutions and locations are insert-only for the application role

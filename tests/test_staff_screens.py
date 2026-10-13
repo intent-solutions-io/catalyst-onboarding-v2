@@ -372,5 +372,17 @@ def test_operator_journey_through_the_normal_screens(mailbox):
     assert "reply_needs_review" not in step("operator: queue after", operator.get(url("queue")))
     question.refresh_from_db()
     assert question.status == "partially_answered"
-    assert [n for n, _ in journey] and admin_log_rows(mailbox) == 0
+    from workflow.models import PendingAction
+
+    assert PendingAction.objects.filter(kind="remind", input_ref__startswith=str(question.public_id),
+                                        status="queued").count() == 1  # its reminder is live again
+    assert len(journey) == 12 and admin_log_rows(mailbox) == 0
     print("\nOPERATOR JOURNEY: " + "; ".join(f"{n} -> {c}" for n, c in journey))
+
+
+
+def test_the_dossier_link_and_the_application_screen_use_the_same_permissions():
+    from applications.admin import CORRESPONDENCE_SCREEN_PERMISSIONS
+    from correspondence import staff_views
+
+    assert set(CORRESPONDENCE_SCREEN_PERMISSIONS) == set(staff_views.APPLICATION)  # the link never drifts from the gate

@@ -4,7 +4,7 @@
 |---|---|
 | Document | `016-AT-DSGN-p2-correspondence-specification` |
 | Version | 0.3.2 (consolidated 2A closeout: corrections 1 to 9 applied; independent QA review and re-check recorded in sections 10.3 and 10.4) |
-| Status | **APPROVED by the owner 2026-10-12 (version 0.3.2; decisions D-27 to D-32 in `011` section 4).** Handoff 2A of phase P2. Approval covers synthetic P2 only: no real email, applicant data, provider credentials, deployment or production staff access. Items still marked PROPOSED or open in section 8.2 to 8.4 are not covered. The owner released 2B.1 on 2026-10-12 and 2B.2 to 2C on 2026-10-13 (autonomous build, ending at P2: not P3, a release or a deployment); GATE-P2 sign-off stays the owner's. |
+| Status | **APPROVED by the owner 2026-10-12 (version 0.3.2; decisions D-27 to D-32 in `011` section 4).** Handoff 2A of phase P2. Approval covers synthetic P2 only: no real email, applicant data, provider credentials, deployment or production staff access. Items still marked PROPOSED or open in section 8.2 to 8.4 are not covered. The owner released 2B.1 on 2026-10-12 and 2B.2 to 2C on 2026-10-13 (autonomous build; limited to P2 by the owner's closeout direction of 2026-10-13: not P3, a release or a deployment); GATE-P2 sign-off stays the owner's. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-12 |
 | Epic | P2, "Run the applicant correspondence loop: outbound policy, inbox correlation, reminders, stop rules and human takeover" (`catalyst-v2-7hu`); this task is `catalyst-v2-7hu.1` |
@@ -14,8 +14,8 @@
 
 > **Status: APPROVED for synthetic P2 (2026-10-12).** The owner approved version 0.3.2 and recorded D-27
 > to D-32. That approval unblocked 2B.1. The owner separately released 2B.2 to 2C on 2026-10-13 for an
-> autonomous build (source: the owner's instruction in the build session on 2026-10-13: "we will be away from the office for about the next three to four hours. I need you to work autonomously and continue to keep working, completing the beads and building this out"). That release ends at P2: it does not authorize P3, a release or a
-> deployment, and GATE-P2 sign-off stays the owner's. Neither authorizes real mail, MXroute, the VPS or any
+> autonomous build (source: the owner's instruction in the build session on 2026-10-13: "we will be away from the office for about the next three to four hours. I need you to work autonomously and continue to keep working, completing the beads and building this out"). Its limit to P2 is the owner's closeout direction of 2026-10-13 (`016` 10.12): it does not
+> authorize P3, a release or a deployment, and GATE-P2 sign-off stays the owner's. Neither authorizes real mail, MXroute, the VPS or any
 > provider; provider-specific behaviour stays unverified until a separately authorized check. Any later
 > substantive change to this document is reviewed by one independent specialist.
 
@@ -1342,6 +1342,9 @@ The owner signs GATE-P2; this section does not.
 | **Association and confirmation.** The same qualified person may do both, recorded separately. Identity conflicts stay elevated; association alone does not establish trust. | A decision-maker holds both permissions. Association writes its resolution record and event, and confirmation writes its own. Associating unverified or auth-failed mail needs `resolve_identity_exception`. A sender mismatch cannot be associated. Association marks the message `staff_associated`, which lets it be confirmed. | Yes, with a note: that elevated resolution is how an unverified reply becomes confirmable | None in P2 | None |
 | **MiniMax.** No real applicant correspondence goes to a model. | No model client is imported, no handler exists for `interpret_reply`, and no key is read (TEST-P2-43). | Yes | P3 specifies minimized inputs, allowed use, provider handling, budgets, provenance and authority. | Live model use (P3) |
 | **Alerts.** Production thresholds are a P6 decision. | Synthetic settings. `correspondence_health` exits 1 on an anomaly and 2 on a failed check. | Yes | None in P2 | P6 |
+
+**Authority.** The 2026-10-13 instruction to build autonomously named no phase limit. The owner's closeout
+direction of the same day limits it to P2: it does not authorize P3, a release or a deployment.
 
 **Review policy.** A later task gets one primary independent reviewer, plus one narrowly scoped specialist
 only when the change crosses a specific security, data or integration boundary. The full specialist roster

@@ -116,11 +116,11 @@ real mailbox is connected:
 
 ## 4. Verification evidence
 
-- **The acceptance map.** `tests/acceptance.py` `P2_CASES` maps all 54 cases to 181 test references.
+- **The acceptance map.** `tests/acceptance.py` `P2_CASES` maps all 54 cases to 196 test references (181 at 2C, 196 after the closeout).
   `tests/conftest.py` fails a full run unless every GATE-S1 and GATE-P2 case is PASS. `tests/test_acceptance.py`
   checks that the map names exactly the cases in `016` section 7 and that every mapped test exists.
 - **Local full run** (`scripts/test.sh`, pinned Python 3.14.8 and PostgreSQL 16.15, 2026-10-13): **614 passed**
-  in 690.51 s. GATE-S1 PASS 25, FAIL 0, INCOMPLETE 0, NOT RUN 0. GATE-P2 PASS 54, FAIL 0, INCOMPLETE 0,
+  in 690.51 s at 2C; **623 passed** in 703.23 s after the GATE-P2 closeout (`016` 10.12). GATE-S1 PASS 25, FAIL 0, INCOMPLETE 0, NOT RUN 0. GATE-P2 PASS 54, FAIL 0, INCOMPLETE 0,
   NOT RUN 0.
 - **CI:** the "Runtime checks" job on the 2C head, linked from the pull request.
 - **Reviews per task** (`016` 10.3 to 10.11):
