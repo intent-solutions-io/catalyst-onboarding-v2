@@ -1089,4 +1089,3 @@ One independent `catalyst-independent-qa` review of PR #22 found 4 HIGH, 14 MEDI
   `auto_markers`.
 - The P3 interface is the `ReplyInterpreter` protocol in `correspondence/processing.py` (not a separate
   `interpreter.py`). `strip_quotes` provides the quote-stripped view, version 1.
-
