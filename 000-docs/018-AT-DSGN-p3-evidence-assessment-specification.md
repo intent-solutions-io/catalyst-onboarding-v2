@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document | `018-AT-DSGN-p3-evidence-assessment-specification` |
-| Version | 0.1.0 (draft for owner review) |
+| Version | 0.2.0 (draft for owner review; the independent security and reliability review applied, section 12) |
 | Status | **PROPOSED.** Handoff 3A of phase P3. Nothing here is decided until the owner records it in `011` section 4. This document authorizes no implementation, migration, dependency, provider key, live model call, real applicant research, real mail or deployment. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-13 |
@@ -47,7 +47,7 @@ workflow engine, vector database, agent framework comparison or model fallback p
 |---|---|---|---|
 | **Applicant claim** | What the person says: work, contribution, experience, credentials | the applicant, through an adopted submission version | count as verified |
 | **Evidence observation** | What an approved deterministic check found, where and when, including unavailable or inconclusive | the worker, from an approved source | be read as dishonesty or lack of ability when unavailable |
-| **Model assessment** | MiniMax's advisory reading of one frozen snapshot, with quotes and limitations | the assessment handler | change a stage, satisfy a question, send, decide, issue or provision |
+| **Model assessment** | MiniMax's advisory reading of one frozen snapshot, with quotes and limitations | the assessment handler | choose a stage, satisfy a question, send, decide, issue or provision (a run's completion moves the stage to `awaiting_decision` unconditionally; no output field influences any transition) |
 | **Authorized decision** | What the permitted human decided, with a reason and exact input references | a decision-maker named by POL-05 | be made by a model, a superuser shortcut or a stale input |
 
 **What each kind of evidence can and cannot establish:**
@@ -131,20 +131,37 @@ only re-fetched as a new capture.
 1. **URL:** `https` only; the source's port; no userinfo; at most 2,048 characters; fragment dropped; the host
    must be a DNS name (any IP-literal form, including decimal, octal and hex, is refused); IDNA to punycode;
    exact host match; path normalized (dot segments, encoded dots) before the prefix check.
-2. **Resolve** every A and AAAA record under a bounded wait; refuse the host if **any** address is not
-   global (private, loopback, link-local, CGNAT, multicast, reserved, unspecified, IPv4-mapped or NAT64
-   forms unwrapped first; explicit deny for 169.254.169.254 and fd00:ec2::254).
+2. **Resolve** every A and AAAA record under a bounded wait (resolution in a worker thread with a deadline,
+   because `getaddrinfo` has none); refuse the host if **any** address fails one pure function
+   `classify(ip)` with **no environment branch**. It allows only global unicast after unwrapping IPv4-mapped,
+   IPv4-compatible, 6to4 (2002::/16), Teredo (2001::/32) and NAT64 (64:ff9b::/96, 64:ff9b:1::/48) forms, and
+   denies explicitly: private, loopback, link-local, CGNAT, multicast, reserved, unspecified, 192.0.0.0/24,
+   scoped (`%zone`) forms, 169.254.169.254, fd00:ec2::254, and the host's own interface and public
+   addresses (hairpin). It is tested against the pinned Python's behaviour, not assumed. This is a new
+   function: P2's `transport.peer_allowed` has the opposite purpose (it admits loopback test hosts).
 3. **Connect to the validated IP literal** with TLS SNI and certificate verification for the hostname
    (no re-resolution between check and connect).
-4. **Re-check the connected peer** before any request bytes (the P2 `transport.peer_allowed` pattern).
+4. **Re-check the connected peer** with `classify` before any request bytes (the same check point as P2's
+   mail transport, with the opposite rule).
 5. **Redirects** off by default; at most 3, each re-passing steps 1 to 4 and listed in the source; never to
    http.
-6. **Limits:** connect timeout and a total deadline checked per chunk; streamed byte cap; GET only; fixed
-   User-Agent; `Accept-Encoding: identity`; no cookies, auth headers, proxy environment or credential
-   forwarding; response-header size cap; content types from the source.
-7. **Guard:** a start-up check refuses any reachable host other than the named test service in `test`.
-   Real fetching stays unreachable until GATE-PILOT; production also needs a network egress allow-list (P6).
-8. **Logging:** host and reason code only; never the path, query, headers or body.
+6. **Limits:** connect timeout; the socket timeout set to the remaining deadline before every read (so a
+   slow drip cannot outlast it); streamed byte cap; GET only; fixed User-Agent; `Accept-Encoding: identity`
+   and any other `Content-Encoding` refused; no connection reuse or HTTP/2 coalescing across hosts; one URL
+   parser for validation and the request, sending the normalized path that was checked (trailing-dot hosts,
+   backslashes and userinfo differentials handled); no cookies, auth headers, proxy environment or
+   credential forwarding; response-header size cap; content types from the source; per-source and per-host
+   rate limits.
+7. **Allow-list checks at fetch time, not only at start-up.** Sources are database rows approved at runtime,
+   so every fetch re-checks the source's status and host, and every capture records the source **version**
+   (a source row is immutable once approved; a change is a new version needing approval). A settings-level
+   host allow-list, empty outside `test` and refused by a start-up guard elsewhere, bounds every source.
+   Synthetic fixtures are admitted only through a source marked `fixture_only` for one exact host and port,
+   which the guard refuses outside `test`; the fixture path runs the same `classify` code. Real fetching
+   stays unreachable until GATE-PILOT; production also needs a network egress allow-list (P6).
+8. **Nothing in the public web request** fetches, previews or dereferences an applicant URL; staff screens
+   show applicant URLs as text.
+9. **Logging:** host and reason code only; never the path, query, headers or body.
 
 **Never:** execute submitted code, clone or run a repository, open an attachment, or fetch a URL the model
 produced. An attachment's metadata (from P2) is not its content and not proof of a claim; attachment
@@ -161,29 +178,32 @@ transaction, never under a domain lock.
 | 1 | Activate evidence collection | the held `start_evidence_collection` action (exists, INSPECTED); released by the activation rule (4.1) | the adopted version in `input_ref` | one transaction: stage `contact_verified → evidence`, one `EvidenceItem` per claim and approved source, one `fetch_evidence` action each, an event | `fetch_evidence` per item, or straight to step 4 if none | stage moved; no slots | redeliverable; a changed adoption refuses with a staff item | item list; pause | TEST-P3-09, 10 |
 | 2 | Fetch one item | `fetch_evidence:<item>` (automated) | the item and its source | eligibility transaction; fetch outside; fenced record: capture, item status, event | the next item; when none is pending, step 3 | found, inconclusive, not found, unavailable, refused | bounded retry for transient errors; refused is not retried; a stale lease discards the result; pause refunds the attempt | each observation and its "cannot prove"; request a re-fetch | TEST-P3-05, 06, 11 to 18 |
 | 3 | Deterministic checks | the record transaction of the last item | all items of the adopted version | one transaction: required-item policy evaluated; stage `evidence → assessing` | `run_assessment` (step 4), or a staff item `evidence_required_unavailable` | proceed; hold for staff | the application lock serializes the last two fetches; the unique key makes one run | proceed without, or re-fetch | TEST-P3-19, 20 |
-| 4 | Assess | `run_assessment:<app>:<snapshot digest>` (automated) | the frozen snapshot (section 5.1) | freeze transaction writes `AssessmentRun` + inputs; pre-call check records the **invocation** (budget reserved) before the call; call outside; fenced record writes the result once | step 5, 6 or a staff item | succeeded, invalid output, provider error, timeout, budget stop, refused (input changed) | section 6; a stale result is kept as history, never applied | run, inputs, output, usage, failures; rerun | TEST-P3-01, 02, 03, 08, 21 to 33 |
-| 5 | Propose clarification | the run's record transaction | the run's `proposed_questions` | `Question(origin=model, approval_state=proposed)` through a `correspondence` service plus a link to the run; stage `assessing → awaiting_answers` | staff approval (P2 `approve_question`) | proposed; deduplicated; round cap reached | never sent until staff approve; dedup by normalized text per application; at most 3 per round | approve, edit by withdrawing and authoring, withdraw | TEST-P3-34, 35 |
+| 4 | Assess | `run_assessment:<app>:<snapshot digest>` (automated) | the frozen snapshot (section 5.1) | freeze transaction writes `AssessmentRun` + inputs; pre-call check records the **invocation** (budget reserved) before the call; call outside; fenced record writes the result once and, **whatever the output says**, compare-and-sets the stage `assessing → awaiting_decision` (staff now own the next step) | the decision queue (step 9), with any proposals visible (step 5) | succeeded, invalid output, provider error, timeout, budget stop, refused (input changed) | section 6; a result whose lease was lost is **discarded** (the reservation is the only accounting); a run that fails leaves the stage at `assessing` with a staff item | run, inputs, output, usage, failures; rerun | TEST-P3-01, 02, 03, 08, 21 to 33 |
+| 5 | Propose clarification | the run's record transaction | the run's `proposed_questions` | `Question(origin=model, approval_state=proposed)` through a `correspondence` service plus a link to the run; **no stage change** | staff approval (P2 `approve_question`); approving the first question of a round moves `awaiting_decision → awaiting_answers` (a staff act) | proposed; deduplicated; round cap reached | never sent until staff approve; dedup by normalized text per application; at most 3 per round | approve, edit by withdrawing and authoring, withdraw | TEST-P3-34, 35 |
 | 6 | Staff author a question | a staff screen (new, 3B.3) | staff text | `Question(origin=staff)`; then P2 approval and send | P2 sending | sent | P2 rules | author, approve, withdraw | TEST-P3-36 |
 | 7 | Reply and additional evidence | P2 collection and processing (exists) | an eligible reply (P2 `eligible()`) | P2 records; P3 coalesced interpretation (5.4) | staff confirmation (P2 D3) | P2 outcomes; links in a reply become new claims only through a new submission version or a staff-entered claim | P2 rules | P2 screens plus the proposal | TEST-P3-37 to 41 |
 | 8 | Reassess | a staff-confirmed answer, or staff "reassess" | a new snapshot including confirmed answer spans | as step 4, round n+1 | as step 4 | as step 4 | at most 3 rounds; the same snapshot runs once (TEST-P3-07) | rerun | TEST-P3-07, 42 |
-| 9 | Decide | a decision-maker on the decision screen | the latest valid run, its snapshot and the adopted version | one transaction: `QualificationDecision`, stage `awaiting_decision` to `admitted`, `declined` or `on_hold`, event, held follow-on (`issue_nda` or `send_decline`) | P4 hand-off (held) | admit, decline, hold | no retry (a human act); a stale run is refused | section 7 | TEST-P3-04, 43 to 50 |
+| 9 | Decide | a decision-maker on the decision screen | the latest valid run, **the snapshot digest the decision-maker saw**, and the adopted version | one transaction: recompute the current manifest digest and refuse any difference; compare-and-set the stage from `awaiting_decision`; `QualificationDecision`; event; held follow-on (`issue_nda` or `send_decline`) | P4 hand-off (held) | admit, decline, hold | no retry (a human act); a stale snapshot, a pending evidence item or a run in flight refuses | section 7 | TEST-P3-04, 43 to 49, 51 to 53 |
 
 ### 4.1 Activation and backfill of held work
 
-Registering a handler must not make every held row executable.
+Held rows are never claimed by the ledger (`claim_next` takes only queued and expired-running rows;
+INSPECTED), so registering a handler cannot run them. The activation command is therefore a **release gate**:
 
-- `start_evidence_collection` rows stay `held`. A versioned, owner-run management command
-  `activate_evidence_collection --activation-version 1` releases (to `queued`) only rows whose application is
-  still `contact_verified`, not terminal, not paused, with an adoption matching `input_ref`, and only while
-  POL-03 and POL-04 decisions are recorded. Each release writes an event naming the activation version;
-  ineligible rows stay held with a reason in the command's report.
+- `start_evidence_collection` rows stay `held`. An owner-run command `activate_evidence_collection
+  --activation-version 1 --approval-ref <011 decision id>` releases (to `queued`) only rows whose application
+  is still `contact_verified`, not terminal, not paused, with an adoption matching `input_ref`. It refuses
+  without an approval reference (the POL-03 and POL-04 records) and logs it on each release event.
+- A row whose adopted version has no claim fields (created before the form extension) is not released: it gets
+  a staff item `claims_missing`, so an empty snapshot never reaches a model.
 - `interpret_reply` rows (per question, held, INSPECTED) are never released individually (5.4).
 
 ### 4.2 Stale input and concurrent change
 
 | While a run or fetch is in flight | Result |
 |---|---|
-| a newer submission version arrives, unadopted | ignored; the run uses the adopted version (TEST-P3-08) |
+| a newer submission version arrives, unadopted | ignored; the run uses the adopted version (TEST-P3-08); the existing `newer_unverified_version` staff item opens (S1 rule) |
+| staff move the application (for example to `on_hold`) | the record transaction compare-and-sets the expected stage `assessing`; on a mismatch it records the run and transitions nothing |
 | the adoption changes | the pre-call or record check finds a different snapshot digest: the run ends `refused: input_changed`, no transition, a staff item |
 | evidence changes (re-fetch) | a new capture; the frozen snapshot still names the old one; the result is valid history for that snapshot only |
 | a reply is re-derived | the derivative digest pin (P2 10.9) no longer matches: interpretation ends `text_changed` |
@@ -212,6 +232,15 @@ snapshot digest, so one snapshot is assessed at most once.
 | capture derivatives, each at most 8,000 characters, at most 12, total at most 40,000 | unrelated correspondence, staff notes, resolution notes |
 | confirmed answer spans only, each at most 2,000 characters | quoted text, our own sent text, unadopted versions |
 | the rubric criteria from the approved pack | other applicants, agreements, Intent OS or brain content, coding-agent memory |
+| for reply interpretation: the reply derivative outside quoted ranges, its versions, and the exact question texts | the full reply, quoted text and our sent body (`sent_body` stays local, used only by `validate_proposals`) |
+| deterministic observation booleans such as `names_applicant` (computed locally: does a page name the applicant, by exact and normalized name match) | the applicant's name itself |
+
+**Free text is the weak point.** Claim text, page derivatives and replies can carry names, addresses, phone
+numbers and URLs. Every outgoing free-text field is scrubbed first (email addresses, phone numbers and URLs
+replaced by placeholders; the applicant's name and its normalized variants replaced by the alias), and the
+canary tests cover free text, not only structured fields. Residual risk, stated: third parties' names and
+details in fetched pages are not reliably detectable and would leave with the page text; this is why real
+content needs the provider review (F-16) and an explicit authorization.
 
 Every untrusted item is fenced as data (`<<DATA alias nonce>> … <</DATA nonce>>` with a per-run nonce; any
 delimiter look-alike in content neutralized), Unicode-normalized and stripped of control, zero-width and
@@ -222,16 +251,20 @@ specification;** the boundary above is what an owner authorization would approve
 
 | Field | Type and bound | Rule enforced by code after parsing |
 |---|---|---|
-| `criteria` | 1 to 12 findings | exactly one per rubric criterion, no extras |
+| `criteria` | 1 to 8 findings | exactly one per rubric criterion, no extras |
 | finding `rating` | `supported`, `partly_supported`, `not_supported`, `insufficient_evidence` | any rating but `insufficient_evidence` needs a citation |
-| finding `summary` | at most 500 characters | cleaned; no URL or HTML |
-| `citations` | at most 6 per finding: an alias and a verbatim quote (1 to 300 characters) | the alias exists in this request; the quote occurs verbatim in that item; code computes offsets (the model never gives offsets) |
+| finding `summary` | at most 300 characters | cleaned; no URL or HTML |
+| `citations` | at most 3 per finding: an alias and a verbatim quote (1 to 300 characters) | the alias exists in this request; the quote occurs verbatim in exactly the sanitized text that was sent for that item; code computes offsets (the model never gives offsets); a citation overlapping a deterministic injection marker is flagged |
 | `recommendation` | `admit`, `decline`, `hold` | advisory only |
-| `recommendation_basis` | at most 600 characters; 1 to 12 criterion ids | ids exist in the rubric |
+| `recommendation_basis` | at most 600 characters; 1 to 8 criterion ids | ids exist in the rubric |
 | `confidence` | `low`, `medium`, `high` | no numeric score |
 | `proposed_questions` | 0 to 3: text (at most 400), criterion id, why needed (at most 200) | no URL, address or credential request |
 | `injection_suspected` | boolean, with 1 to 4 citations when true | informative only |
 | `limitations` | at most 5, each at most 200 characters | e.g. truncated items, unavailable sources |
+
+The bounds keep the largest valid output near 10,000 characters (about 2,500 tokens). Injection markers are
+computed on the sanitized derivative (after hidden elements are stripped), so markers and quotes refer to the
+same text; any `<think>` block inline in `content` (F-13) is removed before parsing and never stored.
 
 Cross-checks stored, never silently corrected: `admit` with a required criterion `not_supported` is flagged
 `inconsistent_recommendation`; a truncated item cannot support `not_supported`; an unavailable source can only
@@ -250,10 +283,20 @@ protocol in `assessments`; it creates no second interface (the `016` mention of 
 is superseded by the actual module).
 
 - **Coalescing.** P2 holds one `interpret_reply:<message>:<question>` row per pending question. P3 adds one
-  message-level action `interpret_message:<message>:<derivative digest>`, created only by the activation rule
-  or at processing time for new replies; the per-question held rows stay as staff-visible shadows and are
-  cancelled by the existing staff-decision paths. One reply therefore causes at most one model call per
-  derivative.
+  message-level action `interpret_message:<message>:<derivative digest>`; the per-question held rows stay as
+  staff-visible shadows. One reply therefore causes at most one model call per derivative.
+- **Layering.** The `interpret_message` handler is a thin class in `correspondence/processing.py` (so
+  `correspondence` never imports `assessments`, and the existing `dispatch_problems` prefix rule holds). It
+  resolves the implementation through a code-fixed setting `CATALYST_REPLY_INTERPRETER` (the
+  `CATALYST_ATTENTION_OPENER` pattern), pinned by `dispatch_problems` to `assessments.` and refused from the
+  environment. The P3 assessment handlers (`fetch_evidence`, `run_assessment`) need `dispatch_problems` to
+  admit the `assessments.` prefix: an explicit, tested amendment.
+- **Cancellation.** `_cancel_interpretation` is extended to cancel `interpret_message` rows, so a staff
+  confirmation, closure or withdrawal cancels queued work; the pre-call transaction also re-checks that the
+  message is still `awaiting_processing` and undecided, so nothing is disclosed after staff decided.
+- **Creation.** `ProcessReply` creates the message-level row when the reply is eligible and the activation
+  version is in force (a setting checked in `correspondence`); earlier replies are released only by the
+  versioned activation command.
 - **Inputs:** `eligible()` checked before the request, at pre-call and at record; exact question ids;
   `derived_text_sha256`, derivation and redaction versions; `quoted_ranges`; the sent body.
 - **Output:** per question an outcome and up to 10 verbatim quotes; the adapter locates each quote uniquely
@@ -263,8 +306,8 @@ is superseded by the actual module).
 - **Authority:** proposals are stored on the run, never in `QuestionReplyLink`; staff still confirm through
   `confirm_question_outcome`, which requires a user and cannot be called by the handler. Turning on automatic
   application would need a new owner decision and new code, not a setting.
-- **Eligibility default:** only `trusted` replies (not `staff_associated`) go to a model, pending the owner's
-  decision (8, D-6).
+- **Eligibility default:** only `trusted` replies (not `staff_associated`, which `eligible()` admits) go to a
+  model; the adapter adds this rule and a test proves it (pending the owner's decision P3-D-6).
 
 ### 5.5 Provider and framework
 
@@ -272,9 +315,9 @@ is superseded by the actual module).
 |---|---|---|
 | Framework | PydanticAI agent per contract; no tools | per ADR-04 |
 | Test model | `TestModel` and scripted `FunctionModel`; real requests disabled for all tests | see 5.6 |
-| Live model | MiniMax through an OpenAI-compatible client with an explicit base URL, refused by a start-up guard in every environment until authorized | see 5.6 |
+| Live model | MiniMax through an OpenAI-compatible client with an explicit base URL. Refused in every environment until authorized, by three layers: `models.ALLOW_MODEL_REQUESTS = False` set in the app's `ready()` for every environment; a provider factory that has no live branch reachable without an authorization setting refused by a new start-up guard; and an HTTP transport in tests that raises on any request. Agent instrumentation that exports prompts is forbidden | see 5.6 |
 | Output mode | PydanticAI tool output as the candidate (MiniMax documents function tools), prompted output as the fallback, never native JSON-schema output (undocumented); our strict validation always; the authorized synthetic probe decides | F-2, F-11, F-12 |
-| Pins | one PydanticAI version, one model identifier, recorded on every run | owner decision D-8 |
+| Pins | one PydanticAI version, one model identifier, recorded on every run | owner decision P3-D-8 |
 
 ### 5.6 Official documentation findings
 
@@ -313,31 +356,40 @@ extracts: **re-verify each one verbatim before 3B.2 pins versions** (that check 
 
 ## 6. Budgets, failure and recovery
 
-**Limits (PROPOSED, synthetic; every number needs the owner's cost decision):**
+**Limits (PROPOSED, synthetic; every number needs the owner's cost decision).** All are per **snapshot**
+(one manifest digest), not per run row, so a re-created run cannot reset them:
 
 | Limit | Value | Rationale |
 |---|---|---|
-| Model requests per run | 2 (one call plus one repair) | repair once, then staff |
-| Tool calls per run | 0 | no tools |
-| Tokens per run (input plus output, including any reasoning) | 32,000 | bounded snapshot size |
-| Output tokens | 3,000 | the schema is small |
-| Wall time per call | 120 s (connect 10 s) | inside the worker lease |
-| Ledger attempts for provider errors | 2 | transient failures only |
-| Concurrent runs | 1 per application; 2 globally | a small queue |
+| Model requests per snapshot | at most 4: 2 per attempt (one call plus one output repair) × 2 ledger attempts | every layer counted (below) |
+| Function tools | none registered; the output tool of PydanticAI's tool-output mode is the only tool | `tool_calls_limit` is not set to 0, because tool output is itself a tool call (verify in 3B.2) |
+| Input tokens per request | 16,000 (`per_request_input_tokens_limit`) | the largest snapshot (40,000 characters) is about 10,000 tokens |
+| Output tokens per attempt | 8,000, including any reasoning the model cannot disable (F-13) | the largest valid output is about 2,500 tokens |
+| Total tokens per snapshot | 50,000, enforced by Catalyst's own accounting (UsageLimits has no total limit, F-4) | |
+| Wall time per request | 60 s (connect 10 s); the whole attempt at most half the worker lease, enforced by a settings check like the mail transport's | no reclaim while a call is in flight |
+| Ledger attempts | `max_attempts=2` set explicitly on the row (the ledger default is 3) | crashes and provider errors share this counter |
+| Concurrent runs | 1 per application (a partial unique constraint on runs in flight); 2 globally through a counter row taken under its lock | the ledger has no concurrency cap |
 | Rounds per application | 3 | bounded clarification |
 | Runs per application, all purposes | 6 | |
 | Tokens per application, lifetime | 150,000 | |
-| Cost | a daily and per-application cost cap, values set after prices are verified | no price is known |
+| Daily global requests and cost | a counter row that **defaults to 0** (fail-closed): no run proceeds until the owner sets a value | no price is verified yet |
+
+Lock order for budgets: application, then the budget or counter row, then the action (through the ledger).
 
 **Retry layers do not multiply:** the SDK's own retries are 0; PydanticAI's output retries are 1; the ledger
-retries provider errors at most twice; the worker never re-runs a run that recorded an invocation without a
-new run row. Maximum provider requests per run: 2 (output) × 2 (ledger) = 4, counted against the budget.
+retries provider errors with `max_attempts=2`; transport retries are disabled. Catalyst counts every request
+itself, because SDK and transport retries are invisible to `request_limit` (F-6).
 
-**Invocation before the call.** The pre-call transaction records an invocation (run, attempt, budget
-reserved, time) before any request. If the worker dies after the provider may have processed or billed the
-call but before the result is saved, the lease expires; the reclaim finds the recorded invocation, marks
-that run `abandoned`, counts its reservation as spent, and starts at most one new run under the same
-snapshot only if the budget allows. Catalyst does not claim exactly-once inference or zero duplicate
+**Invocation before the call, and the lease.** The pre-call transaction records an invocation (run, attempt,
+reserved budget, time) before any request, and `ledger.fence()` runs before each request and each repair. Once
+an invocation is recorded, the attempt is **never refunded** (a pause after that point does not return the
+attempt, so a pause cannot let a duplicate call through). If the worker dies after the provider may have
+processed or billed a call, the lease expires: a reclaim finds the recorded invocation and either continues
+under the remaining budget or, when the poison rule exhausts the row, `record()` marks the invocation
+`abandoned`, counts its reservation as spent and opens a staff item, so the application never sits in
+`assessing` with no action. A result whose lease was lost is discarded with its transaction; the reservation
+is the only accounting. At most one **succeeded** run exists per snapshot (a partial unique constraint);
+abandoned and failed runs are history. Catalyst does not claim exactly-once inference or zero duplicate
 charges.
 
 **Failure is never adverse:** an unavailable model, malformed output after the repair, an exhausted budget, an
@@ -347,20 +399,33 @@ where it was. No failure produces a recommendation or a decision.
 ## 7. Human authority and the staff experience
 
 **Decision service (J-10).** One transaction with the application locked: a `QualificationDecision` (outcome,
-actor, reason code and text, the run it relied on, the adopted version, time), the stage transition, an
-event and one held follow-on action. Prerequisites checked inside the transaction:
+actor, reason code and text, the run it relied on, the snapshot digest, the adopted version, time), the stage
+transition, an event and one held follow-on action. Prerequisites checked inside the transaction:
 
 - the authority is decided: a code-fixed setting `CATALYST_QUALIFICATION_AUTHORITY` is `None` until POL-05 is
   recorded, and while `None` everyone is refused, superusers included;
-- the actor holds `assessments.record_qualification_decision` by explicit grant (assigned to no group by
-  migration; the existing correspondence decision-maker group is not extended);
+- the actor passes the P2 `can()` rule permanently (authenticated, active, never a superuser, a human `user:`
+  actor) and holds `assessments.record_qualification_decision` by explicit grant (assigned to no group by
+  migration; the existing correspondence decision-maker group is not extended); `CATALYST_QUALIFICATION_AUTHORITY`
+  is fixed in code and refused from the environment by `dispatch_problems`;
+- the snapshot digest the decision-maker saw equals the digest recomputed now from the current manifest (any
+  re-fetch, newly confirmed answer, changed question set or rubric bump refuses, as P2's
+  `confirm_question_outcome(expected_digest=)` does); the stage is compare-and-set from `awaiting_decision`;
+  no evidence item is pending;
 - the run is this application's latest succeeded, valid run on the current adopted version, and no run is in
   flight; no open identity-affecting staff item exists;
 - `admit` is refused while automation is paused; `decline` and `hold` are allowed.
 
+**Database backstop.** Because web and worker share the application role, which may update `stage`, a
+deferred constraint trigger (the ADR-14 pattern) refuses any transition into `admitted`, `declined` or
+`on_hold` unless a `QualificationDecision` row for that application is inserted in the same transaction. The
+decision table is insert-only for the application role, and at most one `admit` or `decline` decision exists
+per application (a partial unique constraint). Staff decisions should also require MFA and recent
+re-authentication (POL-13, GATE-STAGING).
+
 **P4 hand-off.** `admit` creates a held `issue_nda:<application>` action and nothing else; `decline` creates a
 held `send_decline:<application>` action (no applicant message until a POL-06 template is approved). No model
-result can create either. NDA-before-User-Agreement (D-15) and the separate signing and custody facts stay P4.
+result can create either. NDA-before-User-Agreement (D-15 in `011`) and the separate signing and custody facts stay P4.
 
 **Re-application after decline.** P3 makes `declined` reachable for the first time; the fail-closed repeat rule
 of J-02 (planned TEST-P5-06) is pulled into 3B.4.
@@ -378,24 +443,26 @@ releasing work under the activation rule (an owner-run command is the one except
 
 ## 8. Owner decisions brief (recommendations, not decisions)
 
+These are numbered `P3-D-n` to avoid confusion with the recorded decisions `D-01` to `D-33` in `011`.
+
 | # | Decision | Recommended | Alternative | Rationale | Earliest blocking task |
 |---|---|---|---|---|---|
-| D-1 | POL-03 claims intake | extend the public form with the optional structured claim fields of section 2 | collect by P2 question only | versioning and adoption already exist | 3B.1 |
-| D-2 | POL-03 first sources | two kinds (work-sample page, credential verification page), synthetic fixtures only; none required; `on_unavailable=staff` | also profile pages | proxies such as stars are excluded | 3B.1 |
-| D-3 | Real fetching | synthetic only through GATE-P3; real fetching at GATE-PILOT with a network egress allow-list | real public fetch in development | the guards already require it | GATE-PILOT |
-| D-4 | POL-04 rubric shape | fixed criteria per rubric version, a rating per criterion, an advisory overall recommendation, no numeric score | criteria plus a score | a score invites thresholds and false precision | 3B.2 |
-| D-5 | POL-04 model-proposed questions | never sent until staff approve each one | an approved question bank | fail-closed, matches J-06 and the existing constraints | 3B.3 |
-| D-6 | Data-use boundary | synthetic only now; later, the minimized fields of 5.2, alias instead of name, only `trusted` replies, no stored raw outputs | wider content | minimum needed; staff-associated unverified mail is less trustworthy | 3B.2 (contract), live use (separate) |
-| D-7 | Budgets | the table of section 6 for synthetic work; no live budget until prices are verified | other numbers | conservative, restart-proof | 3B.2 |
-| D-8 | Model and SDK pin, output mode | pin one PydanticAI version and one MiniMax model (a generally available one, not the preview of F-10); tool output as the candidate, prompted as the fallback, both validated; the probe decides | native JSON-schema output | `response_format` is undocumented (F-12); "OpenAI-compatible" does not prove each feature | 3B.2 (pin), probe (B) |
-| D-9 | POL-05 authority | one named decision group with the owner as its only member; one person may decide | two people for admit and decline | a one-person team; the schema keeps a nullable second actor | 3B.4 |
-| D-10 | POL-05 decision without an assessment | not allowed: a failed assessment is rerun or waits | a recorded waiver | fail-closed | 3B.4 |
-| D-11 | POL-05 reconsideration | none in P3; decline is terminal; reopening is POL-12 | reconsideration by another decision-maker | keeps P3 small | 3B.4 |
-| D-12 | Redelivery of `run_assessment` and `fetch_evidence` | allowed (redeliverable), because neither sends anything; every started call counts against the budget | treat as uncertain and reconcile | ADR-15 and D-20 did not generalize redelivery, so this needs an explicit statement | 3B.1 |
-| D-13 | POL-10 for P3 records | no raw bytes; derivatives, digests and runs kept; no deletion until POL-10 | encrypted raw custody | public repository; retention undecided | real-data use |
-| D-14 | POL-13 for P3 screens | observation and assessment text readable by assessment operators and decision-makers only; a template owner or pause-only role sees none | broader read | least privilege, as in P2 | 3B.1 |
-| D-15 | POL-17 applicant notice | the form states what evidence is checked, that a model assists staff, and that a person decides | no notice in synthetic P3 | needed before real applicants | GATE-PILOT |
-| D-16 | Re-application after decline | enforce the J-02 rule in 3B.4 | defer to P5 | P3 makes `declined` reachable | 3B.4 |
+| P3-D-1 | POL-03 claims intake | extend the public form with the optional structured claim fields of section 2 | collect by P2 question only | versioning and adoption already exist | 3B.1 |
+| P3-D-2 | POL-03 first sources | two kinds (work-sample page, credential verification page), synthetic fixtures only; none required; `on_unavailable=staff` | also profile pages | proxies such as stars are excluded | 3B.1 |
+| P3-D-3 | Real fetching | synthetic only through GATE-P3; real fetching at GATE-PILOT with a network egress allow-list | real public fetch in development | the guards already require it | GATE-PILOT |
+| P3-D-4 | POL-04 rubric shape | fixed criteria per rubric version, a rating per criterion, an advisory overall recommendation, no numeric score | criteria plus a score | a score invites thresholds and false precision | 3B.2 |
+| P3-D-5 | POL-04 model-proposed questions | never sent until staff approve each one | an approved question bank | fail-closed, matches J-06 and the existing constraints | 3B.3 |
+| P3-D-6 | Data-use boundary | synthetic only now; later, the minimized fields of 5.2, alias instead of name, only `trusted` replies, no stored raw outputs | wider content | minimum needed; staff-associated unverified mail is less trustworthy | 3B.2 (contract), live use (separate) |
+| P3-D-7 | Budgets | the table of section 6 for synthetic work; no live budget until prices are verified | other numbers | conservative, restart-proof | 3B.2 |
+| P3-D-8 | Model and SDK pin, output mode | pin one PydanticAI version and one MiniMax model (a generally available one, not the preview of F-10); tool output as the candidate, prompted as the fallback, both validated; the probe decides | native JSON-schema output | `response_format` is undocumented (F-12); "OpenAI-compatible" does not prove each feature | 3B.2 (pin), probe (B) |
+| P3-D-9 | POL-05 authority | one named decision group with the owner as its only member; one person may decide | two people for admit and decline | a one-person team; the schema keeps a nullable second actor | 3B.4 |
+| P3-D-10 | POL-05 decision without an assessment | not allowed: a failed assessment is rerun or waits | a recorded waiver | fail-closed | 3B.4 |
+| P3-D-11 | POL-05 reconsideration | none in P3; decline is terminal; reopening is POL-12 | reconsideration by another decision-maker | keeps P3 small | 3B.4 |
+| P3-D-12 | Redelivery of `start_evidence_collection`, `fetch_evidence` and `run_assessment` | allowed (redeliverable) within the per-snapshot budget. Accepted cost: a redelivered `run_assessment` repeats the disclosure of the same minimized snapshot to the provider and may be billed again; a redelivered fetch repeats a request to a public source | treat as uncertain and reconcile | ADR-15 and D-20 did not generalize redelivery, so this needs an explicit statement | 3B.1 |
+| P3-D-13 | POL-10 for P3 records | no raw bytes; derivatives, digests and runs kept; no deletion until POL-10 | encrypted raw custody | public repository; retention undecided | real-data use |
+| P3-D-14 | POL-13 for P3 screens | observation and assessment text readable by assessment operators and decision-makers only; a template owner or pause-only role sees none | broader read | least privilege, as in P2 | 3B.1 |
+| P3-D-15 | POL-17 applicant notice | the form states what evidence is checked, that a model assists staff, and that a person decides | no notice in synthetic P3 | needed before real applicants | GATE-PILOT |
+| P3-D-16 | Re-application after decline | enforce the J-02 rule in 3B.4 | defer to P5 | P3 makes `declined` reachable | 3B.4 |
 
 ## 9. Acceptance plan
 
@@ -411,9 +478,9 @@ GATE-S1 and GATE-P2.
 - **B. Synthetic MiniMax compatibility and quality evaluation (later, separately authorized):** a stated
   budget; the pinned model and endpoint; a small owner-reviewed evaluation set of synthetic applications
   with expected findings written by the owner; quality criteria scored by people (the model never grades
-  itself alone); a structured-output probe for D-8. Prerequisites: owner authorization, an API entitlement
+  itself alone); a structured-output probe for P3-D-8. Prerequisites: owner authorization, an API entitlement
   confirmed from the provider (an existing key or subscription is not authorization), provider data-handling
-  review (5.6), and the D-6 boundary. Not part of GATE-P3.
+  review (5.6), and the P3-D-6 boundary. Not part of GATE-P3.
 - **C. Real-data and pilot acceptance:** only after POL-03, POL-04, POL-05, POL-10, POL-13, POL-17, the
   correction beads `catalyst-v2-9kg.1` to `.3` and GATE-STAGING and GATE-PILOT.
 
@@ -470,18 +537,25 @@ GATE-S1 and GATE-P2.
 | TEST-P3-47 | an identity staff item blocks a decision; `admit` refused while paused | 3B.4 |
 | TEST-P3-48 | the decision screen shows claims, observations, "cannot prove", assessment, limitations and only permitted outcomes; hostile text escaped | 3B.4 |
 | TEST-P3-49 | repeat submission after decline follows the fail-closed J-02 rule | 3B.4 |
-| TEST-P3-50 | static checks: `assessments` imports nothing from agreements or provisioning; no code branch reads the recommendation; no assessment code calls `confirm_question_outcome` | 3B.2 |
+| TEST-P3-50 | static checks: `assessments` imports nothing from agreements or provisioning; no transition or code branch reads **any** model-output field (recommendation, proposals, ratings); no assessment code calls `confirm_question_outcome` | 3B.2 |
+| TEST-P3-51 | a decision is refused after a re-fetch, a newly confirmed answer or a changed question set since the snapshot shown | 3B.4 |
+| TEST-P3-52 | the stage cannot enter a decided state without a decision row in the same transaction (trigger) | 3B.4 |
+| TEST-P3-53 | a superuser is refused after POL-05 is recorded; the authority setting is refused from the environment | 3B.4 |
+| TEST-P3-54 | `classify(ip)` has no environment branch; fixtures pass only through a `fixture_only` source refused outside `test` | 3B.1 |
+| TEST-P3-55 | `interpret_message` is cancelled by a staff decision; a staff decision before the call stops the disclosure | 3B.3 |
+| TEST-P3-56 | a crash inside the lease with a recorded invocation yields at most the stated requests per snapshot; no refund after invocation; the poison path opens a staff item | 3B.2 |
+| TEST-P3-57 | canary values in free text (claim text, page text, reply text) are scrubbed from the request; `names_applicant` is computed locally | 3B.2 |
 
 ## 10. Build slices (3B) and verification (3C)
 
 | Key | Bead | Scope | Depends on |
 |---|---|---|---|
-| 3B.1 | `catalyst-v2-oc4.2` | versioned claim fields on the adopted submission; `EvidenceSource`, `EvidenceItem`, `EvidenceCapture` with grants and triggers; the fixture-backed fetch adapter with the full SSRF pipeline; the activation rule; the staff observation screen; TEST-P3-05, 06, 09 to 20. **No model call.** | 3A approval; D-1, D-2, D-12, D-14 |
-| 3B.2 | `catalyst-v2-oc4.3` | the assessment run: snapshot, prompt pack, output schema and validation, budgets and invocation record, failure routing, stage transitions, the live-model guard; test models only; TEST-P3-01 to 03, 08, 21 to 33, 50 | 3B.1; D-4, D-6, D-7, D-8 |
-| 3B.3 | `catalyst-v2-oc4.4` | clarification: model-proposed questions through P2 approval, the staff question-authoring screen, dedup and rounds, the reply interpreter implementing the existing protocol with coalescing and activation, reassessment; TEST-P3-07, 34 to 42 | 3B.2; D-5, D-6 |
-| 3B.4 | `catalyst-v2-oc4.5` | the decision service and screen, the authority gate, the held P4 hand-off, the re-application rule; TEST-P3-04, 43 to 49 | 3B.2; D-9, D-10, D-11, D-16 |
+| 3B.1 | `catalyst-v2-oc4.2` | versioned claim fields on the adopted submission; `EvidenceSource`, `EvidenceItem`, `EvidenceCapture` with grants and triggers; the fixture-backed fetch adapter with the full SSRF pipeline; the activation rule; the staff observation screen; TEST-P3-05, 06, 09 to 20, 54. **No model call.** | 3A approval; P3-D-1, P3-D-2, P3-D-12, P3-D-14 |
+| 3B.2 | `catalyst-v2-oc4.3` | the assessment run: snapshot, prompt pack, output schema and validation, budgets and invocation record, failure routing, stage transitions, the live-model guard; test models only; TEST-P3-01 to 03, 08, 21 to 33, 50, 56, 57 | 3B.1; P3-D-4, P3-D-6, P3-D-7, P3-D-8 |
+| 3B.3 | `catalyst-v2-oc4.4` | clarification: model-proposed questions through P2 approval, the staff question-authoring screen, dedup and rounds, the reply interpreter implementing the existing protocol with coalescing and activation, reassessment; TEST-P3-07, 34 to 42, 55 | 3B.2; P3-D-5, P3-D-6 |
+| 3B.4 | `catalyst-v2-oc4.5` | the decision service and screen, the authority gate, the database backstop trigger, the held P4 hand-off, the re-application rule; TEST-P3-04, 43 to 49, 51 to 53 | 3B.2; P3-D-9, P3-D-10, P3-D-11, P3-D-16 |
 | 3C | `catalyst-v2-oc4.6` | the GATE-P3 run (the P3 acceptance map), one independent QA review, the after-action report | 3B.1 to 3B.4 |
-| 3E | `catalyst-v2-oc4.7` | the synthetic MiniMax compatibility and quality evaluation (proof B); not part of GATE-P3 | owner authorization, entitlement, provider review, D-6, D-8 |
+| 3E | `catalyst-v2-oc4.7` | the synthetic MiniMax compatibility and quality evaluation (proof B); not part of GATE-P3 | owner authorization, entitlement, provider review, P3-D-6, P3-D-8 |
 
 **Proposed 3B.1:** exactly the first row: versioned evidence inputs, deterministic fixture-backed collection
 and staff-visible observations, without any model call. No concrete dependency requires adjusting it.
@@ -497,10 +571,43 @@ escaped rendering with the `visible` filter; no model path to stage, sending, qu
 start-up guards for fetch hosts and the live model; budgets that survive restarts; no secrets or bodies in
 logs. Residual risks: a hijacked model flags nothing (the controls are structural, and a person reads
 everything); a derivative cannot be re-verified; application-level SSRF needs a network egress allow-list in
-production (P6).
+production (P6); third parties' details in fetched pages are not reliably scrubbed; captures and runs are kept
+until POL-10.
+
+**Control enforcement** (ENF: enforced by code, database or infrastructure; CFG: configured; INT: intended until
+the named task builds and tests it):
+
+| Control | Today | After |
+|---|---|---|
+| Held rows are never claimed | ENF (`ledger.claim_next`) | unchanged |
+| Fenced result writes; lost lease discards the result | ENF (`ledger.finish`, `fence`) | unchanged |
+| Provider credential variables refused | ENF (`config/guards.py`) | unchanged |
+| Live-model refusal (request flag, factory guard, raising transport) | INT | ENF in 3B.2 |
+| Fetch host allow-list at fetch time; `classify(ip)`; `fixture_only` guard | INT | ENF in 3B.1 |
+| No model path to a stage or decision | INT | ENF in 3B.2 (static test) and 3B.4 (database trigger) |
+| Decision bound to the viewed snapshot; superusers refused; authority setting pinned | INT | ENF in 3B.4 |
+| Budgets per snapshot, no refund after invocation, global counter defaulting to 0 | INT | ENF in 3B.2 |
+| Free-text scrubbing and `names_applicant` | INT | ENF in 3B.2 (canary tests) |
+| `interpret_message` cancellation and the pre-call staff re-check | INT | ENF in 3B.3 |
+| Correctness of the model's assessment | not enforceable by code | human reading; proof B evaluation |
 
 ## 12. Review record
 
 Design input: `catalyst-minimax-evaluation` (assessment contracts) and `catalyst-django-data` (data, fetch job,
-stages). Official documentation research: section 5.6. Final review: one independent reviewer of the
-security and reliability contract (recorded below when complete).
+stages). Official documentation research: section 5.6.
+
+**Independent security and reliability review** (`catalyst-security-privacy`, one reviewer, of 0.1.0). All
+findings applied in 0.2.0:
+
+| Severity | Finding | Resolution |
+|---|---|---|
+| BLOCKER | a model run changed the stage by proposing questions | a run's completion always moves to `awaiting_decision`; only a staff approval moves to `awaiting_answers`; TEST-P3-50 covers every output field (section 4) |
+| BLOCKER | the decision was not bound to the snapshot shown | the decision takes the viewed digest, recomputes it and refuses any difference; compare-and-set stage; no pending item (section 7, TEST-P3-51) |
+| HIGH | stage authority rested on convention | `can()` semantics, a pinned authority setting, a deferred trigger requiring a decision row, insert-only decisions, MFA noted (section 7, TEST-P3-52, 53) |
+| HIGH | `interpret_message` conflicted with P2 guards and cancellation | a thin handler in `correspondence` behind a pinned seam, the guard amendment stated, cancellation and a pre-call staff check (5.4, TEST-P3-55) |
+| HIGH | the fetch guard was start-up only; fixtures conflicted with the address rules | fetch-time checks, versioned sources, `fixture_only` sources, one `classify` with no environment branch, more address classes (3.3, TEST-P3-54) |
+| HIGH | retry arithmetic and lost-result recovery were inconsistent with the ledger | per-snapshot budgets, explicit `max_attempts`, no refund after invocation, fencing, the poison path, discard on lost lease, one succeeded run per snapshot, a fail-closed global counter (section 6, TEST-P3-56) |
+| HIGH | free text bypassed the data boundary | scrubbing, local `names_applicant`, a reply-interpretation row, residual risk stated (5.2, TEST-P3-57) |
+| MEDIUM | activation, redelivery rationale, record compare-and-set, fetch details, token arithmetic, live-model guard, injection handling | 4.1, P3-D-12, 4.2, 3.3, 5.3, 5.5 and section 6 |
+| LOW | decision numbering collided with `011` | renamed `P3-D-n` |
+| LOW | `staff_associated` replies are admitted by `eligible()` | the adapter adds the trusted-only rule, with a test |

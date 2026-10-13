@@ -375,19 +375,19 @@ P3, a release or a deployment (`016` 10.12).
 | 2C | `catalyst-v2-7hu.6` | Verify the correspondence loop: the GATE-P2 acceptance run, independent QA and the after-action report (health and reconciliation behaviour is built in 2B.1 to 2B.4) | 2B.1 to 2B.4 |
 
 **Evidence and assessment tasks (P3), specified in handoff 3A (`018`, PROPOSED).** The owner asked for 3A
-after GATE-P2 (D-33). 3A is the specification and the owner's P3 decision brief (`018` section 8); 3B.1 to
+after GATE-P2 (D-33). 3A is the specification and the owner's P3 decision brief (`018` section 8, proposals `P3-D-1` to `P3-D-16`); 3B.1 to
 3B.4 each need the owner's release after `018` is approved; 3C is the GATE-P3 verification. Live model use and
 real fetching are not authorized by any of these.
 
 | Key | Bead | Title | Depends on |
 |---|---|---|---|
 | 3A | `catalyst-v2-oc4.1` | Specify the P3 evidence collection and bounded MiniMax assessment, and prepare the owner's P3 decisions | GATE-P2 (D-33) |
-| 3B.1 | `catalyst-v2-oc4.2` | Collect versioned applicant claims and deterministic, fixture-backed evidence observations that staff can see, without any model call | 3A approval; `018` D-1, D-2, D-12, D-14 |
-| 3B.2 | `catalyst-v2-oc4.3` | Run the bounded assessment over a frozen snapshot with PydanticAI test models, budgets, invocation records and failure routing to staff | 3B.1; D-4, D-6, D-7, D-8 |
-| 3B.3 | `catalyst-v2-oc4.4` | Run the clarification loop: model-proposed questions through P2 approval, staff question authoring, coalesced reply interpretation, reassessment | 3B.2; D-5, D-6 |
-| 3B.4 | `catalyst-v2-oc4.5` | Record the authorized qualification decision with its exact inputs and hand admitted applicants to P4 as held work | 3B.2; D-9, D-10, D-11, D-16 |
+| 3B.1 | `catalyst-v2-oc4.2` | Collect versioned applicant claims and deterministic, fixture-backed evidence observations that staff can see, without any model call | 3A approval; `018` P3-D-1, P3-D-2, P3-D-12, P3-D-14 |
+| 3B.2 | `catalyst-v2-oc4.3` | Run the bounded assessment over a frozen snapshot with PydanticAI test models, budgets, invocation records and failure routing to staff | 3B.1; P3-D-4, P3-D-6, P3-D-7, P3-D-8 |
+| 3B.3 | `catalyst-v2-oc4.4` | Run the clarification loop: model-proposed questions through P2 approval, staff question authoring, coalesced reply interpretation, reassessment | 3B.2; P3-D-5, P3-D-6 |
+| 3B.4 | `catalyst-v2-oc4.5` | Record the authorized qualification decision with its exact inputs and hand admitted applicants to P4 as held work | 3B.2; P3-D-9, P3-D-10, P3-D-11, P3-D-16 |
 | 3C | `catalyst-v2-oc4.6` | Verify P3: the GATE-P3 acceptance run, one independent QA review and the after-action report | 3B.1 to 3B.4 |
-| 3E | `catalyst-v2-oc4.7` | Evaluate MiniMax compatibility and quality on synthetic applications under a stated budget, once separately authorized (not part of GATE-P3) | owner authorization, API entitlement, provider review, D-6 |
+| 3E | `catalyst-v2-oc4.7` | Evaluate MiniMax compatibility and quality on synthetic applications under a stated budget, once separately authorized (not part of GATE-P3) | owner authorization, API entitlement, provider review, P3-D-6 |
 
 ## 8. Definition of success
 
