@@ -20,7 +20,7 @@ import time
 from datetime import timedelta
 
 from django.conf import settings
-from django.db import IntegrityError, InterfaceError, OperationalError, connection, transaction
+from django.db import DataError, IntegrityError, InterfaceError, OperationalError, connection, transaction
 from django.db.models.functions import Now
 
 from applications.models import TERMINAL_STAGES, Application
@@ -196,7 +196,18 @@ def ingest(cursor_id: int, validity: int, uid: int, size: int, internal_date: st
         if known is not None:
             InboundMessageLocation.objects.create(message=known, matched_by="metadata", **location)
             return advance("duplicate_by_metadata")
-    message = InboundMessage.objects.create(
+    try:
+        with transaction.atomic():  # savepoint: a value the database refuses must not poison the cursor
+            message = _store(cursor, derived, size, internal_date, digest)
+    except DataError:
+        failed = True
+        message = _store(cursor, mime.Derived(), size, internal_date, digest)
+    InboundMessageLocation.objects.create(message=message, matched_by="new", **location)
+    return _after_store(cursor, message, derived, digest, failed, headers_only, advance)
+
+
+def _store(cursor, derived, size, internal_date, digest):
+    return InboundMessage.objects.create(
         mailbox_ref=cursor.mailbox_ref, message_id_header=derived.message_id[:998],
         in_reply_to=" ".join(derived.in_reply_to)[:4000], references=" ".join(derived.references)[:8000],
         from_address=(derived.from_addresses[0] if len(derived.from_addresses) == 1 else "")[:320],
@@ -207,7 +218,9 @@ def ingest(cursor_id: int, validity: int, uid: int, size: int, internal_date: st
         omitted_parts=derived.omitted_parts, redactions=derived.redactions, attachments=derived.attachments,
         identity_state="established" if digest else "unestablished",
     )
-    InboundMessageLocation.objects.create(message=message, matched_by="new", **location)
+
+
+def _after_store(cursor, message, derived, digest, failed, headers_only, advance):
     if failed:
         _exception(message, "processing_error")
     elif headers_only:

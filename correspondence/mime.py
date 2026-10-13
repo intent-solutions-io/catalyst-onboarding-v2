@@ -30,7 +30,8 @@ REDACTED = "[confirmation link removed]"
 FILED_COPY_HEADER = "X-Catalyst-Filed-Copy"
 # The confirmation path is CONFIRM_PATH, shared with config/redaction.py. A token may be wrapped across lines,
 # including quoted continuations ("\n> "), so line breaks inside the token are part of the match.
-_CONFIRM = re.compile(r"(?i)" + re.escape(CONFIRM_PATH) + r"(?:[^\s\"'<>)\]]|\r?\n[> \t]*)+")
+_CONFIRM = re.compile(r"(?i)" + re.escape(CONFIRM_PATH)
+                      + r"(?:[^\s\"'<>)\]]|\r?\n[> \t]*(?=[A-Za-z0-9_\-:.=%/]+[ \t]*(?:\r?\n|$)))+")
 _MSGID = re.compile(r"<[^<>\s]+>")
 
 
@@ -95,7 +96,13 @@ def redact(text: str) -> tuple[str, int]:
     kept. Returns the text and the number of replacements. Not a universal secret detector."""
     text = re.sub(r"=\r?\n", "", text)  # a stray quoted-printable soft break left in decoded text
     text = html.unescape(unquote(text))
-    return _CONFIRM.subn(REDACTED, text)
+    text, count = _CONFIRM.subn(REDACTED, text)
+    return clean(text), count
+
+
+def clean(value: str) -> str:
+    """PostgreSQL text and jsonb refuse NUL: escape it last, after every decoding step (a %00 decodes to NUL)."""
+    return value.replace("\x00", "\\x00")
 
 
 def redact_short(value: str) -> str:
@@ -164,10 +171,10 @@ def derive(raw: bytes | None, *, max_text_chars: int, headers_only: bool = False
     derived.defects = len(message.defects)
     if len(message.keys()) > MAX_HEADERS:
         derived.omitted_parts.append({"part": "headers", "reason": "header_cap"})
-    derived.message_id = (_MSGID.findall(str(message.get("Message-ID", ""))) or [""])[0]
-    derived.in_reply_to = _MSGID.findall(str(message.get("In-Reply-To", "")))
-    derived.references = _MSGID.findall(str(message.get("References", "")))
-    derived.from_addresses = [addr for _, addr in getaddresses([str(v) for v in message.get_all("From", [])])]
+    derived.message_id = clean((_MSGID.findall(str(message.get("Message-ID", ""))) or [""])[0])
+    derived.in_reply_to = [clean(v) for v in _MSGID.findall(str(message.get("In-Reply-To", "")))]
+    derived.references = [clean(v) for v in _MSGID.findall(str(message.get("References", "")))]
+    derived.from_addresses = [clean(addr) for _, addr in getaddresses([str(v) for v in message.get_all("From", [])])]
     derived.date_header = redact_short(str(message.get("Date", "")))[:200]
     for name in ("Auto-Submitted", "Precedence", "X-Autoreply", "X-Autorespond", "List-Id", "List-Unsubscribe"):
         if message.get(name) is not None:
@@ -176,8 +183,8 @@ def derive(raw: bytes | None, *, max_text_chars: int, headers_only: bool = False
         derived.omitted_parts.append({"part": "message", "reason": "mime_defects", "count": derived.defects})
     if message.get_content_type() == "multipart/report" and "delivery-status" in str(message.get("Content-Type", "")).lower():
         derived.is_bounce = True
-    derived.filed_copy = str(message.get(FILED_COPY_HEADER, ""))[:200]
-    derived.authentication_results = [str(v) for v in message.get_all("Authentication-Results", [])][:50]
+    derived.filed_copy = clean(str(message.get(FILED_COPY_HEADER, "")))[:200]
+    derived.authentication_results = [clean(str(v)) for v in message.get_all("Authentication-Results", [])][:50]
     if headers_only:
         derived.omitted_parts.append({"part": "body", "reason": "oversize"})
         return derived
@@ -186,8 +193,7 @@ def derive(raw: bytes | None, *, max_text_chars: int, headers_only: bool = False
         _walk(message, derived, chunks, 0, [0])
     except (IndexError, TypeError, ValueError, LookupError):
         derived.omitted_parts.append({"part": "body", "reason": "unparseable"})
-    text = "\n".join(chunks).replace("\x00", "\\x00")
-    text, count = redact(text)
+    text, count = redact("\n".join(chunks))
     if count:
         derived.redactions["confirmation_link"] = count
     if len(text) > max_text_chars:

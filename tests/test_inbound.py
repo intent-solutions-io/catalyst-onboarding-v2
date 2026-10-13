@@ -715,3 +715,24 @@ def test_p2_41_g1_reports_a_stale_watermark(mailbox):
     owner = mailbox.committed.connect("owner", autocommit=True)
     owner.execute("UPDATE correspondence_mailboxcursor SET complete_through_at = now() - interval '30 days'")
     assert "stale_watermark" in collector_health()["anomalies"]
+
+
+def test_b4_percent_encoded_and_raw_nul_never_poison_the_cursor(mailbox):
+    _, message = sent_question(mailbox)
+    mailbox.imap.deliver(reply(message, body="before %00 after"))
+    mailbox.imap.deliver(reply(message, headers=["X-Autoreply: yes %00 here"], body="automatic"))
+    mailbox.imap.deliver(b"From: ada@example.test\r\nMessage-ID: <nul\x00id@example.test>\r\n\r\nraw nul\r\n")
+    mailbox.imap.deliver(reply(message, body="still collected afterwards"))
+    collect()
+    assert cursor(mailbox).last_uid == 4 and InboundMessage.objects.count() == 4
+    for text in InboundMessage.objects.values_list("derived_text", flat=True):
+        assert "\x00" not in text
+    assert InboundMessage.objects.filter(derived_text__contains="still collected afterwards").exists()
+
+
+def test_p2_47_a_wrapped_link_is_redacted_without_swallowing_the_following_words():
+    raw = (b"From: ada@example.test\r\nContent-Type: text/plain\r\n\r\n"
+           b"> see http://catalyst.example.test/confirm/Zm9vYmFyYmF6\r\n> cXV4:SIGNATURE987/\r\nThanks for asking.\r\n")
+    derived = mime.derive(raw, max_text_chars=10_000)
+    assert "SIGNATURE987" not in derived.text and "cXV4" not in derived.text
+    assert "Thanks for asking." in derived.text
