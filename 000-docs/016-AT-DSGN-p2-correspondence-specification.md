@@ -1353,3 +1353,6 @@ is not a standing requirement.
 **Test cost.** The full suite now takes about 11.5 minutes locally and about 7.5 minutes in CI. Use focused
 tests while editing and the full suite on the final candidate. The slowest tests are named in the closeout
 pull request.
+
+**Sign-off.** The owner accepted this closeout and signed off GATE-P2 for synthetic P2 on 2026-10-13 (D-33 in
+`011`). The excluded scope and the before-real-use conditions above stand.

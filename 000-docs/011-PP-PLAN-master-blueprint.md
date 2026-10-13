@@ -73,7 +73,7 @@ direct database edits or a coding agent. The learning site itself is not replace
 
 ## 4. Owner decisions and boundaries
 
-### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-32)
+### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-33)
 
 The owner gave this project direction in the build-contract instruction of 2026-10-09, in the
 invoking session. It is recorded here verbatim so a fresh session can check the source. The owner
@@ -208,6 +208,15 @@ test-tool verification) are recorded on each ADR row in `003`.
 > "None of these decisions authorizes real email, applicant-data ingestion, provider credentials,
 > deployment, or a production staff-access change."
 
+**GATE-P2 sign-off, 2026-10-13** (source of D-33). The owner reviewed the GATE-P2 closeout, draft PR #27 (code
+head `1ce791e`, CI run 38439993244). The closeout report proposed this sign-off statement:
+
+> "I accept GATE-P2 for synthetic P2 at main after PR #27, on CI run evidence GATE-S1 25/25 and GATE-P2 54/54, with the case dispositions and scope boundaries in `016` §10.12. This does not authorize real mail, applicant data, model use, P3, release or deployment. The three correction beads (append-only evidence, automatic-pause review, hard-bounce send block) and POL-10 must close before real use."
+
+The owner replied in the invoking session: "plz contunen o approve" (please continue, I approve). This is
+recorded as acceptance of the proposed statement and of the `016` §10.12 dispositions, and as authority to
+merge PR #27. It authorizes nothing the statement excludes.
+
 ### 4.2 Decision summary
 
 Decision records with rationale live in `003` section "Architecture decisions". This table is the
@@ -246,6 +255,7 @@ summary a reader needs first.
 | D-29 | POL-06, synthetic P2 send authority only: the owner approves each template version; authorized operators approve applicant-specific questions; only approved, frozen messages execute. No real applicant-facing wording, production cadence, quiet hours, limits or stop thresholds are approved | OWNER-DECIDED 2026-10-12 (partial) | section 4.1; `016` 8.1 |
 | D-30 | POL-13, P2 role matrix (`016` section F) for synthetic operation only: operators handle routine correspondence; identity-affecting resolutions, uncertain-send decisions and collector restarts need the decision-maker role; template approval stays with the owner. MFA, network restriction and production staff access remain undecided | OWNER-DECIDED 2026-10-12 (P2 slice) | section 4.1; `016` F |
 | D-31 | POL-19 fail-closed: a mismatched or unverifiable identity produces a staff exception with no automatic positive effect and no identity or dossier change; only the decision-maker resolves identity-affecting cases | OWNER-DECIDED 2026-10-12 | section 4.1; `016` C3, C4, F |
+| D-33 | GATE-P2 signed off for synthetic P2: every TEST-P2 case PASS on PostgreSQL in CI at one head (CI run 38439993244 on `1ce791e`; 624 passed; GATE-P2 PASS 54 and GATE-S1 PASS 25, FAIL 0, INCOMPLETE 0, NOT RUN 0), one independent QA review of the closeout, after-action report `017` filed, case dispositions and scope boundaries in `016` §10.12 accepted. The P2 epic `catalyst-v2-7hu` closes. Not authorized: real mail, applicant data, model use, P3, release or deployment. Before real use: the three correction beads (append-only evidence, automatic-pause review, hard-bounce send block) and POL-10 | OWNER-DECIDED 2026-10-13 | section 4.1; `016` 10.12; `017` |
 | D-32 | `015` is public technical documentation, provided its content stays public-safe; future public PDF renderings use unclassified labelling, not the theme's "Confidential" footer | OWNER-DECIDED 2026-10-12 | section 4.1; `016` 8.6; `015` errata item 6 |
 
 **Contradictions found:**

@@ -12,8 +12,8 @@
 > Everything ran against synthetic SMTP and IMAP servers. No real email, AI model, applicant data or
 > deployment was involved.
 
-- **Status:** GATE-P2 is evidenced and awaits the owner's sign-off. The owner held sign-off for one bounded
-  closeout (`016` 10.12). The epic stays open until sign-off.
+- **Status:** GATE-P2 signed off by the owner on 2026-10-13 (D-33 in `011`), after one bounded closeout
+  (`016` 10.12). The epic closes.
 - **Lane:** full. There were review findings and fixes in every task (section 5).
 - **Epic:** Run the applicant correspondence loop (bead `catalyst-v2-7hu`).
 - **Acceptance test:** every case TEST-P2-01 to TEST-P2-54 in `016` section 7 is PASS at one head on
@@ -140,7 +140,7 @@ real mailbox is connected:
 
   It also added the mappings the audit named, and renamed two tests whose names overstated them.
 
-**Partial coverage at filing (owner acceptance pending).** The GATE-P2 closeout (`016` 10.12) closed or set a
+**Partial coverage at filing (dispositions accepted by the owner in D-33).** The GATE-P2 closeout (`016` 10.12) closed or set a
 scope boundary for each item below. Owner acceptance of those dispositions is still pending. The items as
 filed:
 
