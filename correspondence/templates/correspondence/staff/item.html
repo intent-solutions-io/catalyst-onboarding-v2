@@ -1,0 +1,27 @@
+{% extends "correspondence/staff/base.html" %}{% load correspondence_display %}
+{% block content %}
+<h1>Staff item: {{ item.reason_code }}</h1>
+<p>Status: {{ item.status }}. Opened {{ item.opened_at|date:"Y-m-d H:i" }} UTC.
+{% if item.application %}Application: <a href="{% url 'correspondence_staff:application' item.application.public_ref %}"><bdi>{{ item.application.display_name|visible }}</bdi></a>.{% endif %}</p>
+{% if review %}<p><a href="{% url 'correspondence_staff:reply' message.public_id %}">Read the reply and confirm its outcome</a></p>{% endif %}
+{% if message and not review %}<p>Message from <bdi>{{ message.from_address|visible }}</bdi>, status {{ message.status }}{% if message.exception_reason %} ({{ message.exception_reason }}){% endif %}.</p>{% endif %}
+{% for code in codes %}
+<form method="post" action="{% url 'correspondence_staff:resolve' item.public_id %}">{% csrf_token %}
+<input type="hidden" name="code" value="{{ code }}">
+{% if code == "associate" and not item.application %}<label>Application reference <input name="target" required></label>{% endif %}
+<label>Note <input name="note" maxlength="500"></label>
+<button>{{ code }}</button></form>
+{% endfor %}
+{% if decide %}
+{% for d in decisions %}
+<form method="post" action="{% url 'correspondence_staff:send_decision' item.public_id %}">{% csrf_token %}
+<input type="hidden" name="decision" value="{{ d }}"><label>Note <input name="note" maxlength="500"></label>
+<button>{{ d }}</button>{% if d == "authorize_resend" %} (same Message-ID: the applicant may receive a duplicate){% endif %}</form>
+{% endfor %}
+{% endif %}
+{% if restart %}
+<form method="post" action="{% url 'correspondence_staff:restart' cursor.public_id %}">{% csrf_token %}
+<label>Note <input name="note" maxlength="500"></label><button>Restart the collector</button></form>
+{% endif %}
+{% if not codes and not decide and not restart and not review and item.status == "open" %}<p>You hold no permission that resolves this item.</p>{% endif %}
+{% endblock %}

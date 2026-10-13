@@ -255,6 +255,7 @@ DATABASE_CONSTRAINTS = {
     "cursor_one_per_folder", "cursor_state_valid", "cursor_last_uid_nonnegative", "inbound_status_valid",
     "inbound_is_derivative", "inbound_identity_state_valid", "inbound_one_per_digest", "inbound_location_unique",
     "inbound_location_matched_by_valid", "reply_link_unique", "reply_link_state_valid", "reply_link_outcome_valid",
+    "approved_message_staff_draft_iff_staff_message", "staff_draft_complete",
 }
 
 

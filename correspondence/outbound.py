@@ -45,6 +45,7 @@ from .models import (
 from .common import DECIDABLE, Refused, actor_ref, require  # noqa: F401  (re-exported for callers)
 from .messages import build_email, enqueue_file_copy, message_id, verified_address  # noqa: F401
 from .rendering import TemplateRefused, canonical_digest, check_version, render
+from .scheduling import schedule_after_acceptance
 from .staff_items import event, open_item, resolve_item
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,8 @@ Attempt = OutboundMessage.Status
 Disposition = ApprovedMessage.Disposition
 
 SEND = "send_message"
+SEND_STAFF = "send_staff_message"  # a staff-authored message: not automated, so it runs while paused (M5)
+SEND_KINDS = (SEND, SEND_STAFF)
 RECONCILE = "reconcile_send"
 QUESTION_TEMPLATE = "question_request"
 
@@ -79,7 +82,7 @@ def _lock_application(application_id) -> Application:
 
 def enqueue_send(message: ApprovedMessage, series: int) -> PendingAction:
     return PendingAction.objects.create(
-        kind=SEND, subject_type="application", subject_id=message.application.public_ref, input_ref=str(message.send_ref),
+        kind=SEND_STAFF if message.kind == ApprovedMessage.Kind.STAFF_MESSAGE else SEND, subject_type="application", subject_id=message.application.public_ref, input_ref=str(message.send_ref),
         idempotency_key=send_key(message.send_ref, series), max_attempts=settings.CATALYST_MAIL_SEND_ATTEMPTS,
     )
 
@@ -274,8 +277,9 @@ class SendMessage:
             series = _parse_series(key, message.send_ref)
             if series is None:
                 return refuse("idempotency_key_does_not_match_the_message")
-            if AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists():
-                return Stop(Status.QUEUED, "automation_paused")
+            if self.automated and AutomationPause.objects.filter(
+                    subject_type="application", subject_id=application.public_ref).exists():
+                return Stop(Status.QUEUED, "automation_paused")  # a staff message is not automated (J-09)
             if message.disposition != Disposition.ACTIVE:
                 return skip("message_not_active")
             if application.stage in TERMINAL_STAGES:
@@ -358,6 +362,7 @@ class SendMessage:
             def write():
                 attempt(Attempt.ACCEPTED_BY_SERVER, server_accepted_at=Now(), sent_at=Now())
                 dispose(Disposition.ACCEPTED_BY_SERVER)
+                schedule_after_acceptance(message)  # E1: the next reminder, in the acceptance transaction
                 enqueue_file_copy(message, attempt_id)  # a mailbox record for humans, never evidence (016 A4)
                 event(message.application, "message_accepted_by_server", data, actor_ref=f"pending_action:{claim.id}")
             return ledger.finish(claim, self, status=Status.DONE, write=write)
@@ -447,6 +452,14 @@ def admissible(record: Evidence, message: ApprovedMessage, digests: set) -> bool
             and record.recipient == message.recipient and record.content_sha256 in digests)
 
 
+class SendStaffMessage(SendMessage):
+    """016 3.4: the send of a confirmed staff message. The same three phases and outcome classes as SendMessage,
+    under its own kind so a pause never holds it (M5); it creates no reminder."""
+
+    kind = SEND_STAFF
+    automated = False
+
+
 class ReconcileSend:
     kind = RECONCILE
     redeliverable = True  # internal and idempotent: it reads evidence and sends nothing (D-27)
@@ -476,7 +489,7 @@ class ReconcileSend:
                 # A send that ended uncertain without an unknown attempt (a defect before any exchange) is not
                 # left silent: staff decide it (016 A7).
                 if message.disposition == Disposition.ACTIVE and PendingAction.objects.filter(
-                        kind=SEND, input_ref=str(message.send_ref), status=Status.UNCERTAIN).exists():
+                        kind__in=SEND_KINDS, input_ref=str(message.send_ref), status=Status.UNCERTAIN).exists():
                     open_item(SEND_OUTCOME_UNKNOWN, str(message.send_ref), application=message.application,
                               approved_message=message, pending_action_id=claim.id)
             ledger.finish(claim, self, status=Status.DONE, error="nothing_to_reconcile", write=no_unknown_attempt)
@@ -494,8 +507,9 @@ class ReconcileSend:
                         disposition_by=f"pending_action:{claim.id}"):
                     # The send's own action finished uncertain; its work is complete. Attempts stay `unknown`:
                     # evidence shows the logical message was accepted, not which attempt was.
-                    PendingAction.objects.filter(kind=SEND, input_ref=str(message.send_ref), status=Status.UNCERTAIN).update(
+                    PendingAction.objects.filter(kind__in=SEND_KINDS, input_ref=str(message.send_ref), status=Status.UNCERTAIN).update(
                         status=Status.DONE, last_error="accepted_by_evidence", completed_at=Now(), updated_at=Now())
+                    schedule_after_acceptance(message)  # E1 also follows acceptance by evidence
                     event(message.application, "message_accepted_by_evidence",
                           {"send_ref": str(message.send_ref), "evidence_origin": found.origin},
                           actor_ref=f"pending_action:{claim.id}")

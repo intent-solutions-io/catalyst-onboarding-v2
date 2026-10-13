@@ -55,7 +55,8 @@ RESOLUTIONS = {
 }
 ACKNOWLEDGE_ONLY = {"processing_error", "message_id_conflict", "mailbox_uidvalidity_changed", "collector_stale",
                     "filed_copy_failed", "inbound_oversize", "application_closed", "collector_pass_failed",
-                    "mailbox_history_out_of_scope", "hard_bounce", "loop_threshold"}
+                    "mailbox_history_out_of_scope", "hard_bounce", "loop_threshold",
+                    "escalate_unanswered", "reminder_refused"}  # 2B.4 (escalation may also end by withdrawal)
 
 
 # --- the typed P3 interface (016 section 1); not implemented in P2 ---------------------------------------------
@@ -356,8 +357,10 @@ def _decidable(message) -> None:
         raise Refused("only_a_trusted_or_associated_reply_is_decided_by_staff")
 
 
-def confirm_question_outcome(message_id: int, outcomes: dict, user, note: str = "") -> InboundMessage:
-    """D3: `outcomes` maps each pending question's id to `satisfied`, `partial` or `not_addressed`."""
+def confirm_question_outcome(message_id: int, outcomes: dict, user, note: str = "",
+                             expected_digest: str | None = None) -> InboundMessage:
+    """D3: `outcomes` maps each pending question's id to `satisfied`, `partial` or `not_addressed`. A staff screen
+    passes the digest of the derivative it showed, so a reply re-derived meanwhile is refused (2B.4)."""
     require(user, "confirm_question_outcome")
     actor = actor_ref(user)
     message = InboundMessage.objects.get(pk=message_id)
@@ -371,6 +374,9 @@ def confirm_question_outcome(message_id: int, outcomes: dict, user, note: str = 
         links = list(QuestionReplyLink.objects.select_related("question").filter(inbound_message_id=message_id, state="pending")
                      .order_by("question_id"))
         list(Question.objects.select_for_update(of=("self",)).filter(pk__in=[l.question_id for l in links]).order_by("id"))
+        if expected_digest is not None and InboundMessage.objects.filter(pk=message_id).values_list(
+                "derived_text_sha256", flat=True).first() != expected_digest:
+            raise Refused("reply_text_changed_since_shown")
         if not InboundMessage.objects.filter(pk=message_id, status=Inbound.AWAITING_PROCESSING).update(
                 status=Inbound.PROCESSED, processed_at=Now()):
             raise Refused("reply_already_decided")  # a concurrent decision or process_reply won (TEST-P2-32)

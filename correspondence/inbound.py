@@ -40,6 +40,7 @@ from .models import (
 )
 from .common import Refused
 from .messages import FILE_COPY, build_email, enqueue_file_copy, message_id, only_duplicate_key, verified_address  # noqa: F401
+from .scheduling import sync_reminders
 from .staff_items import open_item
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,7 @@ def _pass_number(claim) -> int:
 def refresh_question_status(question: Question) -> str:
     """016 3.3: one function derives the status from the links (withdrawn is terminal)."""
     if question.status == Question.Status.WITHDRAWN:
+        sync_reminders(question, question.status)
         return question.status
     links = question.reply_links.all()
     if links.filter(state="pending").exists():
@@ -94,6 +96,7 @@ def refresh_question_status(question: Question) -> str:
         status = Question.Status.OPEN
     if status != question.status:
         Question.objects.filter(pk=question.pk).update(status=status, updated_at=Now())
+    sync_reminders(question, status)  # E3, in the same transaction as every status change
     return status
 
 

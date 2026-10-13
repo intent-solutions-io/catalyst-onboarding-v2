@@ -1,0 +1,14 @@
+{% extends "correspondence/staff/base.html" %}{% load correspondence_display %}
+{% block content %}
+<h1>Open staff items</h1>
+<form method="get"><label>Reason <select name="reason"><option value="">all</option>{% for r in reasons %}<option value="{{ r }}"{% if r == reason %} selected{% endif %}>{{ r }}</option>{% endfor %}</select></label> <button>Filter</button></form>
+<table>
+<tr><th>Reason</th><th>Application</th><th>Opened</th><th></th></tr>
+{% for item in items %}
+<tr><td>{{ item.reason_code }}</td>
+<td>{% if item.application %}<a href="{% url 'correspondence_staff:application' item.application.public_ref %}"><bdi>{{ item.application.display_name|visible }}</bdi></a>{% else %}none{% endif %}</td>
+<td>{{ item.opened_at|date:"Y-m-d H:i" }} UTC</td>
+<td><a href="{% url 'correspondence_staff:item' item.public_id %}">Open</a></td></tr>
+{% empty %}<tr><td colspan="4">No open items.</td></tr>{% endfor %}
+</table>
+{% endblock %}

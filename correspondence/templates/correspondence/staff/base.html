@@ -1,0 +1,20 @@
+{% load correspondence_display %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Correspondence staff</title>
+<style>
+body { font-family: system-ui, sans-serif; margin: 1rem; max-width: 70rem; }
+pre.untrusted { white-space: pre-wrap; overflow-wrap: anywhere; unicode-bidi: isolate; direction: ltr; border: 1px solid #999; padding: .5rem; }
+table { border-collapse: collapse; } td, th { border: 1px solid #ccc; padding: .25rem .5rem; text-align: left; }
+form.inline { display: inline; } .refused { color: #a00; } .ok { color: #060; }
+</style>
+</head>
+<body>
+<nav><a href="{% url 'correspondence_staff:queue' %}">Staff queue</a> · <a href="{% url 'admin:index' %}">Read-only dossier</a></nav>
+{% if messages %}<ul>{% for m in messages %}<li class="{% if m.level_tag == 'error' %}refused{% else %}ok{% endif %}">{{ m }}</li>{% endfor %}</ul>{% endif %}
+<main>{% block content %}{% endblock %}</main>
+</body>
+</html>

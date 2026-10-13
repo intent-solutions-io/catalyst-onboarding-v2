@@ -1143,3 +1143,66 @@ Re-check round (QA and `catalyst-security-privacy`):
 Owner questions carried forward (security review): whether staff-associated unverified mail may go to a
 model provider at all, applicant text leaving to MiniMax and its retention, retention of free-text
 resolution notes, and whether one decision-maker may both associate and confirm.
+
+### 10.10 Implementation notes from 2B.4 (2026-10-13)
+
+**Reminders (E1 to E4)**
+
+- `correspondence/scheduling.py` is a leaf module. It holds E1 scheduling (called from the acceptance
+  transaction, by server or by evidence), E3 `sync_reminders` (called from `refresh_question_status`) and the
+  E4 resume reschedule.
+- `correspondence/reminders.py` holds the `remind` and `escalate_unanswered` handlers. Both are automated and
+  redeliverable, because their whole effect is one fenced transaction.
+- **Synthetic settings (POL-06):**
+  - at most 2 reminders, 3 days apart, with a 1-day minimum gap;
+  - quiet hours 21:00 to 07:00 UTC;
+  - a 1-hour resume grace;
+  - 6 stale-watermark deferrals, 10 minutes apart.
+  - Production numbers remain an owner decision (8.2).
+- **Watermark.** The watermark is the oldest `complete_through_at` of all cursors. A stale-watermark deferral
+  counts toward the bound. At the bound a `collector_stale` item opens and the reminder keeps waiting.
+  Deferrals for quiet hours, the minimum gap or a pause are refunded.
+- **Escalation.** `escalate_unanswered` ignores quiet hours and the minimum gap, because it opens a staff item
+  and sends no mail.
+- **Reminder template.** Reminders use a seeded synthetic `question_reminder` template. It is a draft until
+  the owner approves it (D-29). A missing template or a refused render opens `reminder_refused`.
+
+**Staff services (F, 3.3, 3.4)**
+
+- **Pause and resume.** `pause` needs a sanitized reason of at least 10 characters. `resume` reschedules, and
+  is refused with a code when nothing is paused.
+- **Withdrawal.** `withdraw_question` takes reason codes from an allow-list and refuses a question that is
+  already satisfied.
+- **Staff messages.**
+  - A staff message is previewed and then confirmed. Confirmation is refused if the confirming user is not
+    the draft's author.
+  - The message is sent under its own kind, `send_staff_message`, which is not automated (M5).
+  - Deviation: its reconciliation (`reconcile_send`) stays automated, so a pause also holds the
+    reconciliation of an unknown staff send until staff resume.
+- The new permissions (`withdraw_question`, `send_staff_message`, `pause_automation` and `resume_automation`)
+  go to operators and decision-makers, following the matrix.
+- Owner question: whether an operator may resume after an automatic pause (`hard_bounce` or
+  `loop_threshold`), or only a decision-maker.
+
+**Spike result (M9).** Admin actions do not fit `ReadOnlyAdminMixin`:
+
+- they cannot collect a note, per-question outcomes, a target or a body;
+- a changelist action receives a queryset, which is the bulk path S1 refuses;
+- enabling them would weaken the S1 tests.
+
+The admin therefore stays read-only. The staff screens are a focused view module, `correspondence/staff_views.py`,
+mounted at `/staff/p2/` before the admin. Its rules:
+
+- a GET page needs a correspondence permission;
+- each action is a POST that names one object, is CSRF-checked and calls one named service;
+- a superuser is refused;
+- a refusal shows its code;
+- pages are never cached, and nothing writes the admin log.
+
+Untrusted text is autoescaped and shown through the `visible` filter, which turns control and format
+characters into markers. The reply confirmation submits the digest of the derivative it showed
+(`confirm_question_outcome(expected_digest=)`). A link from the admin dossier to these screens is deferred;
+for now the screens link to the dossier.
+
+**Monitoring.** `reminder_health` covers G4, G5 and G6 for reminders; `mail_behaviour_health` covers G7. Both
+are reported by `correspondence_health`.
