@@ -250,6 +250,28 @@ def test_p2_15_an_oversize_message_is_recorded_from_its_headers_only(mailbox, se
     assert big.derived_text == "" and big.original_sha256 == "" and {"part": "body", "reason": "oversize"} in big.omitted_parts
 
 
+def test_p2_15_an_oversize_message_never_causes_a_full_body_fetch(mailbox, settings):
+    """The proof is at the client/server boundary: the requests the collector sent and the bytes the server
+    returned, not only the stored row. The cap is the whole-message size (RFC822.SIZE); no attachment-specific
+    limit is claimed here."""
+    _, message = sent_question(mailbox)
+    settings.CATALYST_MAIL_MAX_MESSAGE_BYTES = 4_000  # above an ordinary reply, far below the big one
+    small = mailbox.imap.deliver(reply(message, body="small answer"))
+    big_uid = mailbox.imap.deliver(reply(message, body="x" * 50_000))
+    collect()
+    requests = {uid: [items for u, items, _ in mailbox.imap.fetches if u == uid] for uid in (small, big_uid)}
+    assert any("BODY.PEEK[]" in items for items in requests[small])  # an ordinary message is fetched whole
+    allowed = ("RFC822.SIZE", "BODY.PEEK[HEADER]")  # an allow-list: no other fetch syntax may reach the big UID
+    assert requests[big_uid] and all(any(a in items for a in allowed) and "BODY[]" not in items
+                                     and "BODY.PEEK[]" not in items and "RFC822 " not in items + " "
+                                     for items in requests[big_uid])
+    assert any("RFC822.SIZE" in items for items in requests[big_uid])  # its size was asked first
+    returned = sum(n for u, _, n in mailbox.imap.fetches if u == big_uid)
+    assert 0 < returned < 4_000  # headers only crossed the boundary, never the 50 kB body
+    big = InboundMessage.objects.get(exception_reason="inbound_oversize")
+    assert big.derived_text == "" and {"part": "body", "reason": "oversize"} in big.omitted_parts
+
+
 def test_p2_47_confirmation_links_are_redacted_in_every_encoding_and_the_text_is_a_labelled_derivative():
     token = "http://catalyst.example.test/confirm/Zm9vYmFy:SIGNATURE123/"
     import base64
@@ -808,3 +830,13 @@ def test_p2_39_47_no_table_stores_original_message_bytes(mailbox):
     assert [c for c in columns if c[2] == "bytea"] == []  # no binary column anywhere in correspondence
     raw_like = [c for c in columns if set(c[1].split("_")) & {"raw", "mime", "original", "source", "eml", "bytes"}]
     assert {c[1] for c in raw_like} <= {"original_sha256"}, raw_like  # a digest only, never the bytes
+    from django.conf import settings as dj
+
+    app_role = dj.CATALYST_DB_ROLES["app"]
+    for table, privilege in (("correspondence_staffmessagedraft", "UPDATE"), ("correspondence_staffmessagedraft", "DELETE"),
+                             ("correspondence_staffitemresolution", "UPDATE"), ("correspondence_staffitemresolution", "DELETE"),
+                             ("correspondence_inboundmessagelocation", "UPDATE")):
+        held = owner.execute("SELECT has_table_privilege(%s, %s, %s) OR (%s = 'UPDATE' AND has_any_column_privilege(%s, %s, %s))",
+                             [app_role, table, privilege, privilege, app_role, table, privilege]).fetchone()[0]
+        assert held is False, (
+            table, privilege)  # drafts, resolutions and locations are insert-only for the application role

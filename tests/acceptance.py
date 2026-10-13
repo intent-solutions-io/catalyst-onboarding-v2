@@ -247,6 +247,10 @@ P2_CASES = {
         "test_reminders::test_e2_a_frozen_reminder_send_follows_its_question",
         "test_reminders::test_p2_04_a_pending_reply_holds_the_reminder_and_staff_outcomes_release_or_cancel_it",
         "test_reminders::test_p2_04_a_reminder_claimed_while_a_reply_is_pending_is_held_by_the_handler",
+        "test_reminders::test_reminder_race_a_frozen_send_past_its_check_completes_once_and_later_reminders_respect_the_reply",
+        "test_reminders::test_reminder_race_a_reply_committed_before_the_frozen_send_check_holds_the_mail",
+        "test_reminders::test_reminder_race_the_reminder_check_commits_first_and_its_frozen_send_then_respects_the_reply",
+        "test_reminders::test_reminder_race_the_reply_commits_before_the_reminder_check_so_no_reminder",
     ],
     "TEST-P2-05": [
         "test_outbound::test_p2_05_a_paused_application_sends_nothing_until_resumed",
@@ -258,6 +262,7 @@ P2_CASES = {
         "test_processing::test_c4_staff_association_records_prior_values_and_an_event",
         "test_processing::test_p2_06_53_an_unmatched_message_is_resolved_without_ssh_and_leaves_a_record_without_an_application",
         "test_reminders::test_resolving_an_escalation_needs_resolve_exception",
+        "test_staff_screens::test_operator_journey_through_the_normal_screens",
     ],
     "TEST-P2-07": [
         "test_inbound::test_p2_07_46_a_uidvalidity_change_resyncs_with_no_new_effect_even_mid_batch",
@@ -265,6 +270,7 @@ P2_CASES = {
     "TEST-P2-08": [
         "test_processing::test_d3_d4_staff_decide_only_a_persons_trusted_reply_and_need_every_outcome",
         "test_processing::test_p2_08_09_staff_confirm_each_outcome_and_a_reply_never_satisfies_by_itself",
+        "test_reminders::test_p2_08_two_questions_in_separate_messages_a_partial_then_full_answer_touches_only_the_first",
     ],
     "TEST-P2-09": [
         "test_processing::test_d3_d4_staff_decide_only_a_persons_trusted_reply_and_need_every_outcome",
@@ -290,6 +296,7 @@ P2_CASES = {
     ],
     "TEST-P2-15": [
         "test_inbound::test_p2_15_an_oversize_message_is_recorded_from_its_headers_only",
+        "test_inbound::test_p2_15_an_oversize_message_never_causes_a_full_body_fetch",
     ],
     "TEST-P2-16": [
         "test_inbound::test_p2_16_17_the_trust_table_decides_every_effect",
@@ -351,6 +358,10 @@ P2_CASES = {
     "TEST-P2-28": [
         "test_reminders::test_e2_an_incomplete_cursor_makes_the_watermark_stale",
         "test_reminders::test_p2_28_a_reminder_waits_for_a_complete_collection_after_its_due_time",
+        "test_reminders::test_reminder_race_a_frozen_send_past_its_check_completes_once_and_later_reminders_respect_the_reply",
+        "test_reminders::test_reminder_race_a_reply_committed_before_the_frozen_send_check_holds_the_mail",
+        "test_reminders::test_reminder_race_the_reminder_check_commits_first_and_its_frozen_send_then_respects_the_reply",
+        "test_reminders::test_reminder_race_the_reply_commits_before_the_reminder_check_so_no_reminder",
     ],
     "TEST-P2-29": [
         "test_reminders::test_e2_an_unapproved_reminder_template_waits_for_staff_and_the_chain_survives",
@@ -426,6 +437,7 @@ P2_CASES = {
     ],
     "TEST-P2-42": [
         "test_staff::test_every_registered_admin_is_read_only_and_the_registry_is_exactly_the_slice_views",
+        "test_staff_screens::test_operator_journey_through_the_normal_screens",
         "test_staff_screens::test_p2_42_52_each_remaining_screen_action_needs_its_own_permission",
         "test_staff_screens::test_p2_42_a_malformed_target_is_refused_not_an_error",
         "test_staff_screens::test_p2_42_a_refused_preview_keeps_the_typed_text_escaped",
@@ -444,6 +456,7 @@ P2_CASES = {
         "test_staff_screens::test_p2_42_the_admin_stays_read_only_and_templates_never_mark_text_safe",
         "test_staff_screens::test_p2_42_the_item_page_shows_the_evidence_and_offers_only_lawful_decisions",
         "test_staff_screens::test_p2_42_the_queue_and_item_pages_escape_hostile_application_names",
+        "test_staff_screens::test_the_dossier_links_to_the_correspondence_screen_only_for_a_user_who_could_open_it",
     ],
     "TEST-P2-43": [
         "test_processing::test_p2_43_a_persons_reply_holds_interpretation_for_p3_and_asks_staff",
@@ -459,6 +472,8 @@ P2_CASES = {
         "test_processing::test_p2_44_quote_stripping_keeps_from_lines_and_catches_wrapped_attributions",
     ],
     "TEST-P2-45": [
+        "test_outbound::test_p2_40_the_connected_peer_is_checked_before_any_credential",
+        "test_reminders::test_p2_45_a_confirmed_staff_message_to_a_non_test_host_is_refused_before_any_connection",
         "test_reminders::test_p2_45_a_staff_message_cannot_reach_a_non_test_host",
         "test_reminders::test_p2_45_confirmation_refuses_any_change_since_the_preview",
         "test_reminders::test_p2_45_content_checks_refuse_links_credentials_and_controls",

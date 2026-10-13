@@ -12,7 +12,7 @@ from django.core.exceptions import PermissionDenied
 from django.db.models.functions import Now
 
 from applications.models import Application, ApplicationEvent
-from correspondence import outbound, processing, reminders, scheduling, staff_actions
+from correspondence import outbound, processing, reminders, scheduling, staff_actions  # noqa: F401
 from correspondence.health import mail_behaviour_health, reminder_health
 from correspondence.models import (
     ApprovedMessage,
@@ -191,12 +191,18 @@ def test_p2_04_a_reminder_claimed_while_a_reply_is_pending_is_held_by_the_handle
 def test_p2_30_the_projection_never_revives_finished_actions_or_creates_reminders(remind):
     question, _ = sent_question(remind)
     [action] = actions(question)
+    PendingAction.objects.filter(pk=action.pk).update(attempts=2)  # an exhaustion count the projection must keep
     for status in ("done", "failed", "uncertain", "cancelled"):
         PendingAction.objects.filter(pk=action.pk).update(status=status)
         for to in ("open", "reply_pending", "partially_answered", "satisfied", "withdrawn"):
             assert scheduling.sync_reminders(question, to) == 0
         action.refresh_from_db()
-        assert action.status == status
+        assert (action.status, action.attempts) == (status, 2)
+    PendingAction.objects.filter(pk=action.pk).update(status="queued")
+    for to in ("reply_pending", "open"):  # held, then queued again: counts are never reset
+        scheduling.sync_reminders(question, to)
+        action.refresh_from_db()
+        assert action.attempts == 2
     assert len(actions(question)) == 1  # only E1 creates reminders
 
 
@@ -580,3 +586,167 @@ def test_p2_50_withdrawal_cancels_held_reminders_and_the_escalation(remind):
     staff_actions.withdraw_question(question.pk, remind.operator, "no_longer_needed")
     assert set(PendingAction.objects.filter(kind__in=scheduling.REMINDER_KINDS).values_list("status", "last_error")) == {
         ("cancelled", "question_withdrawn")}
+
+
+# --- GATE-P2 closeout (owner directive 2026-10-13) --------------------------------------------------------------
+
+def test_p2_08_two_questions_in_separate_messages_a_partial_then_full_answer_touches_only_the_first(remind):
+    first, first_message = sent_question(remind)
+    second, _ = sent_question(remind, text="A second synthetic question?")
+    second_reminder = actions(second)[0]
+    remind.imap.deliver(reply(first_message, body="Part of the first answer."))
+    collect()
+    received = processing.InboundMessage.objects.get()
+    processing.confirm_question_outcome(received.pk, {first.pk: "partial"}, remind.operator)
+    first.refresh_from_db()
+    second.refresh_from_db()
+    assert (first.status, second.status) == ("partially_answered", "open")
+    assert states(first) == [("1", "queued")] and states(second) == [("1", "queued")]
+    assert actions(second)[0].due_at == second_reminder.due_at  # the second's reminder is untouched
+    remind.imap.deliver(reply(first_message, body="The rest of the first answer."))
+    collect()
+    received = processing.InboundMessage.objects.order_by("-id").first()
+    processing.confirm_question_outcome(received.pk, {first.pk: "satisfied"}, remind.operator)
+    first.refresh_from_db()
+    second.refresh_from_db()
+    assert (first.status, second.status) == ("satisfied", "open")  # only the first is satisfied
+    assert states(first) == [("1", "cancelled")] and states(second) == [("1", "queued")]
+    app = Application.objects.get(pk=remind.app.pk)
+    assert app.stage == remind.app.stage  # no application-wide completion
+    assert not StaffItem.objects.filter(question_id=second.pk).exists()
+    assert QuestionReplyLink.objects.filter(question=second).count() == 0
+
+
+# Reminder races (016 E2, E3, section 5) on separate connections. A controlled lock holder (an application-role
+# session holding the application row) lets the reply ingestion and the reminder or send check queue in a
+# chosen order; releasing it decides which commits first. No two coordinated sessions ever hold the same lock.
+
+def _lock_holder(env):
+    holder = env.committed.connect("app")
+    holder.execute("SELECT id FROM applications_application WHERE id = %s FOR UPDATE", [env.app.pk])
+    return holder
+
+
+def _in_thread(env, errors, fn, *args):
+    def run():
+        try:
+            fn(*args)
+        except Exception as exc:  # a deadlock or any other error fails the test below
+            errors.append(repr(exc))
+    return env.committed.thread(run)
+
+
+def _race(env, first, second):
+    """Queue `first` then `second` behind the held application lock, release, and join both."""
+    from tests.test_intake import wait_for_waiters
+
+    monitor = env.committed.connect("app", autocommit=True)
+    holder, errors = _lock_holder(env), []
+    threads = [_in_thread(env, errors, first)]
+    wait_for_waiters(monitor, 1)
+    threads.append(_in_thread(env, errors, second))
+    wait_for_waiters(monitor, 2)
+    holder.rollback()  # releases the lock: the first waiter proceeds first
+    for t in threads:
+        t.join(timeout=60)
+        assert not t.is_alive(), "a racing transaction did not finish"
+    assert errors == []  # no deadlock, no error in either transaction
+
+
+def _due_reminder(env):
+    """Reminder 1 due exactly at a completed watermark, claimed now (so the collector cannot take it)."""
+    collect()
+    PendingAction.objects.filter(kind="remind").update(due_at=MailboxCursor.objects.get().complete_through_at)
+    claim = ledger.claim_next({"remind": reminders.SendReminder()})
+    assert claim is not None and claim.kind == "remind"
+    return claim
+
+
+def _collect_reply():
+    collect()
+
+
+def test_reminder_race_the_reply_commits_before_the_reminder_check_so_no_reminder(remind):
+    question, message = sent_question(remind)
+    claim = _due_reminder(remind)
+    remind.imap.deliver(reply(message))
+    _race(remind, _collect_reply, lambda: reminders.SendReminder().run(claim))
+    question.refresh_from_db()
+    [action] = actions(question)
+    assert question.status == "reply_pending" and (action.status, action.last_error) == ("held", "reply_pending")
+    assert ApprovedMessage.objects.filter(kind="reminder").count() == 0 and reminder_mails(remind) == []
+
+
+def test_reminder_race_the_reminder_check_commits_first_and_its_frozen_send_then_respects_the_reply(remind):
+    question, message = sent_question(remind)
+    claim = _due_reminder(remind)
+    remind.imap.deliver(reply(message))
+    _race(remind, lambda: reminders.SendReminder().run(claim), _collect_reply)
+    question.refresh_from_db()
+    assert question.status == "reply_pending"
+    assert states(question) == [("1", "done")]  # authorized once; no second reminder was scheduled
+    [frozen] = ApprovedMessage.objects.filter(kind="reminder")
+    run_worker()
+    send = PendingAction.objects.get(kind="send_message", input_ref=str(frozen.send_ref))
+    assert (send.status, send.last_error) == ("queued", "reply_pending") and reminder_mails(remind) == []
+    processing.confirm_question_outcome(processing.InboundMessage.objects.get().pk, {question.pk: "satisfied"}, remind.operator)
+    PendingAction.objects.filter(pk=send.pk).update(due_at=Now())
+    run_worker()
+    send.refresh_from_db()
+    question.refresh_from_db()
+    assert question.status == "satisfied" and send.status == "cancelled" and reminder_mails(remind) == []
+    assert states(question) == [("1", "done")] and ApprovedMessage.objects.filter(kind="reminder").count() == 1
+
+
+def _frozen_reminder_send(env):
+    """A reminder already frozen with its send queued, then claimed now."""
+    claim = _due_reminder(env)
+    reminders.SendReminder().run(claim)
+    frozen = ApprovedMessage.objects.get(kind="reminder")
+    send_claim = ledger.claim_next({"send_message": outbound.SendMessage()})
+    assert send_claim is not None and send_claim.input_ref == str(frozen.send_ref)
+    return frozen, send_claim
+
+
+def test_reminder_race_a_reply_committed_before_the_frozen_send_check_holds_the_mail(remind):
+    question, message = sent_question(remind)
+    frozen, send_claim = _frozen_reminder_send(remind)
+    remind.imap.deliver(reply(message))
+    _race(remind, _collect_reply, lambda: outbound.SendMessage().run(send_claim))
+    send = PendingAction.objects.get(pk=send_claim.id)
+    assert (send.status, send.last_error) == ("queued", "reply_pending") and reminder_mails(remind) == []
+    assert states(question) == [("1", "done")]  # nothing new scheduled
+
+
+def test_reminder_race_a_frozen_send_past_its_check_completes_once_and_later_reminders_respect_the_reply(remind):
+    question, message = sent_question(remind)
+    frozen, send_claim = _frozen_reminder_send(remind)
+    remind.imap.deliver(reply(message))
+    _race(remind, lambda: outbound.SendMessage().run(send_claim), _collect_reply)
+    frozen.refresh_from_db()
+    question.refresh_from_db()
+    assert frozen.disposition == "accepted_by_server" and len(reminder_mails(remind)) == 1  # the authorized send, once
+    assert question.status == "reply_pending"
+    assert states(question) == [("1", "done"), ("2", "held")]  # the next reminder exists and waits for the reply
+    fire()
+    assert len(reminder_mails(remind)) == 1 and states(question) == [("1", "done"), ("2", "held")]
+
+
+def test_p2_45_a_confirmed_staff_message_to_a_non_test_host_is_refused_before_any_connection(remind, settings, monkeypatch):
+    """The protection's boundary: transport.send refuses a host that is not a loopback literal or the named test
+    host before opening a socket, so no credential, envelope or content can be transmitted. (The start-up
+    guards refuse the same configuration earlier; here it is changed after start-up.)"""
+    import socket
+
+    draft = staff_actions.preview_staff_message(remind.app.pk, remind.operator, "Subject", "A synthetic body.")
+    message = staff_actions.confirm_staff_message(draft.pk, draft.content_sha256, remind.operator)
+    before = list(remind.server.commands)
+    settings.CATALYST_MAIL_HOST = "smtp.example.com"
+    opened = []
+    real = socket.create_connection
+    monkeypatch.setattr(socket, "create_connection", lambda *a, **k: opened.append(a) or real(*a, **k))
+    run_worker()
+    message.refresh_from_db()
+    assert opened == [] and remind.server.commands == before  # no connection, so no AUTH, MAIL or DATA
+    assert message.disposition == "transport_blocked"
+    assert StaffItem.objects.filter(approved_message=message, reason_code="smtp_transport_blocked").count() == 1

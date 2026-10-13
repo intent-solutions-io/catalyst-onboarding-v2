@@ -12,7 +12,8 @@
 > Everything ran against synthetic SMTP and IMAP servers. No real email, AI model, applicant data or
 > deployment was involved.
 
-- **Status:** GATE-P2 is evidenced and awaits the owner's sign-off. The epic stays open until then.
+- **Status:** GATE-P2 signed off by the owner on 2026-10-13 (D-33 in `011`), after one bounded closeout
+  (`016` 10.12). The epic closes.
 - **Lane:** full. There were review findings and fixes in every task (section 5).
 - **Epic:** Run the applicant correspondence loop (bead `catalyst-v2-7hu`).
 - **Acceptance test:** every case TEST-P2-01 to TEST-P2-54 in `016` section 7 is PASS at one head on
@@ -115,11 +116,11 @@ real mailbox is connected:
 
 ## 4. Verification evidence
 
-- **The acceptance map.** `tests/acceptance.py` `P2_CASES` maps all 54 cases to 181 test references.
+- **The acceptance map.** `tests/acceptance.py` `P2_CASES` maps all 54 cases to 196 test references (181 at 2C, 196 after the closeout).
   `tests/conftest.py` fails a full run unless every GATE-S1 and GATE-P2 case is PASS. `tests/test_acceptance.py`
   checks that the map names exactly the cases in `016` section 7 and that every mapped test exists.
 - **Local full run** (`scripts/test.sh`, pinned Python 3.14.8 and PostgreSQL 16.15, 2026-10-13): **614 passed**
-  in 690.51 s. GATE-S1 PASS 25, FAIL 0, INCOMPLETE 0, NOT RUN 0. GATE-P2 PASS 54, FAIL 0, INCOMPLETE 0,
+  in 690.51 s at 2C; **623 passed** in 703.23 s after the GATE-P2 closeout (`016` 10.12). GATE-S1 PASS 25, FAIL 0, INCOMPLETE 0, NOT RUN 0. GATE-P2 PASS 54, FAIL 0, INCOMPLETE 0,
   NOT RUN 0.
 - **CI:** the "Runtime checks" job on the 2C head, linked from the pull request.
 - **Reviews per task** (`016` 10.3 to 10.11):
@@ -139,7 +140,9 @@ real mailbox is connected:
 
   It also added the mappings the audit named, and renamed two tests whose names overstated them.
 
-**Accepted partial coverage.** The owner decides at sign-off whether these are acceptable:
+**Partial coverage at filing (dispositions accepted by the owner in D-33).** The GATE-P2 closeout (`016` 10.12) closed or set a
+scope boundary for each item below. Owner acceptance of those dispositions is still pending. The items as
+filed:
 
 - **TEST-P2-08.** "The rest stays open" is shown with one question per message. In P2 every message carries
   one question.
@@ -173,9 +176,10 @@ real mailbox is connected:
 
 ## 6. Lessons learned
 
-- **Specialist reviewers find different classes of defect.** Running all relevant specialists in parallel on
-  each PR found issues no single review did. Examples: the operator blocker, the burst, and read access.
-  Keep it.
+- **Specialist reviewers find different classes of defect.** In P2, several specialists found issues no
+  single review did. Examples: the operator blocker, the burst, and read access. This is not a standing rule.
+  Later tasks use one primary independent reviewer, plus a narrowly scoped specialist when a change crosses a
+  security, data or integration boundary (`016` 10.12).
 - **Every "final failure" path needs a domain owner.** The ledger is generic, so each handler's `record` must
   turn exhaustion into a staff item.
 - **A gate proves only what is mapped.** The 2C audit showed that generating the map from test names

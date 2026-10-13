@@ -102,6 +102,11 @@ class OutboundInline(ReadOnlyTabularInline):
     verbose_name = "outbound message"
 
 
+# The permissions that open the per-application correspondence screen (correspondence/staff_views.py APPLICATION).
+CORRESPONDENCE_SCREEN_PERMISSIONS = ("approve_question", "withdraw_question", "pause_automation", "resume_automation",
+                                     "send_staff_message")
+
+
 @admin.register(Application)
 class ApplicationAdmin(ReadOnlyModelAdmin):
     list_display = ("display_name", "email", "stage", "contact_verified", "attention", "created_at")
@@ -118,6 +123,16 @@ class ApplicationAdmin(ReadOnlyModelAdmin):
 
     def get_queryset(self, request):
         return super().get_queryset(request).annotate(needs_attention=staff.attention_q())
+
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        """The dossier links to the correspondence staff screen only for a user who could open it (P2 closeout).
+        The link confers nothing: that screen checks the same permissions. Permission names, not imports, keep
+        this app independent of correspondence (003 ADR-01)."""
+        user = request.user
+        allowed = user.is_active and not user.is_superuser and any(
+            user.has_perm(f"correspondence.{name}") for name in CORRESPONDENCE_SCREEN_PERMISSIONS)
+        return super().changeform_view(request, object_id, form_url, {**(extra_context or {}),
+                                                                      "correspondence_link": allowed})
 
     @admin.display(boolean=True, description="contact verified")
     def contact_verified(self, obj):

@@ -297,3 +297,92 @@ def test_p2_42_template_approval_needs_the_owner_role(mailbox):
 
     draft = question_template(version=3, body="Hello $display_name,\n\n$question_text\n")
     assert client(mailbox.operator).post(url("approve_template", draft.pk), {"digest": draft.content_sha256}).status_code == 403
+
+
+# --- GATE-P2 closeout: the operator handoff --------------------------------------------------------------------
+
+def test_the_dossier_links_to_the_correspondence_screen_only_for_a_user_who_could_open_it(mailbox):
+    from tests.test_staff import READ_ONLY_STAFF, change_url
+
+    reader = staff(mailbox, "dossier-reader", READ_ONLY_STAFF)
+    both = staff(mailbox, "dossier-operator", READ_ONLY_STAFF, "Correspondence operator")
+    target = url("application", mailbox.app.public_ref)
+    assert target not in client(reader).get(change_url(mailbox.app)).content.decode()
+    assert client(reader).get(target).status_code == 403  # the link confers nothing
+    page = client(both).get(change_url(mailbox.app)).content.decode()
+    assert target in page and "Correspondence screen" in page
+    assert client(both).get(target).status_code == 200
+
+
+def test_operator_journey_through_the_normal_screens(mailbox):
+    """One synthetic journey with no SQL and no direct service call for the business actions: the owner approves
+    a template, the operator finds the application and approves its question, the applicant replies, the operator
+    reads the reply and confirms its outcome, and the remaining work stays visible. Test setup (staff identities,
+    the applicant's own S1 flow, a proposed question as P3 or staff authoring would create it) and the worker and
+    collector runs are the system, not staff."""
+    from correspondence.models import MessageTemplate, MessageTemplateVersion
+    from tests.test_reminders import REMINDER_BODY, REMINDER_SUBJECT
+    from correspondence.rendering import canonical_digest
+
+    template, _ = MessageTemplate.objects.get_or_create(key="question_reminder", defaults={"purpose": "Remind"})
+    draft = MessageTemplateVersion.objects.filter(template=template, version=1).first() or MessageTemplateVersion.objects.create(
+        template=template, version=1, subject=REMINDER_SUBJECT, body_text=REMINDER_BODY,
+        variables=["display_name", "question_text"], content_sha256=canonical_digest(REMINDER_SUBJECT, REMINDER_BODY))
+    question = Question.objects.create(application=mailbox.app, text="Which synthetic project best shows your work?")
+    owner, operator = client(mailbox.owner), client(mailbox.operator)
+    journey = []
+
+    def step(name, response, expect=200):
+        journey.append((name, response.status_code))
+        assert response.status_code == expect, (name, response.status_code)
+        return response.content.decode() if expect == 200 else ""
+
+    # 1. The owner reads and approves the reminder template, exactly as shown.
+    page = step("owner: template list", owner.get(url("templates")))
+    assert "question_reminder" in page
+    step("owner: template", owner.get(url("template", draft.pk)))
+    step("owner: approve template", owner.post(url("approve_template", draft.pk), {"digest": draft.content_sha256}), 302)
+    assert MessageTemplateVersion.objects.get(pk=draft.pk).status == "approved"
+    # 2. The operator finds the application with a proposed question and approves it.
+    page = step("operator: applications with a proposed question", operator.get(url("applications") + "?show=proposed"))
+    assert str(mailbox.app.public_ref) in page
+    page = step("operator: application", operator.get(url("application", mailbox.app.public_ref)))
+    assert "Approve and send" in page
+    step("operator: approve question", operator.post(url("approve", question.public_id)), 302)
+    run_worker()  # the system sends it
+    assert mailbox.server.parsed(-1)["Subject"] == "A question about your application"
+    # 3. The applicant replies; the collector and processing run.
+    from correspondence.models import ApprovedMessage
+
+    mailbox.imap.deliver(reply(ApprovedMessage.objects.get(kind="question"), body="Project Alpha, partly."))
+    collect()
+    # 4. The operator sees the work, reads the reply and confirms its outcome.
+    page = step("operator: queue", operator.get(url("queue")))
+    assert "reply_needs_review" in page
+    item = StaffItem.objects.get(reason_code="reply_needs_review")
+    page = step("operator: item", operator.get(url("item", item.public_id)))
+    received = InboundMessage.objects.get()
+    page = step("operator: reply", operator.get(url("reply", received.public_id)))
+    assert "Project Alpha, partly." in page
+    step("operator: confirm partial", operator.post(url("confirm_outcome", received.public_id), {
+        f"q-{question.public_id}": "partial", "digest": received.derived_text_sha256}), 302)
+    # 5. The remaining work is visible: the question is partly answered and its reminder is live again.
+    page = step("operator: application after", operator.get(url("application", mailbox.app.public_ref)))
+    assert "partially_answered" in page
+    assert "reply_needs_review" not in step("operator: queue after", operator.get(url("queue")))
+    question.refresh_from_db()
+    assert question.status == "partially_answered"
+    from workflow.models import PendingAction
+
+    assert PendingAction.objects.filter(kind="remind", input_ref__startswith=str(question.public_id),
+                                        status="queued").count() == 1  # its reminder is live again
+    assert len(journey) == 12 and admin_log_rows(mailbox) == 0
+    print("\nOPERATOR JOURNEY: " + "; ".join(f"{n} -> {c}" for n, c in journey))
+
+
+
+def test_the_dossier_link_and_the_application_screen_use_the_same_permissions():
+    from applications.admin import CORRESPONDENCE_SCREEN_PERMISSIONS
+    from correspondence import staff_views
+
+    assert set(CORRESPONDENCE_SCREEN_PERMISSIONS) == set(staff_views.APPLICATION)  # the link never drifts from the gate
