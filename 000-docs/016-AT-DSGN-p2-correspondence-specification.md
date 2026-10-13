@@ -641,7 +641,8 @@ Services live in `correspondence/staff_actions.py` (A-3). Each is one transactio
 | `reply_needs_review` | `confirm_question_outcome` (D3, or D4 when no outcome remains) |
 | `unmatched` (associate with an application), `reply_unverified`, `reply_auth_failed`, `sender_mismatch`, any item that would mark a message as spoofed, the S1 POL-19 items | `resolve_identity_exception` |
 | `send_outcome_unknown`, `retries_exhausted`, `smtp_transport_blocked`, `send_rejected_permanent` (abandon or revise only), `send_refused` (a pre-send re-check refused the message, for example the recipient no longer equals the verified address; added in 2B.1) | `decide_uncertain_send` |
-| `mailbox_auth_failed` and other blocked-cursor items | `restart_collector` (admin action); the bootstrap and recovery commands are host-level (B0) |
+| `mailbox_auth_failed`, `collector_blocked` (TLS refused, peer refused, unreachable past the bound) and other blocked-cursor items | `restart_collector` (admin action); the bootstrap and recovery commands are host-level (B0) |
+| `inbound_oversize`, `application_closed`, `collector_pass_failed`, `mailbox_history_out_of_scope` (informational, opened by a `from_now` bootstrap) | `resolve_exception` (added in 2B.2) |
 | `escalate_unanswered` ("no response") | `resolve_exception`, or `withdraw_question` |
 
 Notes on the matrix:
@@ -719,7 +720,7 @@ update. Providers are never called while a row lock is held (`ledger.py` rule 3)
 | Prompt injection aimed at P3 | P2 interprets nothing; text is stored as a labelled, untrusted derivative |
 | Confirmation tokens in inbound mail (D-24) | Decoded before redaction, redacted in quoted, forwarded and encoded forms, and no original bytes stored; not a universal secret detector |
 | Untrusted mail accumulating | No original-bytes store; bounded derivatives; G7; original custody waits for POL-10 |
-| IMAP or SMTP downgrade | TLS-only clients, a verifying context passed explicitly, no plaintext fallback. **Status after 2B.1: implemented but unverified** for SMTP (only the "server offers no STARTTLS" refusal is tested). The certificate tests (verified TLS, untrusted certificate, wrong hostname, no plaintext fallback when TLS is required) on the real SMTP and IMAP transport paths are owed at the start of 2B.2 (owner decision M6, 2026-10-13) |
+| IMAP or SMTP downgrade | TLS-only clients, a verifying context passed explicitly, no plaintext fallback. **Verified in 2B.2** (owner decision M6): on the real SMTP (STARTTLS) and IMAP (implicit TLS) transport paths, a verified certificate succeeds, an untrusted certificate and a wrong hostname are refused before any credential, a refused STARTTLS never falls back to plaintext, and IMAP has no plaintext path. Test certificates are generated at run time; none is committed |
 | Secrets or bodies in logs | **The control is a tested rule:** reason codes, identifiers and exception class names only; no `logger.exception`, no exception text, no `set_debuglevel`. `config/redaction.py` is a backstop. |
 | Preview tampering on staff messages | Digest and recipient re-checked on confirmation (3.4) |
 | Silent identity change | No association, resolution or staff message can change the verified address, the recipient, adopted evidence or the stage (C4) |
@@ -1027,3 +1028,15 @@ The owner reviewed PR #21 at `23d4a34` and decided:
   is complete before GATE-P2. Until then the records and `correspondence_health` are the inspection path.
 - **Transport correction:** a failure of the write carrying the end-of-data marker is `unknown`, not a
   retryable rejection (A3 table), because `sendall`'s progress is unknowable after an error.
+
+### 10.6 Implementation notes from 2B.2 (2026-10-13)
+
+- IMAP collection always logs in: `CATALYST_MAIL_USER` is required for the collector (IMAP selection needs an
+  authenticated session), and the connected peer is checked before LOGIN.
+- `process_reply` actions are queued by collection and wait, visible, until 2B.3 registers their handler (the
+  ledger never claims a kind without a handler).
+- Filed copies (A4) are filed only when `CATALYST_MAIL_SENT_FOLDER` is set; start-up refuses it if it equals
+  the collected folder.
+- Reason codes added: `collector_blocked`, `collector_pass_failed`, `inbound_oversize`, `application_closed`,
+  `mailbox_history_out_of_scope` (F, reason-to-permission table).
+- The scripted IMAP and SMTP test servers run in-process on loopback; no IMAP server image was added to CI.

@@ -616,7 +616,8 @@ def test_p2_39_the_p2_groups_hold_exactly_the_matrix_permissions(p2):
 
     held = {g.name: set(g.permissions.values_list("codename", flat=True))
             for g in Group.objects.filter(name__in=[OPERATOR, DECISION_MAKER, TEMPLATE_OWNER])}
-    assert held == {OPERATOR: {"approve_question"}, DECISION_MAKER: {"approve_question", "decide_uncertain_send"},
+    assert held == {OPERATOR: {"approve_question"},
+                    DECISION_MAKER: {"approve_question", "decide_uncertain_send", "restart_collector"},  # +2B.2
                     TEMPLATE_OWNER: {"approve_template_version"}}
 
 

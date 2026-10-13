@@ -32,6 +32,8 @@ APPROVED_MIGRATIONS = {
     ("sessions", "0001_initial"), ("accounts", "0003_staff_view"),
     # P2 2B.1 (owner decisions D-27 to D-30): outbound foundations, their grants, the P2 role groups.
     ("correspondence", "0003_outbound_foundations"), ("correspondence", "0004_role_grants_and_groups"),
+    # P2 2B.2: inbound collection, its grants and the decision-maker's restart_collector permission.
+    ("correspondence", "0005_inbound_collection"), ("correspondence", "0006_inbound_grants"),
 }
 
 

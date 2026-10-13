@@ -65,6 +65,7 @@ class OutboundMessage(models.Model):
     smtp_reply_code = models.PositiveIntegerField(null=True, blank=True)  # the code only; reply text is never stored
     rendered_sha256 = models.CharField(max_length=64, blank=True, db_default="")
     server_accepted_at = models.DateTimeField(null=True, blank=True)
+    filed_copy_state = models.CharField(max_length=16, blank=True, db_default="none")  # 016 A4 (2B.2)
     created_at = models.DateTimeField(db_default=Now())  # when the attempt row was written (G3 age)
 
     class Meta:
@@ -273,3 +274,139 @@ class StaffItemResolution(models.Model):
 
     class Meta:
         constraints = [models.CheckConstraint(condition=~Q(resolved_by=""), name="staff_item_resolution_has_actor")]
+
+
+# --- P2 inbound (016 sections 3.3, 3.5, 3.6; task 2B.2) ---------------------------------------------------
+
+INBOUND_STATUSES = ["received", "awaiting_processing", "processed", "automated_reply", "exception"]
+CURSOR_STATES = ["ok", "resync", "recovery", "blocked"]
+LINK_STATES = ["pending", "applied", "ignored_automated", "stale", "void_withdrawn"]
+
+
+class MailboxCursor(models.Model):
+    """016 3.6: one collected mailbox folder, its position and the completed-collection watermark."""
+
+    class State(models.TextChoices):
+        OK = "ok"
+        RESYNC = "resync"
+        RECOVERY = "recovery"
+        BLOCKED = "blocked"
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    mailbox_ref = models.CharField(max_length=64)
+    folder = models.CharField(max_length=200)
+    uidvalidity = models.BigIntegerField(null=True, blank=True)
+    last_uid = models.BigIntegerField(default=0)
+    complete_through_uid = models.BigIntegerField(null=True, blank=True)
+    complete_through_at = models.DateTimeField(null=True, blank=True)
+    state = models.CharField(max_length=16, choices=State.choices, default=State.OK)
+    blocked_reason = models.CharField(max_length=64, blank=True, default="")
+    epoch = models.PositiveIntegerField(default=0)
+    pass_number = models.PositiveIntegerField(default=0)
+    start_mode = models.CharField(max_length=16, blank=True, default="")  # from_now | from_uid | recovery
+    last_batch_at = models.DateTimeField(null=True, blank=True)
+    last_error_code = models.CharField(max_length=64, blank=True, default="")
+    consecutive_failures = models.PositiveIntegerField(default=0)
+    duplicates_seen = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        permissions = [("restart_collector", "Restart a blocked mailbox collector (decision-maker, D-30)")]
+        constraints = [
+            models.UniqueConstraint(fields=["mailbox_ref", "folder"], name="cursor_one_per_folder"),
+            models.CheckConstraint(condition=Q(state__in=CURSOR_STATES), name="cursor_state_valid"),
+            models.CheckConstraint(condition=Q(last_uid__gte=0), name="cursor_last_uid_nonnegative"),
+        ]
+
+
+class InboundMessage(models.Model):
+    """016 3.5 (A-9): metadata, the digest of the original bytes, and a sanitized derivative of the content,
+    labelled as a derivative. Original MIME bytes are never stored in synthetic P2."""
+
+    class Status(models.TextChoices):
+        RECEIVED = "received"
+        AWAITING_PROCESSING = "awaiting_processing"
+        PROCESSED = "processed"
+        AUTOMATED_REPLY = "automated_reply"
+        EXCEPTION = "exception"
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    mailbox_ref = models.CharField(max_length=64)
+    message_id_header = models.CharField(max_length=998, blank=True, default="")
+    in_reply_to = models.TextField(blank=True, default="")
+    references = models.TextField(blank=True, default="")
+    from_address = models.CharField(max_length=320, blank=True, default="")
+    from_normalized = models.CharField(max_length=320, blank=True, default="")
+    auto_markers = models.JSONField(default=dict)
+    date_header = models.CharField(max_length=200, blank=True, default="")  # untrusted text, never used for ordering
+    internal_date = models.CharField(max_length=64, blank=True, default="")
+    received_at = models.DateTimeField(db_default=Now())
+    size = models.BigIntegerField(default=0)
+    original_sha256 = models.CharField(max_length=64, blank=True, default="")  # empty when identity is unestablished
+    derived_text = models.TextField(blank=True, default="")
+    derivation_version = models.PositiveIntegerField(default=1)
+    redaction_version = models.PositiveIntegerField(default=1)
+    truncated = models.BooleanField(default=False)
+    truncated_at_chars = models.PositiveIntegerField(null=True, blank=True)
+    omitted_parts = models.JSONField(default=list)
+    redactions = models.JSONField(default=dict)
+    attachments = models.JSONField(default=list)  # metadata only: sanitized name, type, size, digest
+    is_derivative = models.BooleanField(default=True)
+    auth_evidence = models.CharField(max_length=24, blank=True, default="missing")
+    trust_decision = models.CharField(max_length=24, blank=True, default="")
+    from_matches_verified_address = models.BooleanField(default=False)
+    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, null=True, blank=True,
+                                    related_name="inbound_messages")
+    approved_message = models.ForeignKey(ApprovedMessage, on_delete=models.PROTECT, null=True, blank=True,
+                                         related_name="replies")
+    classification = models.CharField(max_length=16, blank=True, default="")  # human | automatic | bounce | own_copy
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.RECEIVED)
+    exception_reason = models.CharField(max_length=64, blank=True, default="")
+    processed_at = models.DateTimeField(null=True, blank=True)
+    identity_state = models.CharField(max_length=16, default="established")  # established | unestablished
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(condition=Q(status__in=INBOUND_STATUSES), name="inbound_status_valid"),
+            models.CheckConstraint(condition=Q(is_derivative=True), name="inbound_is_derivative"),
+            models.CheckConstraint(condition=Q(identity_state__in=["established", "unestablished"]), name="inbound_identity_state_valid"),
+            models.UniqueConstraint(fields=["mailbox_ref", "original_sha256"], condition=~Q(original_sha256=""),
+                                    name="inbound_one_per_digest"),
+        ]
+
+
+class InboundMessageLocation(models.Model):
+    """Every place a message was observed (016 3.5). INSERT-only."""
+
+    message = models.ForeignKey(InboundMessage, on_delete=models.PROTECT, related_name="locations")
+    mailbox_ref = models.CharField(max_length=64)
+    folder = models.CharField(max_length=200)
+    uidvalidity = models.BigIntegerField()
+    uid = models.BigIntegerField()
+    observed_at = models.DateTimeField(db_default=Now())
+    matched_by = models.CharField(max_length=16)  # new | digest | metadata
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["mailbox_ref", "folder", "uidvalidity", "uid"], name="inbound_location_unique"),
+            models.CheckConstraint(condition=Q(matched_by__in=["new", "digest", "metadata"]), name="inbound_location_matched_by_valid"),
+        ]
+
+
+class QuestionReplyLink(models.Model):
+    """016 3.3: a reply's relation to one question. `pending` makes the question `reply_pending`."""
+
+    question = models.ForeignKey(Question, on_delete=models.PROTECT, related_name="reply_links")
+    inbound_message = models.ForeignKey(InboundMessage, on_delete=models.PROTECT, related_name="question_links")
+    state = models.CharField(max_length=24, default="pending")
+    outcome = models.CharField(max_length=24, blank=True, default="")
+    actor_ref = models.CharField(max_length=200, blank=True, default="")
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["question", "inbound_message"], name="reply_link_unique"),
+            models.CheckConstraint(condition=Q(state__in=LINK_STATES), name="reply_link_state_valid"),
+            models.CheckConstraint(condition=Q(outcome__in=["", "satisfied", "partial", "not_addressed"]), name="reply_link_outcome_valid"),
+        ]

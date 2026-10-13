@@ -10,7 +10,7 @@ from django.db.models.functions import Cast, Now
 
 from workflow.models import PendingAction
 
-from .models import ApprovedMessage, OutboundMessage, StaffItem
+from .models import ApprovedMessage, MailboxCursor, OutboundMessage, StaffItem
 from .outbound import DECIDABLE
 
 Disposition = ApprovedMessage.Disposition
@@ -42,4 +42,22 @@ def send_health() -> dict:
     }
     report["anomalies"] = sorted(k for k in ("needs_decision", "unknown_attempts", "stale_sending_attempts",
                                              "held_sends", "uncertain_sends", "open_send_items") if report[k])
+    return report
+
+
+def collector_health() -> dict:
+    """G1 (2B.2): a stale completed-collection watermark, blocked cursors, a broken chain (an unblocked cursor
+    with no queued or running pass), and consecutive failures."""
+    stale_before = Now() - timedelta(seconds=settings.CATALYST_MAIL_POLL_SECONDS * settings.CATALYST_MAIL_COLLECTOR_STALE_FACTOR)
+    cursors = MailboxCursor.objects.all()
+    live = PendingAction.objects.filter(kind="collect", status__in=("queued", "running")).values_list("subject_id", flat=True)
+    report = {
+        "cursors": cursors.count(),
+        "blocked": cursors.filter(state=MailboxCursor.State.BLOCKED).count(),
+        "stale_watermark": cursors.exclude(state=MailboxCursor.State.BLOCKED).filter(complete_through_at__lt=stale_before).count()
+        + cursors.exclude(state=MailboxCursor.State.BLOCKED).filter(complete_through_at__isnull=True).count(),
+        "broken_chain": cursors.exclude(state=MailboxCursor.State.BLOCKED).exclude(public_id__in=live).count(),
+        "failing": cursors.filter(consecutive_failures__gt=0).count(),
+    }
+    report["anomalies"] = sorted(k for k in ("blocked", "stale_watermark", "broken_chain", "failing") if report[k])
     return report

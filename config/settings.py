@@ -141,6 +141,8 @@ CATALYST_ACTION_HANDLERS = {
     "send_verification": "correspondence.verification.SendVerification",
     "send_message": "correspondence.outbound.SendMessage",  # 016 A3 (P2 2B.1)
     "reconcile_send": "correspondence.outbound.ReconcileSend",  # 016 A5
+    "collect": "correspondence.inbound.Collect",  # 016 B (P2 2B.2)
+    "file_copy": "correspondence.inbound.FileCopy",  # 016 A4
 }
 
 # P2 outbound mail (016 A3 to A6, section 6; owner decisions D-27, D-28). Synthetic only: real MXroute is
@@ -155,6 +157,26 @@ CATALYST_MAIL_TLS = os.environ.get("CATALYST_MAIL_TLS", "starttls")  # "starttls
 CATALYST_MAIL_USER = os.environ.get("CATALYST_MAIL_USER", "")
 CATALYST_MAIL_PASSWORD = os.environ.get("CATALYST_MAIL_PASSWORD", "")
 CATALYST_MAIL_DOMAIN = os.environ.get("CATALYST_MAIL_DOMAIN", "") or _base.hostname  # Message-ID right-hand side
+# A certificate authority file the transports trust instead of the system store (synthetic test servers);
+# unset means the system store. Verification itself is never switched off.
+CATALYST_MAIL_CA_FILE = os.environ.get("CATALYST_MAIL_CA_FILE", "")
+# P2 inbound (016 section 4 B and C; 2B.2). IMAP is implicit TLS only (IMAP4_SSL) on the same allowed host.
+CATALYST_MAIL_IMAP_PORT = number("CATALYST_MAIL_IMAP_PORT", "993")
+CATALYST_MAIL_MAILBOX_REF = os.environ.get("CATALYST_MAIL_MAILBOX_REF", "applicants")  # a configuration key, never an address
+CATALYST_MAIL_COLLECT_FOLDER = os.environ.get("CATALYST_MAIL_COLLECT_FOLDER", "INBOX")
+# Filed copies of accepted sends (016 A4). Empty means no copies are filed; when set it must differ from the
+# collected folder (checked at start-up).
+CATALYST_MAIL_SENT_FOLDER = os.environ.get("CATALYST_MAIL_SENT_FOLDER", "")
+# The receiving MTA's authserv-id whose Authentication-Results header is trusted (016 C3). Empty: none is,
+# so every reply is `unverified` until staff associate it. The production value is unknown (8.3).
+CATALYST_MAIL_TRUSTED_AUTHSERV_ID = os.environ.get("CATALYST_MAIL_TRUSTED_AUTHSERV_ID", "")
+# Synthetic collection limits (POL-06 and POL-10 values are not decided).
+CATALYST_MAIL_POLL_SECONDS = number("CATALYST_MAIL_POLL_SECONDS", "60", cast=float, minimum=0)
+CATALYST_MAIL_BATCH_SIZE = number("CATALYST_MAIL_BATCH_SIZE", "50")
+CATALYST_MAIL_MAX_MESSAGE_BYTES = number("CATALYST_MAIL_MAX_MESSAGE_BYTES", "1048576")
+CATALYST_MAIL_MAX_TEXT_CHARS = number("CATALYST_MAIL_MAX_TEXT_CHARS", "20000")
+CATALYST_MAIL_COLLECT_FAILURE_LIMIT = number("CATALYST_MAIL_COLLECT_FAILURE_LIMIT", "5")
+CATALYST_MAIL_COLLECTOR_STALE_FACTOR = number("CATALYST_MAIL_COLLECTOR_STALE_FACTOR", "3")
 # Synthetic values; POL-06 production values are not decided (D-29).
 CATALYST_MAIL_SEND_ATTEMPTS = number("CATALYST_MAIL_SEND_ATTEMPTS", "3")
 # The whole SMTP exchange must end well inside the worker lease; unset, it is half the lease, at most 20 s.

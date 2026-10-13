@@ -61,6 +61,12 @@ def _code(value) -> int | None:
     return value if isinstance(value, int) and 100 <= value <= 599 else None
 
 
+def tls_context() -> ssl.SSLContext:
+    """A verifying context (certificate chain and hostname). CATALYST_MAIL_CA_FILE only replaces the trust
+    store for synthetic servers; verification is never switched off."""
+    return ssl.create_default_context(cafile=settings.CATALYST_MAIL_CA_FILE or None)
+
+
 def peer_allowed(peer_ip: str) -> bool:
     """The connected peer must be loopback, or (in `test` only) the named test service on a private
     address. Checked after connect and before any further command."""
@@ -136,7 +142,7 @@ def send(message_bytes: bytes, mail_from: str, recipient: str) -> SendResult:
                 if not smtp.has_extn("starttls"):
                     return SendResult(TRANSPORT_BLOCKED, phase, None, hard=True)
                 smtp.sock.settimeout(remaining())
-                code, _ = smtp.starttls(context=ssl.create_default_context())
+                code, _ = smtp.starttls(context=tls_context())
                 if code != 220:
                     return _channel(phase, code)
                 smtp.sock.settimeout(remaining())
