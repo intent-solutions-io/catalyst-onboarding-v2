@@ -268,6 +268,7 @@ def test_p2_47_confirmation_links_are_redacted_in_every_encoding_and_the_text_is
            b"--b\r\nContent-Type: message/rfc822\r\n\r\n" + forwarded + b"\r\n--b--\r\n")
     derived = mime.derive(raw, max_text_chars=10_000)
     assert "/confirm/" not in derived.text.lower() and "SIGNATURE123" not in derived.text
+    assert "%2fconfirm" not in derived.text.lower() and ":SIG/" not in derived.text  # the percent-encoded form too
     assert derived.redactions["confirmation_link"] >= 5
     short = mime.derive(raw, max_text_chars=40)
     assert short.truncated and short.truncated_at_chars == 40 and len(short.text) == 40
@@ -738,3 +739,72 @@ def test_p2_47_a_wrapped_link_is_redacted_without_swallowing_the_following_words
     derived = mime.derive(raw, max_text_chars=10_000)
     assert "SIGNATURE987" not in derived.text and "cXV4" not in derived.text
     assert "Thanks for asking." in derived.text
+
+
+
+# --- 2C traceability additions (QA audit of the GATE-P2 map) ---------------------------------------------------
+
+def test_p2_46_a_crash_during_resync_recovers_with_no_new_effect(mailbox, settings, monkeypatch):
+    _, message = sent_question(mailbox)
+    mailbox.imap.deliver(reply(message, body="one"))
+    mailbox.imap.deliver(reply(message, body="two"))
+    collect()
+    mailbox.imap.renumber()
+    calls = {"n": 0}
+    real = inbound.MailboxClient.fetch
+
+    def crash_once(self, uid):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise OSError("synthetic crash during resync")
+        return real(self, uid)
+    monkeypatch.setattr(inbound.MailboxClient, "fetch", crash_once)
+    collect()  # the resync pass dies on its second message
+    monkeypatch.setattr(inbound.MailboxClient, "fetch", real)
+    for _ in range(3):
+        collect()
+    state = cursor(mailbox)
+    assert state.state == "ok" and state.uidvalidity == 1100
+    assert InboundMessage.objects.count() == 2 and QuestionReplyLink.objects.count() == 2  # nothing new downstream
+    assert sorted(InboundMessageLocation.objects.values_list("uidvalidity", "matched_by")) == [
+        (1000, "new"), (1000, "new"), (1100, "digest"), (1100, "digest")]
+
+
+def test_p2_18_a_reply_to_a_closed_application_is_never_applied_to_a_newer_one(mailbox):
+    from tests.test_outbound import verified_application
+
+    question, message = sent_question(mailbox)
+    owner = mailbox.committed.connect("owner", autocommit=True)
+    owner.execute("UPDATE applications_application SET stage = 'closed' WHERE id = %s", [mailbox.app.pk])
+    newer = verified_application()  # the same applicant applies again: a new application
+    assert newer.pk != mailbox.app.pk
+    mailbox.imap.deliver(reply(message))
+    collect()
+    received = InboundMessage.objects.get()
+    assert (received.exception_reason, received.application_id) == ("application_closed", mailbox.app.pk)
+    assert QuestionReplyLink.objects.count() == 0
+    assert not newer.staff_items.exists() and not InboundMessage.objects.filter(application=newer).exists()
+
+
+def test_p2_44_derivation_golden_case_for_the_current_derivation_version():
+    assert mime.DERIVATION_VERSION == 1  # a change of output must bump the version and add a golden case
+    raw = (b"From: Ada <ada@example.test>\r\nMessage-ID: <g1@example.test>\r\nMIME-Version: 1.0\r\n"
+           b"Content-Type: multipart/alternative; boundary=a\r\n\r\n"
+           b"--a\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nThe answer is Alpha.\r\n> quoted\r\n"
+           b"--a\r\nContent-Type: text/html\r\n\r\n<p>The answer is <b>Alpha</b>.</p>\r\n--a--\r\n")
+    derived = mime.derive(raw, max_text_chars=10_000)
+    assert derived.message_id == "<g1@example.test>" and derived.from_addresses == ["ada@example.test"]
+    assert derived.text == mime.derive(raw, max_text_chars=10_000).text  # deterministic
+    assert "The answer is Alpha." in derived.text and "<b>" not in derived.text
+    assert (derived.truncated, derived.redactions, derived.defects) == (False, {}, 0)
+
+
+def test_p2_39_47_no_table_stores_original_message_bytes(mailbox):
+    owner = mailbox.committed.connect("owner", autocommit=True)
+    columns = owner.execute(
+        "SELECT table_name, column_name, data_type FROM information_schema.columns"
+        " WHERE table_schema = 'public' AND table_name LIKE 'correspondence\\_%'").fetchall()
+    assert columns
+    assert [c for c in columns if c[2] == "bytea"] == []  # no binary column anywhere in correspondence
+    raw_like = [c for c in columns if set(c[1].split("_")) & {"raw", "mime", "original", "source", "eml", "bytes"}]
+    assert {c[1] for c in raw_like} <= {"original_sha256"}, raw_like  # a digest only, never the bytes

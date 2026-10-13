@@ -103,9 +103,10 @@ def pytest_collectreport(report):
         _skipped.append(report.nodeid)
 
 
-# The acceptance report (005 S1.7, tests/acceptance.py): every case's status at the end of the run. A full
-# run (no file, -k or -m selection, nothing deselected) fails unless every case is PASS: that is GATE-S1's
-# "every case PASS at one head", enforced wherever the whole suite runs (CI and scripts/test.sh).
+# The acceptance report (005 S1.7 and 016 section 7, tests/acceptance.py): every case's status at the end of
+# the run. A full run (no file, -k or -m selection, nothing deselected) fails unless every case is PASS: that
+# is GATE-S1's and GATE-P2's "every case PASS at one head", enforced wherever the whole suite runs (CI and
+# scripts/test.sh).
 _acceptance = {"outcomes": {}, "deselected": False, "statuses": {}, "full": False}
 
 
@@ -125,7 +126,7 @@ def case_status(names, outcomes):
 def pytest_sessionfinish(session, exitstatus):
     config = session.config
     outcomes = _acceptance["outcomes"]
-    groups = {**acceptance.CASES, **acceptance.SUPPORTING}
+    groups = {**acceptance.CASES, **acceptance.SUPPORTING, **acceptance.P2_CASES}
     _acceptance["statuses"] = {case: case_status(names, outcomes) for case, names in groups.items()}
     mapped = {name for names in groups.values() for name in names}
     _acceptance["full"] = (
@@ -145,13 +146,16 @@ def pytest_terminal_summary(terminalreporter):
     statuses = _acceptance["statuses"]
     if not any(s != "NOT RUN" for s in statuses.values()):
         return  # nothing mapped ran (a child probe or an unrelated file): no report
-    terminalreporter.section("first-slice acceptance (005 S1.7)")
-    groups = {**acceptance.CASES, **acceptance.SUPPORTING}
-    for case, status in statuses.items():
-        terminalreporter.write_line(f"{case:<34} {status:<10} {len(groups[case])} mapped tests")
-    summary = ", ".join(f"{s} {list(statuses.values()).count(s)}" for s in ("PASS", "FAIL", "INCOMPLETE", "NOT RUN"))
-    scope = "full run: GATE-S1 requires every case PASS" if _acceptance["full"] else "selected subset: not gated"
-    terminalreporter.write_line(f"{summary} ({scope})", green=_acceptance["full"] and set(statuses.values()) == {"PASS"})
+    for title, gate, groups in (
+            ("first-slice acceptance (005 S1.7)", "GATE-S1", {**acceptance.CASES, **acceptance.SUPPORTING}),
+            ("P2 correspondence acceptance (016 section 7)", "GATE-P2", acceptance.P2_CASES)):
+        terminalreporter.section(title)
+        part = {case: statuses[case] for case in groups}
+        for case, status in part.items():
+            terminalreporter.write_line(f"{case:<34} {status:<10} {len(groups[case])} mapped tests")
+        summary = ", ".join(f"{s} {list(part.values()).count(s)}" for s in ("PASS", "FAIL", "INCOMPLETE", "NOT RUN"))
+        scope = f"full run: {gate} requires every case PASS" if _acceptance["full"] else "selected subset: not gated"
+        terminalreporter.write_line(f"{summary} ({scope})", green=_acceptance["full"] and set(part.values()) == {"PASS"})
 
 
 # --- database roles and the privileged reset (D-21) -----------------------------------------------------

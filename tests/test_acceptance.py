@@ -362,6 +362,7 @@ GATE_PROBE_CONFTEST = """
 from tests import acceptance
 acceptance.CASES = {"TEST-PROBE": [%s]}
 acceptance.SUPPORTING = {}
+acceptance.P2_CASES = {}
 """
 
 
@@ -409,9 +410,15 @@ def test_the_acceptance_map_names_exactly_the_cases_in_005():
     assert planned == sorted(acceptance.CASES) and len(planned) == 22
 
 
+def test_the_p2_acceptance_map_names_exactly_the_cases_in_016():
+    spec = (ROOT / "000-docs/016-AT-DSGN-p2-correspondence-specification.md").read_text()
+    planned = sorted(set(re.findall(r"^\| (TEST-P2-\d\d) \|", spec, flags=re.M)))
+    assert planned == sorted(acceptance.P2_CASES) and len(planned) == 54
+
+
 def test_every_mapped_test_exists():
     missing = []
-    for names in {**acceptance.CASES, **acceptance.SUPPORTING}.values():
+    for names in {**acceptance.CASES, **acceptance.SUPPORTING, **acceptance.P2_CASES}.values():
         assert names
         for name in names:
             module, function = name.split("::")

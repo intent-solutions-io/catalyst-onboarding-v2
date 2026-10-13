@@ -122,7 +122,7 @@ def verified_application(email="ada@example.test"):
     page = Client().get(path)
     version = re.search(r'name="version" value="([^"]+)"', page.content.decode()).group(1)
     assert Client().post(path, {"version": version}).status_code == 200
-    app = Application.objects.get(email_key=email)
+    app = Application.objects.filter(email_key=email).order_by("-id").first()  # the newest, after a closed one
     assert app.contact_verified_at is not None
     return app
 
