@@ -95,7 +95,9 @@ def test_p2_33_only_a_hard_bounce_for_our_message_and_the_verified_recipient_pau
 def test_p2_43_a_persons_reply_holds_interpretation_for_p3_and_asks_staff(mailbox):
     question, _, received = delivered(mailbox)
     [held] = PendingAction.objects.filter(kind="interpret_reply")
-    assert held.status == "held" and held.input_ref == f"{received.public_id}:{question.public_id}"
+    received.refresh_from_db()
+    pin = f"{received.derived_text_sha256[:16]}:{received.derivation_version}.{received.redaction_version}"
+    assert held.status == "held" and held.input_ref == f"{received.public_id}:{question.public_id}:{pin}"
     processed()
     held.refresh_from_db()
     assert held.status == "held"  # never claimed: no handler, and held is never claimable
@@ -292,3 +294,208 @@ def test_g2_g6_reply_health(mailbox):
     owner = mailbox.committed.connect("owner", autocommit=True)
     owner.execute("UPDATE correspondence_questionreplylink SET state = 'applied'")  # an inconsistency, seeded
     assert reply_health()["anomalies"] == ["reply_pending_without_link"]
+
+
+
+# --- review fixes (QA, architecture, data and P3-interface reviews of PR #23) ----------------------------------
+
+def test_a_reply_whose_processing_fails_finally_goes_to_staff_not_silence(mailbox, monkeypatch):
+    def defect(self, application, message):
+        raise RuntimeError("simulated handler defect")
+    monkeypatch.setattr(processing.ProcessReply, "_person", defect)
+    question, _, received = delivered(mailbox)
+    received.refresh_from_db()
+    assert (received.status, received.exception_reason) == ("exception", "processing_error")
+    assert StaffItem.objects.filter(reason_code="processing_error", status="open").count() == 1
+
+
+def test_p2_32_staff_confirm_while_process_reply_holds_the_lock(mailbox, monkeypatch):
+    import time
+
+    question, message = sent_question(mailbox)
+    mailbox.imap.deliver(reply(message))
+    outcome = []
+
+    def confirm_concurrently(locked_message):
+        def confirm():
+            try:
+                processing.confirm_question_outcome(locked_message.pk, {question.pk: "satisfied"}, mailbox.operator)
+                outcome.append("confirmed")
+            except Refused as exc:
+                outcome.append(str(exc))
+        mailbox.committed.thread(confirm)
+        time.sleep(0.5)  # the thread now waits on the application lock process_reply holds
+    monkeypatch.setattr(processing, "_before_decide", confirm_concurrently)
+    collect()  # collection, then process_reply, whose seam starts the concurrent confirmation
+    mailbox.committed.release()  # join the thread
+    question.refresh_from_db()
+    assert outcome == ["confirmed"] and question.status == "satisfied"
+    assert not PendingAction.objects.filter(kind="interpret_reply", status="held").exists()
+    assert StaffItem.objects.filter(reason_code="reply_needs_review", status="open").count() == 0
+
+
+def test_d3_d4_staff_decide_only_a_persons_trusted_reply_and_need_every_outcome(mailbox):
+    q1, m1 = sent_question(mailbox)
+    mailbox.imap.deliver(reply(m1, headers=["Auto-Submitted: auto-replied"], body="away"))
+    mailbox.imap.deliver(reply(m1, body="a real answer"))
+    collect()
+    processed()
+    automatic, person = InboundMessage.objects.order_by("id")
+    with pytest.raises(Refused, match="only_a_trusted"):
+        processing.close_reply_without_outcome(automatic.pk, mailbox.operator)
+    with pytest.raises(Refused, match="no_outcomes"):
+        processing.confirm_question_outcome(person.pk, {}, mailbox.operator)
+    with pytest.raises(Refused, match="an_outcome_is_needed"):
+        processing.confirm_question_outcome(person.pk, {q1.pk: "maybe"}, mailbox.operator)
+    person.refresh_from_db()
+    assert person.status == "awaiting_processing"  # the refused attempts were rolled back whole
+    with pytest.raises(Refused, match="unknown_close_reason"):
+        processing.close_reply_without_outcome(person.pk, mailbox.operator, reason="free text")
+
+
+def test_p2_34_loop_threshold_boundary_and_recount_after_staff_resolve(mailbox, settings):
+    _, message = sent_question(mailbox)
+    for _ in range(2):
+        mailbox.imap.deliver(reply(message, headers=["Auto-Submitted: auto-replied"], body=f"away {uuid.uuid4().hex}"))
+    collect()
+    processed()
+    assert not paused(mailbox)  # two is below the threshold of three
+    mailbox.imap.deliver(reply(message, headers=["Auto-Submitted: auto-replied"], body=f"away {uuid.uuid4().hex}"))
+    collect()
+    processed()
+    assert paused(mailbox)
+    [item] = StaffItem.objects.filter(reason_code="loop_threshold")
+    processing.resolve_exception(item.pk, "acknowledge", mailbox.operator)
+    AutomationPause.objects.filter(subject_id=mailbox.app.public_ref).delete()  # staff resume (2B.4 service)
+    mailbox.imap.deliver(reply(message, headers=["Auto-Submitted: auto-replied"], body=f"away {uuid.uuid4().hex}"))
+    collect()
+    processed()
+    assert not paused(mailbox)  # the earlier three no longer count after the resolution
+
+
+def test_p2_33_a_bounce_for_a_message_that_is_not_ours_is_unmatched_and_a_soft_bounce_is_recorded(mailbox):
+    from applications.models import ApplicationEvent
+
+    _, message = sent_question(mailbox)
+    foreign = bounce(message).replace(str(message.send_ref.hex).encode(), b"f" * 32)
+    mailbox.imap.deliver(foreign)
+    mailbox.imap.deliver(bounce(message, "4.2.2"))
+    collect()
+    processed()
+    unmatched, soft = InboundMessage.objects.order_by("id")
+    assert (unmatched.status, unmatched.exception_reason) == ("exception", "unmatched")
+    assert soft.status == "processed" and not paused(mailbox)
+    assert ApplicationEvent.objects.filter(kind="bounce_recorded", data__hard=False, data__counted=True).count() == 1
+
+
+@pytest.mark.parametrize(("reason_kwargs", "code", "role"), [
+    ({"sender": "someone-else@example.test"}, "mark_spoof", "operator"),
+    ({"auth": None}, "dismiss", "operator"),
+    ({"auth": None}, "associate", "operator"),
+])
+def test_f_identity_resolutions_are_refused_to_operators(mailbox, reason_kwargs, code, role):
+    _, message = sent_question(mailbox)
+    mailbox.imap.deliver(reply(message, **reason_kwargs))
+    collect()
+    item = StaffItem.objects.filter(dedupe_key__startswith="inbound:").exclude(reason_code="reply_needs_review").get()
+    with pytest.raises(PermissionDenied):
+        processing.resolve_exception(item.pk, code, getattr(mailbox, role))
+
+
+def test_f_reply_and_send_items_are_not_resolvable_through_resolve_exception(mailbox):
+    _, _, received = delivered(mailbox)
+    [item] = StaffItem.objects.filter(reason_code="reply_needs_review")
+    for code in ("acknowledge", "dismiss"):
+        with pytest.raises(Refused, match="not_allowed"):
+            processing.resolve_exception(item.pk, code, mailbox.decider)
+
+
+def test_c4_staff_association_records_prior_values_and_an_event(mailbox):
+    from applications.models import ApplicationEvent
+
+    _, message = sent_question(mailbox)
+    mailbox.imap.deliver(reply(message, in_reply_to=False))
+    collect()
+    [item] = StaffItem.objects.filter(reason_code="unmatched")
+    processing.resolve_exception(item.pk, "associate", mailbox.decider, target_application_id=mailbox.app.pk)
+    effects = StaffItemResolution.objects.get(item=item).effects
+    assert effects["prior_status"] == "exception" and effects["prior_exception_reason"] == "unmatched"
+    assert ApplicationEvent.objects.filter(application=mailbox.app, kind="inbound_associated_by_staff").count() == 1
+
+
+def test_g2_g6_every_reply_signal_reports_its_seeded_anomaly(mailbox, settings):
+    question, _, received = delivered(mailbox)
+    owner = mailbox.committed.connect("owner", autocommit=True)
+    owner.execute("UPDATE correspondence_inboundmessage SET status = 'processed'")  # the pending link now points nowhere
+    report = reply_health()
+    assert "pending_link_not_awaiting" in report["anomalies"]
+    settings.CATALYST_MAIL_MAX_MESSAGE_BYTES = 200
+    _, message = sent_question(mailbox, text="Second?")
+    mailbox.imap.deliver(reply(message, body="x" * 5000))
+    collect()
+    assert reply_health()["unestablished_identity"] == 1
+
+
+def test_p2_43_no_network_outside_the_transports_and_no_interpret_handler():
+    from django.conf import settings
+
+    assert "interpret_reply" not in settings.CATALYST_ACTION_HANDLERS
+    allowed = {"transport.py", "imap.py"}
+    for path in Path(support.ROOT, "correspondence").rglob("*.py"):
+        if path.name in allowed or "migrations" in path.parts:
+            continue
+        text = path.read_text()
+        for banned in ("import socket", "import urllib.request", "import http.client", "import requests", "smtplib", "imaplib"):
+            assert banned not in text, (path.name, banned)
+
+
+def test_adr01_applications_never_imports_correspondence():
+    for path in Path(support.ROOT, "applications").rglob("*.py"):
+        if "migrations" in path.parts or path.name == "admin.py":  # the admin inline is a presentation seam (deferred)
+            continue
+        text = path.read_text()
+        for banned in ("from correspondence", "import correspondence", 'get_model("correspondence"'):
+            assert banned not in text, (path.name, banned)
+
+
+# --- the typed P3 interface ------------------------------------------------------------------------------------
+
+def _request(text, questions=("q1",), truncated=False, sent_body=""):
+    return processing.InterpretRequest(
+        message_id="m", text=text, text_sha256=processing.text_sha256(text), derivation_version=1, redaction_version=1,
+        truncated=truncated, omitted_parts=(), attachments=(), questions=tuple(processing.QuestionRef(q, "Question?") for q in questions),
+        quoted=tuple(processing.quoted_ranges(text)), sent_body=sent_body)
+
+
+def test_p3_interface_validation_rules():
+    text = "My answer is yes.\n> Which project?\n"
+    request = _request(text, sent_body="Which project?")
+    good = processing.QuestionProposal("q1", "satisfied", (processing.Span(0, 17),))
+    assert processing.validate_proposals(request, [good]) == []
+    assert "span_inside_quoted_text" in processing.validate_proposals(
+        request, [processing.QuestionProposal("q1", "satisfied", (processing.Span(18, 34),))])
+    assert "outcome_without_evidence" in processing.validate_proposals(request, [processing.QuestionProposal("q1", "partial")])
+    assert "questions_do_not_match" in processing.validate_proposals(request, [])
+    assert "span_out_of_bounds" in processing.validate_proposals(
+        request, [processing.QuestionProposal("q1", "satisfied", (processing.Span(0, 999),))])
+    truncated = _request(text, truncated=True)
+    assert "not_addressed_on_truncated_text" in processing.validate_proposals(
+        truncated, [processing.QuestionProposal("q1", "not_addressed")])
+    changed = processing.InterpretRequest(**{**request.__dict__, "text_sha256": "0" * 64})
+    assert "text_changed" in processing.validate_proposals(changed, [good])
+
+
+def test_p3_eligibility_refuses_degraded_or_untrusted_text(mailbox):
+    _, _, received = delivered(mailbox)
+    received.refresh_from_db()
+    assert processing.eligible(received)
+    received.truncated = True
+    assert not processing.eligible(received)
+
+
+@pytest.mark.parametrize(("text", "stripped"), [
+    ("From: my side the answer is yes.\nThanks", "From: my side the answer is yes.\nThanks"),
+    ("Answer here.\nOn Tue, 13 Oct 2026 at 10:00, Catalyst Onboarding\n<onboarding@example.invalid> wrote:\n> q", "Answer here."),
+])
+def test_p2_44_quote_stripping_keeps_from_lines_and_catches_wrapped_attributions(text, stripped):
+    assert processing.strip_quotes(text) == stripped

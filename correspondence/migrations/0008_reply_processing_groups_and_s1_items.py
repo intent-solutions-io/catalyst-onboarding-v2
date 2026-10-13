@@ -20,7 +20,8 @@ def add_permissions(apps, schema_editor):
     Group = apps.get_model("auth", "Group")
     Permission = apps.get_model("auth", "Permission")
     for name, codenames in ADDED.items():
-        Group.objects.get(name=name).permissions.add(
+        group, _ = Group.objects.get_or_create(name=name)  # tolerate a group an operator removed
+        group.permissions.add(
             *Permission.objects.filter(content_type__app_label="correspondence", codename__in=codenames))
 
 
@@ -39,9 +40,12 @@ def open_items_for_s1_events(apps, schema_editor):
     for event in Event.objects.filter(kind="needs_staff_attention").order_by("id"):
         data = event.data if isinstance(event.data, dict) else {}
         key = f"event:{event.pk}"
+        reason = data.get("reason")
+        if reason not in ("repeat_after_verification", "newer_unverified_version"):
+            reason = "processing_error"  # an unknown S1 reason stays resolvable (acknowledge), never stuck open
         if not StaffItem.objects.filter(dedupe_key=key).exists():
-            StaffItem.objects.create(reason_code=str(data.get("reason") or "staff_review")[:64], dedupe_key=key,
-                                     application_id=event.application_id)
+            StaffItem.objects.create(reason_code=reason, dedupe_key=key, application_id=event.application_id,
+                                     opened_at=event.occurred_at)  # the mark keeps its real age
 
 
 def keep_items(apps, schema_editor):

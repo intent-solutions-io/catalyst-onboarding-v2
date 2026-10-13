@@ -38,7 +38,8 @@ from .models import (
     Question,
     QuestionReplyLink,
 )
-from .outbound import build_email, message_id, verified_address
+from .common import Refused
+from .messages import FILE_COPY, build_email, enqueue_file_copy, message_id, only_duplicate_key, verified_address  # noqa: F401
 from .staff_items import open_item
 
 logger = logging.getLogger(__name__)
@@ -47,26 +48,14 @@ State = MailboxCursor.State
 Inbound = InboundMessage.Status
 
 COLLECT = "collect"
-FILE_COPY = "file_copy"
 PROCESS_REPLY = "process_reply"
 CURSOR_SUBJECT = "mailbox_cursor"
 BLOCKING = ("auth_failed", "tls_refused", "peer_refused", "not_configured")
 ANSWERABLE = (Question.Status.OPEN, Question.Status.PARTIALLY_ANSWERED, Question.Status.REPLY_PENDING)
 
 
-class Refused(Exception):
-    pass
-
-
 def collect_key(cursor, n: int) -> str:
     return f"collect:{cursor.public_id}:{n}"
-
-
-def _only_duplicate_key(exc: IntegrityError) -> None:
-    """Tolerate only the idempotency-key unique violation; any other integrity error propagates."""
-    diag = getattr(exc.__cause__, "diag", None)
-    if "idempotency_key" not in (getattr(diag, "constraint_name", None) or ""):
-        raise exc
 
 
 def enqueue_pass(cursor, n: int, delay: float = 0.0) -> None:
@@ -79,7 +68,7 @@ def enqueue_pass(cursor, n: int, delay: float = 0.0) -> None:
                 max_attempts=settings.CATALYST_MAIL_SEND_ATTEMPTS,
             )
     except IntegrityError as exc:
-        _only_duplicate_key(exc)
+        only_duplicate_key(exc)
 
 
 def _pass_number(claim) -> int:
@@ -119,7 +108,7 @@ def _exception(message, reason, application=None, item=True):
         _item(reason, message, application)
 
 
-def _queue_processing(message, application) -> None:
+def queue_processing(message, application) -> None:
     PendingAction.objects.create(
         kind=PROCESS_REPLY, subject_type="application", subject_id=application.public_ref, input_ref=str(message.public_id),
         idempotency_key=f"{PROCESS_REPLY}:{message.public_id}", max_attempts=settings.CATALYST_MAIL_SEND_ATTEMPTS)
@@ -145,7 +134,7 @@ def _associate(message: InboundMessage, derived) -> None:
     if classification != "human":
         # Automatic messages and bounces never make a question reply_pending (016 D1); 2B.3 classifies them.
         InboundMessage.objects.filter(pk=message.pk).update(status=Inbound.AWAITING_PROCESSING)
-        _queue_processing(message, application)
+        queue_processing(message, application)
         return
     sender_ok = association.from_matches(derived.from_addresses, verified_address(application))
     evidence = association.auth_evidence(derived.authentication_results)
@@ -162,7 +151,7 @@ def _associate(message: InboundMessage, derived) -> None:
             QuestionReplyLink.objects.create(question=question, inbound_message=message, state="pending")
             refresh_question_status(question)
     InboundMessage.objects.filter(pk=message.pk).update(status=Inbound.AWAITING_PROCESSING)
-    _queue_processing(message, application)
+    queue_processing(message, application)
 
 
 def ingest(cursor_id: int, validity: int, uid: int, size: int, internal_date: str, raw: bytes | None, headers_only: bool):
@@ -216,7 +205,7 @@ def _store(cursor, derived, size, internal_date, digest):
                                                     "dsn_final_recipient": derived.dsn_final_recipient}
                                                    if derived.dsn_status else {})},
         date_header=derived.date_header, internal_date=internal_date[:64], size=size,
-        original_sha256=digest, derived_text=derived.text, derivation_version=mime.DERIVATION_VERSION,
+        original_sha256=digest, derived_text=derived.text, derived_text_sha256=mime.digest(derived.text.encode()), derivation_version=mime.DERIVATION_VERSION,
         redaction_version=mime.REDACTION_VERSION, truncated=derived.truncated, truncated_at_chars=derived.truncated_at_chars,
         omitted_parts=derived.omitted_parts, redactions=derived.redactions, attachments=derived.attachments,
         identity_state="established" if digest else "unestablished",
@@ -413,21 +402,6 @@ def recover_mailbox() -> MailboxCursor:
 
 
 # --- filed copies (016 A4) -------------------------------------------------------------------------------
-
-def enqueue_file_copy(message: ApprovedMessage, attempt_id: int) -> None:
-    secret = message.template_version is not None and message.template_version.secret_bearing
-    if not settings.CATALYST_MAIL_SENT_FOLDER or secret:
-        return  # no copy of a secret-bearing message is ever filed (016 A4)
-    OutboundMessage.objects.filter(pk=attempt_id).update(filed_copy_state="pending")
-    try:
-        with transaction.atomic():
-            PendingAction.objects.create(
-                kind=FILE_COPY, subject_type="application", subject_id=message.application.public_ref,
-                input_ref=str(message.send_ref), idempotency_key=f"{FILE_COPY}:{message.send_ref}",
-                max_attempts=settings.CATALYST_MAIL_SEND_ATTEMPTS)
-    except IntegrityError as exc:
-        _only_duplicate_key(exc)
-
 
 class FileCopy:
     kind = FILE_COPY

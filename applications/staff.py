@@ -16,7 +16,6 @@ Every other next step belongs to the applicant, the system, or nobody yet (block
 
 from dataclasses import dataclass
 
-from django.apps import apps
 
 from django.db.models import CharField, Exists, OuterRef, Q, Value
 from django.db.models.functions import Cast, Concat, Now
@@ -24,7 +23,7 @@ from django.db.models.functions import Cast, Concat, Now
 from workflow.models import AutomationPause, PendingAction
 
 from .confirmation import START_EVIDENCE_COLLECTION
-from .models import TERMINAL_STAGES, ApplicationEvent, ContactChallenge
+from .models import TERMINAL_STAGES, Application, ApplicationEvent, ContactChallenge
 from .services import SEND_VERIFICATION, send_verification_key
 
 ATTENTION = "needs_staff_attention"
@@ -50,7 +49,9 @@ REASONS = {
 
 
 def _staff_item_model():
-    return apps.get_model("correspondence", "StaffItem")  # no import: correspondence depends on applications
+    """The staff-item model, through the reverse relation it declares on Application (no import and no model
+    name: correspondence depends on applications, 003 ADR-01)."""
+    return Application._meta.get_field("staff_items").related_model
 
 
 @dataclass(frozen=True)
@@ -84,7 +85,7 @@ def actions_for(application):
 
 
 def attention_items(application):
-    return list(_staff_item_model().objects.filter(application=application, status="open").order_by("opened_at", "id"))
+    return list(application.staff_items.filter(status="open").order_by("opened_at", "id"))
 
 
 def _event_for(item):

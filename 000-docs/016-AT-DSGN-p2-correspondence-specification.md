@@ -1089,3 +1089,41 @@ One independent `catalyst-independent-qa` review of PR #22 found 4 HIGH, 14 MEDI
   `auto_markers`.
 - The P3 interface is the `ReplyInterpreter` protocol in `correspondence/processing.py` (not a separate
   `interpreter.py`). `strip_quotes` provides the quote-stripped view, version 1.
+
+### 10.9 2B.3 specialist reviews (2026-10-13)
+
+At the owner's request, the specialist agents were used beyond QA. PR #23 was reviewed in parallel by
+`catalyst-independent-qa`, `catalyst-django-architect`, `catalyst-django-data` and `catalyst-minimax-evaluation`.
+None found a blocker. Applied:
+
+- **QA:**
+  - a reply whose processing fails finally becomes `processing_error` with a staff item, never silence;
+  - D3 and D4 decide only a person's trusted or staff-associated reply, and need every outcome;
+  - closing reasons are an allow-list;
+  - the loop count restarts after staff resolve a loop, and the threshold minimum is 2;
+  - bounce recipient matching fails closed;
+  - staff association writes an event and records prior values;
+  - a real race test of confirmation against `process_reply`;
+  - wider allow-list, health and network-scan tests.
+- **Architecture:** `applications` never imports `correspondence`. The S1 code opens staff items through the
+  `CATALYST_ATTENTION_OPENER` seam (one creation path) and reads them through the reverse relation, with an
+  import-direction test. Shared pieces moved to the leaf modules `common.py` and `messages.py`, which removes
+  the hidden outbound and inbound cycle.
+- **Data:**
+  - indexes for the ingest Message-ID lookup and the health queries;
+  - the 0008 backfill keeps each event's time, maps an unknown reason to a resolvable one, and tolerates a
+    removed group.
+- **P3 interface:**
+  - a typed request and result (`InterpretRequest`, `QuestionProposal`, `Span` as half-open code-point offsets
+    into the full derivative, `Provenance`, `InterpretUnavailable`);
+  - `quoted_ranges` and a pure `validate_proposals` (no span inside quoted text or citing our own sent text,
+    evidence required for `satisfied` and `partial`, no `not_addressed` on truncated text);
+  - `eligible()`;
+  - `derived_text_sha256`, pinned with the versions in each held `interpret_reply`;
+  - `strip_quotes` no longer cuts at "From:" lines and catches wrapped attributions.
+  - Approved question text is immutable: the application role cannot update it.
+
+**Open owner decision (data review, HIGH):** whether `StaffItemResolution`, `InboundMessageLocation` and the
+frozen `ApprovedMessage` columns are ADR-14 protected history. If they are, they need protection triggers
+(today grants alone protect them for the application role), a `StaffItem` status transition trigger, and an
+audited retention path under POL-10. This is not decided here.

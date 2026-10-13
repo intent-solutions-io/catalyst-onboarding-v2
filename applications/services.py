@@ -30,6 +30,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from django.conf import settings
+from django.utils.module_loading import import_string
 from django.db import IntegrityError, transaction
 from django.db.models import F, Q
 from django.db.models.functions import Now
@@ -59,12 +60,9 @@ def _before_insert(key: str) -> None:
 
 def open_staff_item(application, reason: str, attention_event) -> None:
     """The staff queue entry for a `needs_staff_attention` event (016 3.8, A-2; P2 2B.3), in the same
-    transaction. Resolving the item is what clears staff attention; the event stays as history. The
-    correspondence model is reached through the app registry: correspondence depends on applications."""
-    from django.apps import apps
-
-    apps.get_model("correspondence", "StaffItem").objects.create(
-        reason_code=reason, dedupe_key=f"event:{attention_event.pk}", application=application)
+    transaction. Resolving the item is what clears staff attention; the event stays as history. Reached
+    through the CATALYST_ATTENTION_OPENER seam, so this app never imports correspondence (003 ADR-01)."""
+    import_string(settings.CATALYST_ATTENTION_OPENER)(application, reason, attention_event)
 
 
 def send_verification_key(challenge_public_id) -> str:

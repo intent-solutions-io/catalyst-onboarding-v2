@@ -11,7 +11,7 @@ from django.db.models.functions import Cast, Now
 from workflow.models import PendingAction
 
 from .models import ApprovedMessage, InboundMessage, MailboxCursor, OutboundMessage, Question, QuestionReplyLink, StaffItem
-from .outbound import DECIDABLE
+from .common import DECIDABLE
 
 Disposition = ApprovedMessage.Disposition
 Attempt = OutboundMessage.Status

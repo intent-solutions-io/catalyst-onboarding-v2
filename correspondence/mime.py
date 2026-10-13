@@ -143,9 +143,9 @@ def _walk(part, derived: Derived, chunks: list, depth: int, counter: list) -> No
         for block in payload if isinstance(payload, list) else []:
             status = str(block.get("Status", "")).strip()
             if status and not derived.dsn_status:
-                derived.dsn_status = clean(status)[:16]
+                derived.dsn_status = redact_short(status)[:16]
                 recipient = str(block.get("Final-Recipient", "")).split(";", 1)[-1].strip()
-                derived.dsn_final_recipient = clean(recipient)[:320]
+                derived.dsn_final_recipient = redact_short(recipient)[:320]
         return
     if ctype == "message/rfc822":  # a forwarded or bounced original: its Message-ID, then its text, reduced
         payload = part.get_payload()

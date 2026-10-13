@@ -36,6 +36,7 @@ APPROVED_MIGRATIONS = {
     ("correspondence", "0005_inbound_collection"), ("correspondence", "0006_inbound_grants"),
     # P2 2B.3: reply-processing permissions, and open staff items for earlier S1 attention events.
     ("correspondence", "0007_reply_processing_permissions"), ("correspondence", "0008_reply_processing_groups_and_s1_items"),
+    ("correspondence", "0009_reply_processing_indexes_and_pin"), ("correspondence", "0010_pin_grant"),
 }
 
 

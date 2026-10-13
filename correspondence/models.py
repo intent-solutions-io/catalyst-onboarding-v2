@@ -8,7 +8,8 @@ P2 (owner decisions D-27 to D-31; synthetic only):
 - `ApprovedMessage`: the one canonical, frozen record of a logical send, committed at enqueue and
   separate from its attempts (A-11). A worker rebuilds what to send from it alone.
 - `ApprovedMessageQuestion`: which questions a message carried.
-- `Question`: the minimal question needed by outbound sends (A-1); reply handling arrives in 2B.3.
+- `Question` (A-1) and, for inbound mail (2B.2, 2B.3), `MailboxCursor`, `InboundMessage`,
+  `InboundMessageLocation` and `QuestionReplyLink`.
 - `StaffItem` and `StaffItemResolution`: the staff exception queue with an immutable resolution record
   that exists with or without an application (A-2).
 
@@ -264,6 +265,10 @@ class StaffItem(models.Model):
             models.UniqueConstraint(fields=["reason_code", "dedupe_key"], condition=Q(status="open"), name="staff_item_one_open_per_key"),
             models.CheckConstraint(condition=Q(status__in=["open", "resolved"]), name="staff_item_status_valid"),
         ]
+        indexes = [
+            models.Index(fields=["dedupe_key"], condition=Q(status="open"), name="staff_item_open_key"),
+            models.Index(fields=["application"], condition=Q(status="open"), name="staff_item_open_application"),
+        ]
 
 
 class StaffItemResolution(models.Model):
@@ -348,6 +353,7 @@ class InboundMessage(models.Model):
     size = models.BigIntegerField(default=0)
     original_sha256 = models.CharField(max_length=64, blank=True, default="")  # empty when identity is unestablished
     derived_text = models.TextField(blank=True, default="")
+    derived_text_sha256 = models.CharField(max_length=64, blank=True, db_default="")  # pins spans (016 section 1)
     derivation_version = models.PositiveIntegerField(default=1)
     redaction_version = models.PositiveIntegerField(default=1)
     truncated = models.BooleanField(default=False)
@@ -377,6 +383,10 @@ class InboundMessage(models.Model):
             models.CheckConstraint(condition=Q(identity_state__in=["established", "unestablished"]), name="inbound_identity_state_valid"),
             models.UniqueConstraint(fields=["mailbox_ref", "original_sha256"], condition=~Q(original_sha256=""),
                                     name="inbound_one_per_digest"),
+        ]
+        indexes = [
+            models.Index(fields=["mailbox_ref", "message_id_header"], condition=~Q(message_id_header=""), name="inbound_msgid_lookup"),
+            models.Index(fields=["received_at"], condition=Q(status="awaiting_processing"), name="inbound_awaiting"),
         ]
 
 
@@ -415,3 +425,4 @@ class QuestionReplyLink(models.Model):
             models.CheckConstraint(condition=Q(state__in=LINK_STATES), name="reply_link_state_valid"),
             models.CheckConstraint(condition=Q(outcome__in=["", "satisfied", "partial", "not_addressed"]), name="reply_link_outcome_valid"),
         ]
+        indexes = [models.Index(fields=["inbound_message"], condition=Q(state="pending"), name="reply_link_pending")]
