@@ -1069,4 +1069,3 @@ One independent `catalyst-independent-qa` review of PR #22 found 4 HIGH, 14 MEDI
 - Bootstrap and recovery cannot write an application event (there is no application). The cursor keeps the
   start mode; a `from_now` bootstrap opens the `mailbox_history_out_of_scope` item; and the command logs the
   host user.
-
