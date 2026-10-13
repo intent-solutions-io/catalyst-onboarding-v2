@@ -84,15 +84,17 @@ def collect():
 
 
 def reply(message, *, sender="ada@example.test", body="My synthetic answer.", auth="dmarc=pass", authserv=TRUSTED,
-          headers=(), message_id=None, in_reply_to=True):
+          headers=(), message_id=None, in_reply_to=True, subject="Re: synthetic question"):
     lines = []
     if auth is not None:
         lines.append(f"Authentication-Results: {authserv}; {auth}")
-    lines += [f"From: {sender}", "To: onboarding@example.invalid", "Subject: Re: synthetic question",
+    lines += [f"From: {sender}", "To: onboarding@example.invalid", f"Subject: {subject}",
               f"Message-ID: <{message_id or uuid.uuid4().hex}@synthetic.example.test>",
               "Date: Tue, 13 Oct 2026 10:00:00 +0000", "MIME-Version: 1.0", "Content-Type: text/plain; charset=utf-8"]
-    if in_reply_to:
+    if in_reply_to is True:
         lines.append(f"In-Reply-To: {outbound.message_id(message.send_ref)}")
+    elif in_reply_to:
+        lines.append(f"In-Reply-To: {in_reply_to}")
     lines += list(headers)
     return ("\r\n".join(lines) + "\r\n\r\n" + body + "\r\n").encode()
 
@@ -114,24 +116,28 @@ def cursor(env):
 @pytest.mark.parametrize("which", ["good", "untrusted", "wrong_host"])
 def test_m6_smtp_starttls_verifies_the_chain_and_the_hostname(ready, tls, settings, monkeypatch, which):
     settings.CATALYST_MAIL_TLS, settings.CATALYST_MAIL_CA_FILE = "starttls", tls.ca
+    settings.CATALYST_MAIL_USER, settings.CATALYST_MAIL_PASSWORD = "sentinel-user-m6", "sentinel-password-m6"
     server = ready.use(ScriptedSMTP(tls=getattr(tls, which)))
     _, message = ask(ready)
     run_worker()
     message.refresh_from_db()
     if which == "good":
         assert message.disposition == "accepted_by_server" and server.messages[0]["tls"] is True
-        assert server.tls_sessions == 1
+        assert server.tls_sessions == 1 and "AUTH" in server.commands  # the credential went only over verified TLS
     else:
         assert attempts(message) == [(1, 0, "transport_blocked")] and message.disposition == "transport_blocked"
         assert "MAIL" not in server.commands and server.messages == []  # held at once; no plaintext fallback
+        assert "AUTH" not in server.commands and server.tls_sessions == 0  # no credential reached the server
 
 
 def test_m6_smtp_never_falls_back_to_plaintext_when_starttls_is_refused(ready, tls, settings):
     settings.CATALYST_MAIL_TLS, settings.CATALYST_MAIL_CA_FILE = "starttls", tls.ca
+    settings.CATALYST_MAIL_USER, settings.CATALYST_MAIL_PASSWORD = "sentinel-user-m6", "sentinel-password-m6"
     server = ready.use(ScriptedSMTP({"starttls": 454}, tls=tls.good))
     _, message = ask(ready)
     run_worker()
-    assert "MAIL" not in server.commands and server.messages == [] and server.tls_sessions == 0
+    assert "MAIL" not in server.commands and "AUTH" not in server.commands
+    assert server.messages == [] and server.tls_sessions == 0
 
 
 @pytest.mark.parametrize(("which", "plaintext"), [("good", False), ("untrusted", False), ("wrong_host", False), ("good", True)],
@@ -149,7 +155,8 @@ def test_m6_imap_verifies_the_chain_and_hostname_and_has_no_plaintext_path(p2, t
         else:
             with pytest.raises(MailboxError) as refused:
                 MailboxClient(timeout=2)
-            assert refused.value.code in ("tls_refused", "unreachable") and server.logins == 0  # no credential sent
+            expected = ("tls_refused", "unreachable") if plaintext else ("tls_refused",)
+            assert refused.value.code in expected and server.logins == 0  # no credential sent
     finally:
         server.stop()
 
@@ -205,8 +212,9 @@ def test_p2_12_the_same_bytes_seen_again_and_our_own_filed_copy_have_no_new_effe
 
 def test_p2_13_the_same_message_id_with_different_bytes_is_kept_with_a_staff_item(mailbox):
     _, message = sent_question(mailbox)
-    mailbox.imap.deliver(reply(message, message_id="fixed-id", body="First body."))
-    mailbox.imap.deliver(reply(message, message_id="fixed-id", body="Second, different body."))  # same metadata shape
+    mailbox.imap.deliver(reply(message, message_id="fixed-id", body="First body AAAA."))
+    mailbox.imap.deliver(reply(message, message_id="fixed-id", body="First body BBBB."))  # same Message-ID, size and date
+    assert len(mailbox.imap.folders["INBOX"].messages[0][1]) == len(mailbox.imap.folders["INBOX"].messages[1][1])
     collect()
     first, second = InboundMessage.objects.order_by("id")
     assert first.original_sha256 != second.original_sha256
@@ -227,6 +235,8 @@ def test_p2_14_malformed_mime_is_recorded_and_the_cursor_passes_it(mailbox):
     assert InboundMessage.objects.count() == 3
     assert InboundMessage.objects.filter(trust_decision="trusted").count() == 1  # the good one still worked
     assert all("\x00" not in t for t in InboundMessage.objects.values_list("derived_text", flat=True))
+    assert any(p.get("reason") == "mime_defects" for parts in InboundMessage.objects.values_list("omitted_parts", flat=True)
+               for p in parts)
 
 
 def test_p2_15_an_oversize_message_is_recorded_from_its_headers_only(mailbox, settings):
@@ -339,7 +349,10 @@ def test_p2_07_46_a_uidvalidity_change_resyncs_with_no_new_effect_even_mid_batch
     collect()
     settings.CATALYST_MAIL_BATCH_SIZE = 1
     mailbox.imap.renumber()
-    collect()  # the resync pass handles one message, then the next pass the other
+    collect()  # the resync pass handles one message: partial, so no watermark
+    partial = cursor(mailbox)
+    assert (partial.state, partial.complete_through_at, partial.last_uid) == ("resync", None, 1)
+    assert partial.last_batch_at is not None
     collect()
     state = cursor(mailbox)
     assert InboundMessage.objects.count() == 2 and QuestionReplyLink.objects.count() == 2
@@ -463,7 +476,7 @@ def test_p2_19_a_collector_killed_mid_message_loses_nothing_and_duplicates_nothi
     killed = support.worker_process(sink, str(marker), module="tests.worker_child_collect", **env)
     survivor = None
     try:
-        wait_until(marker.exists, 30, "the first collector to fetch the second message")
+        wait_until(marker.exists, 30, "the first collector to be inside the second message's transaction")
         killed.send_signal(signal.SIGKILL)
         assert killed.wait(10) == -signal.SIGKILL
         survivor = support.worker_process(sink, **env)
@@ -547,3 +560,158 @@ def test_p2_41_g1_reports_a_healthy_collector_and_a_broken_chain(mailbox):
     assert collector_health()["anomalies"] == []
     PendingAction.objects.filter(kind="collect", status="queued").update(status="cancelled")
     assert collector_health()["anomalies"] == ["broken_chain"]
+
+
+# --- review fixes (2B.2 independent review) -------------------------------------------------------------------
+
+@pytest.mark.parametrize(("auth", "decision"), [
+    ('spf=fail smtp.mailfrom="x dmarc=pass"@evil.example.test; dmarc=fail header.from=example.test', "auth_failed"),
+    ("dkim=pass (comment dmarc=pass) header.d=example.test; dmarc=fail", "auth_failed"),
+    ("dmarc=pass; dmarc=fail", "unverified"),  # conflicting results
+], ids=["quoted-injection", "comment-injection", "conflict"])
+def test_c3_text_inside_property_values_or_comments_is_never_read_as_a_result(mailbox, auth, decision):
+    _, message = sent_question(mailbox)
+    mailbox.imap.deliver(reply(message, auth=auth))
+    collect()
+    assert InboundMessage.objects.get().trust_decision == decision
+
+
+def test_c3_a_forged_trusted_header_below_the_real_one_and_a_malformed_header_are_harmless(mailbox):
+    _, message = sent_question(mailbox)
+    forged = reply(message, auth="dmarc=fail", headers=[f"Authentication-Results: {TRUSTED}; dmarc=pass"])
+    mailbox.imap.deliver(forged)
+    mailbox.imap.deliver(reply(message, auth="dmarc=pass", authserv=";"))  # empty authserv-id
+    collect()
+    first, second = InboundMessage.objects.order_by("id")
+    assert first.trust_decision == "auth_failed"  # only the topmost trusted header counts
+    assert (second.trust_decision, second.exception_reason) == ("unverified", "reply_unverified")
+
+
+def test_c1_in_reply_to_wins_over_older_references(mailbox):
+    q1, m1 = sent_question(mailbox, text="First synthetic question?")
+    q2, m2 = sent_question(mailbox, text="Second synthetic question?")
+    mailbox.imap.deliver(reply(m2, in_reply_to=outbound.message_id(m2.send_ref),
+                               headers=[f"References: {outbound.message_id(m1.send_ref)} {outbound.message_id(m2.send_ref)}"]))
+    collect()
+    q1.refresh_from_db()
+    q2.refresh_from_db()
+    assert InboundMessage.objects.get().approved_message_id == m2.pk
+    assert (q1.status, q2.status) == ("open", "reply_pending")
+
+
+def test_b4_a_database_failure_aborts_the_pass_and_is_never_demoted(mailbox, monkeypatch):
+    from django.db import OperationalError
+
+    _, message = sent_question(mailbox)
+    mailbox.imap.deliver(reply(message))
+
+    real = inbound._associate
+
+    def database_down(*args, **kwargs):
+        raise OperationalError("simulated: the database connection failed")
+    monkeypatch.setattr(inbound, "_associate", database_down)
+    collect()
+    assert InboundMessage.objects.count() == 0 and cursor(mailbox).last_uid == 0  # rolled back, not processing_error
+    monkeypatch.setattr(inbound, "_associate", real)  # only this patch; the fixture's own patches stay in force
+    PendingAction.objects.filter(kind="collect", status="running").update(lease_expires_at=Now() - timedelta(seconds=1))
+    collect()
+    assert InboundMessage.objects.get().trust_decision == "trusted"
+
+
+def test_b5_an_unestablished_message_is_matched_by_metadata_after_a_resync(mailbox, settings):
+    _, message = sent_question(mailbox)
+    settings.CATALYST_MAIL_MAX_MESSAGE_BYTES = 200
+    mailbox.imap.deliver(reply(message, body="x" * 5000))
+    collect()
+    mailbox.imap.renumber()
+    collect()
+    assert InboundMessage.objects.count() == 1
+    assert sorted(InboundMessageLocation.objects.values_list("matched_by", flat=True)) == ["metadata", "new"]
+
+
+def test_4_1_a_regressed_cursor_becomes_a_recovery_and_skips_nothing(mailbox):
+    _, message = sent_question(mailbox)
+    mailbox.imap.deliver(reply(message, body="one"))
+    collect()
+    owner = mailbox.committed.connect("owner", autocommit=True)
+    owner.execute("UPDATE correspondence_mailboxcursor SET last_uid = 0")  # a restore to an older position
+    mailbox.imap.deliver(reply(message, body="two"))
+    seen = []
+    real = inbound.ingest
+
+    def watch(*args, **kwargs):
+        seen.append(MailboxCursor.objects.get().state)
+        return real(*args, **kwargs)
+    inbound.ingest = watch
+    try:
+        collect()
+    finally:
+        inbound.ingest = real
+    assert seen and set(seen) == {"recovery"} and InboundMessage.objects.count() == 2
+    assert cursor(mailbox).state == "ok"
+
+
+def test_b0_recovery_refuses_a_blocked_cursor(mailbox):
+    mailbox.imap.login_reply = "NO"
+    collect()
+    assert cursor(mailbox).state == "blocked"
+    with pytest.raises(inbound.Refused, match="restart_collector"):
+        inbound.recover_mailbox()
+
+
+def test_a4_a_secret_bearing_message_is_never_filed(mailbox, settings):
+    settings.CATALYST_MAIL_SENT_FOLDER = "Sent"
+    _, message = sent_question(mailbox)
+    message.template_version.secret_bearing = True  # in memory only: the guard reads the frozen template's flag
+    before = PendingAction.objects.filter(kind="file_copy").count()
+    inbound.enqueue_file_copy(message, OutboundMessage.objects.get(approved_message=message).pk)
+    assert PendingAction.objects.filter(kind="file_copy").count() == before
+
+
+def test_p2_47_rederivation_without_the_source_rederives_the_stored_derivative(mailbox, monkeypatch):
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    _, message = sent_question(mailbox)
+    mailbox.imap.deliver(reply(message, body="secret-like LEAKME456 text"))
+    collect()
+    mailbox.imap.folders["INBOX"].messages.clear()  # the source is gone
+    monkeypatch.setattr(mime, "REDACTION_VERSION", 2)
+    monkeypatch.setattr(mime, "_CONFIRM", __import__("re").compile(r"LEAKME\d+"))
+    call_command("correspondence_rederive", stdout=StringIO())
+    received = InboundMessage.objects.get()
+    assert "LEAKME456" not in received.derived_text
+    assert {"part": "derivative", "reason": "rederived_from_derivative"} in received.omitted_parts
+
+
+def test_p2_23_collected_content_never_reaches_logs_items_events_or_actions(mailbox, caplog):
+    caplog.set_level(logging.DEBUG)
+    _, message = sent_question(mailbox)
+    sentinel_body, sentinel_subject = "SENTINEL-BODY-5e1", "SENTINEL-SUBJECT-9c2"
+    mailbox.imap.deliver(reply(message, body=sentinel_body, subject=sentinel_subject))
+    mailbox.imap.deliver(reply(message, sender="sentinel-sender-4d@example.test", body=sentinel_body, subject=sentinel_subject))
+    collect()
+    from applications.models import ApplicationEvent
+
+    stored = json.dumps([list(ApplicationEvent.objects.values()), list(StaffItem.objects.values()),
+                         list(PendingAction.objects.values("idempotency_key", "input_ref", "last_error")),
+                         list(StaffItemResolution.objects.values())], default=str)
+    for sentinel in (sentinel_body, sentinel_subject, "sentinel-sender-4d", "ada@example.test"):
+        assert sentinel not in stored and sentinel not in caplog.text, sentinel
+
+
+def test_6_mail_code_never_logs_tracebacks_or_enables_protocol_debugging():
+    from pathlib import Path
+
+    for path in Path(support.ROOT, "correspondence").rglob("*.py"):
+        text = path.read_text()
+        for banned in ("logger.exception", "set_debuglevel", "imaplib.Debug", ".debug = "):
+            assert banned not in text, (path.name, banned)
+
+
+def test_p2_41_g1_reports_a_stale_watermark(mailbox):
+    collect()
+    owner = mailbox.committed.connect("owner", autocommit=True)
+    owner.execute("UPDATE correspondence_mailboxcursor SET complete_through_at = now() - interval '30 days'")
+    assert "stale_watermark" in collector_health()["anomalies"]

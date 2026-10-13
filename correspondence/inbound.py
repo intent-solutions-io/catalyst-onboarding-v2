@@ -20,7 +20,7 @@ import time
 from datetime import timedelta
 
 from django.conf import settings
-from django.db import IntegrityError, connection, transaction
+from django.db import IntegrityError, InterfaceError, OperationalError, connection, transaction
 from django.db.models.functions import Now
 
 from applications.models import TERMINAL_STAGES, Application
@@ -28,7 +28,7 @@ from workflow import ledger
 from workflow.models import PendingAction
 
 from . import association, mime
-from .imap import MailboxClient, MailboxError
+from .imap import NETWORK_ERRORS, MailboxClient, MailboxError, classify
 from .models import (
     ApprovedMessage,
     InboundMessage,
@@ -62,6 +62,13 @@ def collect_key(cursor, n: int) -> str:
     return f"collect:{cursor.public_id}:{n}"
 
 
+def _only_duplicate_key(exc: IntegrityError) -> None:
+    """Tolerate only the idempotency-key unique violation; any other integrity error propagates."""
+    diag = getattr(exc.__cause__, "diag", None)
+    if "idempotency_key" not in (getattr(diag, "constraint_name", None) or ""):
+        raise exc
+
+
 def enqueue_pass(cursor, n: int, delay: float = 0.0) -> None:
     """Idempotent: the pass key is unique, so a retried finish never creates a second successor."""
     try:
@@ -71,8 +78,8 @@ def enqueue_pass(cursor, n: int, delay: float = 0.0) -> None:
                 idempotency_key=collect_key(cursor, n), due_at=Now() + timedelta(seconds=delay),
                 max_attempts=settings.CATALYST_MAIL_SEND_ATTEMPTS,
             )
-    except IntegrityError:
-        pass
+    except IntegrityError as exc:
+        _only_duplicate_key(exc)
 
 
 def _pass_number(claim) -> int:
@@ -121,11 +128,8 @@ def _queue_processing(message, application) -> None:
 def _associate(message: InboundMessage, derived) -> None:
     """C0 to C3 for a newly stored message (inside the per-message transaction)."""
     refs = association.candidate_refs(derived)
-    approved = ApprovedMessage.objects.select_related("application").filter(send_ref__in=refs).first() if refs else None
-    if derived.filed_copy and association.send_ref_of(derived.message_id) is not None:
-        InboundMessage.objects.filter(pk=message.pk).update(classification="own_copy", status=Inbound.PROCESSED,
-                                                            processed_at=Now())
-        return  # our own filed copy seen in a collected folder: recorded, no effect (TEST-P2-12)
+    found = {m.send_ref: m for m in ApprovedMessage.objects.select_related("application").filter(send_ref__in=refs)}
+    approved = next((found[r] for r in refs if r in found), None)  # In-Reply-To first, then References newest first
     classification = "bounce" if derived.is_bounce else ("automatic" if association.is_automatic(derived.auto_markers) else "human")
     InboundMessage.objects.filter(pk=message.pk).update(classification=classification)
     if approved is None:
@@ -208,6 +212,9 @@ def ingest(cursor_id: int, validity: int, uid: int, size: int, internal_date: st
         _exception(message, "processing_error")
     elif headers_only:
         _exception(message, "inbound_oversize")
+    elif derived.filed_copy and association.send_ref_of(derived.message_id) is not None:
+        InboundMessage.objects.filter(pk=message.pk).update(classification="own_copy", status=Inbound.PROCESSED,
+                                                            processed_at=Now())  # our own filed copy: no effect
     elif digest and derived.message_id and InboundMessage.objects.filter(
             mailbox_ref=cursor.mailbox_ref, message_id_header=derived.message_id).exclude(pk=message.pk).exists():
         _exception(message, "message_id_conflict")  # same Message-ID, different bytes: kept, staff decide
@@ -215,6 +222,8 @@ def ingest(cursor_id: int, validity: int, uid: int, size: int, internal_date: st
         try:
             with transaction.atomic():
                 _associate(message, derived)
+        except (OperationalError, InterfaceError):
+            raise  # a database failure aborts the pass (016 B4); it is never demoted to processing_error
         except Exception:
             _exception(message, "processing_error")
     return advance("stored")
@@ -275,17 +284,22 @@ class Collect:
         with client:
             try:
                 validity, uidnext = client.examine(cursor.folder)
-            except MailboxError as exc:
-                self._blocked_or_backoff(claim, cursor, exc.code)
+            except (MailboxError, *NETWORK_ERRORS) as exc:
+                self._blocked_or_backoff(claim, cursor, classify(exc).code)
                 return
             target = uidnext - 1
             if cursor.uidvalidity is None or cursor.uidvalidity != validity:
                 self._new_validity(claim, cursor, validity)
                 cursor.refresh_from_db()
+            elif cursor.state == State.OK and InboundMessageLocation.objects.filter(
+                    mailbox_ref=cursor.mailbox_ref, folder=cursor.folder, uidvalidity=validity, uid__gt=cursor.last_uid).exists():
+                # A regressed cursor (for example a restore): walk forward as a recovery; known locations are skipped.
+                MailboxCursor.objects.filter(pk=cursor.pk).update(state=State.RECOVERY)
+                cursor.refresh_from_db()
             try:
                 uids = client.uids_after(cursor.last_uid)
-            except MailboxError as exc:
-                self._blocked_or_backoff(claim, cursor, exc.code)
+            except (MailboxError, *NETWORK_ERRORS) as exc:
+                self._blocked_or_backoff(claim, cursor, classify(exc).code)
                 return
             if len(uids) > settings.CATALYST_MAIL_BATCH_SIZE:
                 uids, complete = uids[:settings.CATALYST_MAIL_BATCH_SIZE], False
@@ -297,8 +311,8 @@ class Collect:
                     size, internal_date = client.meta(uid)
                     headers_only = size > settings.CATALYST_MAIL_MAX_MESSAGE_BYTES
                     raw = client.fetch_headers(uid) if headers_only else client.fetch(uid)
-                except (MailboxError, OSError, Exception) as exc:  # the connection failed mid-message
-                    fetch_failed = getattr(exc, "code", "unreachable")
+                except (MailboxError, *NETWORK_ERRORS) as exc:  # the connection failed mid-message
+                    fetch_failed = classify(exc).code
                     complete = False
                     break
                 try:
@@ -366,6 +380,8 @@ def recover_mailbox() -> MailboxCursor:
     mailbox_ref, folder = settings.CATALYST_MAIL_MAILBOX_REF, settings.CATALYST_MAIL_COLLECT_FOLDER
     with transaction.atomic():
         cursor = MailboxCursor.objects.select_for_update(of=("self",)).filter(mailbox_ref=mailbox_ref, folder=folder).first()
+        if cursor is not None and cursor.state == State.BLOCKED:
+            raise Refused("cursor_blocked_use_restart_collector")  # only restart_collector resumes a blocked cursor
         if cursor is None:
             if not _locations_exist(mailbox_ref, folder):
                 raise Refused("nothing_to_recover_use_bootstrap")
@@ -383,8 +399,9 @@ def recover_mailbox() -> MailboxCursor:
 # --- filed copies (016 A4) -------------------------------------------------------------------------------
 
 def enqueue_file_copy(message: ApprovedMessage, attempt_id: int) -> None:
-    if not settings.CATALYST_MAIL_SENT_FOLDER:
-        return
+    secret = message.template_version is not None and message.template_version.secret_bearing
+    if not settings.CATALYST_MAIL_SENT_FOLDER or secret:
+        return  # no copy of a secret-bearing message is ever filed (016 A4)
     OutboundMessage.objects.filter(pk=attempt_id).update(filed_copy_state="pending")
     try:
         with transaction.atomic():
@@ -392,8 +409,8 @@ def enqueue_file_copy(message: ApprovedMessage, attempt_id: int) -> None:
                 kind=FILE_COPY, subject_type="application", subject_id=message.application.public_ref,
                 input_ref=str(message.send_ref), idempotency_key=f"{FILE_COPY}:{message.send_ref}",
                 max_attempts=settings.CATALYST_MAIL_SEND_ATTEMPTS)
-    except IntegrityError:
-        pass
+    except IntegrityError as exc:
+        _only_duplicate_key(exc)
 
 
 class FileCopy:
@@ -416,6 +433,9 @@ class FileCopy:
         if message is None:
             ledger.finish(claim, self, status=Status.FAILED, error="approved_message_not_found")
             return
+        if message.template_version is not None and message.template_version.secret_bearing:
+            ledger.finish(claim, self, status=Status.CANCELLED, error="secret_bearing_never_filed")
+            return
         mid = message_id(message.send_ref)
         try:
             with MailboxClient(timeout=settings.CATALYST_MAIL_SEND_DEADLINE_SECONDS) as client:
@@ -423,8 +443,8 @@ class FileCopy:
                     data = build_email(message, message.frozen_subject, message.frozen_body,
                                        extra_headers={mime.FILED_COPY_HEADER: str(message.send_ref)})
                     client.append(settings.CATALYST_MAIL_SENT_FOLDER, data)
-        except MailboxError as exc:
-            ledger.fail_or_retry(claim, self, f"mailbox:{exc.code}",
+        except (MailboxError, *NETWORK_ERRORS) as exc:
+            ledger.fail_or_retry(claim, self, f"mailbox:{classify(exc).code}",
                                  write=lambda: self.record(claim, "action_failed", {"final": claim.final}) if claim.final else None)
             return
         ledger.finish(claim, self, status=Status.DONE, write=lambda: OutboundMessage.objects.filter(

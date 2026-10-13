@@ -19,6 +19,20 @@ from config import guards
 from .transport import peer_allowed, tls_context
 
 
+def classify(exc: BaseException) -> "MailboxError":
+    """One mapping for every network-level failure the collector meets (TLS, socket, protocol)."""
+    if isinstance(exc, MailboxError):
+        return exc
+    if isinstance(exc, ssl.SSLError):
+        return MailboxError("tls_refused")
+    if isinstance(exc, imaplib.IMAP4.abort) or isinstance(exc, OSError):
+        return MailboxError("unreachable")
+    return MailboxError("protocol_error")
+
+
+NETWORK_ERRORS = (OSError, ssl.SSLError, imaplib.IMAP4.error)
+
+
 class MailboxError(Exception):
     """A failure with a reason code: `auth_failed`, `tls_refused`, `unreachable`, `peer_refused`,
     `protocol_error`, `not_configured` or `folder_missing`."""
@@ -52,6 +66,8 @@ class MailboxClient:
                 raise MailboxError("peer_refused")
             try:
                 self.imap.login(settings.CATALYST_MAIL_USER, settings.CATALYST_MAIL_PASSWORD)
+            except imaplib.IMAP4.abort:
+                raise MailboxError("unreachable") from None  # a dropped connection is not a refused login
             except imaplib.IMAP4.error:
                 raise MailboxError("auth_failed") from None
         except MailboxError:

@@ -24,14 +24,15 @@ SENDER_MISMATCH = "sender_mismatch"
 
 _AUTO_SUBMITTED_NO = re.compile(r"^\s*no\s*(;|$)", re.I)
 _SEND_REF = re.compile(r"^<c([0-9a-f]{32})@([^>]+)>$", re.I)
-_DMARC = re.compile(r"\bdmarc\s*=\s*([a-z]+)", re.I)
+_COMMENT = re.compile(r"\([^()]*\)")
+_QUOTED = re.compile(r'"(?:[^"\\]|\\.)*"')
 
 
 def is_automatic(markers: dict) -> bool:
     auto = markers.get("auto-submitted")
     if auto is not None and not _AUTO_SUBMITTED_NO.match(auto):
         return True
-    if markers.get("precedence", "").strip().lower() in ("bulk", "junk", "auto_reply", "list"):
+    if markers.get("precedence", "").strip().lower() in ("bulk", "junk", "auto_reply"):
         return True
     return any(name in markers for name in ("x-autoreply", "x-autorespond", "list-id", "list-unsubscribe"))
 
@@ -76,17 +77,33 @@ def from_matches(from_addresses: list, verified: str | None) -> bool:
     return sender is not None and sender == expected
 
 
+def _resinfo(value: str) -> list[str]:
+    """RFC 8601: `authserv-id [version]; resinfo; resinfo ...`. Quoted strings and comments are removed first,
+    so text inside a property value (for example an address carrying "dmarc=pass") can never be read as a
+    result."""
+    cleaned = _QUOTED.sub('""', value)
+    for _ in range(5):  # nested comments
+        cleaned = _COMMENT.sub(" ", cleaned)
+    return [part.strip() for part in cleaned.split(";")]
+
+
 def auth_evidence(results: list) -> str:
-    """The `dmarc=` value of the topmost header from the trusted authserv-id; `untrusted` when only other
-    ids reported, `missing` when nothing did."""
+    """The DMARC result of the topmost header from the trusted authserv-id: one resinfo entry that starts with
+    `dmarc=`. Several or conflicting DMARC entries count as `conflict` (unverified). `untrusted` when only
+    other ids reported; `missing` when nothing did."""
     trusted_id = settings.CATALYST_MAIL_TRUSTED_AUTHSERV_ID.strip().lower()
     if not results:
         return "missing"
     for value in results:
-        authserv = value.split(";", 1)[0].strip().split()[0].lower() if value.strip() else ""
-        if trusted_id and authserv == trusted_id:
-            match = _DMARC.search(value)
-            return match.group(1).lower() if match else "none"
+        parts = _resinfo(value)
+        head = parts[0].split() if parts else []
+        authserv = head[0].lower() if head else ""
+        if not trusted_id or authserv != trusted_id:
+            continue
+        found = {m.group(1).lower() for m in (re.match(r"(?i)dmarc\s*=\s*([a-z]+)\b", p) for p in parts[1:]) if m}
+        if not found:
+            return "none"
+        return found.pop() if len(found) == 1 else "conflict"
     return "untrusted"
 
 

@@ -8,6 +8,7 @@ cap; attachments are never opened (metadata only). No universal secret detection
 """
 
 import hashlib
+import html
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -15,6 +16,7 @@ from email import message_from_bytes
 from email.policy import default as DEFAULT_POLICY
 from email.utils import getaddresses
 from html.parser import HTMLParser
+from urllib.parse import unquote
 
 from applications.links import CONFIRM_PATH
 
@@ -26,8 +28,9 @@ MAX_HEADERS = 200
 MAX_DECODED_BYTES = 2_000_000
 REDACTED = "[confirmation link removed]"
 FILED_COPY_HEADER = "X-Catalyst-Filed-Copy"
-_CONFIRM = re.compile(r"(?i)" + re.escape(CONFIRM_PATH) + r"[^\s\"'<>)\]]+")
-_PERCENT_SLASH = re.compile(r"(?i)%2f")
+# The confirmation path is CONFIRM_PATH, shared with config/redaction.py. A token may be wrapped across lines,
+# including quoted continuations ("\n> "), so line breaks inside the token are part of the match.
+_CONFIRM = re.compile(r"(?i)" + re.escape(CONFIRM_PATH) + r"(?:[^\s\"'<>)\]]|\r?\n[> \t]*)+")
 _MSGID = re.compile(r"<[^<>\s]+>")
 
 
@@ -86,11 +89,17 @@ def html_to_text(html: str) -> str:
 
 
 def redact(text: str) -> tuple[str, int]:
-    """Replace every confirmation-path URL (D-24), including percent-encoded slashes and links broken across
-    soft line wraps, with a fixed marker. Returns the text and the number of replacements."""
-    text = _PERCENT_SLASH.sub("/", text)
+    """Replace every confirmation-path URL (D-24) with a fixed marker: after decoding percent-encoding (also
+    partial, such as %63onfirm) and HTML character references, and joining quoted-printable soft breaks, so
+    encoded or wrapped forms are caught. The stored text is a derivative, so the normalized form is what is
+    kept. Returns the text and the number of replacements. Not a universal secret detector."""
     text = re.sub(r"=\r?\n", "", text)  # a stray quoted-printable soft break left in decoded text
+    text = html.unescape(unquote(text))
     return _CONFIRM.subn(REDACTED, text)
+
+
+def redact_short(value: str) -> str:
+    return redact(value)[0]
 
 
 def sanitize_name(name: str) -> str:
@@ -159,10 +168,12 @@ def derive(raw: bytes | None, *, max_text_chars: int, headers_only: bool = False
     derived.in_reply_to = _MSGID.findall(str(message.get("In-Reply-To", "")))
     derived.references = _MSGID.findall(str(message.get("References", "")))
     derived.from_addresses = [addr for _, addr in getaddresses([str(v) for v in message.get_all("From", [])])]
-    derived.date_header = str(message.get("Date", ""))[:200]
+    derived.date_header = redact_short(str(message.get("Date", "")))[:200]
     for name in ("Auto-Submitted", "Precedence", "X-Autoreply", "X-Autorespond", "List-Id", "List-Unsubscribe"):
         if message.get(name) is not None:
-            derived.auto_markers[name.lower()] = str(message.get(name))[:200]
+            derived.auto_markers[name.lower()] = redact_short(str(message.get(name)))[:200]
+    if derived.defects:
+        derived.omitted_parts.append({"part": "message", "reason": "mime_defects", "count": derived.defects})
     if message.get_content_type() == "multipart/report" and "delivery-status" in str(message.get("Content-Type", "")).lower():
         derived.is_bounce = True
     derived.filed_copy = str(message.get(FILED_COPY_HEADER, ""))[:200]

@@ -1040,3 +1040,33 @@ The owner reviewed PR #21 at `23d4a34` and decided:
 - Reason codes added: `collector_blocked`, `collector_pass_failed`, `inbound_oversize`, `application_closed`,
   `mailbox_history_out_of_scope` (F, reason-to-permission table).
 - The scripted IMAP and SMTP test servers run in-process on loopback; no IMAP server image was added to CI.
+
+### 10.7 2B.2 independent review and recorded deviations (2026-10-13)
+
+One independent `catalyst-independent-qa` review of PR #22 found 4 HIGH, 14 MEDIUM and 11 LOW, all addressed:
+
+- C3 parses RFC 8601 resinfo entries with quoted strings and comments removed, so text inside a property
+  value cannot be read as a result; conflicting DMARC entries count as unverified.
+- A database failure during association aborts the pass instead of becoming `processing_error`.
+- Association follows the candidate order: In-Reply-To first, then References newest first.
+- The SMTP M6 tests run with real credentials configured and prove no AUTH reaches a refused server.
+- Smaller fixes:
+  - the collector-crash test kills inside the per-message transaction;
+  - watermark and metadata-identity tests;
+  - a regressed cursor becomes a recovery;
+  - recovery refuses a blocked cursor;
+  - LOGIN aborts count as unreachable, and network errors are classified the same way everywhere;
+  - redaction unwraps hard and quoted line breaks and decodes partial percent-encoding and HTML entities;
+  - MIME defects are recorded;
+  - secret-bearing messages are never filed;
+  - re-derivation provenance;
+  - content sentinel and source-scan tests.
+
+**Recorded deviations:**
+
+- B0 is one command, `correspondence_mailbox`, with `bootstrap` and `recover` modes, instead of two
+  commands.
+- Bootstrap and recovery cannot write an application event (there is no application). The cursor keeps the
+  start mode; a `from_now` bootstrap opens the `mailbox_history_out_of_scope` item; and the command logs the
+  host user.
+

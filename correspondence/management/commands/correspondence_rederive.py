@@ -41,19 +41,22 @@ class Command(BaseCommand):
                         if validities[location.folder] == location.uidvalidity:
                             data = client.fetch(location.uid)
                             raw = data if mime.digest(data) == message.original_sha256 else None
-                    except MailboxError:
+                    except (MailboxError, OSError):
                         raw = None
                 with transaction.atomic():
                     if raw is not None:
                         derived = mime.derive(raw, max_text_chars=settings.CATALYST_MAIL_MAX_TEXT_CHARS)
                         text, omitted, redactions = derived.text, derived.omitted_parts, derived.redactions
+                        truncated, truncated_at = derived.truncated, derived.truncated_at_chars
                         from_source += 1
                     else:
                         text, count = mime.redact(message.derived_text)
                         omitted = [*message.omitted_parts, {"part": "derivative", "reason": "rederived_from_derivative"}]
                         redactions = {**message.redactions, "confirmation_link": message.redactions.get("confirmation_link", 0) + count}
+                        truncated, truncated_at = message.truncated, message.truncated_at_chars
                     InboundMessage.objects.filter(pk=message.pk).update(
-                        derived_text=text, omitted_parts=omitted, redactions=redactions,
+                        derived_text=text, omitted_parts=omitted, redactions=redactions, truncated=truncated,
+                        truncated_at_chars=truncated_at,
                         derivation_version=mime.DERIVATION_VERSION, redaction_version=mime.REDACTION_VERSION)
                     event(message.application, "inbound_rederived", {
                         "message": str(message.public_id), "from_source": raw is not None,

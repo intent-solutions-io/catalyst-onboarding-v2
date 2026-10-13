@@ -36,7 +36,6 @@ class ScriptedIMAP:
         self.folders = {name: Folder(uidvalidity=1000 + i) for i, name in enumerate(folders)}
         self.commands = []
         self.logins = 0
-        self.fail_fetch_uids = set()  # UIDs whose BODY fetch drops the connection (a mid-message failure)
         self._lock = threading.Lock()
         outer = self
 
@@ -124,8 +123,6 @@ class ScriptedIMAP:
                     for seq, uid, data, date in found:
                         upper = items.upper()
                         if "BODY.PEEK[]" in upper:
-                            if uid in outer.fail_fetch_uids:
-                                return False  # drop the connection mid-message
                             self.wfile.write(f"* {seq} FETCH (UID {uid} BODY[] {{{len(data)}}}\r\n".encode() + data + b")\r\n")
                         elif "BODY.PEEK[HEADER]" in upper:
                             head = data.split(b"\r\n\r\n", 1)[0] + b"\r\n\r\n"

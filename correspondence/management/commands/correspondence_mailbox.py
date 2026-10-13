@@ -7,6 +7,9 @@ whoever operates the host, outside the Django role matrix; the cursor records th
 
 Bootstrap refuses when the mailbox was collected before (that is recovery). Synthetic only (D-28)."""
 
+import getpass
+import logging
+
 from django.core.management.base import BaseCommand, CommandError
 
 from correspondence import inbound
@@ -32,4 +35,8 @@ class Command(BaseCommand):
                 cursor = inbound.recover_mailbox()
         except (inbound.Refused, MailboxError) as exc:
             raise CommandError(str(exc)) from None
+        # B0: the record of who ran it. Events need an application, so the actor is logged (an operating-system
+        # account name, not applicant data) and the cursor keeps the start mode (016 section 10.7).
+        logging.getLogger("correspondence.mailbox").info(
+            "mailbox %s by host user %s: cursor %s start_mode=%s", mode, getpass.getuser(), cursor.public_id, cursor.start_mode)
         self.stdout.write(f"cursor {cursor.public_id} state={cursor.state} start_mode={cursor.start_mode}")
