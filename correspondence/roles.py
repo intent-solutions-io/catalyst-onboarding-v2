@@ -12,6 +12,6 @@ TEMPLATE_OWNER = "Template owner"
 
 GROUP_PERMISSIONS = {
     OPERATOR: ["approve_question"],
-    DECISION_MAKER: ["approve_question", "decide_uncertain_send"],
+    DECISION_MAKER: ["approve_question", "decide_uncertain_send", "restart_collector"],
     TEMPLATE_OWNER: ["approve_template_version"],
 }

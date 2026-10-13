@@ -194,7 +194,7 @@ def approve_question(question_id: int, user) -> ApprovedMessage:
 
 # --- building the wire message ----------------------------------------------------------------------------
 
-def build_email(message: ApprovedMessage, subject: str, body: str) -> bytes:
+def build_email(message: ApprovedMessage, subject: str, body: str, extra_headers: dict | None = None) -> bytes:
     """Static headers from the frozen record only. The standard-library header policy refuses a CR or LF in
     any header value, so no input can add a header (TEST-P2-38). No CC or BCC exists."""
     email = EmailMessage(policy=SMTP_POLICY)
@@ -205,6 +205,8 @@ def build_email(message: ApprovedMessage, subject: str, body: str) -> bytes:
     email["Date"] = formatdate(usegmt=True)
     if message.kind != ApprovedMessage.Kind.STAFF_MESSAGE:
         email["Auto-Submitted"] = "auto-generated"  # RFC 3834: automated mail is marked
+    for name, value in (extra_headers or {}).items():
+        email[name] = value
     email.set_content(body)
     return email.as_bytes()
 
@@ -403,6 +405,9 @@ class SendMessage:
             def write():
                 attempt(Attempt.ACCEPTED_BY_SERVER, server_accepted_at=Now(), sent_at=Now())
                 dispose(Disposition.ACCEPTED_BY_SERVER)
+                from .inbound import enqueue_file_copy  # a mailbox record for humans, never evidence (016 A4)
+
+                enqueue_file_copy(message, attempt_id)
                 event(message.application, "message_accepted_by_server", data, actor_ref=f"pending_action:{claim.id}")
             return ledger.finish(claim, self, status=Status.DONE, write=write)
 

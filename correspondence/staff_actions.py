@@ -129,3 +129,27 @@ def decide_uncertain_send(message_id: int, user, decision: str, note: str = "") 
         event(application, f"message_{decision}", effects, actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
     result.refresh_from_db()
     return result
+
+
+def restart_collector(cursor_id: int, user, note: str = ""):
+    """016 B1 and F: only `restart_collector` (decision-maker) resumes a blocked cursor; it is separate from
+    ordinary retry. Resolves the cursor's open items with the immutable resolution record."""
+    from .inbound import enqueue_pass
+    from .models import MailboxCursor
+
+    require(user, "restart_collector")
+    actor = actor_ref(user)
+    with transaction.atomic():
+        cursor = MailboxCursor.objects.select_for_update(of=("self",)).get(pk=cursor_id)
+        if cursor.state != MailboxCursor.State.BLOCKED:
+            raise Refused("cursor_not_blocked")
+        state = MailboxCursor.State.RECOVERY if cursor.uidvalidity is None else MailboxCursor.State.OK
+        MailboxCursor.objects.filter(pk=cursor.pk).update(state=state, blocked_reason="", consecutive_failures=0,
+                                                          pass_number=cursor.pass_number + 1)
+        enqueue_pass(cursor, cursor.pass_number + 1)
+        for item in StaffItem.objects.select_for_update(of=("self",)).filter(
+                status=StaffItem.Status.OPEN, dedupe_key=f"cursor:{cursor.public_id}"):
+            resolve_item(item, code="restart_collector", actor_ref=actor, note=note,
+                         effects={"cursor": str(cursor.public_id), "previous_reason": cursor.blocked_reason})
+    cursor.refresh_from_db()
+    return cursor

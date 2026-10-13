@@ -101,6 +101,9 @@ def mail_problems(settings) -> list[str]:
     if getattr(settings, "CATALYST_SEND_EVIDENCE_SOURCE", "") and settings.CATALYST_ENV != "test":
         # 016 A5 and 8.3: no evidence source is admissible until a separately authorized provider check.
         problems.append("CATALYST_SEND_EVIDENCE_SOURCE is allowed only in the test environment")
+    sent, collected = getattr(settings, "CATALYST_MAIL_SENT_FOLDER", ""), getattr(settings, "CATALYST_MAIL_COLLECT_FOLDER", "INBOX")
+    if sent and sent == collected:
+        problems.append("CATALYST_MAIL_SENT_FOLDER must differ from CATALYST_MAIL_COLLECT_FOLDER (016 3.6)")
     tls = getattr(settings, "CATALYST_MAIL_TLS", "starttls")
     if tls not in ("starttls", "none"):
         problems.append("CATALYST_MAIL_TLS must be 'starttls' or 'none'")

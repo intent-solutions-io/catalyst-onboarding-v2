@@ -22,13 +22,16 @@ from email.policy import default as DEFAULT_POLICY
 from correspondence.outbound import Evidence
 from correspondence.rendering import canonical_digest
 
-DEFAULTS = {"greeting": 220, "ehlo": 250, "auth": 235, "mail": 250, "rcpt": 250, "data": 354, "end": 250}
+DEFAULTS = {"greeting": 220, "ehlo": 250, "starttls": 220, "auth": 235, "mail": 250, "rcpt": 250, "data": 354, "end": 250}
 
 
 class ScriptedSMTP:
-    def __init__(self, script=None, advertise_starttls=False):
+    def __init__(self, script=None, advertise_starttls=False, tls=None):
+        """`tls` (a tests.tls_certs.Pair) enables STARTTLS with that certificate; the server then advertises it."""
         self.script = {**DEFAULTS, **(script or {})}
-        self.advertise_starttls = advertise_starttls
+        self.advertise_starttls = advertise_starttls or tls is not None
+        self.tls = tls
+        self.tls_sessions = 0
         self.commands = []
         self.messages = []  # dicts: mail_from, rcpts, data (bytes)
         self.connections = 0
@@ -56,6 +59,21 @@ class ScriptedSMTP:
                                  + (["250-STARTTLS"] if outer.advertise_starttls else []) + ["250 OK"])
                         if not self.reply("ehlo", "\r\n".join(lines)):
                             return
+                    elif verb == "STARTTLS":
+                        if not self.reply("starttls", "220 Ready to start TLS"):
+                            continue
+                        import ssl
+
+                        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                        context.load_cert_chain(outer.tls.cert, outer.tls.key)
+                        try:
+                            self.connection = context.wrap_socket(self.connection, server_side=True)
+                        except (ssl.SSLError, OSError):
+                            return  # the client refused the certificate
+                        self.rfile = self.connection.makefile("rb")
+                        self.wfile = socketserver._SocketWriter(self.connection)
+                        with outer._lock:
+                            outer.tls_sessions += 1
                     elif verb == "AUTH":
                         self.reply("auth", "235 Authentication succeeded")  # servers keep the session after a refusal
                     elif verb == "MAIL":
@@ -78,7 +96,8 @@ class ScriptedSMTP:
                                 break
                             body.append(chunk[1:] if chunk.startswith(b"..") else chunk)
                         with outer._lock:
-                            outer.messages.append({"from": state["from"], "rcpts": list(state["rcpts"]), "data": b"".join(body)})
+                            outer.messages.append({"from": state["from"], "rcpts": list(state["rcpts"]), "data": b"".join(body),
+                                                   "tls": hasattr(self.connection, "version")})
                         if not self.reply("end", "250 OK queued"):
                             return
                     elif verb == "QUIT":
