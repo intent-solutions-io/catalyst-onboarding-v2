@@ -551,3 +551,32 @@ def test_health_command_exit_codes(remind, monkeypatch):
         call_command("correspondence_health")
     assert exit_info.value.code == 2  # a failed check is never reported as a health anomaly
     assert health.send_health  # untouched
+
+
+
+def test_p2_54_36_a_staff_message_and_a_reply_to_address_change_no_identity_and_no_recipient(remind):
+    question, message = sent_question(remind)
+    adoption = remind.app.adoptions.get().pk
+    remind.imap.deliver(reply(message, headers=["Reply-To: elsewhere@example.test"]))
+    collect()
+    processing.confirm_question_outcome(processing.InboundMessage.objects.get().pk, {question.pk: "partial"}, remind.operator)
+    draft = staff_actions.preview_staff_message(remind.app.pk, remind.operator, "Subject", "Body")
+    staff_actions.confirm_staff_message(draft.pk, draft.content_sha256, remind.operator)
+    PendingAction.objects.filter(kind="remind").update(due_at=Now())
+    fire()
+    app = Application.objects.get(pk=remind.app.pk)
+    assert (app.stage, app.contact_verified_at is not None, app.adoptions.get().pk) == (remind.app.stage, True, adoption)
+    assert {m["rcpts"][0] for m in remind.server.messages} == {"ada@example.test"}  # never Reply-To or From
+
+
+def test_p2_50_withdrawal_cancels_held_reminders_and_the_escalation(remind):
+    question, message = sent_question(remind)
+    remind.imap.deliver(reply(message))
+    collect()
+    PendingAction.objects.create(kind="escalate_unanswered", subject_type="application", subject_id=remind.app.public_ref,
+                                 input_ref=str(question.public_id), idempotency_key=scheduling.escalate_key(question),
+                                 status="held")
+    assert {a.status for a in PendingAction.objects.filter(kind__in=scheduling.REMINDER_KINDS)} == {"held"}
+    staff_actions.withdraw_question(question.pk, remind.operator, "no_longer_needed")
+    assert set(PendingAction.objects.filter(kind__in=scheduling.REMINDER_KINDS).values_list("status", "last_error")) == {
+        ("cancelled", "question_withdrawn")}

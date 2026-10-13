@@ -161,7 +161,7 @@ def test_p2_42_the_admin_stays_read_only_and_templates_never_mark_text_safe():
     assert "mark_safe" not in views and "format_html" not in views and "log_change" not in views
 
 
-def test_p2_52_a_service_refusal_reaches_staff_as_a_code(mailbox):
+def test_p2_42_a_service_refusal_reaches_staff_as_a_code(mailbox):
     question, _ = sent_question(mailbox)
     staff_actions.withdraw_question(question.pk, mailbox.operator, "asked_in_error")
     response = client(mailbox.operator).post(url("withdraw", question.public_id), {"reason": "because"}, follow=True)
@@ -259,10 +259,41 @@ def test_p2_52_operator_actions_need_the_matching_permission_through_the_screens
     assert client(holder).post(url(name, mailbox.app.public_ref), {"reason": "a long enough reason"}).status_code == 403
 
 
-def test_p2_52_restart_and_close_need_their_roles_through_the_screens(mailbox):
+def test_p2_52_restart_needs_the_decision_maker_through_the_screen(mailbox):
     from correspondence.models import MailboxCursor
 
     MailboxCursor.objects.filter(pk=mailbox.cursor.pk).update(state="blocked", blocked_reason="tls_refused")
     assert client(mailbox.operator).post(url("restart", mailbox.cursor.public_id)).status_code == 403
     client(mailbox.decider).post(url("restart", mailbox.cursor.public_id))
     assert MailboxCursor.objects.get(pk=mailbox.cursor.pk).state != "blocked"
+
+
+
+@pytest.mark.parametrize(("permission", "action"), [
+    ("pause_automation", "withdraw"), ("pause_automation", "approve"), ("pause_automation", "confirm_message"),
+    ("resolve_exception", "confirm_outcome"), ("resolve_exception", "close_reply"),
+])
+def test_p2_42_52_each_remaining_screen_action_needs_its_own_permission(mailbox, permission, action):
+    question, message = sent_question(mailbox)
+    mailbox.imap.deliver(reply(message))
+    collect()
+    received = InboundMessage.objects.get()
+    draft = staff_actions.preview_staff_message(mailbox.app.pk, mailbox.operator, "Subject", "Body")
+    owner = mailbox.committed.connect("owner", autocommit=True)
+    holder = staff(mailbox, f"only-{permission}-{action}")
+    owner.execute("INSERT INTO accounts_user_user_permissions (user_id, permission_id) SELECT %s, id FROM auth_permission"
+                  " WHERE codename = %s", [holder.pk, permission])
+    target = {"withdraw": (question.public_id,), "approve": (question.public_id,), "confirm_message": (draft.public_id,),
+              "confirm_outcome": (received.public_id,), "close_reply": (received.public_id,)}[action]
+    data = {"reason": "asked_in_error", "digest": draft.content_sha256, f"q-{question.public_id}": "satisfied"}
+    assert client(holder).post(url(action, *target), data).status_code == 403
+    question.refresh_from_db()
+    received.refresh_from_db()
+    assert question.status == "reply_pending" and received.status == "awaiting_processing"
+
+
+def test_p2_42_template_approval_needs_the_owner_role(mailbox):
+    from tests.test_outbound import question_template
+
+    draft = question_template(version=3, body="Hello $display_name,\n\n$question_text\n")
+    assert client(mailbox.operator).post(url("approve_template", draft.pk), {"digest": draft.content_sha256}).status_code == 403
