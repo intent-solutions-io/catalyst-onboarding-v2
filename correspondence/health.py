@@ -10,8 +10,8 @@ from django.db.models.functions import Cast, Now
 
 from workflow.models import PendingAction
 
-from .models import ApprovedMessage, MailboxCursor, OutboundMessage, StaffItem
-from .outbound import DECIDABLE
+from .models import ApprovedMessage, InboundMessage, MailboxCursor, OutboundMessage, Question, QuestionReplyLink, StaffItem
+from .common import DECIDABLE
 
 Disposition = ApprovedMessage.Disposition
 Attempt = OutboundMessage.Status
@@ -60,4 +60,23 @@ def collector_health() -> dict:
         "failing": cursors.filter(consecutive_failures__gt=0).count(),
     }
     report["anomalies"] = sorted(k for k in ("blocked", "stale_watermark", "broken_chain", "failing") if report[k])
+    return report
+
+
+def reply_health() -> dict:
+    """G2 and G6 for questions (2B.3): the oldest reply awaiting processing, messages whose identity is
+    unestablished, a `reply_pending` question with no pending link, and a pending link whose message is not
+    awaiting processing."""
+    waiting = InboundMessage.objects.filter(status=InboundMessage.Status.AWAITING_PROCESSING)
+    oldest = waiting.order_by("received_at").values_list("received_at", flat=True).first()
+    report = {
+        "awaiting_processing": waiting.count(),
+        "oldest_awaiting_processing": oldest.isoformat() if oldest else None,
+        "unestablished_identity": InboundMessage.objects.filter(identity_state="unestablished").count(),
+        "reply_pending_without_link": Question.objects.filter(status=Question.Status.REPLY_PENDING).exclude(
+            reply_links__state="pending").count(),
+        "pending_link_not_awaiting": QuestionReplyLink.objects.filter(state="pending").exclude(
+            inbound_message__status=InboundMessage.Status.AWAITING_PROCESSING).count(),
+    }
+    report["anomalies"] = sorted(k for k in ("reply_pending_without_link", "pending_link_not_awaiting") if report[k])
     return report

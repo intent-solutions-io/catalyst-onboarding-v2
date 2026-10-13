@@ -5,14 +5,14 @@ import json
 
 from django.core.management.base import BaseCommand
 
-from correspondence.health import collector_health, send_health
+from correspondence.health import collector_health, reply_health, send_health
 
 
 class Command(BaseCommand):
     help = "Report correspondence health (016 G1 and G3); exit status 1 on any anomaly."
 
     def handle(self, *args, **options):
-        report = {"sends": send_health(), "collector": collector_health()}
+        report = {"sends": send_health(), "collector": collector_health(), "replies": reply_health()}
         self.stdout.write(json.dumps(report, sort_keys=True))
-        if report["sends"]["anomalies"] or report["collector"]["anomalies"]:
+        if any(part["anomalies"] for part in report.values()):
             raise SystemExit(1)

@@ -103,3 +103,12 @@ def test_the_refused_name_list_is_exactly_the_documented_one():
 def test_harmless_vendor_named_variables_are_not_refused():
     environ = {"OPENAI_DOCS_URL": "https://example.test", "ANTHROPIC_COURSE_NOTES": "x", "LOGFIRE_DOCS": "x"}
     assert guards.provider_problems(LOCMEM, environ) == []
+
+
+
+def test_code_loading_settings_are_pinned_to_catalyst_apps_and_never_from_the_environment():
+    ok = SimpleNamespace(CATALYST_ATTENTION_OPENER="correspondence.staff_items.open_attention",
+                         CATALYST_ACTION_HANDLERS={"send": "correspondence.outbound.SendMessage"})
+    assert guards.dispatch_problems(ok, {}) == []
+    bad = SimpleNamespace(CATALYST_ATTENTION_OPENER="os.system", CATALYST_ACTION_HANDLERS={"x": "subprocess.run"})
+    assert len(guards.dispatch_problems(bad, {"CATALYST_ATTENTION_OPENER": "y"})) == 3

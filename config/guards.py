@@ -112,10 +112,27 @@ def mail_problems(settings) -> list[str]:
     return problems
 
 
+DISPATCH_SETTINGS = ("CATALYST_ATTENTION_OPENER", "CATALYST_ACTION_HANDLERS")
+
+
+def dispatch_problems(settings, environ: Mapping[str, str]) -> list[str]:
+    """The two dotted-path settings that load code (2B.3) are fixed in code: never from the environment, and
+    only into the Catalyst apps that own them, so a typo or override fails at start-up, not mid-submission."""
+    problems = [f"{name} may not be set from the environment" for name in DISPATCH_SETTINGS if name in environ]
+    opener = getattr(settings, "CATALYST_ATTENTION_OPENER", None)
+    if opener is not None and not str(opener).startswith("correspondence."):
+        problems.append("CATALYST_ATTENTION_OPENER must name a correspondence function")
+    for kind, path in (getattr(settings, "CATALYST_ACTION_HANDLERS", None) or {}).items():
+        if not str(path).startswith(("correspondence.", "workflow.")):
+            problems.append(f"CATALYST_ACTION_HANDLERS[{kind!r}] must name a correspondence or workflow handler")
+    return problems
+
+
 def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return (
         database_problems(settings.DATABASES)
         + environment_problems(settings.CATALYST_ENV)
         + provider_problems(settings.EMAIL_BACKEND, environ)
         + mail_problems(settings)
+        + dispatch_problems(settings, environ)
     )

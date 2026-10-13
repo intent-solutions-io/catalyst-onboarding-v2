@@ -22,12 +22,8 @@ current answers or the application's current address.
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
-from email.message import EmailMessage
-from email.policy import SMTP as SMTP_POLICY
-from email.utils import formatdate
 
 from django.conf import settings
-from django.core.exceptions import PermissionDenied
 from django.db import connection, transaction
 from django.db.models import Max
 from django.db.models.functions import Now
@@ -46,6 +42,8 @@ from .models import (
     Question,
     StaffItem,
 )
+from .common import DECIDABLE, Refused, actor_ref, require  # noqa: F401  (re-exported for callers)
+from .messages import build_email, enqueue_file_copy, message_id, verified_address  # noqa: F401
 from .rendering import TemplateRefused, canonical_digest, check_version, render
 from .staff_items import event, open_item, resolve_item
 
@@ -64,22 +62,6 @@ RETRIES_EXHAUSTED = "retries_exhausted"
 TRANSPORT_BLOCKED = "smtp_transport_blocked"
 REJECTED_PERMANENT = "send_rejected_permanent"
 SEND_REFUSED = "send_refused"  # a pre-send re-check failed (recipient changed, content refused)
-DECIDABLE = (SEND_OUTCOME_UNKNOWN, RETRIES_EXHAUSTED, TRANSPORT_BLOCKED, REJECTED_PERMANENT, SEND_REFUSED)
-
-
-class Refused(Exception):
-    """A service refused; the message is a reason code."""
-
-
-def actor_ref(user) -> str:
-    return f"user:{user.pk}"
-
-
-def require(user, permission: str) -> None:
-    """Named staff actions need the permission through the owner-created groups (016 F, D-30). A superuser
-    is refused like everyone else, as in the read-only admin (S1-T7): authority comes from the matrix."""
-    if user is None or not user.is_active or user.is_superuser or not user.has_perm(f"correspondence.{permission}"):
-        raise PermissionDenied(permission)
 
 
 def send_key(send_ref, series: int) -> str:
@@ -89,18 +71,6 @@ def send_key(send_ref, series: int) -> str:
 def reconcile_key(send_ref, series: int, n: int) -> str:
     """Bounded per attempt series (016 A5): a staff resend that ends unknown again gets its own checks."""
     return f"reconcile:{send_ref}:{series}:{n}"
-
-
-def message_id(send_ref) -> str:
-    return f"<c{send_ref.hex}@{settings.CATALYST_MAIL_DOMAIN}>"
-
-
-def verified_address(application) -> str | None:
-    """The address the applicant proved control of: the challenge named by the adoption (016 section 2)."""
-    if application.contact_verified_at is None:
-        return None
-    adoption = application.adoptions.select_related("via_challenge").first()
-    return adoption.via_challenge.email_at_issue if adoption else None
 
 
 def _lock_application(application_id) -> Application:
@@ -193,23 +163,6 @@ def approve_question(question_id: int, user) -> ApprovedMessage:
 
 
 # --- building the wire message ----------------------------------------------------------------------------
-
-def build_email(message: ApprovedMessage, subject: str, body: str, extra_headers: dict | None = None) -> bytes:
-    """Static headers from the frozen record only. The standard-library header policy refuses a CR or LF in
-    any header value, so no input can add a header (TEST-P2-38). No CC or BCC exists."""
-    email = EmailMessage(policy=SMTP_POLICY)
-    email["From"] = settings.DEFAULT_FROM_EMAIL
-    email["To"] = message.recipient
-    email["Subject"] = subject
-    email["Message-ID"] = message_id(message.send_ref)
-    email["Date"] = formatdate(usegmt=True)
-    if message.kind != ApprovedMessage.Kind.STAFF_MESSAGE:
-        email["Auto-Submitted"] = "auto-generated"  # RFC 3834: automated mail is marked
-    for name, value in (extra_headers or {}).items():
-        email[name] = value
-    email.set_content(body)
-    return email.as_bytes()
-
 
 # --- the send handler -------------------------------------------------------------------------------------
 
@@ -405,9 +358,7 @@ class SendMessage:
             def write():
                 attempt(Attempt.ACCEPTED_BY_SERVER, server_accepted_at=Now(), sent_at=Now())
                 dispose(Disposition.ACCEPTED_BY_SERVER)
-                from .inbound import enqueue_file_copy  # a mailbox record for humans, never evidence (016 A4)
-
-                enqueue_file_copy(message, attempt_id)
+                enqueue_file_copy(message, attempt_id)  # a mailbox record for humans, never evidence (016 A4)
                 event(message.application, "message_accepted_by_server", data, actor_ref=f"pending_action:{claim.id}")
             return ledger.finish(claim, self, status=Status.DONE, write=write)
 

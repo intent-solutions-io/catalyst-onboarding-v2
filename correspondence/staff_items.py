@@ -13,15 +13,16 @@ from django.db import IntegrityError, transaction
 from applications.links import CONFIRM_PATH
 from applications.models import ApplicationEvent
 
+from .common import Refused
 from .models import StaffItem, StaffItemResolution
 
 OPEN_KEY = "staff_item_one_open_per_key"
 NOTE_LIMIT = 500
-_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f‎‏‪-‮⁦-⁩]")
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f؜​-‏‪-‮⁦-⁩﻿]")  # controls, bidi, zero-width
 
 
-class NoteRefused(ValueError):
-    pass
+class NoteRefused(Refused):
+    """A refused note; a `Refused`, so every service surfaces one refusal type."""
 
 
 def clean_note(note: str) -> str:
@@ -40,7 +41,7 @@ def event(application, kind, data, actor_type=ApplicationEvent.ActorType.SYSTEM,
 
 
 def open_item(reason_code: str, dedupe_key: str, *, application=None, approved_message=None, pending_action_id=None,
-              question_id=None) -> StaffItem:
+              question_id=None, audit: bool = True) -> StaffItem:
     existing = StaffItem.objects.filter(reason_code=reason_code, dedupe_key=dedupe_key, status=StaffItem.Status.OPEN).first()
     if existing is not None:
         return existing
@@ -55,8 +56,15 @@ def open_item(reason_code: str, dedupe_key: str, *, application=None, approved_m
         if getattr(diag, "constraint_name", None) != OPEN_KEY:
             raise
         return StaffItem.objects.get(reason_code=reason_code, dedupe_key=dedupe_key, status=StaffItem.Status.OPEN)
-    event(application, "staff_item_opened", {"item": str(item.public_id), "reason": reason_code})
+    if audit:
+        event(application, "staff_item_opened", {"item": str(item.public_id), "reason": reason_code})
     return item
+
+
+def open_attention(application, reason: str, attention_event) -> StaffItem:
+    """CATALYST_ATTENTION_OPENER (016 3.8): one open item per S1 `needs_staff_attention` event. The event is
+    the audit record, so no second event is written and S1 histories are unchanged."""
+    return open_item(reason, f"event:{attention_event.pk}", application=application, audit=False)
 
 
 def resolve_item(item: StaffItem, *, code: str, actor_ref: str, note: str = "", effects: dict | None = None,

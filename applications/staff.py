@@ -4,7 +4,8 @@ pending actions by kind and status (their inputs and idempotency keys name chall
 shown).
 
 Staff attention, one rule for the dossier, the list column and the list filter (`attention_q`):
-- an event of kind `needs_staff_attention` (005 S1.4; resolving one arrives in P2, so each stays open);
+- an open staff item (016 3.8, A-2; P2 task 2B.3). Every `needs_staff_attention` event also opens one, and
+  migration correspondence 0008 opened one for each earlier event, so resolving the item clears the mark;
 - an automation pause on the application;
 - while contact is unverified and the application open: an active, unexpired challenge whose send is
   missing or ended in anything but queued, running or done (failed, uncertain, cancelled, held), so the
@@ -15,13 +16,14 @@ Every other next step belongs to the applicant, the system, or nobody yet (block
 
 from dataclasses import dataclass
 
+
 from django.db.models import CharField, Exists, OuterRef, Q, Value
 from django.db.models.functions import Cast, Concat, Now
 
 from workflow.models import AutomationPause, PendingAction
 
 from .confirmation import START_EVIDENCE_COLLECTION
-from .models import TERMINAL_STAGES, ApplicationEvent, ContactChallenge
+from .models import TERMINAL_STAGES, Application, ApplicationEvent, ContactChallenge
 from .services import SEND_VERIFICATION, send_verification_key
 
 ATTENTION = "needs_staff_attention"
@@ -29,7 +31,27 @@ OK_SEND = (PendingAction.Status.QUEUED, PendingAction.Status.RUNNING, PendingAct
 REASONS = {
     "repeat_after_verification": "a submission arrived after the address was verified; it was not adopted",
     "newer_unverified_version": "a newer submission exists than the one the applicant confirmed",
+    "reply_needs_review": "a reply awaits staff confirmation of its question outcomes",
+    "reply_unverified": "a reply could not be authenticated",
+    "reply_auth_failed": "a reply failed authentication",
+    "sender_mismatch": "a reply came from an address other than the verified one",
+    "unmatched": "a message matched no sent message",
+    "application_closed": "a reply arrived for a closed application",
+    "hard_bounce": "a message bounced permanently; automation is paused",
+    "loop_threshold": "too many automatic replies; automation is paused",
+    "send_outcome_unknown": "a send's outcome is unknown",
+    "retries_exhausted": "a send was rejected temporarily too many times",
+    "smtp_transport_blocked": "the mail channel is blocked",
+    "send_rejected_permanent": "a send was rejected permanently",
+    "send_refused": "a send was refused before sending",
+    "filed_copy_failed": "a copy could not be filed",
 }
+
+
+def _staff_item_model():
+    """The staff-item model, through the reverse relation it declares on Application (no import and no model
+    name: correspondence depends on applications, 003 ADR-01)."""
+    return Application._meta.get_field("staff_items").related_model
 
 
 @dataclass(frozen=True)
@@ -51,7 +73,7 @@ def attention_q() -> Q:
     next_stage = PendingAction.objects.filter(
         kind=START_EVIDENCE_COLLECTION, subject_type="application", subject_id=OuterRef("public_ref"))
     return (
-        Q(Exists(ApplicationEvent.objects.filter(application=OuterRef("pk"), kind=ATTENTION)))
+        Q(Exists(_staff_item_model().objects.filter(application=OuterRef("pk"), status="open")))
         | Q(Exists(AutomationPause.objects.filter(subject_type="application", subject_id=OuterRef("public_ref"))))
         | (Q(contact_verified_at__isnull=True) & ~Q(stage__in=TERMINAL_STAGES) & Q(Exists(stuck_link)))
         | (Q(contact_verified_at__isnull=False) & ~Q(stage__in=TERMINAL_STAGES) & ~Q(Exists(next_stage)))
@@ -63,12 +85,20 @@ def actions_for(application):
 
 
 def attention_items(application):
-    return list(application.events.filter(kind=ATTENTION).order_by("occurred_at", "id"))
+    return list(application.staff_items.filter(status="open").order_by("opened_at", "id"))
 
 
-def describe_attention(event: ApplicationEvent) -> str:
-    data = event.data if isinstance(event.data, dict) else {}
-    text = REASONS.get(data.get("reason"), "staff review requested")
+def _event_for(item):
+    """S1 attention items name their event (`event:<id>`), which carries the version details."""
+    if item.dedupe_key.startswith("event:"):
+        return ApplicationEvent.objects.filter(pk=item.dedupe_key.split(":", 1)[1], application=item.application).first()
+    return None
+
+
+def describe_attention(item) -> str:
+    event = _event_for(item)
+    data = event.data if event is not None and isinstance(event.data, dict) else {}
+    text = REASONS.get(item.reason_code, REASONS.get(data.get("reason"), "staff review requested"))
     numbers = data.get("unverified_version_numbers") or ([data["version_number"]] if "version_number" in data else [])
     if numbers:
         text += f" (version {', '.join(str(n) for n in numbers)})"

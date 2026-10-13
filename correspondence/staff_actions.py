@@ -36,6 +36,8 @@ from .outbound import (
     require,
     verified_address,
 )
+from .inbound import enqueue_pass
+from .models import MailboxCursor
 from .rendering import TemplateRefused
 from .staff_items import event, resolve_item
 
@@ -134,9 +136,6 @@ def decide_uncertain_send(message_id: int, user, decision: str, note: str = "") 
 def restart_collector(cursor_id: int, user, note: str = ""):
     """016 B1 and F: only `restart_collector` (decision-maker) resumes a blocked cursor; it is separate from
     ordinary retry. Resolves the cursor's open items with the immutable resolution record."""
-    from .inbound import enqueue_pass
-    from .models import MailboxCursor
-
     require(user, "restart_collector")
     actor = actor_ref(user)
     with transaction.atomic():

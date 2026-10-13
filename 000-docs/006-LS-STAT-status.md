@@ -68,10 +68,10 @@
    and 1B.6 staff view (PR #15), then S1-T8 acceptance evidence (PR #16). GATE-S1 signed off 2026-10-11 (D-26).
 4. Done: handoff 2A for P2 (bead `catalyst-v2-7hu.1`, PR #20): the correspondence specification `016`
    0.3.2, approved by the owner with decisions D-27 to D-32 (2026-10-12); merged as `1a6a25f`.
-5. Done: 2B.1, outbound foundations (bead `catalyst-v2-7hu.2`, PR #21, merged `349f54e`).
-   In review: 2B.2, inbound collection and correlation (bead `catalyst-v2-7hu.3`), released by the owner's
-   2026-10-13 instruction to continue the P2 beads autonomously; M6 TLS certificate tests now pass on the real
-   SMTP and IMAP paths.
+5. Done: 2B.1, outbound foundations (bead `catalyst-v2-7hu.2`, PR #21, merged `349f54e`), and 2B.2, inbound
+   collection (bead `catalyst-v2-7hu.3`, PR #22, merged `2aea347`; M6 TLS tests pass). In review: 2B.3, reply
+   processing and staff resolution (bead `catalyst-v2-7hu.4`), under the owner's 2026-10-13 instruction to
+   continue the P2 beads autonomously.
 6. Policy decisions in `011` section 6, each before the milestone it blocks.
 
 ## Decision log

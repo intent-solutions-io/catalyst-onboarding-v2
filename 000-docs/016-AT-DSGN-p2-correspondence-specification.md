@@ -1069,3 +1069,77 @@ One independent `catalyst-independent-qa` review of PR #22 found 4 HIGH, 14 MEDI
 - Bootstrap and recovery cannot write an application event (there is no application). The cursor keeps the
   start mode; a `from_now` bootstrap opens the `mailbox_history_out_of_scope` item; and the command logs the
   host user.
+
+### 10.8 Implementation notes from 2B.3 (2026-10-13)
+
+- Staff attention reads open staff items (3.8, M9, 2B.3 part). The S1 intake and confirmation code opens a
+  staff item alongside each `needs_staff_attention` event (dedupe `event:<id>`). Migration correspondence
+  0008 opened one for each earlier event. The events stay as history; resolving the item clears the mark.
+- Reason-to-resolution allow-list (F):
+  - **Identity reasons**, decision-maker only:
+    - `unmatched` associate;
+    - `reply_unverified` and `reply_auth_failed`: associate, dismiss or mark as spoofed;
+    - `sender_mismatch`: dismiss or mark as spoofed, never associate;
+    - the two S1 reasons: acknowledge.
+  - **Operational reasons**, acknowledge with `resolve_exception`. `unmatched` dismissal is also
+    `resolve_exception`.
+- A staff association sets `trust_decision = staff_associated` for that message only, links its answerable
+  questions, and queues `process_reply`. It changes no identity, recipient, adoption or stage.
+- Bounces read the delivery-status report's first per-recipient `Status` and `Final-Recipient`, stored in
+  `auto_markers`.
+- The P3 interface is the `ReplyInterpreter` protocol in `correspondence/processing.py` (not a separate
+  `interpreter.py`). `strip_quotes` provides the quote-stripped view, version 1.
+
+### 10.9 2B.3 specialist reviews (2026-10-13)
+
+At the owner's request, the specialist agents were used beyond QA. PR #23 was reviewed in parallel by
+`catalyst-independent-qa`, `catalyst-django-architect`, `catalyst-django-data` and `catalyst-minimax-evaluation`.
+None found a blocker. Applied:
+
+- **QA:**
+  - a reply whose processing fails finally becomes `processing_error` with a staff item, never silence;
+  - D3 and D4 decide only a person's trusted or staff-associated reply, and need every outcome;
+  - closing reasons are an allow-list;
+  - the loop count restarts after staff resolve a loop, and the threshold minimum is 2;
+  - bounce recipient matching fails closed;
+  - staff association writes an event and records prior values;
+  - a real race test of confirmation against `process_reply`;
+  - wider allow-list, health and network-scan tests.
+- **Architecture:** `applications` never imports `correspondence`. The S1 code opens staff items through the
+  `CATALYST_ATTENTION_OPENER` seam (one creation path) and reads them through the reverse relation, with an
+  import-direction test. Shared pieces moved to the leaf modules `common.py` and `messages.py`, which removes
+  the hidden outbound and inbound cycle.
+- **Data:**
+  - indexes for the ingest Message-ID lookup and the health queries;
+  - the 0008 backfill keeps each event's time, maps an unknown reason to a resolvable one, and tolerates a
+    removed group.
+- **P3 interface:**
+  - a typed request and result (`InterpretRequest`, `QuestionProposal`, `Span` as half-open code-point offsets
+    into the full derivative, `Provenance`, `InterpretUnavailable`);
+  - `quoted_ranges` and a pure `validate_proposals` (no span inside quoted text or citing our own sent text,
+    evidence required for `satisfied` and `partial`, no `not_addressed` on truncated text);
+  - `eligible()`;
+  - `derived_text_sha256`, pinned with the versions in each held `interpret_reply`;
+  - `strip_quotes` no longer cuts at "From:" lines and catches wrapped attributions.
+  - Approved question text is immutable: the application role cannot update it.
+
+**Open owner decision (data review, HIGH):** whether `StaffItemResolution`, `InboundMessageLocation` and the
+frozen `ApprovedMessage` columns are ADR-14 protected history. If they are, they need protection triggers
+(today grants alone protect them for the application role), a `StaffItem` status transition trigger, and an
+audited retention path under POL-10. This is not decided here.
+
+Re-check round (QA and `catalyst-security-privacy`):
+
+- A `processing_error` item uses the plain `inbound:<id>` key, so staff can resolve it; the test now
+  resolves it.
+- A start-up guard (`config/guards.dispatch_problems`) pins `CATALYST_ATTENTION_OPENER` and
+  `CATALYST_ACTION_HANDLERS` to the Catalyst apps and refuses them from the environment.
+- `validate_proposals` is total (a malformed result is a code). It binds to the stored digest, refuses any
+  overlap with quoted text, caps span length and usage, and checks the model note.
+- Staff association refuses a non-exception message, a non-human message, a closed target and a message
+  that belongs to another application.
+- `NoteRefused` is a `Refused`, and the note filter also removes zero-width characters and U+061C.
+
+Owner questions carried forward (security review): whether staff-associated unverified mail may go to a
+model provider at all, applicant text leaving to MiniMax and its retention, retention of free-text
+resolution notes, and whether one decision-maker may both associate and confirm.

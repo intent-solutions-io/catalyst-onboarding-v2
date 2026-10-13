@@ -34,6 +34,7 @@ from workflow.models import PendingAction
 
 from .links import signer
 from .models import OPEN_STAGES, Application, ApplicationEvent, ContactChallenge, Stage, SubmissionVersion, VersionAdoption
+from .services import open_staff_item
 
 START_EVIDENCE_COLLECTION = "start_evidence_collection"
 
@@ -130,9 +131,10 @@ def confirm(challenge_uuid: UUID, version_public_id: UUID) -> Confirmed:
         newer = list(application.versions.filter(version_number__gt=number).order_by("version_number")
                      .values_list("version_number", flat=True))
         if newer:
-            ApplicationEvent.objects.create(kind="needs_staff_attention", data={
+            attention = ApplicationEvent.objects.create(kind="needs_staff_attention", data={
                 "reason": "newer_unverified_version", "adopted_version_number": number, "unverified_version_numbers": newer,
             }, **event)
+            open_staff_item(application, "newer_unverified_version", attention)
         PendingAction.objects.create(
             kind=START_EVIDENCE_COLLECTION,
             subject_type="application",

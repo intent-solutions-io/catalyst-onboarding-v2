@@ -145,7 +145,7 @@ class ApplicationAdmin(ReadOnlyModelAdmin):
         if not items:
             return "none"
         return format_html_join("", '<p><strong class="errornote">Needs staff attention</strong> {} ({} UTC)</p>',
-                                ((staff.describe_attention(e), f"{e.occurred_at:%Y-%m-%d %H:%M:%S}") for e in items))
+                                ((staff.describe_attention(e), f"{e.opened_at:%Y-%m-%d %H:%M:%S}") for e in items))
 
     @admin.display(description="next responsible party")
     def next_step(self, obj):

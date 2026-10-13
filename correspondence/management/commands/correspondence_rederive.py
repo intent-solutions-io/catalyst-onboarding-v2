@@ -55,7 +55,8 @@ class Command(BaseCommand):
                         redactions = {**message.redactions, "confirmation_link": message.redactions.get("confirmation_link", 0) + count}
                         truncated, truncated_at = message.truncated, message.truncated_at_chars
                     InboundMessage.objects.filter(pk=message.pk).update(
-                        derived_text=text, omitted_parts=omitted, redactions=redactions, truncated=truncated,
+                        derived_text=text, derived_text_sha256=mime.digest(text.encode()), omitted_parts=omitted,
+                        redactions=redactions, truncated=truncated,
                         truncated_at_chars=truncated_at,
                         derivation_version=mime.DERIVATION_VERSION, redaction_version=mime.REDACTION_VERSION)
                     event(message.application, "inbound_rederived", {

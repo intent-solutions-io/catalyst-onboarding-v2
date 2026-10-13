@@ -54,6 +54,8 @@ class Derived:
     redactions: dict = field(default_factory=dict)
     attachments: list = field(default_factory=list)
     defects: int = 0
+    dsn_status: str = ""  # the first per-recipient Status of a delivery-status report, for example 5.1.1
+    dsn_final_recipient: str = ""
 
 
 class _Text(HTMLParser):
@@ -137,6 +139,13 @@ def _walk(part, derived: Derived, chunks: list, depth: int, counter: list) -> No
     ctype = part.get_content_type()
     if ctype == "message/delivery-status":
         derived.is_bounce = True
+        payload = part.get_payload()
+        for block in payload if isinstance(payload, list) else []:
+            status = str(block.get("Status", "")).strip()
+            if status and not derived.dsn_status:
+                derived.dsn_status = redact_short(status)[:16]
+                recipient = str(block.get("Final-Recipient", "")).split(";", 1)[-1].strip()
+                derived.dsn_final_recipient = redact_short(recipient)[:320]
         return
     if ctype == "message/rfc822":  # a forwarded or bounced original: its Message-ID, then its text, reduced
         payload = part.get_payload()
