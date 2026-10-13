@@ -153,7 +153,8 @@ class Question(models.Model):
     updated_at = models.DateTimeField(db_default=Now())
 
     class Meta:
-        permissions = [("approve_question", "Approve an applicant-specific question (operators, D-29)")]
+        permissions = [("approve_question", "Approve an applicant-specific question (operators, D-29)"),
+                       ("withdraw_question", "Withdraw a question; never an answer (operator, A-8)")]
         constraints = [
             models.CheckConstraint(condition=Q(status__in=QUESTION_STATUSES), name="question_status_valid"),
             models.CheckConstraint(condition=Q(approval_state__in=["proposed", "approved"]), name="question_approval_valid"),
@@ -204,6 +205,9 @@ class ApprovedMessage(models.Model):
     disposition = models.CharField(max_length=24, choices=Disposition.choices, default=Disposition.ACTIVE)
     disposition_at = models.DateTimeField(null=True, blank=True)
     disposition_by = models.CharField(max_length=200, blank=True, default="")
+    # 016 3.4: a staff message is created only by confirming one preview, at most once.
+    staff_draft = models.OneToOneField("StaffMessageDraft", on_delete=models.PROTECT, null=True, blank=True,
+                                       related_name="approved_message")
 
     class Meta:
         permissions = [("decide_uncertain_send", "Decide an unknown, exhausted, blocked or rejected send (decision-maker, D-30)")]
@@ -216,7 +220,28 @@ class ApprovedMessage(models.Model):
             models.CheckConstraint(condition=~Q(content_sha256="") | ~Q(inputs_sha256=""), name="approved_message_has_content"),
             models.CheckConstraint(condition=~Q(authorized_by=""), name="approved_message_authorized"),
             models.CheckConstraint(condition=~Q(supersedes=F("id")), name="approved_message_not_self_superseding"),
+            models.CheckConstraint(condition=(Q(kind="staff_message") & Q(staff_draft__isnull=False))
+                                   | (~Q(kind="staff_message") & Q(staff_draft__isnull=True)),
+                                   name="approved_message_staff_draft_iff_staff_message"),
         ]
+
+
+class StaffMessageDraft(models.Model):
+    """016 3.4 (A-5): the exact preview of a staff message. INSERT-only: every preview is a new row and a draft
+    is never edited, sent or counted as a message. Confirmation links it to one `ApprovedMessage`."""
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="staff_drafts")
+    author = models.CharField(max_length=200)
+    subject = models.CharField(max_length=200)
+    body = models.TextField()
+    recipient = models.CharField(max_length=320)  # the verified address at preview, never typed
+    content_sha256 = models.CharField(max_length=64)
+    created_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        permissions = [("send_staff_message", "Preview and confirm a staff message (operator, D-30, A-5)")]
+        constraints = [models.CheckConstraint(condition=~Q(author="") & ~Q(content_sha256=""), name="staff_draft_complete")]
 
 
 class ApprovedMessageQuestion(models.Model):
@@ -260,6 +285,8 @@ class StaffItem(models.Model):
         permissions = [
             ("resolve_exception", "Resolve a non-identity staff item (operator, D-30)"),
             ("resolve_identity_exception", "Resolve an identity-affecting staff item (decision-maker, D-30, D-31)"),
+            ("pause_automation", "Pause automated correspondence for an application (operator, F)"),
+            ("resume_automation", "Resume automated correspondence for an application (operator, F, E4)"),
         ]
         constraints = [
             models.UniqueConstraint(fields=["reason_code", "dedupe_key"], condition=Q(status="open"), name="staff_item_one_open_per_key"),

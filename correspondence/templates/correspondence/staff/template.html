@@ -1,0 +1,13 @@
+{% extends "correspondence/staff/base.html" %}{% load correspondence_display %}
+{% block content %}
+<h1>Template {{ version.template.key }}, version {{ version.version }}</h1>
+<p>Status {{ version.status }}{% if version.approved_by %}, approved by {{ version.approved_by }}{% endif %}. Synthetic wording: {{ version.synthetic|yesno }}. Secret-bearing: {{ version.secret_bearing|yesno }}.
+Variables: {% for name in version.variables %}{{ name }}{% if not forloop.last %}, {% endif %}{% endfor %}. Digest {{ version.content_sha256 }}.</p>
+<p>Subject: <bdi>{{ version.subject|visible }}</bdi></p>
+<pre class="untrusted">{{ version.body_text|visible }}</pre>
+{% if can_approve %}
+<form method="post" action="{% url 'correspondence_staff:approve_template' version.pk %}">{% csrf_token %}
+<input type="hidden" name="digest" value="{{ version.content_sha256 }}">
+<button>Approve exactly this version</button></form>
+{% endif %}
+{% endblock %}

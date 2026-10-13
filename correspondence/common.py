@@ -20,6 +20,12 @@ def actor_ref(user) -> str:
     return f"user:{user.pk}"
 
 
+def can(user, permission: str) -> bool:
+    """The one permission rule, used by services (enforcement) and staff screens (what to show)."""
+    return (user is not None and user.is_authenticated and user.is_active and not user.is_superuser
+            and user.has_perm(f"correspondence.{permission}"))
+
+
 def require(user, permission: str) -> None:
-    if user is None or not user.is_active or user.is_superuser or not user.has_perm(f"correspondence.{permission}"):
+    if not can(user, permission):
         raise PermissionDenied(permission)

@@ -1,0 +1,25 @@
+{% extends "correspondence/staff/base.html" %}{% load correspondence_display %}
+{% block content %}
+<h1>Reply</h1>
+<p>From <bdi>{{ message.from_address|visible }}</bdi>; status {{ message.status }}; classification {{ message.classification }};
+trust {{ message.trust_decision }}. Derivation version {{ message.derivation_version }}{% if message.truncated %}; truncated{% endif %}{% if message.omitted_parts %}; some parts omitted{% endif %}.</p>
+<h2>Derivative text (not the original message)</h2>
+<pre class="untrusted">{{ message.derived_text|visible }}</pre>
+<h2>Questions</h2>
+{% if can_decide and pending %}
+<form method="post" action="{% url 'correspondence_staff:confirm_outcome' message.public_id %}">{% csrf_token %}
+<input type="hidden" name="digest" value="{{ message.derived_text_sha256 }}">
+{% for link in pending %}
+<fieldset><legend>Question</legend><p><bdi>{{ link.question.text|visible }}</bdi></p>
+<select name="q-{{ link.question.public_id }}" required><option value="">choose an outcome</option>{% for o in outcomes %}<option value="{{ o }}">{{ o }}</option>{% endfor %}</select></fieldset>
+{% endfor %}
+<label>Note <input name="note" maxlength="500"></label> <button>Confirm outcomes</button></form>
+{% else %}
+<ul>{% for link in links %}<li><bdi>{{ link.question.text|visible }}</bdi>: {{ link.state }}{% if link.outcome %} ({{ link.outcome }}){% endif %}</li>{% empty %}<li>No question is linked.</li>{% endfor %}</ul>
+{% endif %}
+{% if can_decide and not pending %}
+<form method="post" action="{% url 'correspondence_staff:close_reply' message.public_id %}">{% csrf_token %}
+<select name="reason">{% for r in close_reasons %}<option value="{{ r }}">{{ r }}</option>{% endfor %}</select>
+<label>Note <input name="note" maxlength="500"></label> <button>Close without an outcome</button></form>
+{% endif %}
+{% endblock %}

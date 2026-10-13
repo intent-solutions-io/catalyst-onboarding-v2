@@ -1,0 +1,6 @@
+{% extends "correspondence/staff/base.html" %}{% load correspondence_display %}
+{% block content %}
+<h1>Staff message: <bdi>{{ application.display_name|visible }}</bdi></h1>
+{% include "correspondence/staff/compose_form.html" %}
+<p><a href="{% url 'correspondence_staff:application' application.public_ref %}">Back</a></p>
+{% endblock %}

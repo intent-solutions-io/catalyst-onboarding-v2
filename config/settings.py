@@ -144,6 +144,9 @@ CATALYST_ACTION_HANDLERS = {
     "collect": "correspondence.inbound.Collect",  # 016 B (P2 2B.2)
     "file_copy": "correspondence.inbound.FileCopy",  # 016 A4
     "process_reply": "correspondence.processing.ProcessReply",  # 016 D (P2 2B.3)
+    "send_staff_message": "correspondence.outbound.SendStaffMessage",  # 016 3.4, not automated (P2 2B.4)
+    "remind": "correspondence.reminders.SendReminder",  # 016 E2 (P2 2B.4)
+    "escalate_unanswered": "correspondence.reminders.EscalateUnanswered",  # 016 E1, J-08 (P2 2B.4)
 }
 # The one seam through which the applications app opens a staff item for a `needs_staff_attention` event
 # (016 3.8; 2B.3). Like the handler mapping, a fixed dotted path in code, so `applications` never imports
@@ -186,6 +189,19 @@ CATALYST_MAIL_COLLECTOR_STALE_FACTOR = number("CATALYST_MAIL_COLLECTOR_STALE_FAC
 # automation and open a staff item. Synthetic values; POL-06 production values are not decided.
 CATALYST_MAIL_LOOP_THRESHOLD = number("CATALYST_MAIL_LOOP_THRESHOLD", "3", minimum=2)  # 1 would break the single-autoresponder rule
 CATALYST_MAIL_LOOP_WINDOW_SECONDS = number("CATALYST_MAIL_LOOP_WINDOW_SECONDS", "86400")
+# Reminders (016 E; POL-06 cadence). Synthetic values; production numbers are decided later (8.2).
+CATALYST_REMINDER_MAX = number("CATALYST_REMINDER_MAX", "2", minimum=0)  # then escalate_unanswered
+CATALYST_REMINDER_INTERVAL_SECONDS = number("CATALYST_REMINDER_INTERVAL_SECONDS", "259200", minimum=0)
+CATALYST_REMINDER_MIN_GAP_SECONDS = number("CATALYST_REMINDER_MIN_GAP_SECONDS", "86400", minimum=0)
+CATALYST_REMINDER_QUIET_START_HOUR = number("CATALYST_REMINDER_QUIET_START_HOUR", "21", minimum=0)  # UTC; equal = none
+CATALYST_REMINDER_QUIET_END_HOUR = number("CATALYST_REMINDER_QUIET_END_HOUR", "7", minimum=0)
+CATALYST_REMINDER_RESUME_GRACE_SECONDS = number("CATALYST_REMINDER_RESUME_GRACE_SECONDS", "3600", minimum=0)
+CATALYST_REMINDER_STALE_DEFERRALS = number("CATALYST_REMINDER_STALE_DEFERRALS", "6", minimum=1)  # then collector_stale
+CATALYST_REMINDER_STALE_RETRY_SECONDS = number("CATALYST_REMINDER_STALE_RETRY_SECONDS", "600", cast=float, minimum=0)
+CATALYST_STAFF_DRAFT_TTL_SECONDS = number("CATALYST_STAFF_DRAFT_TTL_SECONDS", "1800")  # 016 3.4: a preview expires
+CATALYST_REMINDER_OVERDUE_MARGIN_SECONDS = number("CATALYST_REMINDER_OVERDUE_MARGIN_SECONDS", "3600", minimum=0)
+if CATALYST_REMINDER_QUIET_START_HOUR > 23 or CATALYST_REMINDER_QUIET_END_HOUR > 23:
+    raise ImproperlyConfigured("reminder quiet hours are UTC hours 0 to 23")
 # Synthetic values; POL-06 production values are not decided (D-29).
 CATALYST_MAIL_SEND_ATTEMPTS = number("CATALYST_MAIL_SEND_ATTEMPTS", "3")
 # The whole SMTP exchange must end well inside the worker lease; unset, it is half the lease, at most 20 s.
