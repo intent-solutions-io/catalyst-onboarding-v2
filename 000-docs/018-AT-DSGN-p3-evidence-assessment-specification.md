@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document | `018-AT-DSGN-p3-evidence-assessment-specification` |
-| Version | 0.2.0 (draft for owner review; the independent security and reliability review applied, section 12) |
+| Version | 0.2.1 (draft for owner review; the independent security and reliability review and its re-check applied, section 12) |
 | Status | **PROPOSED.** Handoff 3A of phase P3. Nothing here is decided until the owner records it in `011` section 4. This document authorizes no implementation, migration, dependency, provider key, live model call, real applicant research, real mail or deployment. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-13 |
@@ -203,13 +203,13 @@ INSPECTED), so registering a handler cannot run them. The activation command is 
 | While a run or fetch is in flight | Result |
 |---|---|
 | a newer submission version arrives, unadopted | ignored; the run uses the adopted version (TEST-P3-08); the existing `newer_unverified_version` staff item opens (S1 rule) |
-| staff move the application (for example to `on_hold`) | the record transaction compare-and-sets the expected stage `assessing`; on a mismatch it records the run and transitions nothing |
+| the application leaves `assessing` meanwhile (closed or withdrawn; `on_hold` is only ever a recorded `hold` decision from `awaiting_decision`) | the record transaction compare-and-sets the expected stage `assessing`; on a mismatch it records the run and transitions nothing |
 | the adoption changes | the pre-call or record check finds a different snapshot digest: the run ends `refused: input_changed`, no transition, a staff item |
 | evidence changes (re-fetch) | a new capture; the frozen snapshot still names the old one; the result is valid history for that snapshot only |
 | a reply is re-derived | the derivative digest pin (P2 10.9) no longer matches: interpretation ends `text_changed` |
 | a question is answered or withdrawn | the run's proposals for it are dropped at record; P2 withdrawal cancels held work (exists) |
 | staff decide | the decision is final; a later run result is kept as history and transitions nothing |
-| automation pauses | claims stop (automated kinds); an in-flight call records its result but writes no transition until resume |
+| automation pauses | claims stop (automated kinds only); an in-flight call still records its result **and** its `assessing → awaiting_decision` move, because a stage move has no external effect (it only puts the application in the staff decision queue); no proposal is sent and no further automated action runs until resume |
 | the application closes | the result is recorded as history; no transition, no question |
 
 ## 5. The model contracts
@@ -597,7 +597,10 @@ Design input: `catalyst-minimax-evaluation` (assessment contracts) and `catalyst
 stages). Official documentation research: section 5.6.
 
 **Independent security and reliability review** (`catalyst-security-privacy`, one reviewer, of 0.1.0). All
-findings applied in 0.2.0:
+findings applied in 0.2.0; the reviewer's re-check of 0.2.0 confirmed every BLOCKER and HIGH resolved and
+raised two MEDIUM items, applied in 0.2.1: `on_hold` is entered only as a recorded `hold` decision (so the
+trigger covering it is consistent), and a paused in-flight run still records its stage move (no resume hook is
+needed).
 
 | Severity | Finding | Resolution |
 |---|---|---|
