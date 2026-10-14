@@ -16,7 +16,7 @@ RESULT = ("status, error_code, output, output_sha256, validation_codes, flags, r
 
 grant_forward, grant_reverse = apply_grants({
     RUN: {"app": ["SELECT", "INSERT", f"UPDATE ({RESULT})"], "retention": ["SELECT"]},
-    "assessments_assessmentinvocation": {"app": ["SELECT", "INSERT", "UPDATE (status, finished_at)"]},
+    "assessments_assessmentinvocation": {"app": ["SELECT", "INSERT", "UPDATE (status, finished_at, used_tokens)"]},
 })
 
 

@@ -215,6 +215,7 @@ class AssessmentInvocation(models.Model):
     attempt = models.PositiveIntegerField()
     reserved_requests = models.PositiveIntegerField()
     reserved_tokens = models.PositiveIntegerField()
+    used_tokens = models.PositiveIntegerField(null=True, blank=True)  # known only when the call returned usage
     status = models.CharField(max_length=16, default="started")  # started, completed, abandoned
     started_at = models.DateTimeField(db_default=Now())
     finished_at = models.DateTimeField(null=True, blank=True)

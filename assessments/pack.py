@@ -4,13 +4,17 @@ old runs keep the version and digest they recorded. The rubric is synthetic unti
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent / "prompts"
-CURRENT = "assessment_v1"
-# The digest of assessment_v1 as reviewed. Recomputed at every load; a mismatch refuses the run (TEST-P3-33).
-PINNED = {"assessment_v1": '524730fc13cb964271e5fb709e0c58ad9d85c22c960d6f1e0f083806b6d7d892'}
+CURRENT = "assessment_v2"
+# The digest of each pack version as reviewed. Recomputed at every load; a mismatch refuses the run (TEST-P3-33).
+PINNED = {
+    "assessment_v2": "6ac79ac9cbc34c8e0b824f4127c5b4975bc2a803e5320fe47531369b68499dd5",
+    "assessment_v1": "524730fc13cb964271e5fb709e0c58ad9d85c22c960d6f1e0f083806b6d7d892",
+}
 
 
 class PackRefused(Exception):
@@ -33,17 +37,38 @@ class Pack:
         return self.rubric["rubric_version"]
 
 
-def digest(name: str) -> str:
+_NAME = re.compile(r"^assessment_v[0-9]{1,3}$")
+
+
+def _files(name: str) -> dict:
+    """Each file's bytes, read once (the digest and the content come from the same read)."""
+    if name not in PINNED or not _NAME.match(name):
+        raise PackRefused("prompt_pack_unknown")
+    try:
+        return {p.name: p.read_bytes() for p in sorted((ROOT / name).iterdir()) if p.is_file()}
+    except OSError:
+        raise PackRefused("prompt_pack_unreadable") from None
+
+
+def _digest(files: dict) -> str:
     h = hashlib.sha256()
-    for path in sorted((ROOT / name).iterdir()):
-        data = path.read_bytes()
-        h.update(f"{path.name}\0{len(data)}\0".encode())
+    for file_name, data in files.items():
+        h.update(f"{file_name}\0{len(data)}\0".encode())
         h.update(data)
     return h.hexdigest()
 
 
 def load(name: str = CURRENT) -> Pack:
-    actual = digest(name)
-    if PINNED.get(name) != actual:
+    files = _files(name)
+    actual = _digest(files)
+    if PINNED[name] != actual:
         raise PackRefused("prompt_pack_digest_mismatch")
-    return Pack(name, actual, (ROOT / name / "system.txt").read_text(), json.loads((ROOT / name / "rubric.json").read_text()))
+    try:
+        rubric = json.loads(files["rubric.json"].decode("utf-8"))
+        system = files["system.txt"].decode("utf-8")
+    except (KeyError, UnicodeDecodeError, ValueError):
+        raise PackRefused("prompt_pack_malformed") from None
+    criteria = rubric.get("criteria") or []
+    if not 1 <= len(criteria) <= 8 or any(len(c.get("id", "")) > 40 or not c.get("id") for c in criteria):
+        raise PackRefused("prompt_pack_malformed")
+    return Pack(name, actual, system, rubric)

@@ -315,7 +315,7 @@ is superseded by the actual module).
 |---|---|---|
 | Framework | PydanticAI agent per contract; no tools | per ADR-04 |
 | Test model | `TestModel` and scripted `FunctionModel`; real requests disabled for all tests | see 5.6 |
-| Live model | MiniMax through an OpenAI-compatible client with an explicit base URL. Refused in every environment until authorized, by three layers: `models.ALLOW_MODEL_REQUESTS = False` set in the app's `ready()` for every environment; a provider factory that has no live branch reachable without an authorization setting refused by a new start-up guard; and an HTTP transport in tests that raises on any request. Agent instrumentation that exports prompts is forbidden | see 5.6 |
+| Live model | MiniMax through an OpenAI-compatible client with an explicit base URL. Refused in every environment until authorized, by three layers: `models.ALLOW_MODEL_REQUESTS = False` set in the app's `ready()` for every environment; a provider factory that has no live branch reachable without an authorization setting refused by a new start-up guard; and an HTTP transport in tests that raises on any request. Agent instrumentation that exports prompts is forbidden. As built in 3B.2 (see 14): the flag is set when `assessments/agent.py` is imported, not in `ready()`, and the raising transport is deferred to live enablement | see 5.6, 14 |
 | Output mode | PydanticAI tool output as the candidate (MiniMax documents function tools), prompted output as the fallback, never native JSON-schema output (undocumented); our strict validation always; the authorized synthetic probe decides | F-2, F-11, F-12 |
 | Pins | one PydanticAI version, one model identifier, recorded on every run | owner decision P3-D-8 |
 
@@ -582,7 +582,7 @@ the named task builds and tests it):
 | Held rows are never claimed | ENF (`ledger.claim_next`) | unchanged |
 | Fenced result writes; lost lease discards the result | ENF (`ledger.finish`, `fence`) | unchanged |
 | Provider credential variables refused | ENF (`config/guards.py`) | unchanged |
-| Live-model refusal (request flag, factory guard, raising transport) | INT | ENF in 3B.2 |
+| Live-model refusal (request flag, factory guard; the raising transport is deferred, see 14) | INT | ENF in 3B.2 (flag and factory guard) |
 | Fetch host allow-list at fetch time; `classify(ip)`; `fixture_only` guard | INT | ENF in 3B.1 |
 | No model path to a stage or decision | INT | ENF in 3B.2 (static test) and 3B.4 (database trigger) |
 | Decision bound to the viewed snapshot; superusers refused; authority setting pinned | INT | ENF in 3B.4 |
@@ -696,30 +696,99 @@ Tests cover a server that never completes the handshake and a hostile tag soup.
 
 ## 14. Implementation notes from 3B.2 (2026-10-14)
 
-Released by the owner ("release 3B.2"). Built: `assessments/pack.py` (the prompt pack `assessment_v1`: a system
-prompt and a synthetic rubric of five criteria, pinned by digest), `snapshot.py` (manifest, digest and the
-minimized, scrubbed, fenced request), `schema.py` (the output contract and its deterministic checks), `agent.py`
-(PydanticAI, test models only) and `runs.py` (the run handler, budgets, invocation records and the backfill
-command `activate_assessment`).
+Released by the owner ("release 3B.2"). Built:
 
-- **Dependency.** `pydantic-ai-slim==2.55.0`, without any provider extra, so no live provider client is
-  installed. It is hash-locked in `requirements/`. DEMONSTRATED on the pinned Python 3.14.8: `result.usage` is a
-  property, `UsageLimits` has `total_tokens_limit` (F-4 corrected), and `retries=1` gives exactly one repair.
-- **Live models.** They are refused in three layers: `ALLOW_MODEL_REQUESTS = False` in `AssessmentsConfig.ready()`;
-  `build_model` has no live branch; and `config.guards.assessment_problems` allows only "none", plus "test" in the
-  `test` environment.
-- **Budgets.** All are synthetic, and the daily global budget defaults to 0 (fail-closed), so outside tests no run
-  proceeds until the owner sets a value. One attempt is at most 2 requests and the ledger allows 2 attempts, so a
-  snapshot gets at most 4 requests (the per-snapshot setting). An invocation is recorded before any call and never
-  refunded; a reclaim marks an unfinished invocation abandoned, and it still counts. Global concurrency and the
-  daily budget are serialized by one PostgreSQL advisory lock taken after the application lock.
+- `assessments/pack.py`: prompt pack `assessment_v2`, a system prompt and a synthetic five-criterion rubric,
+  pinned by digest. `assessment_v1` stays pinned and loadable.
+- `snapshot.py`: the manifest, its digest, and the minimized, scrubbed, fenced request.
+- `schema.py`: output schema version 2 and its deterministic checks.
+- `agent.py`: PydanticAI, test models only.
+- `runs.py`: the run handler, budgets, invocation records and the backfill command `activate_assessment`.
+
+Two reviews ran on the first candidate: the primary independent QA review and a scoped review of the model
+boundary. Their findings were applied before merge; the dispositions are below.
+
+- **Dependency.** `pydantic-ai-slim==2.55.0`, with no provider extra, so no live provider client is installed. It
+  is hash-locked in `requirements/`. DEMONSTRATED on the pinned Python 3.14.8:
+  - `result.usage` is a property;
+  - `UsageLimits` has `total_tokens_limit` (F-4 corrected);
+  - `retries=1` gives exactly one repair.
+- **Live models.** They are refused in three layers:
+  1. `ALLOW_MODEL_REQUESTS = False` is set when `assessments/agent.py` is imported, which is the only path to a
+     model. **Deviation from 5.5:** it is not set in `ready()`, because importing PydanticAI costs about 2 s in
+     every process. `build_model` refuses if anything has set it back to True.
+  2. `build_model` has no live branch and accepts only a `TestModel` or `FunctionModel`.
+  3. `config.guards.assessment_problems` allows only "none", plus "test" in the `test` environment.
+
+  Model availability is checked before any reservation, so "none" never spends budget. **Not built:** the raising
+  HTTP transport described in 5.5 and 11. No provider client exists to carry it; it belongs to live enablement.
+- **What the model sees (5.2).**
+  - Every untrusted text is normalized before scrubbing: NFKC; control, zero-width, bidi and private-use
+    characters stripped.
+  - Claims become fenced C blocks on one line, so a claim cannot forge prompt structure.
+  - Scrubbing removes email addresses (including obfuscated forms), links, bare domains and phone numbers; ISO
+    dates are kept.
+  - The applicant's full name, matched on word boundaries with diacritics optional, becomes "the applicant". Its
+    "Surname, Given" and initial-plus-surname forms are matched too. A lone part of the name becomes
+    "[name removed]".
+  - `names_applicant` needs a full-name match in the text actually sent. Truncation happens before scrubbing.
+  - An item past the size limits is listed as missing ("not sent (size limit)") rather than sent empty.
+  - The request digest masks the per-run nonce.
+  - All scrub patterns are bounded, so they run in linear time.
+  - A lone name part is scrubbed only as a capitalized word outside a short list of common words and particles.
+    A one-token name counts only when capitalized.
+  - **Accepted:** placeholders can be longer than the text they replace, so an item can slightly exceed its
+    8,000-character cap. The total counts the scrubbed length.
+- **Output checks (5.3).**
+  - A quote must be verbatim and must carry at least 20 letters or digits once redaction placeholders are removed
+    (or the whole item, if shorter).
+  - Duplicate citations are refused.
+  - Every model-written string is checked for links, contact details, markup and control characters.
+  - `limitations` items are capped at 200 characters.
+  - `basis_criteria` must be unique.
+  - Proposed questions are refused when they ask for credentials, personal data or confidential material
+    (including plurals), contain an obfuscated address, or are not in English.
+  - New soft flags: `decline_without_a_negative_finding`, `not_supported_while_evidence_is_missing`,
+    `rating_rests_on_claims_only`.
+  - Marker overlap now uses character offsets in the text that was sent.
+- **Owner-decision default (POL-04, rubric): claims are citable.** Applicant statements are C aliases. A rating
+  that rests only on claims is capped at `partly_supported` (a hard check) and flagged. This replaces "cite any
+  page to satisfy the checker". If the owner decides otherwise, a new pack and schema version will follow.
+- **Budgets.** All budgets are synthetic. The daily global budget defaults to 0 (fail-closed), so outside tests no
+  run proceeds until the owner sets a value.
+  - One attempt is at most 2 requests and the ledger allows 2 attempts, so a snapshot gets at most 4 requests.
+  - Each invocation reserves one attempt's tokens: 2 requests of input plus the attempt's output. When usage is
+    unknown (failed, invalid or abandoned), the full reservation counts against the application's token budget.
+  - An invocation is recorded and committed before any call and is never refunded. A reclaim marks an unfinished
+    invocation abandoned, and it still counts.
+  - Global concurrency and the daily budget are serialized by one PostgreSQL advisory lock, taken after the
+    application lock. A run waiting out a retry backoff returns to queued, so it holds no concurrency slot.
 - **Transitions.** Success moves `assessing → awaiting_decision` whatever the output says. Any failure (refused,
   invalid output, capped, failed, abandoned) leaves the stage alone and opens a staff item. A finished run is
   frozen by the `catalyst_run_result_once` trigger.
-- **Enqueueing.** Evidence completion, "proceed without", a staff rerun (a new snapshot only) and the backfill
-  command queue a run. **Deviation:** model-proposed questions are stored in the output and shown on the screen;
-  creating proposed `Question` rows and sending them is 3B.3.
-- **Screen.** The evidence screen shows the latest run as advice: findings, quotes, limitations and flags, with
-  the recommendation labelled advisory and never pre-selected.
+- **Staff items.** The four codes `assessment_failed`, `assessment_capped`, `assessment_input_changed` and
+  `assessment_pack_refused` can be acknowledged by staff. The system also resolves them when staff queue a rerun
+  or a later run succeeds.
+- **Enqueueing and its deviations.**
+  - Runs are queued by evidence completion, "proceed without", a staff rerun and the backfill command.
+  - **Deviation:** the action key is `run_assessment:<run id>`, not `<application>:<snapshot>`, so a failed
+    snapshot can be rerun. Staff may rerun the same snapshot after a failure. A succeeded snapshot never runs
+    twice, and every run spends from the same per-snapshot budget.
+  - **Rule for 3B.3:** no model-proposed question is sent without staff approval. The question screen fails closed
+    and can block legitimate technical wording ("token", "wallet"); staff can rephrase.
+  - **Deviation:** model-proposed questions are stored in the output and shown on the screen. Creating proposed
+    `Question` rows and sending them is 3B.3.
+- **Open owner decision.** Once a snapshot's request budget is spent, a rerun ends `capped` again, and re-fetching
+  is possible only in the `evidence` stage. The open question is whether staff get a budget top-up or a "close
+  the assessment" path. Until then, staff can still use the existing application-level actions.
+- **Deferred to live enablement (harmless with test models; must be built before any live call):**
+  - a fence check before each request and before the repair (today the lease is fenced before the call and at
+    the record);
+  - a provider-side 60 s timeout, which is set in `MODEL_SETTINGS` but not enforced by a test model;
+  - a settings check that an attempt fits within half the lease;
+  - a heartbeat for calls longer than the lease;
+  - removal of `<think>` text (F-13), which does not apply in tool-output mode.
+- **Screen.** The evidence screen shows the latest run as advice: findings, quotes, limitations and flags. The
+  recommendation is labelled advisory and is never pre-selected.
 - **Scope of proof.** The tests prove orchestration, validation, safety and recovery with a scripted
   `FunctionModel`. They prove nothing about a real model's assessment quality (018 9 B, `catalyst-v2-oc4.7`).
