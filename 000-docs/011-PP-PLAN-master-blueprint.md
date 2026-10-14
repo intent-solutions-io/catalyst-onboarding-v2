@@ -3,8 +3,8 @@
 | Field | Value |
 |---|---|
 | Document | `011-PP-PLAN-master-blueprint` (the only master blueprint for this repository) |
-| Version | 1.1.0 (ADR decisions of 2026-10-10 recorded) |
-| Status | **APPROVED IN SCOPE** (section 10): project direction, amended requirements and the bounded synthetic first-slice scope. ADR-03, ADR-14, ADR-17 and ADR-18 **decided 2026-10-10** (D-16 to D-19). **Not approved:** the 19 open policies, provider writes, deployment, release; implementation only as each handoff is authorized (1B.1 authorized 2026-10-10, to start once PR #8 merges). Items marked PROPOSED elsewhere stay proposals. |
+| Version | 1.2.0 (current status corrected and the candidate selection-quality contract added, section 11, 2026-10-14; 1.1.0 recorded the ADR decisions of 2026-10-10) |
+| Status | **APPROVED IN SCOPE** (section 10): project direction, amended requirements and the bounded synthetic first-slice scope; later owner decisions D-16 to D-35 are recorded in section 4. **Current (2026-10-14):** GATE-S1 (D-26) and GATE-P2 (D-33) signed off for synthetic work; P3 in progress under `018` (D-34), with 3B.1 and 3B.2 merged and 3B.3 not yet released. **Not approved:** the open policies of section 6 beyond their recorded synthetic decisions, live model use, real applicant data, provider writes, deployment and release; implementation only as each handoff is released. Items marked PROPOSED stay proposals; section 11 and `019` were approved on 2026-10-14 (D-35). |
 | Owner | Jeremy Longshore (product owner and approver) |
 | Reviewers | `catalyst-django-architect` (build design), `catalyst-independent-qa` (independent review); results in section 9 |
 | Date | 2026-10-09 |
@@ -12,8 +12,10 @@
 | Conventions | Intent Blueprint Docs 3.0.0 (stable IDs, evidence status, lifecycle links); doc-filing v4.5 |
 | Supersedes | nothing; the earlier planning drafts named in section 2 were not available |
 
-> **Status: PRELIMINARY, subject to review.** Application code is limited to authorized handoffs (1B.1: the skeleton). An assistant
-> recommendation in this document is a proposal, never an owner decision.
+> **Status (2026-10-14): synthetic only.** Application code exists only for released handoffs (P1, P2, and P3
+> 3B.1 and 3B.2). Nothing is deployed and no real applicant data is used. An assistant recommendation in this
+> document is a proposal, never an owner decision. (Until 2026-10-10 this banner read "PRELIMINARY, subject to
+> review", with code limited to the 1B.1 skeleton; history in sections 4 and 10.)
 
 ## 1. How to read the build contract
 
@@ -28,6 +30,7 @@ A fresh session reads this file first, then follows the links. Each fact has one
 | Who may authorize what, which policies are still open, how work is phased | this document, sections 4 to 7 |
 | Where the project stands today | `006-LS-STAT-status.md` |
 | How development work is authorized, checked and published | `009` (workflow contract), `010` (hooks and memory), `007`/`008` (specialist agents) |
+| Who owns candidate selection quality, how the selection standard changes, which milestone needs what | this document, section 11; methods and validation in `019` |
 
 Task state lives only in Beads. Bead identifiers appear in this document once, in section 7, so the
 work graph can be found from the repository.
@@ -73,7 +76,7 @@ direct database edits or a coding agent. The learning site itself is not replace
 
 ## 4. Owner decisions and boundaries
 
-### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-34)
+### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-35)
 
 The owner gave this project direction in the build-contract instruction of 2026-10-09, in the
 invoking session. It is recorded here verbatim so a fresh session can check the source. The owner
@@ -224,6 +227,18 @@ to move the repository to the owner's personal GitHub account now, the owner cho
 tracked as a separate task). This is recorded as approval of `018` 0.2.1 with its recommended defaults
 `P3-D-1` to `P3-D-16` for synthetic P3, and as the release of 3B.1 only.
 
+**Selection-quality contract, 2026-10-14** (source of D-35). The owner reviewed draft PR #33 (head `003c8d4`, CI
+run 38653570269 green; independent review applied) and wrote in the invoking session: "approve 019 and merge 33".
+This is recorded as approval of `019` (as version 1.0.0) and of section 11 of this document, which makes their
+contents the governing contract for selection quality: the three assessment purposes, the six criteria and
+evidence rules as the draft of `SP-L2-1`, the selection-policy record and change rules (merging never activates),
+the evaluation process, the scorecard structure, the cadence and corrective actions, and the amendment to P3-D-10
+(a recorded human-only assessment when model advice is unavailable or suspended, applied when 3B.4 is built). It
+authorizes no code, no release of 3B.3 or 3B.4, no live model call, no real data, and no activation of a
+selection policy (none exists yet). Still open, because they need names or inputs the approval does not give: the
+domain expert for the role profile, the operational delegate role, the private location for real evaluation
+material, the scorecard's minimum counts, and what clears a capped assessment snapshot.
+
 ### 4.2 Decision summary
 
 Decision records with rationale live in `003` section "Architecture decisions". This table is the
@@ -263,6 +278,7 @@ summary a reader needs first.
 | D-30 | POL-13, P2 role matrix (`016` section F) for synthetic operation only: operators handle routine correspondence; identity-affecting resolutions, uncertain-send decisions and collector restarts need the decision-maker role; template approval stays with the owner. MFA, network restriction and production staff access remain undecided | OWNER-DECIDED 2026-10-12 (P2 slice) | section 4.1; `016` F |
 | D-31 | POL-19 fail-closed: a mismatched or unverifiable identity produces a staff exception with no automatic positive effect and no identity or dossier change; only the decision-maker resolves identity-affecting cases | OWNER-DECIDED 2026-10-12 | section 4.1; `016` C3, C4, F |
 | D-34 | `018` (P3 evidence, assessment and qualification specification) version 0.2.1 approved with its recommended defaults `P3-D-1` to `P3-D-16` for synthetic P3; 3B.1 (`catalyst-v2-oc4.2`) released. Not authorized: a live model call, real fetching, real applicant data, 3B.2 to 3C (each needs its own release), a versioned release or a deployment. The decisions marked for GATE-PILOT or later (real fetching, the applicant notice, retention, live model use) stay conditions at those gates | OWNER-DECIDED 2026-10-14 | section 4.1; `018` section 8 |
+| D-35 | `019` (candidate selection quality and validation) approved as version 1.0.0 together with section 11: assessment purposes, criteria and evidence rules as the draft of `SP-L2-1`, the selection-policy record and change rules (merging never activates), evaluation, scorecard structure, cadence and corrective actions, and the P3-D-10 amendment (human-only assessment when model advice is unavailable or suspended, for 3B.4). Not authorized: code, the 3B.3 or 3B.4 release, live model use, real data, policy activation. Open: domain expert, operational delegate, private evaluation location, scorecard minimums, capped-snapshot path | OWNER-DECIDED 2026-10-14 | section 4.1; `019` section 13 |
 | D-33 | GATE-P2 signed off for synthetic P2: every TEST-P2 case PASS on PostgreSQL in CI at one head (CI run 38439993244 on `1ce791e`; 624 passed; GATE-P2 PASS 54 and GATE-S1 PASS 25, FAIL 0, INCOMPLETE 0, NOT RUN 0), one independent QA review of the closeout, after-action report `017` filed, case dispositions and scope boundaries in `016` §10.12 accepted. The P2 epic `catalyst-v2-7hu` closes. Not authorized: real mail, applicant data, model use, P3, release or deployment. Before real use: the three correction beads (append-only evidence, automatic-pause review, hard-bounce send block) and POL-10 | OWNER-DECIDED 2026-10-13 | section 4.1; `016` 10.12; `017` |
 | D-32 | `015` is public technical documentation, provided its content stays public-safe; future public PDF renderings use unclassified labelling, not the theme's "Confidential" footer | OWNER-DECIDED 2026-10-12 | section 4.1; `016` 8.6; `015` errata item 6 |
 
@@ -298,9 +314,9 @@ open product policies listed in the master blueprint".
 |---|---|---|---|---|
 | POL-01 | Applicant identity key and duplicate policy: is "same applicant" the normalized email address; may a person hold more than one open application; what happens after a decline or withdrawal | owner | GATE-S1 acceptance sign-off (the slice encodes a default) | **DECIDED for the slice (D-25, 2026-10-11)**: the `005` S1.3 defaults are confirmed; terminal-stage duplicates (decline, withdrawal, reopening) stay with POL-12 (P5) |
 | POL-02 | Verification link lifetime, resend limits, what an expired link offers | owner | GATE-STAGING | PROPOSED default: lifetime is a setting; no number is approved; tests use a short synthetic value |
-| POL-03 | Which evidence is required and how it is collected (and from which sources the system may fetch); the final intake form fields | owner | P3 start (evidence); GATE-PILOT (form fields shown to real applicants) | S1 uses a synthetic placeholder field set (name, email, reason) only |
-| POL-04 | Assessment rubric, what the model may see, what it may recommend | owner | P3 start | not in slice |
-| POL-05 | Qualification authority: who may admit, decline or hold; whether two people are needed; appeal or reconsideration | owner | P3 decision stage (J-10) | not in slice |
+| POL-03 | Which evidence is required and how it is collected (and from which sources the system may fetch); the final intake form fields | owner | P3 start (evidence); GATE-PILOT (form fields shown to real applicants) | S1 uses a synthetic placeholder field set (name, email, reason) only. **Synthetic P3 defaults approved (D-34: `018` P3-D-1, P3-D-2, P3-D-3)**; real sources and real form fields stay open |
+| POL-04 | Assessment rubric, what the model may see, what it may recommend | owner | P3 start (synthetic); before real candidate-impacting use (production rubric) | **Synthetic P3 defaults approved (D-34: P3-D-4 rubric shape without a numeric score, P3-D-5 staff-approved questions, P3-D-6 data-use boundary)**; the five-criterion rubric in code is synthetic. The production standard (role, criteria, evidence rules, versioning) is proposed in `019` and governed by section 11; **open** |
+| POL-05 | Qualification authority: who may admit, decline or hold; whether two people are needed; appeal or reconsideration | owner | P3 decision stage (J-10) | Synthetic P3 recommendations P3-D-9 to P3-D-11 approved with `018` (D-34) for 3B.4; the authority setting stays unset until POL-05 itself is recorded; a P3-D-10 amendment is proposed in `019` section 7 |
 | POL-06 | Communications policy: approved templates, reminder cadence and maximum, quiet hours, stop rules for autoresponders, bounces and loops, when staff take over | owner | P2 start | slice sends one verification message only, to a local sink. **DECIDED for synthetic P2 send authority only (D-29, 2026-10-12)**; production wording, cadence, quiet hours, limits and stop thresholds stay open |
 | POL-07 | Agreement inventory: the exact approved NDA and User Agreement templates and versions, any other required agreements and their order after the NDA (the NDA-before-User-Agreement rule itself is decided, D-15) | owner with counsel | P4 start | not in slice |
 | POL-08 | Signing roles: required participants, signing order, countersigner | owner with counsel | P4 start | not in slice |
@@ -382,11 +398,13 @@ P3, a release or a deployment (`016` 10.12).
 | 2B.4 | `catalyst-v2-7hu.5` | Run reminders and controlled staff intervention: suppression, stop rules, pause and resume, staff messages and exception resolution | 2B.3; POL-06 cadence (synthetic settings); A-5, A-8 |
 | 2C | `catalyst-v2-7hu.6` | Verify the correspondence loop: the GATE-P2 acceptance run, independent QA and the after-action report (health and reconciliation behaviour is built in 2B.1 to 2B.4) | 2B.1 to 2B.4 |
 
-**Evidence and assessment tasks (P3), specified in handoff 3A (`018`, PROPOSED).** The owner asked for 3A
+**Evidence and assessment tasks (P3), specified in handoff 3A (`018`, approved 0.2.1, D-34).** The owner asked for 3A
 after GATE-P2 (D-33). 3A is the specification and the owner's P3 decision brief (`018` section 8, proposals `P3-D-1` to `P3-D-16`). The
 owner approved `018` 0.2.1 and released 3B.1 on 2026-10-14 (D-34), then 3B.2 the same day ("release 3B.2");
 3B.3 and 3B.4 each need their own release; 3C is the GATE-P3 verification. Live model use and
-real fetching are not authorized by any of these.
+real fetching are not authorized by any of these. 3B.1 merged as `d564bfa` (PR #30) and 3B.2 as `8086508`
+(PR #32). Selection-quality work (section 11) attaches to 3B.3, 3B.4, 3C and 3E without changing their release or
+gate.
 
 | Key | Bead | Title | Depends on |
 |---|---|---|---|
@@ -396,7 +414,23 @@ real fetching are not authorized by any of these.
 | 3B.3 | `catalyst-v2-oc4.4` | Run the clarification loop: model-proposed questions through P2 approval, staff question authoring, coalesced reply interpretation, reassessment | 3B.2; P3-D-5, P3-D-6 |
 | 3B.4 | `catalyst-v2-oc4.5` | Record the authorized qualification decision with its exact inputs and hand admitted applicants to P4 as held work | 3B.2; P3-D-9, P3-D-10, P3-D-11, P3-D-16 |
 | 3C | `catalyst-v2-oc4.6` | Verify P3: the GATE-P3 acceptance run, one independent QA review and the after-action report | 3B.1 to 3B.4 |
-| 3E | `catalyst-v2-oc4.7` | Evaluate MiniMax compatibility and quality on synthetic applications under a stated budget, once separately authorized (not part of GATE-P3) | owner authorization, API entitlement, provider review, P3-D-6 |
+| 3E | `catalyst-v2-oc4.7` | Evaluate MiniMax compatibility and quality on synthetic applications under a stated budget, once separately authorized (not part of GATE-P3) | owner authorization, API entitlement, provider review, P3-D-6; the evaluation set `catalyst-v2-f1u.3`; the live-call protections `catalyst-v2-oc4.9` |
+| (3B.2 follow-up) | `catalyst-v2-oc4.8` | Decide what clears a capped assessment snapshot and give staff that path without a shell | owner decision; not a GATE-P3 blocker unless the owner says so |
+| (3B.2 follow-up) | `catalyst-v2-oc4.9` | Build the live-call protections before any live model call | before any live call, including 3E |
+
+**Candidate selection-quality tasks (section 11, approved D-35).** Epic `catalyst-v2-f1u`, "Improve candidate selection
+through a versioned standard, a small evaluation and operational feedback". It does not block GATE-P3.
+
+| Bead | Title | Depends on | Earliest gate |
+|---|---|---|---|
+| `catalyst-v2-f1u.1` | Specify the candidate selection-quality contract and amend the blueprint, PRD, P3 specification and status | none | owner review of `019` |
+| `catalyst-v2-f1u.2` | Complete the supervised-delivery role profile and behavioural criteria with a domain expert as draft selection policy SP-L2-1 | `f1u.1` | before real use |
+| `catalyst-v2-f1u.3` | Write the versioned synthetic evaluation set with separate development and held-out cases | `f1u.2` | 3E |
+| `catalyst-v2-f1u.4` | Approve a private location with access and retention rules for real evaluation material | `catalyst-v2-211.7` (the policy-decisions bead, where POL-10 is tracked; the coarse coupling is intentional until POL-10 has its own bead) | before any real case review |
+| `catalyst-v2-f1u.5` | Define candidate notices, alternative evidence routes, the correction path and reviewer preparation | `f1u.2` | GATE-PILOT |
+| `catalyst-v2-f1u.6` | Approve and activate the first selection policy SP-L2-1 on its evaluation evidence | `f1u.2`, `f1u.3`, `f1u.4`, `f1u.5`, `catalyst-v2-oc4.7` (and through it `oc4.9`), `catalyst-v2-9kg.1` to `.3` | before real use |
+| `catalyst-v2-f1u.7` | Build the selection-quality scorecard and the one-page owner report from existing records | `f1u.6` | pilot (P6) |
+| `catalyst-v2-f1u.8` | Validate selection against delivery outcomes after the pilot | `f1u.7` | after pilot |
 
 ## 8. Definition of success
 
@@ -525,3 +559,54 @@ material found would be reported as a separate exposure.
 skeleton, PostgreSQL-only configuration, provider guards, reproducible environment, minimal CI runtime
 lane). The 19 policies, provider writes, deployment and release remain unapproved; all 22 `TEST-S1-`
 cases remain NOT RUN until their tasks run them.
+
+## 11. Candidate selection quality
+
+**Status: APPROVED 2026-10-14 (D-35)** for the governing contract; it authorizes no code, release, live use, real
+data or policy activation (section 4.1). Items still open are listed in D-35. Methods, criteria, the evaluation protocol and the scorecard live in `019`; this
+section holds only authority, lifecycle and phase mapping.
+
+**Purpose.** The standard by which people are selected must improve through evidence, controlled revisions and
+operational feedback, never through ad hoc prompt changes. A model's reading is advice to a human (D-04); this
+section governs the standard that both the human and the model apply.
+
+**What is approved today and what is not:**
+
+| Item | Status |
+|---|---|
+| Advisory model, human decision, no numeric score, staff-approved questions, no decision without an assessment | APPROVED DIRECTION for synthetic P3 (D-04, D-34: P3-D-4, P3-D-5, P3-D-10) |
+| The five-criterion rubric and prompt pack in code | IMPLEMENTED (3B.2), synthetic only; not a production standard |
+| The role being selected for, the criteria and evidence rules for real candidates, the selection-policy record, the evaluation process, the scorecard, the review cadence | APPROVED as the governing contract (D-35, `019` sections 3 to 12); the role profile itself and `SP-L2-1` are drafts until completed and activated |
+| Whether any assessment predicts delivery quality | UNRESOLVED until after a pilot |
+
+**Ownership.** The owner approves every selection policy version and its activation. A named
+operational delegate role prepares reviews and carries out suspensions and rollbacks under a standing authorization
+the owner records in advance in section 4, naming the triggers it covers (`019` section 10). Coding agents and hooks have no authority over the standard or the live workflow
+(D-10).
+
+**Lifecycle of a selection policy.** A selection policy (`SP-<role>-<n>`, `019` section 6) is drafted,
+evaluated against the current version (`019` section 8), reviewed, approved by the owner, and then **activated by
+a separate recorded owner act with an effective date** (a decision row in section 4); merging a document or code change never activates it. It
+can be suspended (model advice off; human-only review under the amended P3-D-10, D-35; never automatic rejection) or rolled back. Historical
+assessments and decisions keep the versions they used; nothing is silently rescored.
+
+**Change authority.** A material change (`019` section 6: role, criteria, evidence rules, exercises,
+decision authority, model or provider, prompt pack or rubric, evidence source or derivation, notices) needs a
+stated reason, affected uses, an evaluation comparison, a reviewer, owner approval, an effective date and a
+rollback procedure. Non-material changes (wording that `019`'s change rules exclude) follow the ordinary PR path.
+
+**Phase mapping (no new P-phase).** Each addition sits at its earliest milestone; synthetic P3 is never
+blocked on real-world outcome data, and production policy is never inferred from synthetic defaults:
+
+| Milestone | Selection-quality addition | Proves |
+|---|---|---|
+| 3B.3 | clarification tied to evidence gaps, alternative evidence routes, candidate-safe questions, staff usability | software behaviour |
+| 3B.4 | the decision records per-criterion rationale, the snapshot digest and the policy identifier; human-only assessment under the amended P3-D-10 (D-35) | software behaviour |
+| 3C (GATE-P3) | software, permissions, provenance and workflow | not selection quality |
+| 3E | synthetic evaluation against human-reviewed examples and a non-model baseline | evidence, not predictive validity |
+| Before real candidate-impacting use | approved role profile and `SP-L2-1`, data-use boundary, notices and alternatives (POL-17), reviewer preparation, legal review where counsel names it, live-call protections, correction beads, POL-10 | GATE-PILOT conditions |
+| Pilot (P6) | the scorecard and the review cadence | operating records |
+| After pilot | outcome validation and reviewed improvements as new policy versions | outcome review |
+
+Task state lives in Beads under the epic "Improve candidate selection through a versioned standard, a small
+evaluation and operational feedback", which does not block GATE-P3.

@@ -6,8 +6,9 @@
 Intent Solutions is a Claude Partner Network Select Services Partner.
 <!-- intent-select-partner:end -->
 
-> **Status: first working slice implemented and accepted (GATE-S1, signed off 2026-10-11). Nothing is deployed;
-> later phases are planned, not built. Planning documents remain preliminary and subject to review.**
+> **Status (2026-10-14): the first slice (GATE-S1) and the correspondence loop (GATE-P2) are accepted for synthetic
+> work; P3 (evidence and a bounded, advisory assessment with test models only) is in progress. Nothing is deployed
+> and no real applicant data or live model is used.**
 
 A documentation-first, Django-native Solution Catalyst onboarding platform for Intent Solutions.
 
@@ -27,12 +28,17 @@ decision D-26; evidence `000-docs/013`). The slice covers:
   shown;
 - a read-only staff dossier in Django Admin.
 
-Only synthetic data is used and nothing is deployed. Real email, the AI assessment, agreements,
-provisioning and deployment belong to later phases (P2 to P6) and are not built. The release workflow
+Since then, P2, the applicant correspondence loop against local test mail servers, passed GATE-P2 on 2026-10-13
+(D-33; `000-docs/016`), and P3 is in progress (`000-docs/018`, approved D-34): versioned applicant claims,
+fixture-backed evidence observations, and a bounded assessment that runs only on PydanticAI test models and is
+advice to a human, never a decision. How the selection standard itself is governed and improved is set out (approved D-35) in
+`000-docs/011` section 11 and `000-docs/019`.
+
+Only synthetic data is used and nothing is deployed. Real email, live model calls, the qualification decision,
+agreements, provisioning and deployment are not built or not authorized. The release workflow
 has an open release-blocking defect (it pushes its version-bump commit straight to `main`; tracked in
 Beads as "Make the release workflow publish through a reviewed pull request"), so no release is cut
-until it is fixed. The next phase, P2 (the applicant correspondence loop), is specified but not built:
-`000-docs/016` (handoff 2A, proposed, awaiting owner decisions).
+until it is fixed.
 
 Run the tests (Docker required; digest-pinned Python 3.14.8 and PostgreSQL 16.15 containers, isolated
 per run):
@@ -73,7 +79,7 @@ proven behaviour as the specification to meet, not as code to copy.
 | Path | Purpose |
 |---|---|
 | `000-docs/` | Filed planning documents (`NNN-CC-ABCD-description.md`); `000-INDEX.md` is the index |
-| `accounts/`, `applications/`, `correspondence/`, `workflow/`, `config/` | Django apps and settings of the first slice |
+| `accounts/`, `applications/`, `correspondence/`, `assessments/`, `workflow/`, `config/` | Django apps and settings (P1 intake and verification, P2 correspondence, P3 evidence and assessment) |
 | `tests/` | Runtime test suite; `tests/acceptance.py` maps each acceptance case to its tests |
 | `scripts/` | `test.sh`, `check-docs.sh`, database role provisioning and the release CI gate |
 | `.beads/` | Task tracking (beads); `bd ready` lists open work |

@@ -3,15 +3,17 @@
 | Field | Value |
 |---|---|
 | Document | `002-PP-PROD-product-requirements` (the only PRD for this repository) |
-| Version | 0.2.0 (replaces the seeded template 0.1.0) |
+| Version | 0.3.0 (2026-10-14: banner corrected; REQ-035 to REQ-039 and MET-11 added, approved with `019` by D-35. 0.2.0 replaced the seeded template 0.1.0) |
 | Status | **PROPOSED.** Requirements become binding when the owner approves this document in a merged PR. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-09 |
 | Hub | `011-PP-PLAN-master-blueprint.md` (decisions, authority, open policies, work graph) |
 | Classification | Public repository; synthetic examples only |
 
-> **Status: PRELIMINARY, subject to review.** Nothing here is implemented. A planned test is not a
-> passing test. Status labels follow `011` section 1.
+> **Status (2026-10-14):** approved in scope with `011` (section 10); requirement statuses below are kept as
+> recorded. P1, P2 and P3 3B.1 to 3B.2 are implemented for synthetic data (`006`). A planned test is not a
+> passing test. Status labels follow `011` section 1. (Until 2026-10-10 this banner read "PRELIMINARY, subject to
+> review. Nothing here is implemented.")
 
 ## 1. Objectives
 
@@ -91,6 +93,11 @@ waived by schedule. Component names refer to `003` section "Component design".
 | REQ-032 | Custody is a separate fact from signing completion, with its own status, evidence and recovery. A custody failure never downgrades signing completion, triggers re-signing or issues another agreement. Progression requires custody as well only where the approved gate policy says so. | MUST, invariant | `agreements`; POL-09 | PROPOSED; gate policy NEEDS OWNER DECISION |
 | REQ-033 | Every submission version keeps its origin and trust status (`unverified`, `adopted`). Only a version the verified address owner explicitly confirms is adopted. Every assessment and later decision names its exact input versions; none uses "the latest answers". | MUST, invariant | `applications`, `assessments`; ADR-14 | PROPOSED |
 | REQ-034 | A received reply is persisted and correlated before it is interpreted. Receiving it never by itself marks a question answered. Question status changes only after processing (`satisfied`, `partially_answered`, back to `open`). Automated replies satisfy nothing. A relevant reply awaiting processing suppresses reminders without closing the question. | MUST | `correspondence`, `assessments`; POL-04, POL-06 | PROPOSED |
+| REQ-035 | Every assessment and every qualification decision names the selection policy (`SP-<role>-<n>`) and the linked prompt, rubric, schema, model, source and derivation versions it used; a new version applies only after a recorded owner activation, never on merge, and never rewrites past assessments or decisions. | MUST before real candidate-impacting use | `assessments`; `011` section 11; `019` section 6 | OWNER-DECIDED 2026-10-14 (D-35, via `019`) |
+| REQ-036 | Capability and strength of evidence are recorded separately; missing, private or unavailable evidence is never treated as evidence against the applicant, and no universal numerical score, personality inference, prestige weighting or undefined "culture fit" reason is used. | MUST before real candidate-impacting use | `assessments`, staff views; `019` section 5 | OWNER-DECIDED 2026-10-14 (D-35, via `019`). Today the missing-evidence rule is a prompt rule plus a soft flag (`not_supported_while_evidence_is_missing`), not an enforced invariant |
+| REQ-037 | Every criterion offers an equivalent alternative evidence route, and an applicant can correct a claim and ask for review; the route used is recorded. "Review" here is a review of the evidence before a decision; reconsideration of a decision stays with P3-D-11 and POL-12. | MUST before real candidate-impacting use | `assessments`, `correspondence`; POL-17; `019` sections 5 and 6 | OWNER-DECIDED 2026-10-14 (D-35, via `019`) |
+| REQ-038 | Model advice can be suspended for a policy version; a suspended or unavailable advice path never rejects or declines an applicant automatically: cases go to human-only review under the amended P3-D-10 (D-35); until 3B.4 builds that path they wait with an open staff item and a notice to the applicant. | MUST before real candidate-impacting use | `assessments`; `019` section 10; P3-D-10 as amended (D-35, `018` section 15) | OWNER-DECIDED 2026-10-14 (D-35, via `019`) |
+| REQ-039 | A material change to the selection standard is evaluated against the current version on a versioned evaluation set, with a human baseline not shown the model's output, before owner approval. | MUST before real candidate-impacting use | `019` section 8; `011` section 11 | OWNER-DECIDED 2026-10-14 (D-35, via `019`) |
 
 ## 5. Operating measures (proposed; no targets)
 
@@ -110,6 +117,7 @@ No measured value exists yet.
 | MET-08 | Time from first accepted contact to activation, decline or withdrawal | history events |
 | MET-09 | Restore time and data loss window in a restore drill | drill record (P6) |
 | MET-10 | Model usage (tokens and cost) per application | PydanticAI usage records stored with each run |
+| MET-11 | The selection-quality scorecard: candidate experience, staff effectiveness, assessment quality and later delivery outcomes, each with definition, denominator, source, owner, minimum to interpret, review trigger, response and privacy boundary | defined in `019` section 9 (structure approved, D-35; no targets); counts and case review while numbers are small |
 
 ## 6. Release gates
 
@@ -165,6 +173,11 @@ traceability, not written); their phase refines them at handoff A.
 | REQ-032 | `agreements`, POL-09 | P4 | planned TEST-P4-04 (checksum and custody), TEST-P4-07 (custody failure leaves signing verified, issues nothing) | CI with storage fault injection | GATE-P4 |
 | REQ-033 | `applications`, `assessments` | P1 S1-T6; P3 | TEST-S1-22; planned TEST-P3-08 (assessment records its explicit input version) | CI run | GATE-S1; GATE-P3 |
 | REQ-034 | `correspondence`, `assessments` | P2 | planned TEST-P2-08 (partial answer), TEST-P2-09 (acknowledgement is not an answer), TEST-P2-10 (autoresponder satisfies nothing), TEST-P2-04 (reminder suppressed, not cancelled, while a reply awaits processing); proposed in `016`: TEST-P2-17 (trust table), TEST-P2-30 (only satisfied or withdrawn cancels), TEST-P2-50 (withdrawal is never an answer) | CI with local IMAP test server | GATE-P2 |
+| REQ-035 | `assessments`, `011` section 11 | proposed for 3B.4 (decision records the policy identifier); before real use | existing TEST-P3-01, TEST-P3-08 (run provenance); a decision-level test is unassigned until the owner adds it to 3B.4 | CI run; owner activation record (a decision row in `011` section 4) | GATE-PILOT |
+| REQ-036 | `assessments`, staff views | proposed for 3B.4; 3E | existing flag test `test_p3_negative_ratings_while_evidence_is_missing_are_flagged` (a flag, not enforcement); `019` section 8 evaluation cases | CI run; evaluation report | GATE-PILOT |
+| REQ-037 | `assessments`, `correspondence`, POL-17 | proposed for 3B.3; before real use | unassigned until the owner adds it to 3B.3 | CI run; approved notice and correction procedure | GATE-PILOT |
+| REQ-038 | `assessments` | P3 3B.4 (if the amendment is approved); before real use | planned: suspension sends cases to human review, no automatic adverse outcome | CI run | GATE-PILOT |
+| REQ-039 | `019` section 8 | 3E; every material change | evaluation report per version | evaluation report and owner approval | GATE-PILOT; each activation |
 
 P3 cases are specified in `018` section 9 (PROPOSED): TEST-P3-01 to TEST-P3-08 keep their meaning above; TEST-P3-09
 to TEST-P3-57 extend REQ-008, REQ-009, REQ-010, REQ-029, REQ-033 and REQ-034, each built in its 3B task.
