@@ -18,7 +18,7 @@
 {% if row.capture %}<br>{{ row.capture.outcome }}; HTTP {{ row.capture.http_status }}; fetched {{ row.capture.fetched_at|date:"Y-m-d H:i" }} UTC from <bdi>{{ row.capture.final_url|visible }}</bdi>{% if row.capture.revision_marker %}; revision <bdi>{{ row.capture.revision_marker|visible }}</bdi>{% endif %}{% if row.capture.truncated %}; truncated{% endif %}{% if row.capture.injection_markers %}; markers: {% for m in row.capture.injection_markers %}{{ m }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}
 <pre class="untrusted">{{ row.capture.derived_text|truncatechars:2000|visible }}</pre>{% endif %}{% endif %}</td>
 <td>{% if row.capture %}{{ row.capture.cannot_prove }}{% endif %}</td>
-<td>{% if can_operate and row.item and row.item.status == "unavailable" or can_operate and row.item and row.item.status == "refused" %}
+<td>{% if can_operate and row.refetchable %}
 <form method="post" action="{% url 'assessments_staff:refetch' row.item.public_id %}">{% csrf_token %}<input name="note" maxlength="500" placeholder="note"> <button>Re-fetch</button></form>{% endif %}</td></tr>
 {% empty %}<tr><td colspan="4">No work samples or credentials were claimed.</td></tr>{% endfor %}
 </table>

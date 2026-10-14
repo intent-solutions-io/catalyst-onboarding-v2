@@ -92,6 +92,8 @@ def _rows(application):
     for row in rows:
         item = row["item"]
         row["capture"] = item.captures.order_by("-attempt_number").first() if item else None
+        row["refetchable"] = bool(item) and (item.status in ("unavailable", "refused") or (
+            item.status == "fetched" and row["capture"] is not None and row["capture"].outcome == "not_found"))
     return version, claims, rows
 
 

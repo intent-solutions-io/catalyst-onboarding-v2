@@ -60,6 +60,8 @@ def define_evidence_source(**values) -> EvidenceSource:
         raise Refused("unknown_kind")
     if fetch._is_ip_literal(values["host"]):
         raise Refused("host_not_a_name")
+    if not str(values.get("path_prefix", "/")).startswith("/"):
+        raise Refused("path_prefix_invalid")
     with transaction.atomic():
         latest = EvidenceSource.objects.select_for_update().filter(key=values["key"]).aggregate(v=Max("version"))["v"]
         values["version"] = (latest or 0) + 1
@@ -107,8 +109,9 @@ def refetch_item(item_id: int, user, note: str = "") -> EvidenceItem:
         item = EvidenceItem.objects.select_for_update(of=("self",)).select_related("source").get(pk=item_id)
         if application.stage != Stage.EVIDENCE:
             raise Refused("stage_not_evidence")
-        if item.status not in (EvidenceItem.Status.UNAVAILABLE, EvidenceItem.Status.REFUSED):
-            raise Refused("item_not_unavailable")
+        nothing_found = item.status == EvidenceItem.Status.FETCHED and not item.captures.exclude(outcome="not_found").exists()
+        if item.status not in (EvidenceItem.Status.UNAVAILABLE, EvidenceItem.Status.REFUSED) and not nothing_found:
+            raise Refused("item_not_refetchable")
         source = collection.approved_source(item.source.kind if item.source else
                                             collection.CLAIM_KINDS[item.claim_ref.split(":")[0]], item.request_url)
         latest = EvidenceItem.objects.filter(application=application, adopted_version=item.adopted_version,
@@ -118,7 +121,7 @@ def refetch_item(item_id: int, user, note: str = "") -> EvidenceItem:
         new = EvidenceItem.objects.create(
             application=application, adopted_version=item.adopted_version, source=source, claim_ref=item.claim_ref,
             request_url=item.request_url, request_url_sha256=item.request_url_sha256, round=item.round + 1,
-            required=bool(source and source.required))
+            required=item.required or bool(source and source.required))  # a required claim never becomes optional
         if source is None:
             collection.finish_item(new, EvidenceItem.Status.REFUSED, "no_approved_source")
         else:

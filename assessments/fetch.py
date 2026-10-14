@@ -22,7 +22,6 @@ Nothing here logs a URL path, query, header or body. Results are reason codes: `
 `Transient` (retried a bounded number of times by the handler).
 """
 
-import concurrent.futures
 import hashlib
 import http.client
 import ipaddress
@@ -30,6 +29,7 @@ import posixpath
 import re
 import socket
 import ssl
+import threading
 import time
 import unicodedata
 from dataclasses import dataclass, field
@@ -43,15 +43,17 @@ MAX_URL = 2048
 MAX_REDIRECTS = 3
 USER_AGENT = "CatalystEvidence/1 (synthetic)"
 REDIRECT_STATUSES = (301, 302, 303, 307, 308)
-TRANSIENT_STATUSES = (408, 425, 429, 500, 502, 503, 504)
+TRANSIENT_STATUSES = (408, 425, 429, *range(500, 600))
+PRIVATE_STATUSES = (401, 403)  # private or access-controlled: unavailable, never a negative finding
 
 # Explicit denials on top of "global unicast only" (018 3.3 step 2).
 _DENY = [ipaddress.ip_network(n) for n in (
     "0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.0.0.0/24",
     "192.168.0.0/16", "198.18.0.0/15", "224.0.0.0/4", "240.0.0.0/4", "255.255.255.255/32",
     "::/128", "::1/128", "::/96", "64:ff9b::/96", "64:ff9b:1::/48", "2001::/32", "2002::/16", "fc00::/7",
-    "fe80::/10", "ff00::/8", "fd00:ec2::254/128",
+    "fe80::/10", "ff00::/8", "fd00:ec2::254/128", "192.88.99.0/24", "100::/64", "2001:db8::/32", "::ffff:0:0:0/96",
 )]
+CHARSETS = {"utf-8", "utf8", "us-ascii", "ascii", "iso-8859-1", "latin-1", "windows-1252", "cp1252", "utf-16"}
 
 
 class Refused(Exception):
@@ -60,6 +62,11 @@ class Refused(Exception):
 
 class Transient(Exception):
     """A retryable failure (timeout, connection error, 429 or 5xx); the message is a reason code."""
+
+
+class Private(Exception):
+    """The source answered that the page is private (401 or 403): the item is unavailable, not retried and never a
+    negative finding (018 section 1)."""
 
 
 @dataclass
@@ -81,6 +88,17 @@ class Derived:
     markers: list = field(default_factory=list)
 
 
+def _own_addresses() -> frozenset:
+    """This host's own addresses (018 3.3 step 2, hairpin): a source must never resolve back to the worker host."""
+    try:
+        return frozenset(info[4][0] for info in socket.getaddrinfo(socket.gethostname(), None))
+    except OSError:
+        return frozenset()
+
+
+OWN_ADDRESSES = _own_addresses()
+
+
 def classify(ip: str, extra_allowed: frozenset = frozenset()) -> bool:
     """True only for a global unicast address. `extra_allowed` holds the one pinned address of a fixture source,
     never anything derived from the environment."""
@@ -97,7 +115,7 @@ def classify(ip: str, extra_allowed: frozenset = frozenset()) -> bool:
             addr = addr.ipv4_mapped
         elif addr.sixtofour is not None or addr.teredo is not None:
             return False
-    if any(addr in net for net in _DENY if net.version == addr.version):
+    if any(addr in net for net in _DENY if net.version == addr.version) or str(addr) in OWN_ADDRESSES:
         return False
     return addr.is_global and not addr.is_multicast
 
@@ -124,6 +142,13 @@ class Target:
 
 
 def validate_url(url: str, source, allowed_hosts) -> Target:
+    try:
+        return _validate_url(url, source, allowed_hosts)
+    except ValueError:  # urlsplit and friends raise on malformed input such as "https://[x"
+        raise Refused("url_invalid") from None
+
+
+def _validate_url(url: str, source, allowed_hosts) -> Target:
     if not url or len(url) > MAX_URL:
         raise Refused("url_too_long")
     if any(ch in url for ch in "\\\r\n\t ") or any(unicodedata.category(ch) in ("Cc", "Cf") for ch in url):
@@ -143,10 +168,10 @@ def validate_url(url: str, source, allowed_hosts) -> Target:
     if host not in allowed_hosts:
         raise Refused("host_not_allowed")
     try:
-        port = parts.port or 443
+        port = parts.port if parts.port is not None else 443
     except ValueError:
         raise Refused("port_invalid") from None
-    if port != source.port:
+    if port == 0 or port != source.port:
         raise Refused("port_not_allowed")
     raw_path = parts.path or "/"
     decoded = unquote(raw_path)
@@ -155,29 +180,36 @@ def validate_url(url: str, source, allowed_hosts) -> Target:
     normalized = posixpath.normpath(decoded) if decoded != "/" else "/"
     if decoded.endswith("/") and normalized != "/":
         normalized += "/"
-    if not normalized.startswith(source.path_prefix):
+    prefix = source.path_prefix.rstrip("/")
+    if not (normalized == prefix or normalized.startswith(prefix + "/")):  # a path-segment prefix, not a string one
         raise Refused("path_not_allowed")
     request_path = quote(normalized, safe="/-._~!$&'()*+,;=:@")  # exactly the path that was checked
     if parts.query:
-        request_path += "?" + parts.query
+        request_path += "?" + quote(parts.query, safe="=&;%+/?:@,-._~!$'()*")
     return Target(url=f"https://{host}{'' if port == 443 else f':{port}'}{request_path}", host=host, port=port,
                   request_path=request_path)
 
 
 def resolve(host: str, port: int, timeout: float) -> list:
-    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    future = pool.submit(socket.getaddrinfo, host, port, 0, socket.SOCK_STREAM)
-    try:
-        infos = future.result(timeout=timeout)
-    except concurrent.futures.TimeoutError:
-        raise Transient("dns_timeout") from None
-    except socket.gaierror as exc:
-        if exc.errno in (socket.EAI_NONAME, getattr(socket, "EAI_NODATA", -5)):
-            raise Refused("dns_not_found") from None
-        raise Transient("dns_failed") from None
-    finally:
-        pool.shutdown(wait=False)
-    return list(dict.fromkeys(info[4][0] for info in infos))
+    """`getaddrinfo` has no timeout, so it runs in a daemon thread that never blocks process exit."""
+    box = {}
+
+    def lookup():
+        try:
+            box["infos"] = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
+        except socket.gaierror as exc:
+            box["error"] = exc
+
+    worker = threading.Thread(target=lookup, daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        raise Transient("dns_timeout")
+    if "error" in box:
+        if box["error"].errno in (socket.EAI_NONAME, getattr(socket, "EAI_NODATA", -5)):
+            raise Refused("dns_not_found")
+        raise Transient("dns_failed")
+    return list(dict.fromkeys(info[4][0] for info in box["infos"]))
 
 
 def _addresses(source, host, port, remaining):
@@ -205,10 +237,17 @@ def fetch(url: str, source) -> FetchResult:
             raise Transient("deadline_exceeded")
         return left
 
-    allowed = {source.host, *[h.lower() for h in source.redirect_hosts]}
+    if source.fixture_only and settings.CATALYST_ENV != "test":
+        raise Refused("fixture_source_outside_test")
+    listed = set(settings.CATALYST_EVIDENCE_ALLOWED_HOSTS)  # every host, source or redirect, must be listed here too
+    if source.host not in listed:
+        raise Refused("host_not_allowed")
+    # Redirects are off unless the source lists the target host (its own host included), and every listed redirect
+    # host must also be in the settings allow-list.
+    redirect_allowed = {h.lower() for h in source.redirect_hosts if h.lower() in listed}
     current, hops = url, 0
     while True:
-        target = validate_url(current, source, {source.host} if hops == 0 else allowed)
+        target = validate_url(current, source, {source.host} if hops == 0 else redirect_allowed)
         ips, extra = _addresses(source, target.host, target.port, remaining())
         if not ips or not all(classify(ip, extra) for ip in ips):
             raise Refused("address_not_allowed")
@@ -219,22 +258,41 @@ def fetch(url: str, source) -> FetchResult:
                 raise Refused("too_many_redirects")
             if not result.location:
                 raise Refused("redirect_without_location")
-            current = urljoin(target.url, result.location)
-            if urlsplit(current).scheme.lower() != "https":
+            try:
+                current = urljoin(target.url, result.location)
+                scheme = urlsplit(current).scheme.lower()
+            except ValueError:
+                raise Refused("url_invalid") from None
+            if scheme != "https":
                 raise Refused("redirect_not_https")
             continue
         return result
 
 
 def _one_request(target: Target, ip: str, extra, source, remaining) -> FetchResult:
-    raw = None
+    """The whole exchange (connect, TLS handshake, headers, body) is bounded by the deadline: a watchdog shuts the
+    socket down when it passes, because a socket timeout only bounds each single receive and a server dripping one
+    byte at a time would re-arm it forever."""
+    raw, watchdog, expired, live = None, None, threading.Event(), {}
+
+    def expire():
+        expired.set()
+        try:
+            live["sock"].shutdown(socket.SHUT_RDWR)  # the TLS socket once wrapped: wrapping detaches the plain one
+        except (OSError, KeyError):
+            pass
+
     try:
         raw = socket.create_connection((ip, target.port), timeout=min(10.0, remaining()))
+        live["sock"] = raw
+        watchdog = threading.Timer(remaining(), expire)
+        watchdog.daemon = True
+        watchdog.start()
         peer = raw.getpeername()[0]
         if not classify(peer, extra):
             raise Refused("peer_not_allowed")
         tls = tls_context().wrap_socket(raw, server_hostname=target.host)
-        raw = tls
+        raw = live["sock"] = tls
         connection = http.client.HTTPSConnection(target.host, target.port, timeout=remaining())
         connection.sock = tls  # never reconnects or re-resolves
         connection.putrequest("GET", target.request_path, skip_host=True, skip_accept_encoding=True)
@@ -245,11 +303,15 @@ def _one_request(target: Target, ip: str, extra, source, remaining) -> FetchResu
         connection.endheaders()
         tls.settimeout(remaining())
         response = connection.getresponse()
+        if expired.is_set():  # the watchdog cut a dripping header block: nothing parsed from it is trusted
+            raise Transient("deadline_exceeded")
         status = response.status
         if status in REDIRECT_STATUSES:
             return FetchResult(target.url, status, "", "", b"", False, peer, location=response.getheader("Location") or "")
         if status in TRANSIENT_STATUSES:
             raise Transient(f"http_{status}")
+        if status in PRIVATE_STATUSES:
+            raise Private(f"http_{status}")
         encoding = (response.getheader("Content-Encoding") or "identity").strip().lower()
         if encoding != "identity":
             raise Refused("content_encoding_refused")
@@ -258,12 +320,16 @@ def _one_request(target: Target, ip: str, extra, source, remaining) -> FetchResu
             raise Refused("content_type_refused")
         if status not in (200, 404, 410):
             raise Refused(f"http_{status}")
+        if status in (404, 410):  # recorded as "not found"; the error page itself is never stored
+            return FetchResult(target.url, status, "", "", b"", False, peer)
         revision = (response.getheader("ETag") or response.getheader("Last-Modified") or "")[:200]
         cap = min(source.max_bytes, settings.CATALYST_EVIDENCE_MAX_BYTES)
         chunks, size, truncated = [], 0, False
         while True:
             tls.settimeout(remaining())
-            chunk = response.read(min(65536, cap + 1 - size))
+            chunk = response.read1(min(65536, cap + 1 - size))  # one receive at a time, so the deadline is checked per chunk
+            if expired.is_set():
+                raise Transient("deadline_exceeded")
             if not chunk:
                 break
             chunks.append(chunk)
@@ -277,13 +343,17 @@ def _one_request(target: Target, ip: str, extra, source, remaining) -> FetchResu
                            truncated, peer)
     except (Refused, Transient):
         raise
+    except UnicodeError:
+        raise Refused("url_invalid") from None
     except ssl.SSLCertVerificationError:
         raise Refused("tls_certificate_refused") from None
     except (TimeoutError, socket.timeout):
-        raise Transient("timeout") from None
-    except (ssl.SSLError, ConnectionError, OSError, http.client.HTTPException):
-        raise Transient("connection_failed") from None
+        raise Transient("deadline_exceeded" if expired.is_set() else "timeout") from None
+    except (ssl.SSLError, ConnectionError, OSError, http.client.HTTPException, ValueError):
+        raise Transient("deadline_exceeded" if expired.is_set() else "connection_failed") from None
     finally:
+        if watchdog is not None:
+            watchdog.cancel()
         if raw is not None:
             try:
                 raw.close()
@@ -306,9 +376,12 @@ _MARKERS = [
 
 
 class _Text(HTMLParser):
+    """Visible text only. Hiding is best effort and advisory, never a security control: the derivative is
+    untrusted data wherever it goes."""
+
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.parts, self.skip = [], []
+        self.parts, self.stack = [], []  # (tag, hidden) per open element
 
     def handle_starttag(self, tag, attrs):
         if tag in _VOID:
@@ -316,18 +389,20 @@ class _Text(HTMLParser):
         a = dict(attrs)
         hidden = (tag in _SKIP_TAGS or "hidden" in a or (a.get("aria-hidden") or "").lower() == "true"
                   or bool(_HIDDEN_STYLE.search(a.get("style") or "")))
-        self.skip.append(hidden or (bool(self.skip) and self.skip[-1]))
+        self.stack.append((tag, hidden or (bool(self.stack) and self.stack[-1][1])))
         if tag in ("p", "div", "li", "br", "h1", "h2", "h3", "h4", "tr"):
             self.parts.append("\n")
 
     def handle_endtag(self, tag):
         if tag in _VOID:
             return
-        if self.skip:
-            self.skip.pop()
+        for i in range(len(self.stack) - 1, -1, -1):  # a stray end tag never closes a hidden ancestor
+            if self.stack[i][0] == tag:
+                del self.stack[i:]
+                return
 
     def handle_data(self, data):
-        if not (self.skip and self.skip[-1]):
+        if not (self.stack and self.stack[-1][1]):
             self.parts.append(data)
 
 
@@ -343,10 +418,10 @@ def derive(result: FetchResult) -> Derived:
     control, format (zero-width, bidi) and private-use characters stripped; capped. Markers are computed on this
     same text, so a later quote and its marker refer to identical characters."""
     content_type, _, charset = result.content_type.partition(";charset=")
-    try:
-        raw = result.body.decode(charset or "utf-8", errors="replace")
-    except LookupError:
-        raw = result.body.decode("utf-8", errors="replace")
+    charset = charset.strip().lower()
+    if charset not in CHARSETS:  # a server-chosen codec (punycode, unicode_escape, utf-7) is never used
+        charset = "utf-8"
+    raw = result.body.decode(charset, errors="replace")
     if content_type == "text/html":
         parser = _Text()
         parser.feed(raw)

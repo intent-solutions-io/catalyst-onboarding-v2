@@ -15,7 +15,7 @@
   {% if claims.contribution %}<dt>What you personally did</dt><dd>{{ claims.contribution }}</dd>{% endif %}
   {% if claims.experience %}<dt>Relevant experience</dt><dd>{{ claims.experience }}</dd>{% endif %}
   {% for c in claims.credentials %}<dt>Credential</dt><dd>{{ c.name }}{% if c.issuer %}, {{ c.issuer }}{% endif %}{% if c.identifier %} ({{ c.identifier }}){% endif %}{% if c.url %} {{ c.url }}{% endif %}</dd>{% endfor %}
-  {% if claims.confidential %}<dt>Private or confidential work</dt><dd>{{ claims.confidential_description }}</dd>{% endif %}
+  {% if claims.confidential or claims.confidential_description %}<dt>Private or confidential work</dt><dd>{% if claims.confidential %}Yes. {% endif %}{{ claims.confidential_description }}</dd>{% endif %}
 </dl>
 {% endif %}{% endwith %}
 <form method="post">

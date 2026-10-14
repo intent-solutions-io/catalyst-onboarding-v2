@@ -262,6 +262,7 @@ DATABASE_CONSTRAINTS = {
     "evidence_item_status_valid", "evidence_item_round_positive", "evidence_item_terminal_has_time",
     "evidence_item_id_application_unique", "evidence_capture_one_per_attempt", "evidence_capture_is_derivative",
     "evidence_capture_outcome_valid", "evidence_capture_id_application_unique",
+    "evidence_item_version_same_application", "evidence_capture_item_same_application",
 }
 
 

@@ -313,7 +313,7 @@ def test_s1_12_staff_follow_one_applicant_from_intake_to_confirmed_contact(privi
     assert "adopted (confirmed by the applicant)" in page
     assert "used (contact confirmed)" in page
     assert "start_evidence_collection: <strong>held</strong>" in page
-    assert "<strong>Blocked</strong>: Start evidence collection is held" in page
+    assert "<strong>Blocked</strong>: Start evidence collection is held" in page  # held until the owner releases it
     for kind in ("submission_received", "verification_sent", "contact_verified"):
         assert kind in page
     assert "Needs staff attention" not in page  # nothing open on a clean confirmation

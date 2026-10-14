@@ -125,8 +125,12 @@ def test_p3_09_activation_releases_only_eligible_held_rows_with_events(ev):
     bare = apply(ev, email="bob@example.test")  # no claims: an S1-shaped version
     paused = apply(ev, email="cy@example.test", work_url_1=url(ev, "/w"))
     AutomationPause.objects.create(subject_type="application", subject_id=paused.public_ref, reason="synthetic", actor_ref="t")
-    with pytest.raises(Exception):
+    from django.core.management.base import CommandError
+
+    with pytest.raises(CommandError, match="unknown activation version"):
         call_command("activate_evidence_collection", activation_version=2, approval_ref="D-34")
+    with pytest.raises(CommandError, match="approval reference"):
+        call_command("activate_evidence_collection", activation_version=1, approval_ref="  ")
     assert '"released": 1' in activate(dry_run=True)
     assert PendingAction.objects.filter(kind="start_evidence_collection", status="held").count() == 3  # dry run changed nothing
     report = activate()
@@ -211,7 +215,8 @@ def test_p3_05_a_host_outside_the_settings_allow_list_is_refused_and_nothing_is_
     assert EvidenceCapture.objects.count() == 0
 
 
-def test_p3_12_mixed_dns_answers_refuse_and_a_peer_mismatch_sends_nothing(ev, monkeypatch):
+def test_p3_12_mixed_dns_answers_refuse_and_a_peer_mismatch_sends_nothing(ev, monkeypatch, settings):
+    settings.CATALYST_EVIDENCE_ALLOWED_HOSTS = [HOST, "public.example.test"]
     real = EvidenceSource(host="public.example.test", port=443, path_prefix="/", content_types=["text/html"],
                           max_bytes=1000, deadline_seconds=5, fixture_only=False)
     monkeypatch.setattr(fetch, "resolve", lambda host, port, timeout: ["93.184.216.34", "10.0.0.7"])
@@ -236,10 +241,13 @@ def test_p3_13_redirects_are_revalidated(ev):
     ev.site.page("/h", "", status=301, Location=f"http://{HOST}/m")
     with pytest.raises(fetch.Refused, match="redirect_not_https"):
         fetch.fetch(url(ev, "/h"), src)
+    chain = source(ev, key="chain", redirect_hosts=[HOST])  # same-host redirects too must be listed
     for n in range(5):
         ev.site.page(f"/l{n}", "", status=302, Location=url(ev, f"/l{n + 1}"))
     with pytest.raises(fetch.Refused, match="too_many_redirects"):
-        fetch.fetch(url(ev, "/l0"), src)
+        fetch.fetch(url(ev, "/l0"), chain)
+    with pytest.raises(fetch.Refused, match="host_not_allowed"):
+        fetch.fetch(url(ev, "/l0"), src)  # the source does not list its own host: redirects are off
 
 
 def test_p3_14_the_byte_cap_truncates_and_the_deadline_stops_a_slow_drip(ev):
@@ -247,6 +255,7 @@ def test_p3_14_the_byte_cap_truncates_and_the_deadline_stops_a_slow_drip(ev):
     ev.site.page("/big", "<p>" + "a" * 5000 + "</p>")
     result = fetch.fetch(url(ev, "/big"), src)
     assert result.truncated and len(result.body) == 100
+    assert fetch.sha256(result.body) == fetch.sha256(("<p>" + "a" * 5000 + "</p>").encode()[:100])  # digest of bytes read
     slow = source(ev, key="slow", deadline_seconds=1, content_types=["text/plain"])
     ev.site.routes["/drip"] = slow_drip(0.2, 50)
     with pytest.raises(fetch.Transient):
@@ -332,7 +341,7 @@ def test_p3_20_a_required_unavailable_item_holds_for_staff_until_they_proceed_or
     assert new.round == 2 and StaffItem.objects.get(pk=staff_item.pk).status == "resolved"
     run_worker()
     app.refresh_from_db()
-    assert app.stage == "assessing" and EvidenceItem.objects.get(pk=old.pk).status == "refused"
+    assert app.stage == "assessing" and EvidenceItem.objects.get(pk=old.pk).status == "unavailable"
 
 
 def test_p3_20_proceed_without_moves_on_and_resolves_the_item(ev):
@@ -402,3 +411,215 @@ def test_no_model_client_or_network_library_is_imported_by_assessments():
         text = path.read_text().lower()
         for banned in ("pydantic_ai", "openai", "anthropic", "minimax", "import requests", "import httpx", "urllib.request"):
             assert banned not in text, (path.name, banned)
+
+
+
+# --- the scoped security review of 41e2820 ------------------------------------------------------------------
+
+def test_p3_14_the_deadline_bounds_a_server_that_drips_its_headers(ev):
+    import time
+
+    src = source(ev, deadline_seconds=1)
+
+    def drip_headers(handler):
+        handler.wfile.write(b"HTTP/1.1 200 OK\r\n")
+        for _ in range(40):
+            time.sleep(0.2)  # each byte arrives well inside any per-receive timeout
+            try:
+                handler.wfile.write(b"X")
+                handler.wfile.flush()
+            except OSError:
+                return
+    ev.site.routes["/slow-headers"] = drip_headers
+    started = time.monotonic()
+    with pytest.raises(fetch.Transient, match="deadline_exceeded"):
+        fetch.fetch(url(ev, "/slow-headers"), src)
+    assert time.monotonic() - started < 3  # the total deadline, not one receive at a time
+    slow = source(ev, key="slow-body", deadline_seconds=1, content_types=["text/plain"])
+    ev.site.routes["/drip-body"] = slow_drip(0.2, 50)
+    started = time.monotonic()
+    with pytest.raises(fetch.Transient, match="deadline_exceeded"):
+        fetch.fetch(url(ev, "/drip-body"), slow)
+    assert time.monotonic() - started < 3
+
+
+@pytest.mark.parametrize("bad", ["https://[x", "https://evidence.example.test/w?q=caf\u00e9\u2603", "https://evidence.example.test:0/w"])
+def test_p3_15_a_malformed_applicant_url_is_refused_and_never_leaves_the_application_stuck(ev, bad):
+    src = source(ev)
+    with pytest.raises(fetch.Refused):
+        fetch.validate_url(bad, src, {HOST}) if "q=" not in bad else _send(ev, src, bad)
+
+
+def _send(ev, src, bad):
+    ev.site.page("/w", "<p>ok</p>")
+    fetch.fetch(bad.replace("evidence.example.test", f"evidence.example.test:{ev.site.port}"), src)
+    raise fetch.Refused("sent")  # a correctly quoted request is acceptable too; it must not raise anything else
+
+
+def test_p3_15_a_malformed_url_claim_ends_refused_and_collection_completes(ev):
+    source(ev)
+    app = collect(ev, work_url_1="https://[x")
+    [item] = items(app)
+    assert item.status == "refused" and app.stage == "assessing"
+
+
+def test_p3_05_fetch_itself_refuses_a_host_off_the_settings_list_and_fixtures_outside_test(ev, settings):
+    src = source(ev)
+    settings.CATALYST_EVIDENCE_ALLOWED_HOSTS = []
+    with pytest.raises(fetch.Refused, match="host_not_allowed"):
+        fetch.fetch(url(ev, "/w"), src)
+    settings.CATALYST_EVIDENCE_ALLOWED_HOSTS = [HOST]
+    settings.CATALYST_ENV = "development"
+    with pytest.raises(fetch.Refused, match="fixture_source_outside_test"):
+        fetch.fetch(url(ev, "/w"), src)
+    assert ev.site.requests == []
+
+
+def test_p3_05_the_path_prefix_is_a_path_segment_prefix():
+    src = EvidenceSource(host=HOST, port=443, path_prefix="/u/alice")
+    assert fetch.validate_url("https://evidence.example.test/u/alice/work", src, {HOST})
+    assert fetch.validate_url("https://evidence.example.test/u/alice", src, {HOST})
+    for other in ("/u/alice-evil/x", "/u/alices"):
+        with pytest.raises(fetch.Refused, match="path_not_allowed"):
+            fetch.validate_url(f"https://evidence.example.test{other}", src, {HOST})
+
+
+def test_a_server_chosen_codec_is_never_used_and_error_pages_are_not_stored(ev):
+    result = fetch.FetchResult("u", 200, "text/plain;charset=punycode", "", "caf\u00e9".encode(), False, "1.2.3.4")
+    assert fetch.derive(result).text == "caf\u00e9"  # decoded as UTF-8, never through the server's codec
+    src = source(ev)
+    ev.site.page("/missing", "<p>secret error page</p>", status=404)
+    assert fetch.fetch(url(ev, "/missing"), src).body == b""
+
+
+
+# --- the QA review of 41e2820: job semantics and source outcomes -------------------------------------------
+
+def _claim(kind="fetch_evidence"):
+    from workflow import ledger
+
+    claim = ledger.claim_next({"fetch_evidence": collection.FetchEvidence(),
+                               "start_evidence_collection": collection.StartEvidenceCollection()})
+    assert claim is not None and claim.kind == kind
+    return claim
+
+
+def _started(ev, *paths):
+    source(ev)
+    for p in paths:
+        ev.site.page(p, f"<p>Work at {p}.</p>")
+    app = apply(ev, **{f"work_url_{n}": url(ev, p) for n, p in enumerate(paths, start=1)})
+    activate()
+    collection.StartEvidenceCollection().run(_claim("start_evidence_collection"))
+    return Application.objects.get(pk=app.pk)
+
+
+def test_p3_lease_loss_discards_the_fetched_result(ev):
+    app = _started(ev, "/w")
+    claim = _claim()
+    owner = ev.committed.connect("owner", autocommit=True)
+    owner.execute("UPDATE workflow_pendingaction SET lease_token = gen_random_uuid() WHERE id = %s", [claim.id])
+    collection.FetchEvidence().run(claim)  # another claim owns it: nothing is fetched or recorded
+    assert EvidenceCapture.objects.count() == 0 and items(app)[0].status == "pending"
+    assert all(r["path"] != "/w" for r in ev.site.requests)
+
+
+def test_p3_a_result_whose_lease_was_lost_during_the_fetch_is_discarded(ev, monkeypatch):
+    app = _started(ev, "/w")
+    claim = _claim()
+    owner = ev.committed.connect("owner", autocommit=True)
+    real = collection.fetch.fetch
+
+    def fetch_then_lose_lease(url, source):
+        result = real(url, source)
+        owner.execute("UPDATE workflow_pendingaction SET lease_token = gen_random_uuid() WHERE id = %s", [claim.id])
+        return result
+    monkeypatch.setattr(collection.fetch, "fetch", fetch_then_lose_lease)
+    collection.FetchEvidence().run(claim)
+    assert EvidenceCapture.objects.count() == 0 and items(app)[0].status == "pending"  # the stale result is discarded
+
+
+def test_p3_a_handler_defect_is_retried_then_recorded_once(ev, monkeypatch):
+    app = _started(ev, "/w")
+    calls = {"n": 0}
+    real = collection.FetchEvidence._record
+
+    def flaky(self, claim, result):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("synthetic crash after the fetch")
+        return real(self, claim, result)
+    monkeypatch.setattr(collection.FetchEvidence, "_record", flaky)
+    run_worker()
+    assert EvidenceCapture.objects.count() == 1 and items(app)[0].status == "fetched"
+    assert Application.objects.get(pk=app.pk).stage == "assessing"
+
+
+def test_p3_a_job_that_cannot_finish_opens_a_staff_item_and_never_leaves_the_application_stuck(ev, monkeypatch):
+    app = _started(ev, "/w")
+
+    def defect(url, source):
+        raise RuntimeError("synthetic defect")
+    monkeypatch.setattr(collection.fetch, "fetch", defect)
+    run_worker()
+    [item] = items(app)
+    assert (item.status, item.reason_code) == ("unavailable", "handler_error")
+    assert StaffItem.objects.filter(reason_code="evidence_collection_failed", status="open").count() == 1
+    assert Application.objects.get(pk=app.pk).stage == "assessing"
+
+
+def test_p3_a_pause_after_the_claim_refunds_the_attempt(ev):
+    app = _started(ev, "/w")
+    claim = _claim()
+    AutomationPause.objects.create(subject_type="application", subject_id=app.public_ref, reason="synthetic", actor_ref="t")
+    collection.FetchEvidence().run(claim)
+    action = PendingAction.objects.get(pk=claim.id)
+    assert (action.status, action.last_error, action.attempts) == ("queued", "automation_paused", 0)
+    assert ev.site.requests == [] or all(r["path"] != "/w" for r in ev.site.requests)
+
+
+def test_p3_19_two_last_fetches_racing_complete_collection_exactly_once(ev):
+    app = _started(ev, "/a", "/b")
+    first, second = _claim(), _claim()
+    errors = []
+
+    def run(claim):
+        try:
+            collection.FetchEvidence().run(claim)
+        except Exception as exc:
+            errors.append(repr(exc))
+    threads = [ev.committed.thread(run, first), ev.committed.thread(run, second)]
+    for t in threads:
+        t.join(timeout=30)
+    assert errors == [] and {i.status for i in items(app)} == {"fetched"}
+    assert ApplicationEvent.objects.filter(application=app, kind="evidence_collection_complete").count() == 1
+    assert Application.objects.get(pk=app.pk).stage == "assessing"
+
+
+@pytest.mark.parametrize(("status", "item_status", "outcome"), [(401, "unavailable", None), (403, "unavailable", None),
+                                                                (404, "fetched", "not_found"), (410, "fetched", "not_found")])
+def test_p3_18_private_and_missing_pages_are_never_negative_findings(ev, status, item_status, outcome):
+    source(ev)
+    ev.site.page("/p", "<p>secret</p>", status=status)
+    app = collect(ev, work_url_1=url(ev, "/p"))
+    [item] = items(app)
+    assert item.status == item_status and app.stage == "assessing"
+    if outcome:
+        capture = item.captures.get()
+        assert capture.outcome == outcome and capture.derived_text == ""  # an error page is never stored
+    assert len([r for r in ev.site.requests if r["path"] == "/p"]) == 1  # not retried
+
+
+def test_p3_13_redirect_hosts_are_bounded_by_the_settings_list(ev, settings):
+    src = source(ev, redirect_hosts=[MIRROR])
+    settings.CATALYST_EVIDENCE_ALLOWED_HOSTS = [HOST]  # MIRROR listed on the source but not in settings
+    ev.site.page("/w", "", status=302, Location=url(ev, "/m", host=MIRROR))
+    with pytest.raises(fetch.Refused, match="host_not_allowed"):
+        fetch.fetch(url(ev, "/w"), src)
+
+
+def test_the_longest_matching_path_prefix_selects_the_source(ev):
+    source(ev, key="broad", path_prefix="/")
+    narrow = source(ev, key="narrow", path_prefix="/docs")
+    assert collection.approved_source("work_sample_page", url(ev, "/docs/x")) == narrow
+    assert collection.approved_source("work_sample_page", url(ev, "/docs-private/x")).key == "broad"

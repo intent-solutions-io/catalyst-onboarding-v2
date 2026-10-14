@@ -58,11 +58,22 @@ def claimed_urls(claims: dict) -> list:
 
 
 def approved_source(kind: str, url: str):
+    """The approved source for this URL: same kind, host and port, with the longest path prefix that matches on a
+    path-segment boundary; deterministic when several sources share a host."""
     try:
-        host = (urlsplit(url).hostname or "").rstrip(".").encode("idna").decode("ascii").lower()
+        parts = urlsplit(url)
+        host = (parts.hostname or "").rstrip(".").encode("idna").decode("ascii").lower()
+        port = parts.port if parts.port is not None else 443
     except (UnicodeError, ValueError):
         return None
-    return EvidenceSource.objects.filter(kind=kind, host=host, status=EvidenceSource.Status.APPROVED).first()
+    path = parts.path or "/"
+    matches = []
+    for source in EvidenceSource.objects.filter(kind=kind, host=host, port=port, status=EvidenceSource.Status.APPROVED):
+        prefix = source.path_prefix.rstrip("/")
+        if path == prefix or path.startswith(prefix + "/") or not prefix:
+            matches.append(source)
+    matches.sort(key=lambda s: (-len(s.path_prefix.rstrip("/")), s.key))
+    return matches[0] if matches else None
 
 
 def enqueue_fetch(application, item) -> None:
@@ -84,7 +95,10 @@ def complete_if_done(application, version) -> None:
     latest = {}
     for item in items.select_related("source").order_by("claim_ref", "round"):
         latest[item.claim_ref] = item  # a staff re-fetch supersedes the earlier round for the same claim
-    blocking = [i for i in latest.values() if i.required and i.status in (Item.UNAVAILABLE, Item.REFUSED)
+    def missing(i):  # nothing usable was observed: unavailable, refused, or found nothing at the claimed URL
+        return i.status in (Item.UNAVAILABLE, Item.REFUSED) or (
+            i.status == Item.FETCHED and not i.captures.exclude(outcome="not_found").exists())
+    blocking = [i for i in latest.values() if i.required and missing(i)
                 and (i.source is None or i.source.on_unavailable == EvidenceSource.OnUnavailable.STAFF)]
     if blocking:
         open_item("evidence_required_unavailable", f"evidence:{application.public_ref}:{version.public_id}",
@@ -117,6 +131,12 @@ class _ApplicationAction:
         application = Application.objects.filter(public_ref=claim.subject_id).first()
         if application is not None:
             event(application, kind, data, actor_ref=f"pending_action:{claim.id}")
+            if kind == "action_attempts_exhausted" or (kind == "action_failed" and data.get("final")):
+                self.on_final_failure(claim, application)  # a job that cannot finish never ends silently
+
+    def on_final_failure(self, claim, application) -> None:
+        open_item("evidence_collection_failed", f"{self.kind}:{claim.input_ref}", application=application,
+                  pending_action_id=claim.id)
 
     def _paused(self, application) -> bool:
         return AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists()
@@ -174,6 +194,15 @@ class StartEvidenceCollection(_ApplicationAction):
 class FetchEvidence(_ApplicationAction):
     kind = FETCH
 
+    def on_final_failure(self, claim, application) -> None:
+        """The item becomes unavailable (a handler defect, never a negative finding), so collection can complete."""
+        item = EvidenceItem.objects.select_related("adopted_version").filter(public_id=claim.input_ref).first()
+        if item is not None and item.status == Item.PENDING:
+            finish_item(item, Item.UNAVAILABLE, "handler_error")
+            if Application.objects.filter(pk=application.pk, stage=Stage.EVIDENCE).exists():
+                complete_if_done(application, item.adopted_version)
+        super().on_final_failure(claim, application)
+
     def lock_subject(self, claim) -> None:
         """Application, then the item (018 section 4)."""
         application = Application.objects.select_for_update(of=("self",)).filter(public_ref=claim.subject_id).first()
@@ -181,18 +210,25 @@ class FetchEvidence(_ApplicationAction):
             EvidenceItem.objects.select_for_update(of=("self",)).filter(public_id=claim.input_ref, application=application).first()
 
     def run(self, claim) -> None:
-        with transaction.atomic():
-            self.lock_subject(claim)
-            ledger.fence(claim)
-            early, item = self.check(claim)
-            if early is not None:
-                ledger.finish(claim, self, status=early.status, error=early.reason, write=early.write,
-                              refund_attempt=early.refund, due_in=early.due_in)
-                return
+        try:
+            with transaction.atomic():
+                self.lock_subject(claim)
+                ledger.fence(claim)  # another claim owns the action: nothing is fetched or written
+                early, item = self.check(claim)
+                if early is not None:
+                    ledger.finish(claim, self, status=early.status, error=early.reason, write=early.write,
+                                  refund_attempt=early.refund, due_in=early.due_in)
+                    return
+        except ledger.LeaseLost:
+            logger.warning("action %s (%s): lease lost before fetching; nothing fetched", claim.id, claim.kind)
+            return
         try:
             result = fetch.fetch(item.request_url, item.source)  # outside any transaction
         except fetch.Refused as exc:
             self._terminal(claim, Item.REFUSED, str(exc))
+            return
+        except fetch.Private as exc:
+            self._terminal(claim, Item.UNAVAILABLE, str(exc))  # private: not retried, never negative
             return
         except fetch.Transient as exc:
             if claim.final:
