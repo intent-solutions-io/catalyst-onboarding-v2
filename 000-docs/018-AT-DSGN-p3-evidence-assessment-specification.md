@@ -4,7 +4,7 @@
 |---|---|
 | Document | `018-AT-DSGN-p3-evidence-assessment-specification` |
 | Version | 0.2.1 (draft for owner review; the independent security and reliability review and its re-check applied, section 12) |
-| Status | **PROPOSED.** Handoff 3A of phase P3. Nothing here is decided until the owner records it in `011` section 4. This document authorizes no implementation, migration, dependency, provider key, live model call, real applicant research, real mail or deployment. |
+| Status | **APPROVED by the owner 2026-10-14 (version 0.2.1; D-34 in `011` section 4), with the recommended defaults `P3-D-1` to `P3-D-16` for synthetic P3.** 3B.1 is released; 3B.2 to 3C each need their own release. Approval authorizes no live model call, real fetching, real applicant data, real mail, versioned release or deployment. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-13 |
 | Epic | P3, "Collect evidence, run the bounded MiniMax assessment, and record the authorized qualification decision" (`catalyst-v2-oc4`); this task is `catalyst-v2-oc4.1` |
