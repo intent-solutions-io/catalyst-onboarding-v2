@@ -3,11 +3,13 @@
 | Field | Value |
 |---|---|
 | Document | `006-LS-STAT-status` |
-| Last updated | 2026-10-11 |
-| Source revision | handoff 2A, PR #20 (`016` 0.3.2 approved, D-27 to D-32) |
+| Last updated | 2026-10-14 |
+| Source revision | main `8086508` (P3 3B.2 merged, PR #32) |
 | Classification | Public |
 
-> **Status: first slice complete; P2 specified and approved for synthetic work (D-27 to D-32, 2026-10-12); 2B.1 authorized, not yet built.** GATE-S1 signed off by the owner on 2026-10-11 (D-26; evidence `013`, after-action report `014`); POL-01 confirmed for the slice (D-25). No deployment, no real applicant data; the deployment gates below stay open.
+> **Status (2026-10-14): P1 and P2 accepted for synthetic work; P3 in progress.** GATE-S1 signed off 2026-10-11 (D-26), GATE-P2 signed off 2026-10-13 (D-33). P3: `018` approved (D-34); 3B.1 evidence collection (PR #30) and 3B.2 bounded assessment with test models only (PR #32) merged; 3B.3, 3B.4 and 3C not yet released; 3E (live synthetic evaluation) needs separate authorization. A candidate selection-quality contract is proposed (`011` section 11, `019`). No deployment, no real applicant data, no live model call; the gates below stay open.
+>
+> (Previous banner, 2026-10-11: "first slice complete; P2 specified and approved for synthetic work; 2B.1 authorized, not yet built".)
 
 ## Current state
 
@@ -17,7 +19,10 @@
 | Build contract (`011`, `002`, `003`, `004`, `005` S1) | APPROVED IN SCOPE 2026-10-09 (`011` section 10) | PR #7 |
 | Owner approval of the contract and first slice | given 2026-10-09 for the scope in `011` section 10 | bead "Obtain the owner's approval of the build contract and the first-slice scope" |
 | Owner-directed amendment of 2026-10-09 | applied | `011` section 9 |
-| Open product policies | POL-01 decided for the slice (D-25); POL-19 decided (D-31); POL-06 and POL-13 decided for synthetic P2 only (D-29, D-30); the rest open (`011` section 6). The P2 decision brief is `016` section 8 | bead "Obtain owner decisions on the open product policies listed in the master blueprint" |
+| P2 correspondence loop | accepted for synthetic work: GATE-P2 PASS 54 (D-33; `016`, after-action report `017`) | PR #21 to #27 |
+| P3 evidence and assessment | 3B.1 merged `d564bfa` (PR #30): versioned claims, fixture-backed evidence observations, no model call. 3B.2 merged `8086508` (PR #32): bounded assessment over a frozen snapshot with PydanticAI test models only, budgets, invocation records, failure routing to staff; full run 760 passed, GATE-S1 25/25, GATE-P2 54/54 (CI run 38644672774). Open in `018` section 14: live-call protections, what clears a capped snapshot | PR #30, PR #32 |
+| Candidate selection quality | PROPOSED: authority in `011` section 11; methods, evaluation and scorecard in `019`; nothing approved | this change |
+| Open product policies | POL-01 decided for the slice (D-25); POL-19 decided (D-31); POL-06 and POL-13 decided for synthetic P2 only (D-29, D-30); POL-03, POL-04 and POL-05 synthetic P3 defaults approved with `018` (D-34); production values open (`011` section 6) | bead "Obtain owner decisions on the open product policies listed in the master blueprint" |
 | Specialist subagents | all eleven discovered in a fresh session; one (`catalyst-django-architect`) probed at runtime | `008` section 5.1 |
 | Documentation and runtime CI | green on every merged head through `main` `1cc96ec` (PR #19, run 38118996279); per-task runs on each task's bead | GitHub Actions |
 | Runtime CI lane | job "Runtime checks (Python 3.14.8, PostgreSQL 16.15)", aggregated into the required check; failure path demonstrated (probe run 38030066475: runtime failed, required check failed, `safe-merge` refused) | PR #9, closed probe PR #10 |
@@ -60,6 +65,15 @@
 | POL-13 staff roles, MFA and the staff hostname or network restriction; the slice has one PROPOSED read-only group, local only | Jeremy Longshore | GATE-STAGING |
 
 ## Next steps
+
+Current (2026-10-14):
+
+1. Owner review of the selection-quality amendment (`011` section 11, `019` section 13 decisions).
+2. 3B.3 clarification loop, when released (bead `catalyst-v2-oc4.4`).
+3. Owner decision on what clears a capped assessment snapshot; live-call protections before any 3E run.
+4. Profiling of the runtime suite (bead `catalyst-v2-egz`).
+
+History (as of 2026-10-11, kept for the record):
 
 1. Done: contract approved in scope (`011` section 10).
 2. Done: handoff 1A evidence (`012`), and the owner's ADR-03, ADR-14, ADR-17 and ADR-18 decisions
