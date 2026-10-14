@@ -139,9 +139,13 @@ def next_steps(application) -> list[Step]:
     action = actions_for(application).filter(kind=START_EVIDENCE_COLLECTION).first()
     if action is None:
         return steps + [Step("Staff", "Contact is verified but no start-evidence-collection action exists", attention=True)]
+    if application.stage == "evidence":
+        return steps + [Step("System", "Evidence is being collected from approved sources (P3)")]
+    if application.stage == "assessing":
+        return steps + [Step("Blocked", "Evidence collection is complete; the assessment step arrives with P3 task 3B.2")]
     if action.status == PendingAction.Status.HELD:
-        return steps + [Step("Blocked", "Start evidence collection is held: no step after confirmation exists in this slice")]
-    return steps + [Step("Blocked", f"Start evidence collection is {action.status}; no step after confirmation exists in this slice")]
+        return steps + [Step("Blocked", "Start evidence collection is held until the owner releases it (activation command, 018 4.1)")]
+    return steps + [Step("Blocked", f"Start evidence collection is {action.status}")]
 
 
 def _verification_step(application, paused: bool) -> Step:

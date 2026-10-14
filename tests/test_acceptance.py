@@ -171,7 +171,7 @@ def test_s1_16_no_log_record_across_the_whole_flow_carries_a_token_address_or_na
         public = Client(enforce_csrf_checks=True)
         assert submit(name="", email="not-an-address").status_code == 200  # form errors
         assert submit(public).status_code == 403  # no CSRF token
-        assert Client().post(FORM, "x" * (70 * 1024), content_type="application/x-www-form-urlencoded").status_code == 400
+        assert Client().post(FORM, "x" * (settings.DATA_UPLOAD_MAX_MEMORY_SIZE + 1024), content_type="application/x-www-form-urlencoded").status_code == 400
         with connection.execute_wrapper(failing_on("workflow_pendingaction")):
             assert submit().status_code == 503  # a database failure: nothing committed
         assert submit().status_code == 302
@@ -256,6 +256,13 @@ DATABASE_CONSTRAINTS = {
     "inbound_is_derivative", "inbound_identity_state_valid", "inbound_one_per_digest", "inbound_location_unique",
     "inbound_location_matched_by_valid", "reply_link_unique", "reply_link_state_valid", "reply_link_outcome_valid",
     "approved_message_staff_draft_iff_staff_message", "staff_draft_complete",
+    "evidence_source_version_unique", "evidence_source_one_approved_version", "evidence_source_version_positive",
+    "evidence_source_kind_valid", "evidence_source_status_valid", "evidence_source_on_unavailable_valid",
+    "evidence_source_port_valid", "evidence_source_approved_has_approver", "evidence_item_one_per_claim_round",
+    "evidence_item_status_valid", "evidence_item_round_positive", "evidence_item_terminal_has_time",
+    "evidence_item_id_application_unique", "evidence_capture_one_per_attempt", "evidence_capture_is_derivative",
+    "evidence_capture_outcome_valid", "evidence_capture_id_application_unique",
+    "evidence_item_version_same_application", "evidence_capture_item_same_application",
 }
 
 
@@ -269,7 +276,7 @@ def test_s1_20_every_named_constraint_exists_in_the_database():
         names |= {r[0] for r in cursor.fetchall()}  # partial unique constraints are unique indexes
     assert DATABASE_CONSTRAINTS <= names, DATABASE_CONSTRAINTS - names
     # The list above covers every constraint the models declare (plus the two composite foreign keys).
-    declared = {c.name for label in ("applications", "workflow", "correspondence")
+    declared = {c.name for label in ("applications", "workflow", "correspondence", "assessments")
                 for model in apps.get_app_config(label).get_models() for c in model._meta.constraints}
     assert declared <= DATABASE_CONSTRAINTS, declared - DATABASE_CONSTRAINTS
 

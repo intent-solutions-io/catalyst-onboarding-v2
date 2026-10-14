@@ -1,0 +1,15 @@
+"""URLs of the P3 evidence staff screens (018; task 3B.1), mounted at /staff/p3/ before the read-only admin."""
+
+from django.urls import path
+
+from . import staff_views as v
+
+app_name = "assessments_staff"
+urlpatterns = [
+    path("sources/", v.source_list, name="sources"),
+    path("sources/<int:pk>/", v.source_detail, name="source"),
+    path("sources/<int:pk>/approve/", v.approve_source, name="approve_source"),
+    path("applications/<uuid:public_ref>/evidence/", v.evidence, name="evidence"),
+    path("applications/<uuid:public_ref>/evidence/proceed/", v.proceed, name="proceed"),
+    path("items/<uuid:public_id>/refetch/", v.refetch, name="refetch"),
+]

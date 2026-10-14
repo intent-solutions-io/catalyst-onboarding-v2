@@ -36,7 +36,7 @@ def request_access(request):
         form = AccessRequestForm(request.POST)
         if form.is_valid():
             try:
-                services.accept_submission(form.cleaned_data)
+                services.accept_submission({**form.cleaned_data, "claims": form.claims()})
             except DatabaseError as exc:
                 # Class name only: no applicant data and no database error text. "Did not complete" rather than
                 # "not saved": if the commit acknowledgment was lost, the submission may have committed.

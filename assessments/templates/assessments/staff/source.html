@@ -1,0 +1,15 @@
+{% extends "correspondence/staff/base.html" %}{% load correspondence_display %}
+{% block content %}
+<h1>Evidence source {{ source.key }}, version {{ source.version }}</h1>
+<p>Kind {{ source.kind }}; host <bdi>{{ source.host|visible }}</bdi>, port {{ source.port }}, path prefix <bdi>{{ source.path_prefix|visible }}</bdi>;
+redirect hosts {% for h in source.redirect_hosts %}<bdi>{{ h|visible }}</bdi>{% if not forloop.last %}, {% endif %}{% empty %}none{% endfor %};
+content types {% for t in source.content_types %}{{ t }}{% if not forloop.last %}, {% endif %}{% endfor %};
+at most {{ source.max_bytes }} bytes in {{ source.deadline_seconds }} s; required {{ source.required|yesno }}; when unavailable: {{ source.on_unavailable }};
+fixture only {{ source.fixture_only|yesno }}. Status {{ source.status }}{% if source.approved_by %}, approved by {{ source.approved_by }}{% endif %}.
+Definition digest {{ source.definition_sha256 }}.</p>
+{% if can_approve %}
+<form method="post" action="{% url 'assessments_staff:approve_source' source.pk %}">{% csrf_token %}
+<input type="hidden" name="digest" value="{{ source.definition_sha256 }}">
+<button>Approve exactly this version</button></form>
+{% endif %}
+{% endblock %}

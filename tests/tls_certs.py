@@ -28,6 +28,7 @@ class TLSMaterial:
     good: Pair
     wrong_host: Pair
     untrusted: Pair
+    evidence: Pair  # P3 3B.1: synthetic evidence hosts, by DNS name
 
 
 def _openssl(*args, cwd):
@@ -61,4 +62,5 @@ def generate(directory: Path) -> TLSMaterial:
         good=_leaf(directory, "good", "IP:127.0.0.1", trusted),
         wrong_host=_leaf(directory, "wrong-host", "DNS:other.example.test", trusted),
         untrusted=_leaf(directory, "untrusted", "IP:127.0.0.1", other),
+        evidence=_leaf(directory, "evidence", "DNS:evidence.example.test,DNS:mirror.example.test,DNS:elsewhere.example.test", trusted),
     )

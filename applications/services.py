@@ -147,6 +147,8 @@ def accept_submission(data) -> Outcome:
     email = data["email"]  # EmailField has already trimmed it
     key = email_key(email)
     fields = {"name": data["name"], "email": email, "reason": data["reason"]}
+    if data.get("claims"):
+        fields["claims"] = data["claims"]  # 018 section 2: claims live in the same versioned submission
     with transaction.atomic():
         application, new_application = _lock_or_create_application(email, key, data["name"])
         number = _next_version_number(application)

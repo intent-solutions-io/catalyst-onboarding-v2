@@ -1,0 +1,9 @@
+{% extends "correspondence/staff/base.html" %}{% load correspondence_display %}
+{% block content %}
+<h1>Evidence sources</h1>
+<p>Only approved sources are ever fetched, and only synthetic fixtures until real fetching is authorized.</p>
+<table><tr><th>Key</th><th>Version</th><th>Kind</th><th>Host</th><th>Status</th><th>Fixture only</th><th></th></tr>
+{% for s in sources %}<tr><td>{{ s.key }}</td><td>{{ s.version }}</td><td>{{ s.kind }}</td><td><bdi>{{ s.host|visible }}</bdi></td><td>{{ s.status }}</td><td>{{ s.fixture_only|yesno }}</td>
+<td><a href="{% url 'assessments_staff:source' s.pk %}">Read</a></td></tr>{% empty %}<tr><td colspan="7">None.</td></tr>{% endfor %}
+</table>
+{% endblock %}

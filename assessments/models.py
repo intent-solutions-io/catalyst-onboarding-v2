@@ -1,0 +1,144 @@
+"""P3 evidence records (018 sections 2 and 3; owner decision D-34; task 3B.1). Synthetic only.
+
+Four records stay separate (018 section 1): the **claim** lives in the adopted `SubmissionVersion`
+(`submitted_fields["claims"]`); an **observation** is an `EvidenceCapture`; the model assessment (3B.2) and the
+authorized decision (3B.4) are later tables. None silently becomes another.
+
+- `EvidenceSource`: the owner-approved allow-list (POL-03). Versioned: an approved row is immutable for the
+  application role, and a changed definition is a new version that needs approval. `fixture_only` sources exist
+  only for synthetic tests and are refused outside `test` (`config.guards.evidence_problems`).
+- `EvidenceItem`: one slot per claimed URL and approved source for the adopted version; its status is the only
+  mutable part (`pending` to `fetched`, `unavailable` or `refused`).
+- `EvidenceCapture`: the immutable observation of one successful fetch: what was found, where and when, a bounded
+  derivative and digests (never raw bytes), and what it cannot prove. Append-only by trigger (ADR-14).
+"""
+
+import uuid
+
+from django.db import models
+from django.db.models import Q
+from django.db.models.functions import Now
+
+SOURCE_KINDS = ["work_sample_page", "credential_verification"]
+ITEM_STATUSES = ["pending", "fetched", "unavailable", "refused"]
+CAPTURE_OUTCOMES = ["found", "found_but_inconclusive", "not_found"]
+
+# What an observation of each kind can never establish (018 section 1), stored with every capture.
+CANNOT_PROVE = {
+    "work_sample_page": "A work page shows that the work exists and what it says; it cannot prove who wrote it or "
+                        "what the applicant personally contributed.",
+    "credential_verification": "An issuer's page can show that a credential with this identifier exists; it cannot "
+                               "prove that the person presenting it is the holder.",
+}
+
+
+class EvidenceSource(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = "draft"
+        APPROVED = "approved"
+        RETIRED = "retired"
+
+    class OnUnavailable(models.TextChoices):
+        CONTINUE = "continue"
+        STAFF = "staff"
+
+    key = models.CharField(max_length=64)
+    version = models.PositiveIntegerField()
+    kind = models.CharField(max_length=32)
+    host = models.CharField(max_length=253)  # exact lower-case punycode; no wildcard
+    port = models.PositiveIntegerField(default=443)
+    path_prefix = models.CharField(max_length=200, default="/")
+    redirect_hosts = models.JSONField(default=list)
+    content_types = models.JSONField(default=list)
+    max_bytes = models.PositiveIntegerField()
+    deadline_seconds = models.PositiveIntegerField()
+    required = models.BooleanField(default=False)
+    on_unavailable = models.CharField(max_length=16, default=OnUnavailable.STAFF)
+    fixture_only = models.BooleanField(default=False)
+    definition_sha256 = models.CharField(max_length=64)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
+    approved_by = models.CharField(max_length=200, blank=True, default="")
+    approved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        permissions = [("approve_evidence_source", "Approve an evidence source version (owner, POL-03)")]
+        constraints = [
+            models.UniqueConstraint(fields=["key", "version"], name="evidence_source_version_unique"),
+            models.UniqueConstraint(fields=["key"], condition=Q(status="approved"), name="evidence_source_one_approved_version"),
+            models.CheckConstraint(condition=Q(version__gte=1), name="evidence_source_version_positive"),
+            models.CheckConstraint(condition=Q(kind__in=SOURCE_KINDS), name="evidence_source_kind_valid"),
+            models.CheckConstraint(condition=Q(status__in=["draft", "approved", "retired"]), name="evidence_source_status_valid"),
+            models.CheckConstraint(condition=Q(on_unavailable__in=["continue", "staff"]), name="evidence_source_on_unavailable_valid"),
+            models.CheckConstraint(condition=Q(port__gte=1, port__lte=65535), name="evidence_source_port_valid"),
+            models.CheckConstraint(condition=~Q(status="approved") | (~Q(approved_by="") & Q(approved_at__isnull=False)),
+                                   name="evidence_source_approved_has_approver"),
+        ]
+
+
+class EvidenceItem(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending"
+        FETCHED = "fetched"
+        UNAVAILABLE = "unavailable"
+        REFUSED = "refused"
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="evidence_items")
+    adopted_version = models.ForeignKey("applications.SubmissionVersion", on_delete=models.PROTECT, related_name="evidence_items")
+    source = models.ForeignKey(EvidenceSource, on_delete=models.PROTECT, null=True, blank=True, related_name="items")
+    claim_ref = models.CharField(max_length=32)  # "work:1", "credential:2": which claim this observes
+    request_url = models.CharField(max_length=2048)
+    request_url_sha256 = models.CharField(max_length=64)
+    round = models.PositiveIntegerField(default=1)  # a staff re-fetch is a new slot (round n+1); the old one stays
+    required = models.BooleanField(default=False)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    reason_code = models.CharField(max_length=64, blank=True, default="")
+    finished_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        permissions = [
+            ("review_evidence", "Read claims and evidence observations (assessment operators and decision-makers, P3-D-14)"),
+            ("operate_evidence", "Re-fetch evidence or proceed without an unavailable item (assessment operators)"),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["application", "adopted_version", "claim_ref", "round"], name="evidence_item_one_per_claim_round"),
+            models.CheckConstraint(condition=Q(status__in=ITEM_STATUSES), name="evidence_item_status_valid"),
+            models.CheckConstraint(condition=Q(round__gte=1), name="evidence_item_round_positive"),
+            models.CheckConstraint(condition=Q(status="pending") | Q(finished_at__isnull=False), name="evidence_item_terminal_has_time"),
+            models.UniqueConstraint(fields=["id", "application"], name="evidence_item_id_application_unique"),
+        ]
+        indexes = [models.Index(fields=["application"], condition=Q(status="pending"), name="evidence_item_pending")]
+
+
+class EvidenceCapture(models.Model):
+    item = models.ForeignKey(EvidenceItem, on_delete=models.PROTECT, related_name="captures")
+    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="evidence_captures")
+    source = models.ForeignKey(EvidenceSource, on_delete=models.PROTECT, related_name="captures")  # the exact version
+    attempt_number = models.PositiveIntegerField()
+    final_url = models.CharField(max_length=2048)
+    http_status = models.PositiveIntegerField()
+    content_type = models.CharField(max_length=200, blank=True, default="")
+    revision_marker = models.CharField(max_length=200, blank=True, default="")  # ETag or Last-Modified, if any
+    byte_length = models.PositiveIntegerField()
+    truncated = models.BooleanField(default=False)
+    response_sha256 = models.CharField(max_length=64)  # of the bytes read
+    derived_text = models.TextField(blank=True, default="")
+    derived_sha256 = models.CharField(max_length=64)
+    derivation_version = models.PositiveIntegerField()
+    is_derivative = models.BooleanField(default=True)
+    outcome = models.CharField(max_length=32)
+    cannot_prove = models.TextField()
+    injection_markers = models.JSONField(default=list)
+    peer_ip = models.GenericIPAddressField()
+    fetched_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["item", "attempt_number"], name="evidence_capture_one_per_attempt"),
+            models.CheckConstraint(condition=Q(is_derivative=True), name="evidence_capture_is_derivative"),
+            models.CheckConstraint(condition=Q(outcome__in=CAPTURE_OUTCOMES), name="evidence_capture_outcome_valid"),
+            models.UniqueConstraint(fields=["id", "application"], name="evidence_capture_id_application_unique"),
+        ]

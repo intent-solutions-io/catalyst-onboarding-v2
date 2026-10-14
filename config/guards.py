@@ -123,8 +123,23 @@ def dispatch_problems(settings, environ: Mapping[str, str]) -> list[str]:
     if opener is not None and not str(opener).startswith("correspondence."):
         problems.append("CATALYST_ATTENTION_OPENER must name a correspondence function")
     for kind, path in (getattr(settings, "CATALYST_ACTION_HANDLERS", None) or {}).items():
-        if not str(path).startswith(("correspondence.", "workflow.")):
-            problems.append(f"CATALYST_ACTION_HANDLERS[{kind!r}] must name a correspondence or workflow handler")
+        if not str(path).startswith(("correspondence.", "workflow.", "assessments.")):
+            problems.append(f"CATALYST_ACTION_HANDLERS[{kind!r}] must name a correspondence, workflow or assessments handler")
+    return problems
+
+
+EVIDENCE_TEST_ONLY = ("CATALYST_EVIDENCE_ALLOWED_HOSTS", "CATALYST_EVIDENCE_FIXTURE_ADDRESS", "CATALYST_EVIDENCE_CA_FILE")
+
+
+def evidence_problems(settings, environ: Mapping[str, str]) -> list[str]:
+    """018 3.3 step 7 (P3 3B.1): evidence fetching is synthetic only. Outside `test`, no host may be fetchable, no
+    fixture address may be pinned and no custom trust store may be set; none of them may come from the
+    environment."""
+    problems = [f"{name} may not be set from the environment" for name in EVIDENCE_TEST_ONLY if name in environ]
+    if getattr(settings, "CATALYST_ENV", "") != "test":
+        for name in EVIDENCE_TEST_ONLY:
+            if getattr(settings, name, None):
+                problems.append(f"{name} is allowed only in the test environment (synthetic evidence only)")
     return problems
 
 
@@ -135,4 +150,5 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + provider_problems(settings.EMAIL_BACKEND, environ)
         + mail_problems(settings)
         + dispatch_problems(settings, environ)
+        + evidence_problems(settings, environ)
     )

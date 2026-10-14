@@ -177,7 +177,7 @@ transaction, never under a domain lock.
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | Activate evidence collection | the held `start_evidence_collection` action (exists, INSPECTED); released by the activation rule (4.1) | the adopted version in `input_ref` | one transaction: stage `contact_verified → evidence`, one `EvidenceItem` per claim and approved source, one `fetch_evidence` action each, an event | `fetch_evidence` per item, or straight to step 4 if none | stage moved; no slots | redeliverable; a changed adoption refuses with a staff item | item list; pause | TEST-P3-09, 10 |
 | 2 | Fetch one item | `fetch_evidence:<item>` (automated) | the item and its source | eligibility transaction; fetch outside; fenced record: capture, item status, event | the next item; when none is pending, step 3 | found, inconclusive, not found, unavailable, refused | bounded retry for transient errors; refused is not retried; a stale lease discards the result; pause refunds the attempt | each observation and its "cannot prove"; request a re-fetch | TEST-P3-05, 06, 11 to 18 |
-| 3 | Deterministic checks | the record transaction of the last item | all items of the adopted version | one transaction: required-item policy evaluated; stage `evidence → assessing` | `run_assessment` (step 4), or a staff item `evidence_required_unavailable` | proceed; hold for staff | the application lock serializes the last two fetches; the unique key makes one run | proceed without, or re-fetch | TEST-P3-19, 20 |
+| 3 | Deterministic checks | the record transaction of the last item | all items of the adopted version | one transaction: required-item policy evaluated; stage `evidence → assessing` | `run_assessment` (step 4; enqueued from 3B.2, see 13), or a staff item `evidence_required_unavailable` | proceed; hold for staff | the application lock serializes the last two fetches; the unique key makes one run | proceed without, or re-fetch | TEST-P3-19, 20 |
 | 4 | Assess | `run_assessment:<app>:<snapshot digest>` (automated) | the frozen snapshot (section 5.1) | freeze transaction writes `AssessmentRun` + inputs; pre-call check records the **invocation** (budget reserved) before the call; call outside; fenced record writes the result once and, **whatever the output says**, compare-and-sets the stage `assessing → awaiting_decision` (staff now own the next step) | the decision queue (step 9), with any proposals visible (step 5) | succeeded, invalid output, provider error, timeout, budget stop, refused (input changed) | section 6; a result whose lease was lost is **discarded** (the reservation is the only accounting); a run that fails leaves the stage at `assessing` with a staff item | run, inputs, output, usage, failures; rerun | TEST-P3-01, 02, 03, 08, 21 to 33 |
 | 5 | Propose clarification | the run's record transaction | the run's `proposed_questions` | `Question(origin=model, approval_state=proposed)` through a `correspondence` service plus a link to the run; **no stage change** | staff approval (P2 `approve_question`); approving the first question of a round moves `awaiting_decision → awaiting_answers` (a staff act) | proposed; deduplicated; round cap reached | never sent until staff approve; dedup by normalized text per application; at most 3 per round | approve, edit by withdrawing and authoring, withdraw | TEST-P3-34, 35 |
 | 6 | Staff author a question | a staff screen (new, 3B.3) | staff text | `Question(origin=staff)`; then P2 approval and send | P2 sending | sent | P2 rules | author, approve, withdraw | TEST-P3-36 |
@@ -614,3 +614,82 @@ needed).
 | MEDIUM | activation, redelivery rationale, record compare-and-set, fetch details, token arithmetic, live-model guard, injection handling | 4.1, P3-D-12, 4.2, 3.3, 5.3, 5.5 and section 6 |
 | LOW | decision numbering collided with `011` | renamed `P3-D-n` |
 | LOW | `staff_associated` replies are admitted by `eligible()` | the adapter adds the trusted-only rule, with a test |
+
+## 13. Implementation notes from 3B.1 (2026-10-14)
+
+Built in `assessments` (models, `fetch.py`, `collection.py`, `services.py`, staff screens at `/staff/p3/`), with
+`applications/stages.py` as the one transition primitive outside S1 confirmation. Choices and deviations:
+
+- **Claims.** The P3 fields are stored under `submitted_fields["claims"]` only when at least one is given, so
+  S1-shaped submissions are unchanged. A version without claims is never released: it gets a `claims_missing`
+  staff item. The request limits rose to 32 fields and 128 KiB for the extended form.
+- **Sources.** An owner-run command (`define_evidence_source`) creates a draft version; the owner approves the
+  exact version on the screen by its definition digest. Approving a version retires the earlier approved version
+  of the same key in the same transaction.
+- **Fixtures.** A `fixture_only` source replaces DNS with the one pinned address
+  (`CATALYST_EVIDENCE_FIXTURE_ADDRESS`), which `classify` admits only because the source names it; the
+  allow-list, fixture address and CA settings are refused outside `test`.
+- **Outcomes.** A work page is `found` when it has visible text, `found_but_inconclusive` when empty, and
+  `not_found` on 404 or 410. A credential page is `found` only when it shows the claimed identifier, otherwise
+  `found_but_inconclusive`. Other 4xx responses refuse the item; 408, 425, 429 and 5xx are transient.
+- **Completion.** When nothing is pending, the stage moves `evidence → assessing`. **Deviation:** 3B.1 enqueues
+  no `run_assessment` action; 3B.2 adds that enqueue together with its handler, so until then an application
+  waits in `assessing`.
+- **Staff actions.** Re-fetch is allowed only while the stage is `evidence`; it creates round n+1 and resolves the
+  open `evidence_required_unavailable` item. "Proceed without" moves the stage on and resolves the item.
+- **Permissions.** New groups: "Assessment operator" (`review_evidence`, `operate_evidence`) and "Evidence source
+  owner" (`approve_evidence_source`). No decision permission exists yet (3B.4).
+- **Protection.** Captures carry the ADR-14 append-only and no-truncate triggers (the trigger inventory is now
+  10); sources and items are protected by column grants.
+
+**3B.1 reviews** (one primary QA review and one scoped security review of the fetch boundary, of `41e2820`; no
+blocker). Applied:
+
+- **Deadline.** It is a true total bound: a watchdog shuts the live (TLS) socket down at the deadline, covering
+  the handshake, a dripping header block and a dripping body. Reads take one receive at a time, and a cut
+  exchange is never parsed.
+- **Malformed URLs** are refused (`url_invalid`), never left pending. The query is percent-encoded. Port 0 is
+  refused.
+- **Charsets.** Only a short allow-list of server-declared charsets is used; any other codec falls back to UTF-8.
+- **Path prefixes** match on path-segment boundaries. A URL selects the approved source with the same host and
+  port and the longest matching prefix.
+- **Host lists.** `fetch()` itself requires every host, source or redirect, to be in the settings allow-list, and
+  refuses a fixture source outside `test`. Redirects are off unless the source lists the target host, its own host
+  included.
+- **Addresses.** The host's own addresses are denied (hairpin), and explicit ranges are added.
+- **Private and missing pages.** 401 and 403 make the item `unavailable` (private, not retried). 404 and 410 are a
+  `not_found` observation with no stored body, re-fetchable by staff. A required item with nothing usable blocks
+  for staff. 3B.2 must map `unavailable`, `refused` and `not_found` to `insufficient_evidence`, never to a negative
+  rating.
+- **Final failures.** A final handler failure or exhausted attempts marks the item `unavailable: handler_error`,
+  opens `evidence_collection_failed` and lets collection complete, so no application is left in `evidence`
+  without a staff item. Lease loss at the fence fetches nothing; a result whose lease was lost during the fetch is
+  discarded.
+- **Re-fetch.** A required claim stays required on re-fetch.
+- **Composite keys.** Foreign keys keep an item's version and a capture's item within one application.
+- **Tests.** New tests cover lease loss, a handler-defect retry, the final-failure path, the pause refund, a real
+  two-connection completion race, 401, 403, 404 and 410, the redirect-host bound and source selection.
+- **Staff text.** The next-step text names the P3 stages. `claims_missing`, `adoption_changed` and
+  `evidence_collection_failed` are acknowledge-only staff items.
+
+**Interpretations recorded, for the owner to change if wanted:**
+
+- `on_unavailable=staff` opens a staff item only for a **required** source; a non-required unavailable item
+  continues and stays visible on the evidence screen.
+- `ask_applicant` is not built; staff ask through the P2 screens.
+
+**Deferred:** per-source and per-host rate limits to P6. The response header block is bounded by Python's own
+caps (100 headers, 65,536 bytes per line) and by the deadline.
+
+**3B.2 backfill:** applications already waiting in `assessing` when 3B.2 is released get their `run_assessment`
+through the same kind of versioned activation command, never automatically.
+
+**Re-check round.** The QA re-check found no blocker or HIGH. The security re-check found the TLS handshake was
+still outside the watchdog, and that the stray-end-tag fix made the HTML extractor quadratic on hostile input.
+Both are fixed:
+
+- **Handshake.** It runs after the watchdog holds the TLS socket, so it is inside the deadline.
+- **HTML extractor.** Tracked nesting is capped at 64, an unmatched end tag is ignored in constant time, and the
+  number of parser events is capped (the page is then marked truncated).
+
+Tests cover a server that never completes the handshake and a hostile tag soup.

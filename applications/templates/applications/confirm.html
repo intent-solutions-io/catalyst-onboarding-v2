@@ -8,6 +8,16 @@
   <dt>Email</dt><dd>{{ preview.fields.email }}</dd>
   <dt>Reason</dt><dd>{{ preview.fields.reason }}</dd>
 </dl>
+{% with claims=preview.fields.claims %}{% if claims %}
+<h2>Your work and credentials</h2>
+<dl>
+  {% for w in claims.work %}<dt>Work sample</dt><dd>{{ w.url }}{% if w.note %}: {{ w.note }}{% endif %}</dd>{% endfor %}
+  {% if claims.contribution %}<dt>What you personally did</dt><dd>{{ claims.contribution }}</dd>{% endif %}
+  {% if claims.experience %}<dt>Relevant experience</dt><dd>{{ claims.experience }}</dd>{% endif %}
+  {% for c in claims.credentials %}<dt>Credential</dt><dd>{{ c.name }}{% if c.issuer %}, {{ c.issuer }}{% endif %}{% if c.identifier %} ({{ c.identifier }}){% endif %}{% if c.url %} {{ c.url }}{% endif %}</dd>{% endfor %}
+  {% if claims.confidential or claims.confidential_description %}<dt>Private or confidential work</dt><dd>{% if claims.confidential %}Yes. {% endif %}{{ claims.confidential_description }}</dd>{% endif %}
+</dl>
+{% endif %}{% endwith %}
 <form method="post">
   {% csrf_token %}
   <input type="hidden" name="version" value="{{ preview.version_public_id }}">

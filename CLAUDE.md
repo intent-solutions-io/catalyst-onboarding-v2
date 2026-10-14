@@ -1,8 +1,9 @@
 # CLAUDE.md
 
 Entry point for Claude Code in **catalyst-onboarding-v2**, the documentation-first, Django-native
-Solution Catalyst onboarding platform for Intent Solutions. Implementation has started with handoff 1B.1:
-a Django skeleton only (settings, start-up guards, custom user, tests); no applicant features yet. Repository: https://github.com/intent-solutions-io/catalyst-onboarding-v2 (public).
+Solution Catalyst onboarding platform for Intent Solutions. Synthetic only: the first slice (GATE-S1, D-26) and the
+P2 correspondence loop (GATE-P2, D-33) are accepted; P3 is in progress (spec `018`, approved D-34; 3B.1 evidence
+collection without any model call). Repository: https://github.com/intent-solutions-io/catalyst-onboarding-v2 (public).
 
 ## Read first
 

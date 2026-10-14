@@ -56,7 +56,9 @@ RESOLUTIONS = {
 ACKNOWLEDGE_ONLY = {"processing_error", "message_id_conflict", "mailbox_uidvalidity_changed", "collector_stale",
                     "filed_copy_failed", "inbound_oversize", "application_closed", "collector_pass_failed",
                     "mailbox_history_out_of_scope", "hard_bounce", "loop_threshold",
-                    "escalate_unanswered", "reminder_refused", "reminder_failed"}  # 2B.4 (escalation may also end by withdrawal)
+                    "escalate_unanswered", "reminder_refused", "reminder_failed",  # 2B.4 (escalation may also end by withdrawal)
+                    # P3 3B.1: acknowledged after staff act (a new submission with claims, or a re-fetch on /staff/p3/)
+                    "claims_missing", "adoption_changed", "evidence_collection_failed"}
 
 
 # --- the typed P3 interface (016 section 1); not implemented in P2 ---------------------------------------------
