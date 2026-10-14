@@ -166,6 +166,9 @@ traceability, not written); their phase refines them at handoff A.
 | REQ-033 | `applications`, `assessments` | P1 S1-T6; P3 | TEST-S1-22; planned TEST-P3-08 (assessment records its explicit input version) | CI run | GATE-S1; GATE-P3 |
 | REQ-034 | `correspondence`, `assessments` | P2 | planned TEST-P2-08 (partial answer), TEST-P2-09 (acknowledgement is not an answer), TEST-P2-10 (autoresponder satisfies nothing), TEST-P2-04 (reminder suppressed, not cancelled, while a reply awaits processing); proposed in `016`: TEST-P2-17 (trust table), TEST-P2-30 (only satisfied or withdrawn cancels), TEST-P2-50 (withdrawal is never an answer) | CI with local IMAP test server | GATE-P2 |
 
+P3 cases are specified in `018` section 9 (PROPOSED): TEST-P3-01 to TEST-P3-08 keep their meaning above; TEST-P3-09
+to TEST-P3-57 extend REQ-008, REQ-009, REQ-010, REQ-029, REQ-033 and REQ-034, each built in its 3B task.
+
 ## 8. Dependencies
 
 Existing services: Documenso (installed version NEEDS VERIFICATION), MXroute (provisioning interface

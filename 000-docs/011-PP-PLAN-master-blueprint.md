@@ -73,7 +73,7 @@ direct database edits or a coding agent. The learning site itself is not replace
 
 ## 4. Owner decisions and boundaries
 
-### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-33)
+### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-34)
 
 The owner gave this project direction in the build-contract instruction of 2026-10-09, in the
 invoking session. It is recorded here verbatim so a fresh session can check the source. The owner
@@ -217,6 +217,13 @@ The owner replied in the invoking session: "plz contunen o approve" (please cont
 recorded as acceptance of the proposed statement and of the `016` §10.12 dispositions, and as authority to
 merge PR #27. It authorizes nothing the statement excludes.
 
+**P3 specification and 3B.1 release, 2026-10-14** (source of D-34). The owner reviewed `018` version 0.2.1 at
+draft PR #28 (head `57a3041`, CI run 38453711663) and wrote in the invoking session: "approve 018 and release
+3B.1". Asked whether that meant a versioned `/release`, the owner chose "Just start building 3B.1"; asked whether
+to move the repository to the owner's personal GitHub account now, the owner chose "Later, not now" (the move is
+tracked as a separate task). This is recorded as approval of `018` 0.2.1 with its recommended defaults
+`P3-D-1` to `P3-D-16` for synthetic P3, and as the release of 3B.1 only.
+
 ### 4.2 Decision summary
 
 Decision records with rationale live in `003` section "Architecture decisions". This table is the
@@ -255,6 +262,7 @@ summary a reader needs first.
 | D-29 | POL-06, synthetic P2 send authority only: the owner approves each template version; authorized operators approve applicant-specific questions; only approved, frozen messages execute. No real applicant-facing wording, production cadence, quiet hours, limits or stop thresholds are approved | OWNER-DECIDED 2026-10-12 (partial) | section 4.1; `016` 8.1 |
 | D-30 | POL-13, P2 role matrix (`016` section F) for synthetic operation only: operators handle routine correspondence; identity-affecting resolutions, uncertain-send decisions and collector restarts need the decision-maker role; template approval stays with the owner. MFA, network restriction and production staff access remain undecided | OWNER-DECIDED 2026-10-12 (P2 slice) | section 4.1; `016` F |
 | D-31 | POL-19 fail-closed: a mismatched or unverifiable identity produces a staff exception with no automatic positive effect and no identity or dossier change; only the decision-maker resolves identity-affecting cases | OWNER-DECIDED 2026-10-12 | section 4.1; `016` C3, C4, F |
+| D-34 | `018` (P3 evidence, assessment and qualification specification) version 0.2.1 approved with its recommended defaults `P3-D-1` to `P3-D-16` for synthetic P3; 3B.1 (`catalyst-v2-oc4.2`) released. Not authorized: a live model call, real fetching, real applicant data, 3B.2 to 3C (each needs its own release), a versioned release or a deployment. The decisions marked for GATE-PILOT or later (real fetching, the applicant notice, retention, live model use) stay conditions at those gates | OWNER-DECIDED 2026-10-14 | section 4.1; `018` section 8 |
 | D-33 | GATE-P2 signed off for synthetic P2: every TEST-P2 case PASS on PostgreSQL in CI at one head (CI run 38439993244 on `1ce791e`; 624 passed; GATE-P2 PASS 54 and GATE-S1 PASS 25, FAIL 0, INCOMPLETE 0, NOT RUN 0), one independent QA review of the closeout, after-action report `017` filed, case dispositions and scope boundaries in `016` §10.12 accepted. The P2 epic `catalyst-v2-7hu` closes. Not authorized: real mail, applicant data, model use, P3, release or deployment. Before real use: the three correction beads (append-only evidence, automatic-pause review, hard-bounce send block) and POL-10 | OWNER-DECIDED 2026-10-13 | section 4.1; `016` 10.12; `017` |
 | D-32 | `015` is public technical documentation, provided its content stays public-safe; future public PDF renderings use unclassified labelling, not the theme's "Confidential" footer | OWNER-DECIDED 2026-10-12 | section 4.1; `016` 8.6; `015` errata item 6 |
 
@@ -373,6 +381,22 @@ P3, a release or a deployment (`016` 10.12).
 | 2B.3 | `catalyst-v2-7hu.4` | Process replies deterministically and route judgment to staff confirmation or a held interpretation action | 2B.2; POL-19 resolution part; the autoresponder rule |
 | 2B.4 | `catalyst-v2-7hu.5` | Run reminders and controlled staff intervention: suppression, stop rules, pause and resume, staff messages and exception resolution | 2B.3; POL-06 cadence (synthetic settings); A-5, A-8 |
 | 2C | `catalyst-v2-7hu.6` | Verify the correspondence loop: the GATE-P2 acceptance run, independent QA and the after-action report (health and reconciliation behaviour is built in 2B.1 to 2B.4) | 2B.1 to 2B.4 |
+
+**Evidence and assessment tasks (P3), specified in handoff 3A (`018`, PROPOSED).** The owner asked for 3A
+after GATE-P2 (D-33). 3A is the specification and the owner's P3 decision brief (`018` section 8, proposals `P3-D-1` to `P3-D-16`). The
+owner approved `018` 0.2.1 and released 3B.1 on 2026-10-14 (D-34); 3B.2 to 3B.4 each need their own release; 3C is
+the GATE-P3 verification. Live model use and
+real fetching are not authorized by any of these.
+
+| Key | Bead | Title | Depends on |
+|---|---|---|---|
+| 3A | `catalyst-v2-oc4.1` | Specify the P3 evidence collection and bounded MiniMax assessment, and prepare the owner's P3 decisions | GATE-P2 (D-33) |
+| 3B.1 | `catalyst-v2-oc4.2` | Collect versioned applicant claims and deterministic, fixture-backed evidence observations that staff can see, without any model call | 3A approval; `018` P3-D-1, P3-D-2, P3-D-12, P3-D-14 |
+| 3B.2 | `catalyst-v2-oc4.3` | Run the bounded assessment over a frozen snapshot with PydanticAI test models, budgets, invocation records and failure routing to staff | 3B.1; P3-D-4, P3-D-6, P3-D-7, P3-D-8 |
+| 3B.3 | `catalyst-v2-oc4.4` | Run the clarification loop: model-proposed questions through P2 approval, staff question authoring, coalesced reply interpretation, reassessment | 3B.2; P3-D-5, P3-D-6 |
+| 3B.4 | `catalyst-v2-oc4.5` | Record the authorized qualification decision with its exact inputs and hand admitted applicants to P4 as held work | 3B.2; P3-D-9, P3-D-10, P3-D-11, P3-D-16 |
+| 3C | `catalyst-v2-oc4.6` | Verify P3: the GATE-P3 acceptance run, one independent QA review and the after-action report | 3B.1 to 3B.4 |
+| 3E | `catalyst-v2-oc4.7` | Evaluate MiniMax compatibility and quality on synthetic applications under a stated budget, once separately authorized (not part of GATE-P3) | owner authorization, API entitlement, provider review, P3-D-6 |
 
 ## 8. Definition of success
 

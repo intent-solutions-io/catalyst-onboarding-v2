@@ -144,6 +144,8 @@ proposals.
 
 ### J-04 Evidence collection
 
+> P3 detail (claims, observations, assessment, clarification, decision) is specified in `018` (PROPOSED).
+
 - **Trigger and input:** pending action "start evidence collection" after verification.
 - **Receives it:** worker; `assessments` app.
 - **Records:** one evidence item per source (kind, source reference, retrieved time, checksum, status,
