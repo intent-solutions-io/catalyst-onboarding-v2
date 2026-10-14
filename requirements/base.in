@@ -3,3 +3,6 @@
 #     --generate-hashes --no-header requirements/base.in -o requirements/base.txt
 Django==5.2.18
 psycopg[binary]==3.3.6
+# P3 3B.2 (018 5.5, P3-D-8; F-1): the assessment agent. Slim, with no provider extra: tests use TestModel and
+# FunctionModel only, and no live provider client is installed until a live model use is authorized.
+pydantic-ai-slim==2.55.0

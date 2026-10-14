@@ -27,4 +27,19 @@
 <form method="post" action="{% url 'assessments_staff:proceed' application.public_ref %}">{% csrf_token %}
 <label>Note <input name="note" maxlength="500"></label> <button>Proceed to assessment without the unavailable item</button></form>
 {% endif %}
+<h2>Assessment (advisory)</h2>
+{% if not run %}<p>No assessment run yet.</p>{% else %}
+<p>Run status {{ run.status }}{% if run.error_code %} ({{ run.error_code }}){% endif %}; snapshot {{ run.snapshot_sha256|truncatechars:17 }}; prompt pack {{ run.prompt_pack }} (rubric {{ run.rubric_version }}){% if run.model_id %}; model <bdi>{{ run.model_id|visible }}</bdi>{% endif %}; {{ run.requests_used }} request(s).</p>
+{% if run.flags %}<p>Flags: {% for f in run.flags %}{{ f }}{% if not forloop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
+{% if run.output %}
+<p>This is a model's reading of the evidence, not a decision. A person decides; nothing here is pre-selected.</p>
+<table><tr><th>Criterion</th><th>Rating</th><th>Summary and quotes</th></tr>
+{% for f in run.output.criteria %}<tr><td>{{ f.criterion_id }}</td><td>{{ f.rating }}</td><td><bdi>{{ f.summary|visible }}</bdi>
+{% for c in f.citations %}<pre class="untrusted">{{ c.evidence_alias }}: {{ c.quote|visible }}</pre>{% endfor %}</td></tr>{% endfor %}
+</table>
+<p>Advisory recommendation: {{ run.output.recommendation }} (confidence {{ run.output.confidence }}), resting on {% for c in run.output.basis_criteria %}{{ c }}{% if not forloop.last %}, {% endif %}{% endfor %}: <bdi>{{ run.output.recommendation_basis|visible }}</bdi></p>
+{% if run.output.limitations %}<p>Limitations:</p><ul>{% for l in run.output.limitations %}<li><bdi>{{ l|visible }}</bdi></li>{% endfor %}</ul>{% endif %}
+{% if run.output.proposed_questions %}<p>Proposed questions (not sent; staff approval comes with 3B.3):</p><ul>{% for q in run.output.proposed_questions %}<li><bdi>{{ q.text|visible }}</bdi></li>{% endfor %}</ul>{% endif %}
+{% endif %}{% endif %}
+{% if can_rerun %}<form method="post" action="{% url 'assessments_staff:rerun' application.public_ref %}">{% csrf_token %}<label>Note <input name="note" maxlength="500"></label> <button>Queue a new assessment</button></form>{% endif %}
 {% endblock %}

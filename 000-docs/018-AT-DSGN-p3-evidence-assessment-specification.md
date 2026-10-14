@@ -329,7 +329,7 @@ extracts: **re-verify each one verbatim before 3B.2 pins versions** (that check 
 | F-1 | PydanticAI's latest published version is 2.55.0 | `https://pypi.org/pypi/pydantic-ai/json` | DOCUMENTED |
 | F-2 | Output modes: tool output is the default ("supported by virtually all models"); native output uses the model's structured-outputs (JSON schema) feature and is "not supported by all models"; prompted output works with any model but "is often the least reliable approach" | `https://pydantic.dev/docs/ai/core-concepts/output/` | DOCUMENTED |
 | F-3 | Testing: `TestModel`, `FunctionModel` and `Agent.override`; `models.ALLOW_MODEL_REQUESTS = False` blocks requests to non-test models (default `True`) | `https://pydantic.dev/docs/ai/guides/testing/`, `https://pydantic.dev/docs/ai/api/models/base/` | DOCUMENTED |
-| F-4 | `UsageLimits` has `request_limit`, `tool_calls_limit`, `input_tokens_limit`, `output_tokens_limit`, `per_request_input_tokens_limit` and `cost_limit`; exceeding one raises `UsageLimitExceeded`. A total-tokens limit was not found | `https://pydantic.dev/docs/ai/core-concepts/agent/` | DOCUMENTED; total-tokens limit NOT VERIFIED |
+| F-4 | `UsageLimits` has `request_limit`, `tool_calls_limit`, `input_tokens_limit`, `output_tokens_limit`, `per_request_input_tokens_limit` and `cost_limit`; exceeding one raises `UsageLimitExceeded`. **Corrected in 3B.2:** version 2.55.0 also has `total_tokens_limit` (DEMONSTRATED by inspecting the installed signature) | `https://pydantic.dev/docs/ai/core-concepts/agent/` | DOCUMENTED; total-tokens limit DEMONSTRATED |
 | F-5 | Output retries: `retries={'output': N}` (default 1); each `ModelRetry` from a validator consumes one unit; exhaustion raises `UnexpectedModelBehavior` | `https://pydantic.dev/docs/ai/core-concepts/retries/` | DOCUMENTED |
 | F-6 | Provider SDK and transport retries are not counted toward `request_limit` | `https://pydantic.dev/docs/ai/core-concepts/retries/` | DOCUMENTED; hence section 6 sets SDK retries to 0 |
 | F-7 | An OpenAI-compatible endpoint is used through `OpenAIProvider` with a custom `AsyncOpenAI` client (`base_url`); `openai-chat:` pins Chat Completions | `https://pydantic.dev/docs/ai/models/openai/` | DOCUMENTED |
@@ -693,3 +693,33 @@ Both are fixed:
   number of parser events is capped (the page is then marked truncated).
 
 Tests cover a server that never completes the handshake and a hostile tag soup.
+
+## 14. Implementation notes from 3B.2 (2026-10-14)
+
+Released by the owner ("release 3B.2"). Built: `assessments/pack.py` (the prompt pack `assessment_v1`: a system
+prompt and a synthetic rubric of five criteria, pinned by digest), `snapshot.py` (manifest, digest and the
+minimized, scrubbed, fenced request), `schema.py` (the output contract and its deterministic checks), `agent.py`
+(PydanticAI, test models only) and `runs.py` (the run handler, budgets, invocation records and the backfill
+command `activate_assessment`).
+
+- **Dependency.** `pydantic-ai-slim==2.55.0`, without any provider extra, so no live provider client is
+  installed. It is hash-locked in `requirements/`. DEMONSTRATED on the pinned Python 3.14.8: `result.usage` is a
+  property, `UsageLimits` has `total_tokens_limit` (F-4 corrected), and `retries=1` gives exactly one repair.
+- **Live models.** They are refused in three layers: `ALLOW_MODEL_REQUESTS = False` in `AssessmentsConfig.ready()`;
+  `build_model` has no live branch; and `config.guards.assessment_problems` allows only "none", plus "test" in the
+  `test` environment.
+- **Budgets.** All are synthetic, and the daily global budget defaults to 0 (fail-closed), so outside tests no run
+  proceeds until the owner sets a value. One attempt is at most 2 requests and the ledger allows 2 attempts, so a
+  snapshot gets at most 4 requests (the per-snapshot setting). An invocation is recorded before any call and never
+  refunded; a reclaim marks an unfinished invocation abandoned, and it still counts. Global concurrency and the
+  daily budget are serialized by one PostgreSQL advisory lock taken after the application lock.
+- **Transitions.** Success moves `assessing → awaiting_decision` whatever the output says. Any failure (refused,
+  invalid output, capped, failed, abandoned) leaves the stage alone and opens a staff item. A finished run is
+  frozen by the `catalyst_run_result_once` trigger.
+- **Enqueueing.** Evidence completion, "proceed without", a staff rerun (a new snapshot only) and the backfill
+  command queue a run. **Deviation:** model-proposed questions are stored in the output and shown on the screen;
+  creating proposed `Question` rows and sending them is 3B.3.
+- **Screen.** The evidence screen shows the latest run as advice: findings, quotes, limitations and flags, with
+  the recommendation labelled advisory and never pre-selected.
+- **Scope of proof.** The tests prove orchestration, validation, safety and recovery with a scripted
+  `FunctionModel`. They prove nothing about a real model's assessment quality (018 9 B, `catalyst-v2-oc4.7`).

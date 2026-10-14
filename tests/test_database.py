@@ -39,7 +39,8 @@ APPROVED_MIGRATIONS = {
     ("correspondence", "0009_reply_processing_indexes_and_pin"), ("correspondence", "0010_pin_grant"),
     ("correspondence", "0011_reminders_and_staff_messages"), ("correspondence", "0012_reminder_and_staff_message_grants"),
     ("assessments", "0001_initial"), ("assessments", "0002_grants_protection_and_groups"),
-    ("assessments", "0003_same_application_keys"),
+    ("assessments", "0003_same_application_keys"), ("assessments", "0004_assessment_runs"),
+    ("assessments", "0005_assessment_grants_and_protection"),
 }
 
 

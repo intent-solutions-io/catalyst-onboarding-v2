@@ -143,6 +143,18 @@ def evidence_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return problems
 
 
+def assessment_problems(settings, environ: Mapping[str, str]) -> list[str]:
+    """018 5.5 (P3 3B.2): no live model anywhere. "test" (a PydanticAI test model) only in the test environment;
+    every other environment must say "none"; never from the environment."""
+    problems = ["CATALYST_ASSESSMENT_MODEL may not be set from the environment"] if "CATALYST_ASSESSMENT_MODEL" in environ else []
+    mode = getattr(settings, "CATALYST_ASSESSMENT_MODEL", "none")
+    if mode not in ("none", "test"):
+        problems.append("CATALYST_ASSESSMENT_MODEL must be 'none' or 'test'; live model use is not authorized")
+    elif mode == "test" and getattr(settings, "CATALYST_ENV", "") != "test":
+        problems.append("CATALYST_ASSESSMENT_MODEL 'test' is allowed only in the test environment")
+    return problems
+
+
 def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return (
         database_problems(settings.DATABASES)
@@ -151,4 +163,5 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + mail_problems(settings)
         + dispatch_problems(settings, environ)
         + evidence_problems(settings, environ)
+        + assessment_problems(settings, environ)
     )

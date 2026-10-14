@@ -157,5 +157,27 @@ def proceed_without(application_id: int, user, note: str = "") -> Application:
             raise Refused("stage_not_evidence") from None
         for staff_item in _evidence_items(application):
             resolve_item(staff_item, code="proceed_without", actor_ref=actor_ref(user), note=note, effects={})
+        from .runs import enqueue_assessment
+
+        enqueue_assessment(Application.objects.get(pk=application.pk), "evidence_complete")
     application.refresh_from_db()
     return application
+
+
+def rerun_assessment(application_id: int, user, note: str = ""):
+    """A staff request for a new run (018 4 step 4): a new snapshot only; the same snapshot never runs twice."""
+    require(user, "rerun_assessment")
+    note = clean_note(note)
+    from .runs import enqueue_assessment
+
+    with transaction.atomic():
+        application = _lock(application_id)
+        if application.stage != Stage.ASSESSING:
+            raise Refused("stage_not_assessing")
+        run = enqueue_assessment(application, "staff_rerun")
+        if run is None:
+            raise Refused("nothing_to_rerun")
+        ApplicationEvent.objects.create(application=application, kind="assessment_rerun_requested",
+                                        actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor_ref(user),
+                                        data={"run": str(run.public_id)})
+    return run

@@ -152,6 +152,7 @@ CATALYST_ACTION_HANDLERS = {
     # P3 3B.1 (018 4.1): the S1 action stays held until the owner-run activation command releases it.
     "start_evidence_collection": "assessments.collection.StartEvidenceCollection",
     "fetch_evidence": "assessments.collection.FetchEvidence",
+    "run_assessment": "assessments.runs.RunAssessment",  # 018 4 step 4 (P3 3B.2); test models only
 }
 # The one seam through which the applications app opens a staff item for a `needs_staff_attention` event
 # (016 3.8; 2B.3). Like the handler mapping, a fixed dotted path in code, so `applications` never imports
@@ -217,6 +218,19 @@ CATALYST_EVIDENCE_MAX_BYTES = number("CATALYST_EVIDENCE_MAX_BYTES", "262144")
 CATALYST_EVIDENCE_MAX_TEXT_CHARS = number("CATALYST_EVIDENCE_MAX_TEXT_CHARS", "20000")
 if CATALYST_EVIDENCE_DEADLINE_SECONDS * 2 > CATALYST_WORKER_LEASE_SECONDS:
     raise ImproperlyConfigured("CATALYST_EVIDENCE_DEADLINE_SECONDS must be at most half of CATALYST_WORKER_LEASE_SECONDS")
+# The assessment run (018 5.5, 6; P3 3B.2). "none" everywhere except `test`, where "test" selects a PydanticAI
+# test model; there is no live value (config.guards.assessment_problems). Fixed in code, never from the environment.
+CATALYST_ASSESSMENT_MODEL = "none"
+CATALYST_ASSESSMENT_ATTEMPTS = number("CATALYST_ASSESSMENT_ATTEMPTS", "2")
+CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT = number("CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT", "4")
+CATALYST_ASSESSMENT_RUNS_PER_APPLICATION = number("CATALYST_ASSESSMENT_RUNS_PER_APPLICATION", "6")
+CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION = number("CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION", "150000")
+CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST = number("CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST", "16000")
+CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT = number("CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT", "8000")
+CATALYST_ASSESSMENT_TOTAL_TOKENS_PER_SNAPSHOT = number("CATALYST_ASSESSMENT_TOTAL_TOKENS_PER_SNAPSHOT", "50000")
+CATALYST_ASSESSMENT_CONCURRENT_RUNS = number("CATALYST_ASSESSMENT_CONCURRENT_RUNS", "2")
+# Fail-closed: no run proceeds until the owner sets a daily budget (018 6).
+CATALYST_ASSESSMENT_DAILY_REQUESTS = number("CATALYST_ASSESSMENT_DAILY_REQUESTS", "0", minimum=0)
 CATALYST_STAFF_DRAFT_TTL_SECONDS = number("CATALYST_STAFF_DRAFT_TTL_SECONDS", "1800")  # 016 3.4: a preview expires
 CATALYST_REMINDER_OVERDUE_MARGIN_SECONDS = number("CATALYST_REMINDER_OVERDUE_MARGIN_SECONDS", "3600", minimum=0)
 if CATALYST_REMINDER_QUIET_START_HOUR > 23 or CATALYST_REMINDER_QUIET_END_HOUR > 23:

@@ -384,8 +384,8 @@ P3, a release or a deployment (`016` 10.12).
 
 **Evidence and assessment tasks (P3), specified in handoff 3A (`018`, PROPOSED).** The owner asked for 3A
 after GATE-P2 (D-33). 3A is the specification and the owner's P3 decision brief (`018` section 8, proposals `P3-D-1` to `P3-D-16`). The
-owner approved `018` 0.2.1 and released 3B.1 on 2026-10-14 (D-34); 3B.2 to 3B.4 each need their own release; 3C is
-the GATE-P3 verification. Live model use and
+owner approved `018` 0.2.1 and released 3B.1 on 2026-10-14 (D-34), then 3B.2 the same day ("release 3B.2");
+3B.3 and 3B.4 each need their own release; 3C is the GATE-P3 verification. Live model use and
 real fetching are not authorized by any of these.
 
 | Key | Bead | Title | Depends on |

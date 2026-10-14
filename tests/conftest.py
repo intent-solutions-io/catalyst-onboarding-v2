@@ -225,6 +225,7 @@ EXPECTED_TRIGGERS = {
     ("applications_retentionaudit", "catalyst_no_truncate"), ("applications_versionadoption", "catalyst_no_truncate"),
     ("applications_retentionaudit", "catalyst_audit_immutable"), ("applications_versionadoption", "catalyst_adoption_immutable"),
     ("assessments_evidencecapture", "catalyst_append_only"), ("assessments_evidencecapture", "catalyst_no_truncate"),  # P3 3B.1
+    ("assessments_assessmentrun", "catalyst_run_result_once"),  # P3 3B.2
 }
 
 

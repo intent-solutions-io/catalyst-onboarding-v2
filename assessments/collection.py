@@ -108,7 +108,10 @@ def complete_if_done(application, version) -> None:
         transition(application.pk, (Stage.EVIDENCE,), Stage.ASSESSING, event_kind="evidence_collection_complete",
                    data={"version": str(version.public_id), "items": len(latest)})
     except StageConflict:
-        pass  # the application moved meanwhile (closed, withdrawn): history only
+        return  # the application moved meanwhile (closed, withdrawn): history only
+    from .runs import enqueue_assessment  # runs depends on this module's records; imported at call time only
+
+    enqueue_assessment(application, "evidence_complete")
 
 
 @dataclass(frozen=True)

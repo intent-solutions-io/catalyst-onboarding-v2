@@ -142,3 +142,85 @@ class EvidenceCapture(models.Model):
             models.CheckConstraint(condition=Q(outcome__in=CAPTURE_OUTCOMES), name="evidence_capture_outcome_valid"),
             models.UniqueConstraint(fields=["id", "application"], name="evidence_capture_id_application_unique"),
         ]
+
+
+RUN_STATUSES = ["queued", "reserved", "succeeded", "invalid_output", "failed", "capped", "refused", "abandoned"]
+
+
+class AssessmentRun(models.Model):
+    """One bounded assessment of one frozen snapshot (018 5.1, 6; task 3B.2). Advisory: nothing in the output
+    chooses a stage, sends anything or decides. The result columns are written once, when the run ends."""
+
+    class Status(models.TextChoices):
+        QUEUED = "queued"
+        RESERVED = "reserved"  # an invocation is recorded and the model may have been called
+        SUCCEEDED = "succeeded"
+        INVALID_OUTPUT = "invalid_output"
+        FAILED = "failed"
+        CAPPED = "capped"
+        REFUSED = "refused"
+        ABANDONED = "abandoned"
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="assessment_runs")
+    adopted_version = models.ForeignKey("applications.SubmissionVersion", on_delete=models.PROTECT, related_name="assessment_runs")
+    round = models.PositiveIntegerField(default=1)
+    trigger = models.CharField(max_length=32)  # evidence_complete, activation, staff_rerun
+    snapshot = models.JSONField()
+    snapshot_sha256 = models.CharField(max_length=64)
+    prompt_pack = models.CharField(max_length=64)
+    prompt_pack_sha256 = models.CharField(max_length=64)
+    rubric_version = models.PositiveIntegerField()
+    schema_version = models.CharField(max_length=8)
+    provider = models.CharField(max_length=32, blank=True, default="")
+    model_id = models.CharField(max_length=100, blank=True, default="")
+    output_mode = models.CharField(max_length=16, blank=True, default="")
+    library_version = models.CharField(max_length=32, blank=True, default="")
+    request_sha256 = models.CharField(max_length=64, blank=True, default="")
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.QUEUED)
+    error_code = models.CharField(max_length=64, blank=True, default="")
+    output = models.JSONField(null=True, blank=True)
+    output_sha256 = models.CharField(max_length=64, blank=True, default="")
+    validation_codes = models.JSONField(default=list)
+    flags = models.JSONField(default=list)
+    requests_used = models.PositiveIntegerField(default=0)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(db_default=Now())
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        permissions = [("rerun_assessment", "Request a new assessment run (assessment operators)")]
+        constraints = [
+            models.CheckConstraint(condition=Q(status__in=RUN_STATUSES), name="assessment_run_status_valid"),
+            models.CheckConstraint(condition=Q(round__gte=1), name="assessment_run_round_positive"),
+            # One succeeded run per snapshot; one run in flight per application (018 6).
+            models.UniqueConstraint(fields=["application", "snapshot_sha256"], condition=Q(status="succeeded"),
+                                    name="assessment_run_one_success_per_snapshot"),
+            models.UniqueConstraint(fields=["application"], condition=Q(status__in=["queued", "reserved"]),
+                                    name="assessment_run_one_in_flight"),
+            models.CheckConstraint(condition=~Q(status="succeeded") | Q(output__isnull=False), name="assessment_run_success_has_output"),
+            models.CheckConstraint(condition=Q(status__in=["queued", "reserved"]) | Q(finished_at__isnull=False),
+                                   name="assessment_run_terminal_has_time"),
+        ]
+
+
+class AssessmentInvocation(models.Model):
+    """Recorded before any model request (018 6): if the worker dies after the provider may have processed or
+    billed the call, the reservation still counts. Never refunded once recorded."""
+
+    run = models.ForeignKey(AssessmentRun, on_delete=models.PROTECT, related_name="invocations")
+    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="assessment_invocations")
+    snapshot_sha256 = models.CharField(max_length=64)
+    attempt = models.PositiveIntegerField()
+    reserved_requests = models.PositiveIntegerField()
+    reserved_tokens = models.PositiveIntegerField()
+    status = models.CharField(max_length=16, default="started")  # started, completed, abandoned
+    started_at = models.DateTimeField(db_default=Now())
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["run", "attempt"], name="assessment_invocation_one_per_attempt"),
+            models.CheckConstraint(condition=Q(status__in=["started", "completed", "abandoned"]), name="assessment_invocation_status_valid"),
+        ]

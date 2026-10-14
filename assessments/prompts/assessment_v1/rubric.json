@@ -1,0 +1,11 @@
+{
+  "rubric_version": 1,
+  "synthetic": true,
+  "criteria": [
+    {"id": "work_quality", "required": true, "definition": "Quoted passages from a work sample show relevant, competent technical work."},
+    {"id": "contribution", "required": true, "definition": "The applicant's contribution statement is consistent with what the work samples show; a page cannot prove authorship."},
+    {"id": "credential_support", "required": false, "definition": "An issuer's page shows the claimed credential identifier; it cannot prove the holder is the applicant."},
+    {"id": "purpose_fit", "required": false, "definition": "The applicant's stated reason fits the programme."},
+    {"id": "consistency", "required": false, "definition": "The claims and the items do not contradict each other."}
+  ]
+}
