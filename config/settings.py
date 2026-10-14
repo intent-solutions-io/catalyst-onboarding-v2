@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     "workflow",
     "applications",
     "correspondence",
+    "assessments",  # P3 (018; D-34)
 ]
 MIDDLEWARE = [
     "config.redaction.PrivateConfirmationResponses",  # outermost: covers responses built outside the view
@@ -61,9 +62,10 @@ TEMPLATES = [
     }
 ]
 # Request limits for the public form (005 S1.5): a larger body or more fields is a 400, not a form error.
-# The form has three fields plus the CSRF token; 64 KiB covers its longest percent-encoded values.
-DATA_UPLOAD_MAX_MEMORY_SIZE = 64 * 1024
-DATA_UPLOAD_MAX_NUMBER_FIELDS = 10
+# The form has 25 fields plus the CSRF token (the three S1 fields and the optional P3 claim fields, 018 section 2);
+# 128 KiB covers their longest percent-encoded values.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 128 * 1024
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 32
 DATA_UPLOAD_MAX_NUMBER_FILES = 0  # the memory limit excludes file parts; no form here accepts a file
 WSGI_APPLICATION = "config.wsgi.application"
 
@@ -147,6 +149,9 @@ CATALYST_ACTION_HANDLERS = {
     "send_staff_message": "correspondence.outbound.SendStaffMessage",  # 016 3.4, not automated (P2 2B.4)
     "remind": "correspondence.reminders.SendReminder",  # 016 E2 (P2 2B.4)
     "escalate_unanswered": "correspondence.reminders.EscalateUnanswered",  # 016 E1, J-08 (P2 2B.4)
+    # P3 3B.1 (018 4.1): the S1 action stays held until the owner-run activation command releases it.
+    "start_evidence_collection": "assessments.collection.StartEvidenceCollection",
+    "fetch_evidence": "assessments.collection.FetchEvidence",
 }
 # The one seam through which the applications app opens a staff item for a `needs_staff_attention` event
 # (016 3.8; 2B.3). Like the handler mapping, a fixed dotted path in code, so `applications` never imports
@@ -198,6 +203,20 @@ CATALYST_REMINDER_QUIET_END_HOUR = number("CATALYST_REMINDER_QUIET_END_HOUR", "7
 CATALYST_REMINDER_RESUME_GRACE_SECONDS = number("CATALYST_REMINDER_RESUME_GRACE_SECONDS", "3600", minimum=0)
 CATALYST_REMINDER_STALE_DEFERRALS = number("CATALYST_REMINDER_STALE_DEFERRALS", "6", minimum=1)  # then collector_stale
 CATALYST_REMINDER_STALE_RETRY_SECONDS = number("CATALYST_REMINDER_STALE_RETRY_SECONDS", "600", cast=float, minimum=0)
+# Evidence fetching (018 3.3; P3 3B.1). Synthetic only: every fetchable host must also be listed here, and the
+# guards refuse a non-empty list, a fixture address or a custom CA outside `test` (config.guards.evidence_problems).
+# Fixed in code, never read from the environment.
+CATALYST_EVIDENCE_ALLOWED_HOSTS: list = []
+CATALYST_EVIDENCE_FIXTURE_ADDRESS = ""
+CATALYST_EVIDENCE_CA_FILE = ""
+CATALYST_EVIDENCE_FETCH_ATTEMPTS = number("CATALYST_EVIDENCE_FETCH_ATTEMPTS", "3")
+# Unset, the per-fetch deadline is half the worker lease, at most 10 s (as for the SMTP exchange).
+CATALYST_EVIDENCE_DEADLINE_SECONDS = number("CATALYST_EVIDENCE_DEADLINE_SECONDS",
+                                            str(max(1, min(10, CATALYST_WORKER_LEASE_SECONDS // 2))))
+CATALYST_EVIDENCE_MAX_BYTES = number("CATALYST_EVIDENCE_MAX_BYTES", "262144")
+CATALYST_EVIDENCE_MAX_TEXT_CHARS = number("CATALYST_EVIDENCE_MAX_TEXT_CHARS", "20000")
+if CATALYST_EVIDENCE_DEADLINE_SECONDS * 2 > CATALYST_WORKER_LEASE_SECONDS:
+    raise ImproperlyConfigured("CATALYST_EVIDENCE_DEADLINE_SECONDS must be at most half of CATALYST_WORKER_LEASE_SECONDS")
 CATALYST_STAFF_DRAFT_TTL_SECONDS = number("CATALYST_STAFF_DRAFT_TTL_SECONDS", "1800")  # 016 3.4: a preview expires
 CATALYST_REMINDER_OVERDUE_MARGIN_SECONDS = number("CATALYST_REMINDER_OVERDUE_MARGIN_SECONDS", "3600", minimum=0)
 if CATALYST_REMINDER_QUIET_START_HOUR > 23 or CATALYST_REMINDER_QUIET_END_HOUR > 23:

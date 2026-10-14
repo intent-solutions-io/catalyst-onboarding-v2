@@ -614,3 +614,30 @@ needed).
 | MEDIUM | activation, redelivery rationale, record compare-and-set, fetch details, token arithmetic, live-model guard, injection handling | 4.1, P3-D-12, 4.2, 3.3, 5.3, 5.5 and section 6 |
 | LOW | decision numbering collided with `011` | renamed `P3-D-n` |
 | LOW | `staff_associated` replies are admitted by `eligible()` | the adapter adds the trusted-only rule, with a test |
+
+## 13. Implementation notes from 3B.1 (2026-10-14)
+
+Built in `assessments` (models, `fetch.py`, `collection.py`, `services.py`, staff screens at `/staff/p3/`), with
+`applications/stages.py` as the one transition primitive outside S1 confirmation. Choices and deviations:
+
+- **Claims.** The P3 fields are stored under `submitted_fields["claims"]` only when at least one is given, so
+  S1-shaped submissions are unchanged. A version without claims is never released: it gets a `claims_missing`
+  staff item. The request limits rose to 32 fields and 128 KiB for the extended form.
+- **Sources.** An owner-run command (`define_evidence_source`) creates a draft version; the owner approves the
+  exact version on the screen by its definition digest. Approving a version retires the earlier approved version
+  of the same key in the same transaction.
+- **Fixtures.** A `fixture_only` source replaces DNS with the one pinned address
+  (`CATALYST_EVIDENCE_FIXTURE_ADDRESS`), which `classify` admits only because the source names it; the
+  allow-list, fixture address and CA settings are refused outside `test`.
+- **Outcomes.** A work page is `found` when it has visible text, `found_but_inconclusive` when empty, and
+  `not_found` on 404 or 410. A credential page is `found` only when it shows the claimed identifier, otherwise
+  `found_but_inconclusive`. Other 4xx responses refuse the item; 408, 425, 429 and 5xx are transient.
+- **Completion.** When nothing is pending, the stage moves `evidence → assessing`. **Deviation:** 3B.1 enqueues
+  no `run_assessment` action; 3B.2 adds that enqueue together with its handler, so until then an application
+  waits in `assessing`.
+- **Staff actions.** Re-fetch is allowed only while the stage is `evidence`; it creates round n+1 and resolves the
+  open `evidence_required_unavailable` item. "Proceed without" moves the stage on and resolves the item.
+- **Permissions.** New groups: "Assessment operator" (`review_evidence`, `operate_evidence`) and "Evidence source
+  owner" (`approve_evidence_source`). No decision permission exists yet (3B.4).
+- **Protection.** Captures carry the ADR-14 append-only and no-truncate triggers (the trigger inventory is now
+  10); sources and items are protected by column grants.

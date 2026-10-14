@@ -164,7 +164,7 @@ def pytest_terminal_summary(terminalreporter):
 RUN_IDENTITY = {"marker": f"catalyst-test-run:{uuid.uuid4()}"}
 # Slice data plus staff accounts, their sessions and the admin log (S1-T7); the read-only group and its
 # permissions come from migrations and are kept.
-SLICE_TABLES = re.compile(r"^((applications|workflow|correspondence)_|accounts_user|django_session$|django_admin_log$)")
+SLICE_TABLES = re.compile(r"^((applications|workflow|correspondence|assessments)_|accounts_user|django_session$|django_admin_log$)")
 RESET_TRIGGER = "catalyst_no_truncate"
 _session = {}
 
@@ -224,6 +224,7 @@ EXPECTED_TRIGGERS = {
     ("applications_submissionversion", "catalyst_no_truncate"), ("applications_applicationevent", "catalyst_no_truncate"),
     ("applications_retentionaudit", "catalyst_no_truncate"), ("applications_versionadoption", "catalyst_no_truncate"),
     ("applications_retentionaudit", "catalyst_audit_immutable"), ("applications_versionadoption", "catalyst_adoption_immutable"),
+    ("assessments_evidencecapture", "catalyst_append_only"), ("assessments_evidencecapture", "catalyst_no_truncate"),  # P3 3B.1
 }
 
 
