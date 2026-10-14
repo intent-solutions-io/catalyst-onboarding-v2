@@ -11,5 +11,6 @@ urlpatterns = [
     path("sources/<int:pk>/approve/", v.approve_source, name="approve_source"),
     path("applications/<uuid:public_ref>/evidence/", v.evidence, name="evidence"),
     path("applications/<uuid:public_ref>/evidence/proceed/", v.proceed, name="proceed"),
+    path("applications/<uuid:public_ref>/assessment/rerun/", v.rerun, name="rerun"),
     path("items/<uuid:public_id>/refetch/", v.refetch, name="refetch"),
 ]

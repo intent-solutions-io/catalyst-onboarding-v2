@@ -19,7 +19,7 @@ from applications.models import Application
 from correspondence.models import StaffItem
 
 from . import services
-from .models import EvidenceItem, EvidenceSource
+from .models import AssessmentRun, EvidenceItem, EvidenceSource
 
 REVIEW = ("review_evidence", "operate_evidence")
 SOURCES = ("approve_evidence_source", "review_evidence")
@@ -108,6 +108,8 @@ def evidence(request, public_ref):
         "can_operate": services.can(request.user, "operate_evidence"),
         "blocked": StaffItem.objects.filter(application=application, status="open",
                                             reason_code="evidence_required_unavailable").exists(),
+        "run": AssessmentRun.objects.filter(application=application).order_by("-id").first(),
+        "can_rerun": services.can(request.user, "rerun_assessment") and application.stage == "assessing",
     })
 
 
@@ -117,6 +119,15 @@ def refetch(request, public_id):
     item = get_object_or_404(EvidenceItem.objects.select_related("application"), public_id=public_id)
     return act(request, reverse("assessments_staff:evidence", args=[item.application.public_ref]),
                lambda: services.refetch_item(item.pk, request.user, request.POST.get("note", "")), "Re-fetch requested.")
+
+
+@require_POST
+@staff_page("rerun_assessment")
+def rerun(request, public_ref):
+    application = get_object_or_404(Application, public_ref=public_ref)
+    return act(request, reverse("assessments_staff:evidence", args=[public_ref]),
+               lambda: services.rerun_assessment(application.pk, request.user, request.POST.get("note", "")),
+               "A new assessment run was queued.")
 
 
 @require_POST

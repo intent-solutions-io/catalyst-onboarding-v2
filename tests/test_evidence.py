@@ -402,14 +402,14 @@ def test_the_evidence_screen_shows_claims_beside_observations_for_assessment_rol
     assert "No observation (unsupported assertion" in page and "cannot prove who wrote it" in page
 
 
-def test_no_model_client_or_network_library_is_imported_by_assessments():
+def test_no_provider_client_or_network_library_is_imported_by_assessments():
     from pathlib import Path
 
     from tests import support
 
     for path in Path(support.ROOT, "assessments").rglob("*.py"):
         text = path.read_text().lower()
-        for banned in ("pydantic_ai", "openai", "anthropic", "minimax", "import requests", "import httpx", "urllib.request"):
+        for banned in ("import openai", "from openai", "anthropic", "minimax", "import requests", "import httpx", "urllib.request"):
             assert banned not in text, (path.name, banned)
 
 

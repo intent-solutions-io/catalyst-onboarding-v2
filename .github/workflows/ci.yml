@@ -23,7 +23,8 @@ jobs:
   runtime:
     name: Runtime checks (Python 3.14.8, PostgreSQL 16.15)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The full suite took about 10 minutes on a hosted runner at 3B.2 (760 tests); 20 leaves headroom.
+    timeout-minutes: 20
     # Same digest-pinned images as compose.yaml (ADR-17, D-18).
     container:
       image: python:3.14.8-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170

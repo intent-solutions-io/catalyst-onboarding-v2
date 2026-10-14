@@ -263,6 +263,9 @@ DATABASE_CONSTRAINTS = {
     "evidence_item_id_application_unique", "evidence_capture_one_per_attempt", "evidence_capture_is_derivative",
     "evidence_capture_outcome_valid", "evidence_capture_id_application_unique",
     "evidence_item_version_same_application", "evidence_capture_item_same_application",
+    "assessment_run_status_valid", "assessment_run_round_positive", "assessment_run_one_success_per_snapshot",
+    "assessment_run_one_in_flight", "assessment_run_success_has_output", "assessment_run_terminal_has_time",
+    "assessment_invocation_one_per_attempt", "assessment_invocation_status_valid",
 }
 
 
