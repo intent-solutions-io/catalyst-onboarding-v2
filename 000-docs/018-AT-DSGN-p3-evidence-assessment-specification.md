@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document | `018-AT-DSGN-p3-evidence-assessment-specification` |
-| Version | 0.2.1 (draft for owner review; the independent security and reliability review and its re-check applied, section 12) |
+| Version | 0.2.2 (2026-10-14: status line corrected and section 15 added as PROPOSED). The owner's approval (D-34) covers version 0.2.1, sections 1 to 12; sections 13 and 14 are implementation records; section 15 is not approved |
 | Status | **APPROVED by the owner 2026-10-14 (version 0.2.1; D-34 in `011` section 4), with the recommended defaults `P3-D-1` to `P3-D-16` for synthetic P3.** 3B.1 (PR #30, `d564bfa`) and 3B.2 (PR #32, `8086508`) are merged; 3B.3, 3B.4 and 3C each need their own release. Selection-quality integration (section 15) is PROPOSED. Approval authorizes no live model call, real fetching, real applicant data, real mail, versioned release or deployment. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-13 |

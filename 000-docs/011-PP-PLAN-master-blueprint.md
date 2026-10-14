@@ -413,9 +413,9 @@ through a versioned standard, a small evaluation and operational feedback". It d
 | `catalyst-v2-f1u.1` | Specify the candidate selection-quality contract and amend the blueprint, PRD, P3 specification and status | none | owner review of `019` |
 | `catalyst-v2-f1u.2` | Complete the supervised-delivery role profile and behavioural criteria with a domain expert as draft selection policy SP-L2-1 | `f1u.1` | before real use |
 | `catalyst-v2-f1u.3` | Write the versioned synthetic evaluation set with separate development and held-out cases | `f1u.2` | 3E |
-| `catalyst-v2-f1u.4` | Approve a private location with access and retention rules for real evaluation material | `catalyst-v2-211.7` (POL-10) | before any real case review |
+| `catalyst-v2-f1u.4` | Approve a private location with access and retention rules for real evaluation material | `catalyst-v2-211.7` (the policy-decisions bead, where POL-10 is tracked; the coarse coupling is intentional until POL-10 has its own bead) | before any real case review |
 | `catalyst-v2-f1u.5` | Define candidate notices, alternative evidence routes, the correction path and reviewer preparation | `f1u.2` | GATE-PILOT |
-| `catalyst-v2-f1u.6` | Approve and activate the first selection policy SP-L2-1 on its evaluation evidence | `f1u.2`, `f1u.3`, `f1u.5`, `catalyst-v2-oc4.7` | before real use |
+| `catalyst-v2-f1u.6` | Approve and activate the first selection policy SP-L2-1 on its evaluation evidence | `f1u.2`, `f1u.3`, `f1u.4`, `f1u.5`, `catalyst-v2-oc4.7` (and through it `oc4.9`), `catalyst-v2-9kg.1` to `.3` | before real use |
 | `catalyst-v2-f1u.7` | Build the selection-quality scorecard and the one-page owner report from existing records | `f1u.6` | pilot (P6) |
 | `catalyst-v2-f1u.8` | Validate selection against delivery outcomes after the pilot | `f1u.7` | after pilot |
 
@@ -567,14 +567,15 @@ section governs the standard that both the human and the model apply.
 | Whether any assessment predicts delivery quality | UNRESOLVED until after a pilot |
 
 **Ownership (PROPOSED).** The owner approves every selection policy version and its activation. A named
-operational delegate role prepares reviews and carries out suspensions and rollbacks the owner has authorized in
-advance (`019` section 10). Coding agents and hooks have no authority over the standard or the live workflow
+operational delegate role prepares reviews and carries out suspensions and rollbacks under a standing authorization
+the owner records in advance in section 4, naming the triggers it covers (`019` section 10). Coding agents and hooks have no authority over the standard or the live workflow
 (D-10).
 
 **Lifecycle of a selection policy (PROPOSED).** A selection policy (`SP-<role>-<n>`, `019` section 6) is drafted,
 evaluated against the current version (`019` section 8), reviewed, approved by the owner, and then **activated by
-a separate recorded owner act with an effective date**; merging a document or code change never activates it. It
-can be suspended (model advice off, human-only review, never automatic rejection) or rolled back. Historical
+a separate recorded owner act with an effective date** (a decision row in section 4); merging a document or code change never activates it. It
+can be suspended (model advice off; human-only review if the proposed P3-D-10 amendment is approved, otherwise the
+case waits with a staff item and a notice; never automatic rejection) or rolled back. Historical
 assessments and decisions keep the versions they used; nothing is silently rescored.
 
 **Change authority (PROPOSED).** A material change (`019` section 6: role, criteria, evidence rules, exercises,

@@ -45,7 +45,7 @@ Status labels used here, so approved direction is never confused with a suggesti
 | Model-proposed questions are never sent until staff approve each one | APPROVED DIRECTION for synthetic P3 (D-34, P3-D-5) |
 | No qualification decision without a valid assessment | APPROVED DIRECTION for synthetic P3 (D-34, P3-D-10); an amendment is proposed in section 7 |
 | A five-criterion synthetic rubric (`work_quality`, `contribution`, `credential_support`, `purpose_fit`, `consistency`), prompt pack `assessment_v2`, output schema 2 | IMPLEMENTED (3B.2, PR #32); **synthetic, not a production standard** |
-| Each run records its snapshot digest, adopted version, prompt pack and digest, rubric version, schema version, model identifier and library version; each evidence capture records its derivation version | IMPLEMENTED; DEMONSTRATED by TEST-P3-01 and TEST-P3-08 (`tests/test_assessment.py`) |
+| Each run records its snapshot digest, adopted version, prompt pack and digest, rubric version, schema version, model identifier and library version; each evidence capture records its derivation version | IMPLEMENTED; run provenance DEMONSTRATED by TEST-P3-01 and TEST-P3-08 (`tests/test_assessment.py`), the derivation version by `tests/test_evidence.py` (TEST-P3-17) |
 | Claims are citable, and a rating resting on claims alone is capped at `partly_supported` | IMPLEMENTED as a default awaiting the owner's POL-04 decision (`018` section 14) |
 | What role a person is selected for; the production rubric; the evidence rules for real candidates; notices, alternatives and correction | UNRESOLVED (POL-03, POL-04, POL-05, POL-17) |
 | Whether any assessment predicts later delivery quality | UNRESOLVED; unknowable until after a pilot (section 7) |
@@ -94,7 +94,7 @@ complete; the examples are synthetic placeholders.
 | Entry requirements (needed on day one) | only what a supervisor cannot reasonably teach within the supervision period; candidates: reading and changing code in at least one language, using version control, explaining what was verified | owner with a domain expert |
 | Learnable after entry (never screened for) | the programme's tools and conventions, a specific framework, the client's domain | owner |
 | Supervision | a named supervisor reviews every client-facing change before release during an initial period | owner (length and form) |
-| Consequences of unsafe performance | an unsafe action (for example exposing client data, bypassing a review) returns the person to L1 pending review; it is recorded as a delivery outcome, not retroactively as an assessment result | owner, with counsel where contracts apply |
+| Consequences of unsafe performance | **placeholder only, not a proposed consequence:** for example, an unsafe action (exposing client data, bypassing a review) pauses client work pending review; it is recorded as a delivery outcome, not retroactively as an assessment result | owner, with counsel where contracts apply |
 
 ## 5. Behavioural criteria (PROPOSED)
 
@@ -109,7 +109,7 @@ evidence, never about the person.
 | C3 Verification and safety | no defect or incident reaches the client | states what was tested and what was not; does not ship unverified changes; protects secrets and data (L3: designs the verification) | test evidence in a sample; a described verification habit; a scenario question on handling a secret | missing: no sample shows testing. Contrary: shared credentials or client data in submitted material; claims of testing that the material refutes | behaviour when unobserved |
 | C4 Learning from feedback | the person improves under supervision | changes course after review; asks for help early | a described review and what changed; references to code review in a sample; a follow-up question | missing: no example offered. Contrary: none should be inferred from tone or confidence | long-term growth |
 | C5 Collaboration and handoff | another person can operate the work | writes handoff notes, explains decisions plainly | a README or handoff note in a sample; a written explanation; the clarity of answers to questions | missing: none supplied. Contrary: a handoff that misstates what the work does | team dynamics |
-| C6 Ownership and reliability | commitments are kept | finishes or hands back explicitly; reports problems | the applicant's account of a past commitment; answering clarification questions on time within a fair window | missing: none supplied. Contrary: unexplained abandonment of the application's own clarification steps is **not** contrary evidence of reliability in delivery, and must not be scored as such | reliability in paid work |
+| C6 Ownership and reliability | commitments are kept | finishes or hands back explicitly; reports problems | the applicant's account of a past commitment; a reference to a delivered project in a sample | missing: none supplied. Contrary: a described pattern of abandoned commitments in the applicant's own account. **Never evidence either way:** how quickly or whether the applicant answers clarification questions | reliability in paid work |
 
 Rules that apply to every criterion:
 
@@ -182,11 +182,11 @@ synthetic defaults.
 
 | Milestone | Addition | Kind of proof |
 |---|---|---|
-| 3B.3 (`catalyst-v2-oc4.4`) | clarification tied to a named evidence gap per criterion; questions that offer alternative evidence routes; candidate-safe wording (the 3B.2 question screen); comparable core questions; staff can see why each question exists | application tests (proof A) |
-| 3B.4 (`catalyst-v2-oc4.5`) | a decision records the human's rationale per criterion, the snapshot digest and the policy identifier; **proposed amendment to P3-D-10**: a decision-maker may decide on a recorded human-only assessment when the model assessment is unavailable or suspended (section 10), never as a shortcut; **needs owner approval**, until then P3-D-10 stands | application tests (proof A) |
-| 3C (`catalyst-v2-oc4.6`) | proves software, permissions, provenance and workflow; **not** a validation of selection quality | GATE-P3 |
-| 3E (`catalyst-v2-oc4.7`) | the synthetic evaluation of section 8: model output against human-reviewed examples and a non-model baseline | evaluation report (proof B) |
-| Before real candidate-impacting use | an approved role profile and `SP-L2-1`; the data-use boundary (P3-D-6); notices, alternatives and correction path (POL-17); reviewer preparation; legal review where counsel names it; the live-call protections (`018` section 14); the correction beads `catalyst-v2-9kg.1` to `.3`; POL-10 | owner approvals, GATE-PILOT |
+| 3B.3 | clarification tied to a named evidence gap per criterion; questions that offer alternative evidence routes; candidate-safe wording (the 3B.2 question screen); comparable core questions; staff can see why each question exists | application tests (proof A) |
+| 3B.4 | a decision records the human's rationale per criterion, the snapshot digest and the policy identifier; **proposed amendment to P3-D-10**: a decision-maker may decide on a recorded human-only assessment when the model assessment is unavailable or suspended (section 10), never as a shortcut; **needs owner approval**, until then P3-D-10 stands | application tests (proof A) |
+| 3C | proves software, permissions, provenance and workflow; **not** a validation of selection quality | GATE-P3 |
+| 3E | the synthetic evaluation of section 8: model output against human-reviewed examples and a non-model baseline | evaluation report (proof B) |
+| Before real candidate-impacting use | an approved role profile and `SP-L2-1`; the data-use boundary (P3-D-6); notices, alternatives and correction path (POL-17); reviewer preparation; legal review where counsel names it; the live-call protections (`018` section 14); the three pre-real-use corrections (append-only correspondence evidence, automatic-pause review, hard-bounce send block); POL-10 | owner approvals, GATE-PILOT |
 | Pilot (P6) | the scorecard (section 9) and the review cadence (section 10) | operating records |
 | After pilot | outcome validation (area D), reviewed improvements as new policy versions | outcome review |
 
@@ -223,13 +223,14 @@ ground truth; model agreement with humans is not correctness.
 
 Computed from existing PostgreSQL records and shown in staff views; no warehouse, analytics service or evaluation
 platform by default. **No thresholds are set** (POL-16): with small numbers, review triggers are case reviews and
-counts, not rates. Owner: the operational delegate (section 10) prepares; the owner reviews.
+counts, not rates. "Minimum to interpret" is the smallest count at which a rate would mean anything; the owner sets
+it, and until then every case is reviewed individually. Owner: the operational delegate (section 10) prepares; the owner reviews.
 
 | Area | Measure | Definition and denominator | Source | Minimum to interpret | Review trigger | Response | Privacy boundary |
 |---|---|---|---|---|---|---|---|
 | A. Candidate | time waiting | days from adoption to decision, per decided case | stage events | any case | any case over the owner's stated window | review the stalled step | counts and durations only |
 | A | clarification burden | questions per application; repeated questions on the same criterion | `Question` records | any case | any repeat question | check the question set | no answer text in reports |
-| A | abandoned cases | applications that stop responding, per started clarification | stage and question records | 5 or more started | any abandonment | case review: was the burden reasonable | no inference about the person |
+| A | abandoned cases | applications that stop responding, per started clarification | stage and question records | owner to set | any abandonment | case review: was the burden reasonable | no inference about the person |
 | A | corrections, alternatives, complaints | correction requests, alternative-route use, unresolved complaints | staff items, events | any | any unresolved complaint | owner review | complaint text stays private |
 | B. Staff | review time | staff minutes from `awaiting_decision` to decision | events | any | outliers by case review | adjust the screen or rubric | none |
 | B | exceptions and futile reruns | open assessment staff items; reruns that end capped or failed | staff items, runs | any | any rerun loop | budget-policy amendment bead | none |
@@ -237,7 +238,7 @@ counts, not rates. Owner: the operational delegate (section 10) prepares; the ow
 | B | reviewer disagreement | cases where two reviewers differ, when two review | decisions | any | any | discuss and record | private |
 | B | shell or database edits | cases that needed a coding agent or a database edit | incident log | any | any | treat as a product defect | none |
 | C. Assessment | unsupported conclusions, missed evidence | findings a reviewer marks unsupported or incomplete, per reviewed run | reviewer annotations | any | any | case review; evaluation comparison | private |
-| C | citation relevance | quotes judged irrelevant to their finding, per citation reviewed | reviewer annotations | 20 citations | any irrelevant citation | prompt or rubric review | private |
+| C | citation relevance | quotes judged irrelevant to their finding, per citation reviewed | reviewer annotations | owner to set | any irrelevant citation | prompt or rubric review | private |
 | C | instability | reruns of an unchanged snapshot that disagree | runs | any | any disagreement | suspend criterion use if repeated | none |
 | C | insufficient-evidence outcomes | criteria rated `insufficient_evidence`, per run | runs | any | rising share by case review | improve evidence routes, not ratings | none |
 | C | version differences | outcomes by policy and model version | runs, decisions | per version | any version change | evaluation comparison | none |
@@ -255,7 +256,9 @@ needs a separately approved lawful basis, access separation and a privacy review
 These are recommendations, not scheduled automations: no cron job, alert or task is created by this document.
 
 - **Policy approver:** Jeremy Longshore. **Operational delegate:** a named staff role (to be named by the owner)
-  who prepares reviews and runs the response steps.
+  who prepares reviews and carries out responses. The decision to suspend model advice or roll back a version is the
+  owner's; the delegate may act alone only under a standing authorization the owner has recorded in advance in `011`
+  section 4 (naming the triggers it covers), and reports to the owner the same day (`011` section 11).
 - **Cadence:** a brief weekly exception review during an authorized pilot; a monthly aggregate review after
   stabilization; revalidation (section 8) after any material change (section 6); immediate triage of a privacy or
   safety incident or an unauthorized decision.
@@ -266,7 +269,7 @@ These are recommendations, not scheduled automations: no cron job, alert or task
 
 | Trigger | Action |
 |---|---|
-| Repeated instability, unsupported conclusions or a harmful pattern in model output | **suspend model advice**: new cases go to human-only review under the proposed P3-D-10 amendment; suspension never rejects or holds anyone automatically |
+| Repeated instability, unsupported conclusions or a harmful pattern in model output | **suspend model advice**: new cases go to human-only review under the proposed P3-D-10 amendment. If the owner declines that amendment, P3-D-10 stands: suspended cases wait in `assessing` with an open staff item and a notice to the applicant, and resume when advice is restored. Either way, suspension never rejects or declines anyone automatically |
 | A defect in a policy version | **roll back** to the previous approved version; cases assessed under the defective version are listed and offered reassessment |
 | A privacy or safety incident, or a decision made without authority | **investigate affected cases**: preserve records, notify the owner, record the root cause and the remedy per case |
 
@@ -294,6 +297,8 @@ document's examples.
 2. Name the domain expert who completes the L2 role profile (section 4) with the owner.
 3. Approve the six criteria and the evidence rules (section 5) as the draft for `SP-L2-1`.
 4. Approve the selection-policy record and change rules (section 6), including that merging never activates.
-5. Approve or reject the P3-D-10 amendment (human-only assessment when model advice is unavailable or suspended).
+5. Approve or reject the P3-D-10 amendment (human-only assessment when model advice is unavailable or suspended). It
+   differs from the "recorded waiver" alternative already rejected for P3-D-10: a waiver skips assessment, while the
+   amendment substitutes a written human assessment against the same criteria and snapshot.
 6. Name the operational delegate role and approve the cadence (section 10).
 7. Approve the private location for real evaluation material (section 12) before any real case review.

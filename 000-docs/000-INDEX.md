@@ -26,7 +26,7 @@ Every document in this directory is **preliminary and subject to review** until 
 | [018-AT-DSGN-p3-evidence-assessment-specification.md](018-AT-DSGN-p3-evidence-assessment-specification.md) | Handoff 3A: P3 specification (applicant claims, deterministic evidence observations with SSRF controls, bounded MiniMax assessment through PydanticAI test models, clarification and reply interpretation on the existing interface, the authorized qualification decision), acceptance plan `TEST-P3-01`-`57`, owner decision brief, 3B task graph | Approved for synthetic P3, version 0.2.1 (D-34, 2026-10-14); 3B.1 and 3B.2 released |
 | [019-DR-STND-candidate-selection-quality-and-validation.md](019-DR-STND-candidate-selection-quality-and-validation.md) | Candidate selection quality and validation: assessment purposes, the first delivery role skeleton, behavioural criteria and evidence rules, the versioned selection-policy record, maturity mapped to the existing phases, a small evaluation process, the quality scorecard, ownership and corrective action; authority in `011` section 11 | PROPOSED, 2026-10-14 |
 
-Next free number: `019`.
+Next free number: `020`.
 
 **After-action reports** go in `000-aars/` inside this directory (filing standard v4.5 §3.1.3): global
 `NNN`, `NNN-AA-AACR-<slug>.md`, from the template above. Filed: `014` (first slice). Cadence: `009` section 10.
