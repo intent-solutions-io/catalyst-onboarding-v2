@@ -7,7 +7,7 @@
 | Source revision | main `8086508` (P3 3B.2 merged, PR #32) |
 | Classification | Public |
 
-> **Status (2026-10-14): P1 and P2 accepted for synthetic work; P3 in progress.** GATE-S1 signed off 2026-10-11 (D-26), GATE-P2 signed off 2026-10-13 (D-33). P3: `018` approved (D-34); 3B.1 evidence collection (PR #30) and 3B.2 bounded assessment with test models only (PR #32) merged; 3B.3, 3B.4 and 3C not yet released; 3E (live synthetic evaluation) needs separate authorization. A candidate selection-quality contract is proposed (`011` section 11, `019`). No deployment, no real applicant data, no live model call; the gates below stay open.
+> **Status (2026-10-14): P1 and P2 accepted for synthetic work; P3 in progress.** GATE-S1 signed off 2026-10-11 (D-26), GATE-P2 signed off 2026-10-13 (D-33). P3: `018` approved (D-34); 3B.1 evidence collection (PR #30) and 3B.2 bounded assessment with test models only (PR #32) merged; 3B.3, 3B.4 and 3C not yet released; 3E (live synthetic evaluation) needs separate authorization. The candidate selection-quality contract was approved 2026-10-14 (D-35; `011` section 11, `019`). No deployment, no real applicant data, no live model call; the gates below stay open.
 >
 > (Previous banner, 2026-10-11: "first slice complete; P2 specified and approved for synthetic work; 2B.1 authorized, not yet built".)
 
@@ -21,7 +21,7 @@
 | Owner-directed amendment of 2026-10-09 | applied | `011` section 9 |
 | P2 correspondence loop | accepted for synthetic work: GATE-P2 PASS 54 (D-33; `016`, after-action report `017`) | PR #21 to #27 |
 | P3 evidence and assessment | 3B.1 merged `d564bfa` (PR #30): versioned claims, fixture-backed evidence observations, no model call. 3B.2 merged `8086508` (PR #32): bounded assessment over a frozen snapshot with PydanticAI test models only, budgets, invocation records, failure routing to staff; full run 760 passed, GATE-S1 25/25, GATE-P2 54/54 (CI run 38644672774). Open in `018` section 14: live-call protections, what clears a capped snapshot | PR #30, PR #32 |
-| Candidate selection quality | PROPOSED: authority in `011` section 11; methods, evaluation and scorecard in `019`; nothing approved | this change |
+| Candidate selection quality | APPROVED as the governing contract (D-35): authority in `011` section 11; methods, evaluation and scorecard in `019`; open: domain expert, operational delegate, private evaluation location, scorecard minimums, capped-snapshot path | PR #33 |
 | Open product policies | POL-01 decided for the slice (D-25); POL-19 decided (D-31); POL-06 and POL-13 decided for synthetic P2 only (D-29, D-30); POL-03, POL-04 and POL-05 synthetic P3 defaults approved with `018` (D-34); production values open (`011` section 6) | bead "Obtain owner decisions on the open product policies listed in the master blueprint" |
 | Specialist subagents | all eleven discovered in a fresh session; one (`catalyst-django-architect`) probed at runtime | `008` section 5.1 |
 | Documentation and runtime CI | green on every merged head through `main` `1cc96ec` (PR #19, run 38118996279); per-task runs on each task's bead | GitHub Actions |
@@ -68,7 +68,7 @@
 
 Current (2026-10-14):
 
-1. Owner review of the selection-quality amendment (`011` section 11, `019` section 13 decisions).
+1. The open selection-quality inputs (`019` section 13): domain expert, operational delegate, private evaluation location.
 2. 3B.3 clarification loop, when released (bead `catalyst-v2-oc4.4`).
 3. Owner decision on what clears a capped assessment snapshot; live-call protections before any 3E run.
 4. Profiling of the runtime suite (bead `catalyst-v2-egz`).

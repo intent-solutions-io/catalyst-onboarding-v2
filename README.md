@@ -31,7 +31,7 @@ decision D-26; evidence `000-docs/013`). The slice covers:
 Since then, P2, the applicant correspondence loop against local test mail servers, passed GATE-P2 on 2026-10-13
 (D-33; `000-docs/016`), and P3 is in progress (`000-docs/018`, approved D-34): versioned applicant claims,
 fixture-backed evidence observations, and a bounded assessment that runs only on PydanticAI test models and is
-advice to a human, never a decision. How the selection standard itself is governed and improved is proposed in
+advice to a human, never a decision. How the selection standard itself is governed and improved is set out (approved D-35) in
 `000-docs/011` section 11 and `000-docs/019`.
 
 Only synthetic data is used and nothing is deployed. Real email, live model calls, the qualification decision,

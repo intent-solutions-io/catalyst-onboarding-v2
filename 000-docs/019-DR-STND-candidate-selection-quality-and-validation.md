@@ -3,12 +3,12 @@
 | Field | Value |
 |---|---|
 | Document | `019-DR-STND-candidate-selection-quality-and-validation` |
-| Version | 0.1.0 (draft for owner review) |
-| Status | **PROPOSED.** Every selection method, criterion, threshold, cadence and role below is a proposal until the owner approves it in a merged PR that records the decision in `011` section 4. Nothing here changes the approved synthetic P3 scope (D-34) or authorizes code, a live model call, real applicant data, a release or a deployment. |
+| Version | 1.0.0 (approved; 0.1.0 was the review draft) |
+| Status | **APPROVED by the owner 2026-10-14 (D-35 in `011` section 4: "approve 019 and merge 33").** This is the governing contract for selection quality. The role profile (section 4) and `SP-L2-1` remain drafts until completed and activated; the items in section 13 marked open remain open. The approval authorizes no code, release, live model call, real applicant data, deployment or policy activation. |
 | Owner | Jeremy Longshore (approver) |
 | Date | 2026-10-14 |
 | Baseline | main `8086508` (3B.2 merged) |
-| Authority hub | `011` section 11 (who owns selection quality, how it changes, how it maps to the phases) |
+| Authority hub | `011` section 11 (who owns selection quality, how it changes, how it maps to the phases); decision D-35 |
 | Classification | Public. Policies and synthetic examples only. Real case reviews, evaluation answers and restricted material never enter this repository (section 12). |
 
 ## 0. How to read this document
@@ -43,7 +43,7 @@ Status labels used here, so approved direction is never confused with a suggesti
 | Model output is advisory and never authorizes a transition | APPROVED DIRECTION (D-04) |
 | Fixed criteria per rubric version, a rating per criterion, an advisory recommendation, no numeric score | APPROVED DIRECTION for synthetic P3 (D-34, `018` P3-D-4) |
 | Model-proposed questions are never sent until staff approve each one | APPROVED DIRECTION for synthetic P3 (D-34, P3-D-5) |
-| No qualification decision without a valid assessment | APPROVED DIRECTION for synthetic P3 (D-34, P3-D-10); an amendment is proposed in section 7 |
+| No qualification decision without a valid assessment | APPROVED DIRECTION for synthetic P3 (D-34, P3-D-10), **amended by D-35**: a recorded human-only assessment is allowed when model advice is unavailable or suspended (section 7) |
 | A five-criterion synthetic rubric (`work_quality`, `contribution`, `credential_support`, `purpose_fit`, `consistency`), prompt pack `assessment_v2`, output schema 2 | IMPLEMENTED (3B.2, PR #32); **synthetic, not a production standard** |
 | Each run records its snapshot digest, adopted version, prompt pack and digest, rubric version, schema version, model identifier and library version; each evidence capture records its derivation version | IMPLEMENTED; run provenance DEMONSTRATED by TEST-P3-01 and TEST-P3-08 (`tests/test_assessment.py`), the derivation version by `tests/test_evidence.py` (TEST-P3-17) |
 | Claims are citable, and a rating resting on claims alone is capped at `partly_supported` | IMPLEMENTED as a default awaiting the owner's POL-04 decision (`018` section 14) |
@@ -68,7 +68,7 @@ as method guidance, not as procedures we follow.
 
 Not done: no vendor survey, no framework comparison, no reproduction of licensed assessment material.
 
-## 3. What a person is selected for (PROPOSED assessment purposes)
+## 3. What a person is selected for (assessment purposes, approved D-35)
 
 Three purposes, ordered by the responsibility they lead to. They are **assessment purposes, not implemented
 tracks**, automatic entitlements, certifications or legal statuses. Admission under one purpose never implies
@@ -82,7 +82,7 @@ another.
 
 The first delivery role (section 4) is L2. L3 is not designed here; it needs its own role profile and approval.
 
-## 4. The first delivery role: supervised delivery (L2), PROPOSED skeleton
+## 4. The first delivery role: supervised delivery (L2), draft skeleton
 
 **UNRESOLVED until the owner and a domain expert fill it in.** The rows are the structure the job analysis must
 complete; the examples are synthetic placeholders.
@@ -96,7 +96,7 @@ complete; the examples are synthetic placeholders.
 | Supervision | a named supervisor reviews every client-facing change before release during an initial period | owner (length and form) |
 | Consequences of unsafe performance | **placeholder only, not a proposed consequence:** for example, an unsafe action (exposing client data, bypassing a review) pauses client work pending review; it is recorded as a delivery outcome, not retroactively as an assessment result | owner, with counsel where contracts apply |
 
-## 5. Behavioural criteria (PROPOSED)
+## 5. Behavioural criteria (approved D-35 as the draft of `SP-L2-1`)
 
 Six criteria for L2. Each rating is **two separate facts**: the capability shown (what the evidence indicates)
 and the strength of evidence (how much there is to go on). An `insufficient_evidence` rating is about the
@@ -128,7 +128,7 @@ C5 (authorship), `credential_support` is evidence for C2 or C3 only where a cred
 `purpose_fit` ≈ L1 participation, `consistency` is an evidence-quality check, not a criterion. C1, C3, C4 and C6
 are not in the synthetic rubric. A production rubric is a new pack and schema version under section 6.
 
-## 6. The selection-policy record (PROPOSED documentation contract)
+## 6. The selection-policy record (documentation contract, approved D-35)
 
 A **selection policy** is the versioned standard a decision is made under. Initially it is a documentation
 record, not a software registry. Its identifier is `SP-<role>-<n>` (for example `SP-L2-1`).
@@ -164,7 +164,7 @@ recorded owner act.
 **History is never rewritten.** Every assessment and decision keeps the inputs and versions it used (already true
 for runs: `018` section 14). No silent rescoring, no overwritten decisions, no budget reset by a new version.
 
-**Pending cases across a change (PROPOSED):**
+**Pending cases across a change:**
 
 | Case state when a new version activates | Handling |
 |---|---|
@@ -173,7 +173,7 @@ for runs: `018` section 14). No silent rescoring, no overwritten decisions, no b
 | Clarification in progress | finishes under its original version; the applicant is not asked new questions mid-round without notice |
 | Decided | unchanged; a reconsideration, if POL-05 or POL-12 allows one, states which version it applies |
 
-## 7. Maturity mapped onto the existing phases (PROPOSED)
+## 7. Maturity mapped onto the existing phases
 
 No new P-phase. Each addition sits at its earliest relevant milestone. Synthetic results are necessary evidence,
 **not proof of real-world predictive validity**, and that limitation stays visible during any pilot. Longitudinal
@@ -183,14 +183,14 @@ synthetic defaults.
 | Milestone | Addition | Kind of proof |
 |---|---|---|
 | 3B.3 | clarification tied to a named evidence gap per criterion; questions that offer alternative evidence routes; candidate-safe wording (the 3B.2 question screen); comparable core questions; staff can see why each question exists | application tests (proof A) |
-| 3B.4 | a decision records the human's rationale per criterion, the snapshot digest and the policy identifier; **proposed amendment to P3-D-10**: a decision-maker may decide on a recorded human-only assessment when the model assessment is unavailable or suspended (section 10), never as a shortcut; **needs owner approval**, until then P3-D-10 stands | application tests (proof A) |
+| 3B.4 | a decision records the human's rationale per criterion, the snapshot digest and the policy identifier; **P3-D-10 as amended (D-35)**: a decision-maker may decide on a recorded human-only assessment when the model assessment is unavailable or suspended (section 10), never as a shortcut | application tests (proof A) |
 | 3C | proves software, permissions, provenance and workflow; **not** a validation of selection quality | GATE-P3 |
 | 3E | the synthetic evaluation of section 8: model output against human-reviewed examples and a non-model baseline | evaluation report (proof B) |
 | Before real candidate-impacting use | an approved role profile and `SP-L2-1`; the data-use boundary (P3-D-6); notices, alternatives and correction path (POL-17); reviewer preparation; legal review where counsel names it; the live-call protections (`018` section 14); the three pre-real-use corrections (append-only correspondence evidence, automatic-pause review, hard-bounce send block); POL-10 | owner approvals, GATE-PILOT |
 | Pilot (P6) | the scorecard (section 9) and the review cadence (section 10) | operating records |
 | After pilot | outcome validation (area D), reviewed improvements as new policy versions | outcome review |
 
-## 8. A small, credible evaluation process (PROPOSED)
+## 8. A small, credible evaluation process
 
 **Set.** Start with a small set of synthetic cases written and reviewed by the owner and a domain expert, not a
 benchmark platform. It must include: strong candidates whose work is private; non-traditional backgrounds;
@@ -219,7 +219,7 @@ disagreements are recorded, not averaged away. Real cases are never added to the
 **Limits stated with every report:** a small set is not statistical proof; a human decision is not unquestionable
 ground truth; model agreement with humans is not correctness.
 
-## 9. Watching quality: a small scorecard (PROPOSED)
+## 9. Watching quality: a small scorecard (structure approved D-35)
 
 Computed from existing PostgreSQL records and shown in staff views; no warehouse, analytics service or evaluation
 platform by default. **No thresholds are set** (POL-16): with small numbers, review triggers are case reviews and
@@ -244,14 +244,14 @@ it, and until then every case is reviewed individually. Owner: the operational d
 | C | version differences | outcomes by policy and model version | runs, decisions | per version | any version change | evaluation comparison | none |
 | D. Delivery (after pilot) | quality, rework, handoff, reliability, safety | per assigned person, at the responsibility actually assigned | delivery records (not yet designed) | after enough assignments for case review | any safety incident | separate assessment error from poor assignment, inadequate support or unequal opportunity | restricted; never public |
 
-**False negatives.** They cannot be estimated from accepted candidates alone. PROPOSED: offer a voluntary second
+**False negatives.** They cannot be estimated from accepted candidates alone. Offer a voluntary second
 look to a sample of uncertain cases (held or declined on thin evidence), through a comparable evidence route. What
 remains unobservable: how declined people would have performed.
 
 **Protected characteristics.** Never inferred from names, photographs or text. Any demographic fairness analysis
 needs a separately approved lawful basis, access separation and a privacy review; none is proposed here.
 
-## 10. Ownership, cadence and corrective action (PROPOSED operating plan)
+## 10. Ownership, cadence and corrective action (operating plan, approved D-35)
 
 These are recommendations, not scheduled automations: no cron job, alert or task is created by this document.
 
@@ -269,7 +269,7 @@ These are recommendations, not scheduled automations: no cron job, alert or task
 
 | Trigger | Action |
 |---|---|
-| Repeated instability, unsupported conclusions or a harmful pattern in model output | **suspend model advice**: new cases go to human-only review under the proposed P3-D-10 amendment. If the owner declines that amendment, P3-D-10 stands: suspended cases wait in `assessing` with an open staff item and a notice to the applicant, and resume when advice is restored. Either way, suspension never rejects or declines anyone automatically |
+| Repeated instability, unsupported conclusions or a harmful pattern in model output | **suspend model advice**: new cases go to human-only review under the amended P3-D-10 (D-35). Until 3B.4 builds that path, suspended cases wait in `assessing` with an open staff item and a notice to the applicant. Suspension never rejects or declines anyone automatically |
 | A defect in a policy version | **roll back** to the previous approved version; cases assessed under the defective version are listed and offered reassessment |
 | A privacy or safety incident, or a decision made without authority | **investigate affected cases**: preserve records, notify the owner, record the root cause and the remedy per case |
 
@@ -291,14 +291,23 @@ evaluation material need an **approved private location with an access and reten
 exist. Until then only synthetic cases are written, and only into the repository's public test fixtures or this
 document's examples.
 
-## 13. Owner decisions this document needs
+## 13. Owner decisions
 
-1. Approve the three assessment purposes (section 3) as the frame, or replace them.
-2. Name the domain expert who completes the L2 role profile (section 4) with the owner.
-3. Approve the six criteria and the evidence rules (section 5) as the draft for `SP-L2-1`.
-4. Approve the selection-policy record and change rules (section 6), including that merging never activates.
-5. Approve or reject the P3-D-10 amendment (human-only assessment when model advice is unavailable or suspended). It
-   differs from the "recorded waiver" alternative already rejected for P3-D-10: a waiver skips assessment, while the
-   amendment substitutes a written human assessment against the same criteria and snapshot.
-6. Name the operational delegate role and approve the cadence (section 10).
-7. Approve the private location for real evaluation material (section 12) before any real case review.
+Decided 2026-10-14 (D-35):
+
+1. The three assessment purposes (section 3) are the frame.
+2. The six criteria and the evidence rules (section 5) are the draft for `SP-L2-1`.
+3. The selection-policy record and change rules (section 6), including that merging never activates.
+4. The P3-D-10 amendment: a recorded human-only assessment when model advice is unavailable or suspended. It differs
+   from the "recorded waiver" rejected for P3-D-10: a waiver skips assessment, while the amendment substitutes a
+   written human assessment against the same criteria and snapshot. It applies when 3B.4 is built.
+5. The cadence and corrective actions (section 10), the evaluation process (section 8) and the scorecard structure
+   (section 9).
+
+Still open (each needs a name or an input the approval did not give):
+
+1. The domain expert who completes the L2 role profile (section 4) with the owner.
+2. The operational delegate role and any standing authorization for it (section 10).
+3. The private location, access and retention rules for real evaluation material (section 12).
+4. The scorecard's minimum counts (section 9).
+5. What clears a capped assessment snapshot (`018` section 14).

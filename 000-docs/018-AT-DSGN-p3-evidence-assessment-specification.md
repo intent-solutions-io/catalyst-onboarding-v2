@@ -3,8 +3,8 @@
 | Field | Value |
 |---|---|
 | Document | `018-AT-DSGN-p3-evidence-assessment-specification` |
-| Version | 0.2.2 (2026-10-14: status line corrected and section 15 added as PROPOSED). The owner's approval (D-34) covers version 0.2.1, sections 1 to 12; sections 13 and 14 are implementation records; section 15 is not approved |
-| Status | **APPROVED by the owner 2026-10-14 (version 0.2.1; D-34 in `011` section 4), with the recommended defaults `P3-D-1` to `P3-D-16` for synthetic P3.** 3B.1 (PR #30, `d564bfa`) and 3B.2 (PR #32, `8086508`) are merged; 3B.3, 3B.4 and 3C each need their own release. Selection-quality integration (section 15) is PROPOSED. Approval authorizes no live model call, real fetching, real applicant data, real mail, versioned release or deployment. |
+| Version | 0.2.2 (2026-10-14: status line corrected and section 15 added). The owner's approval D-34 covers version 0.2.1, sections 1 to 12; sections 13 and 14 are implementation records; section 15 and the P3-D-10 amendment were approved by D-35 |
+| Status | **APPROVED by the owner 2026-10-14 (version 0.2.1; D-34 in `011` section 4), with the recommended defaults `P3-D-1` to `P3-D-16` for synthetic P3.** 3B.1 (PR #30, `d564bfa`) and 3B.2 (PR #32, `8086508`) are merged; 3B.3, 3B.4 and 3C each need their own release. Selection-quality integration (section 15) and the P3-D-10 amendment were approved by D-35. Approval authorizes no live model call, real fetching, real applicant data, real mail, versioned release or deployment. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-13 |
 | Epic | P3, "Collect evidence, run the bounded MiniMax assessment, and record the authorized qualification decision" (`catalyst-v2-oc4`); this task is `catalyst-v2-oc4.1` |
@@ -795,7 +795,7 @@ boundary. Their findings were applied before merge; the dispositions are below.
 - **Scope of proof.** The tests prove orchestration, validation, safety and recovery with a scripted
   `FunctionModel`. They prove nothing about a real model's assessment quality (018 9 B, `catalyst-v2-oc4.7`).
 
-## 15. Selection-quality integration (PROPOSED, 2026-10-14)
+## 15. Selection-quality integration (approved 2026-10-14, D-35)
 
 Authority and lifecycle for the selection standard live in `011` section 11; methods, criteria, the evaluation
 protocol and the scorecard live in `019`. This section states only what the P3 software carries and where its
@@ -812,12 +812,11 @@ until a policy is approved, the rubric version stands in for it, and it is synth
 | Handoff | Addition | Boundary |
 |---|---|---|
 | 3B.3 | each model-proposed or staff-authored question names the criterion and the evidence gap it addresses; questions offer an alternative evidence route where one exists (`019` section 5); the 3B.2 question screen applies to staff-authored questions too; the staff screen shows why each question exists | staff approval before sending stays (P3-D-5) |
-| 3B.4 | the `QualificationDecision` records per-criterion human rationale and the selection-policy identifier alongside the snapshot digest; the decision screen shows capability and strength of evidence separately | the authority gate and P3-D-10 stand unless the owner approves the amendment below |
+| 3B.4 | the `QualificationDecision` records per-criterion human rationale and the selection-policy identifier alongside the snapshot digest; the decision screen shows capability and strength of evidence separately | the authority gate stands; P3-D-10 as amended below |
 | 3C | GATE-P3 proves software, permissions, provenance and workflow | it is **not** a validation of selection quality and its report must say so |
 | 3E | runs the `019` section 8 protocol on synthetic cases | evidence, not proof of predictive validity |
 
-**Proposed amendment to P3-D-10 (needs owner approval; until then P3-D-10 stands: no decision without a valid
-assessment).** A decision-maker may decide on a **recorded human-only assessment** (the same criteria, written
+**P3-D-10 as amended (D-35, 2026-10-14; the original rule was: no decision without a valid assessment).** A decision-maker may decide on a **recorded human-only assessment** (the same criteria, written
 rationale, the same snapshot) when model advice is unavailable for a case or suspended under `019` section 10. It
 is never a shortcut past a working assessment; every use is visible on the scorecard (`019` section 9, area B).
 Rationale: suspending model advice must not strand or silently reject applicants.
