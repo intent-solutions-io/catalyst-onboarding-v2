@@ -683,3 +683,13 @@ caps (100 headers, 65,536 bytes per line) and by the deadline.
 
 **3B.2 backfill:** applications already waiting in `assessing` when 3B.2 is released get their `run_assessment`
 through the same kind of versioned activation command, never automatically.
+
+**Re-check round.** The QA re-check found no blocker or HIGH. The security re-check found the TLS handshake was
+still outside the watchdog, and that the stray-end-tag fix made the HTML extractor quadratic on hostile input.
+Both are fixed:
+
+- **Handshake.** It runs after the watchdog holds the TLS socket, so it is inside the deadline.
+- **HTML extractor.** Tracked nesting is capped at 64, an unmatched end tag is ignored in constant time, and the
+  number of parser events is capped (the page is then marked truncated).
+
+Tests cover a server that never completes the handshake and a hostile tag soup.

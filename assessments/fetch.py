@@ -291,8 +291,12 @@ def _one_request(target: Target, ip: str, extra, source, remaining) -> FetchResu
         peer = raw.getpeername()[0]
         if not classify(peer, extra):
             raise Refused("peer_not_allowed")
-        tls = tls_context().wrap_socket(raw, server_hostname=target.host)
-        raw = live["sock"] = tls
+        tls = tls_context().wrap_socket(raw, server_hostname=target.host, do_handshake_on_connect=False)
+        raw = live["sock"] = tls  # the watchdog now holds the TLS socket, so the handshake itself is bounded
+        tls.settimeout(remaining())
+        tls.do_handshake()
+        if expired.is_set():
+            raise Transient("deadline_exceeded")
         connection = http.client.HTTPSConnection(target.host, target.port, timeout=remaining())
         connection.sock = tls  # never reconnects or re-resolves
         connection.putrequest("GET", target.request_path, skip_host=True, skip_accept_encoding=True)
@@ -348,9 +352,9 @@ def _one_request(target: Target, ip: str, extra, source, remaining) -> FetchResu
     except ssl.SSLCertVerificationError:
         raise Refused("tls_certificate_refused") from None
     except (TimeoutError, socket.timeout):
-        raise Transient("deadline_exceeded" if expired.is_set() else "timeout") from None
+        raise Transient("deadline_exceeded" if _past(expired, remaining) else "timeout") from None
     except (ssl.SSLError, ConnectionError, OSError, http.client.HTTPException, ValueError):
-        raise Transient("deadline_exceeded" if expired.is_set() else "connection_failed") from None
+        raise Transient("deadline_exceeded" if _past(expired, remaining) else "connection_failed") from None
     finally:
         if watchdog is not None:
             watchdog.cancel()
@@ -359,6 +363,15 @@ def _one_request(target: Target, ip: str, extra, source, remaining) -> FetchResu
                 raw.close()
             except OSError:
                 pass
+
+
+def _past(expired, remaining) -> bool:
+    if expired.is_set():
+        return True
+    try:
+        return remaining() <= 0.05
+    except Transient:
+        return True
 
 
 # --- derivation ---------------------------------------------------------------------------------------------
@@ -375,33 +388,55 @@ _MARKERS = [
 ]
 
 
+class _TooMany(Exception):
+    pass
+
+
 class _Text(HTMLParser):
     """Visible text only. Hiding is best effort and advisory, never a security control: the derivative is
     untrusted data wherever it goes."""
 
+    MAX_DEPTH = 64  # deeper nesting is flattened into the innermost tracked element (bounded work per tag)
+    MAX_EVENTS = 50_000
+
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.parts, self.stack = [], []  # (tag, hidden) per open element
+        self.parts, self.stack, self.open, self.events = [], [], {}, 0  # (tag, hidden) per tracked open element
+
+    def _count(self):
+        self.events += 1
+        if self.events > self.MAX_EVENTS:
+            raise _TooMany
 
     def handle_starttag(self, tag, attrs):
+        self._count()
         if tag in _VOID:
             return
         a = dict(attrs)
         hidden = (tag in _SKIP_TAGS or "hidden" in a or (a.get("aria-hidden") or "").lower() == "true"
                   or bool(_HIDDEN_STYLE.search(a.get("style") or "")))
-        self.stack.append((tag, hidden or (bool(self.stack) and self.stack[-1][1])))
+        parent_hidden = bool(self.stack) and self.stack[-1][1]
+        if len(self.stack) >= self.MAX_DEPTH:
+            if hidden and not parent_hidden:  # a hidden element past the cap hides the rest of that subtree
+                self.stack[-1] = (self.stack[-1][0], True)
+            return
+        self.stack.append((tag, hidden or parent_hidden))
+        self.open[tag] = self.open.get(tag, 0) + 1
         if tag in ("p", "div", "li", "br", "h1", "h2", "h3", "h4", "tr"):
             self.parts.append("\n")
 
     def handle_endtag(self, tag):
-        if tag in _VOID:
-            return
-        for i in range(len(self.stack) - 1, -1, -1):  # a stray end tag never closes a hidden ancestor
-            if self.stack[i][0] == tag:
-                del self.stack[i:]
+        self._count()
+        if tag in _VOID or not self.open.get(tag):
+            return  # an unmatched end tag is ignored in constant time and never closes a hidden ancestor
+        while self.stack:  # at most MAX_DEPTH steps
+            closed, _ = self.stack.pop()
+            self.open[closed] -= 1
+            if closed == tag:
                 return
 
     def handle_data(self, data):
+        self._count()
         if not (self.stack and self.stack[-1][1]):
             self.parts.append(data)
 
@@ -422,16 +457,21 @@ def derive(result: FetchResult) -> Derived:
     if charset not in CHARSETS:  # a server-chosen codec (punycode, unicode_escape, utf-7) is never used
         charset = "utf-8"
     raw = result.body.decode(charset, errors="replace")
+    many = False
     if content_type == "text/html":
         parser = _Text()
-        parser.feed(raw)
-        parser.close()
+        try:
+            parser.feed(raw)
+            parser.close()
+        except _TooMany:
+            many = True  # a page with an absurd number of tags keeps the text seen so far, marked truncated
         raw = "".join(parser.parts)
     text = _clean(raw)
     derived = Derived()
     limit = settings.CATALYST_EVIDENCE_MAX_TEXT_CHARS
     if len(text) > limit:
         text, derived.truncated = text[:limit], True
+    derived.truncated = derived.truncated or many
     derived.text = text
     derived.markers = sorted({name for name, pattern in _MARKERS if pattern.search(text)})
     return derived

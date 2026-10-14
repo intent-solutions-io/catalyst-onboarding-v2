@@ -623,3 +623,37 @@ def test_the_longest_matching_path_prefix_selects_the_source(ev):
     narrow = source(ev, key="narrow", path_prefix="/docs")
     assert collection.approved_source("work_sample_page", url(ev, "/docs/x")) == narrow
     assert collection.approved_source("work_sample_page", url(ev, "/docs-private/x")).key == "broad"
+
+
+
+def test_p3_14_the_deadline_bounds_a_server_that_never_finishes_the_tls_handshake(ev, settings):
+    import socket as sk
+    import threading
+    import time
+
+    silent = sk.socket()
+    silent.bind(("127.0.0.1", 0))
+    silent.listen(1)
+    held = []
+    threading.Thread(target=lambda: held.append(silent.accept()), daemon=True).start()  # accepts, never answers
+    src = services.define_evidence_source(key="silent", kind="work_sample_page", host=HOST, port=silent.getsockname()[1],
+                                          fixture_only=True, max_bytes=1000, deadline_seconds=1)
+    src = services.approve_evidence_source(src.pk, ev.source_owner, src.definition_sha256)
+    started = time.monotonic()
+    with pytest.raises(fetch.Transient, match="deadline_exceeded"):
+        fetch.fetch(f"https://{HOST}:{silent.getsockname()[1]}/w", src)
+    assert time.monotonic() - started < 3
+    silent.close()
+
+
+
+def test_hostile_html_is_derived_in_bounded_time():
+    import time
+
+    body = ("<a>" * 40_000 + "</z>" * 35_000 + "<p>end</p>").encode()
+    started = time.monotonic()
+    derived = fetch.derive(fetch.FetchResult("u", 200, "text/html", "", body, False, "1.2.3.4"))
+    assert time.monotonic() - started < 5 and derived.truncated
+    nested = "<div hidden>" + "<span>" * 100 + "secret" + "</span>" * 100 + "</div><p>shown</p>"
+    text = fetch.derive(fetch.FetchResult("u", 200, "text/html", "", nested.encode(), False, "1.2.3.4")).text
+    assert "secret" not in text and "shown" in text
