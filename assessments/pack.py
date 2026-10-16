@@ -13,8 +13,8 @@ CURRENT = "assessment_v3"
 INTERPRET = "interpret_v1"  # 3B.3: the reply-interpretation pack (system prompt only, no rubric)
 # The digest of each pack version as reviewed. Recomputed at every load; a mismatch refuses the run (TEST-P3-33).
 PINNED = {
-    "assessment_v3": "46c810a705c13adc4db0936b801c3b7ae1d3e13e51825f8b103cbf704ab17ef6",
-    "interpret_v1": "247b3d7bb4e3fc93c6b65a4b901b5ad03fc78f3bf6119bdc8b608935749ea190",
+    "assessment_v3": "75e5859c746e62f14d1c99a4bdbb75a4dec1eecdedefe035c24291847ead931f",
+    "interpret_v1": "e375064b56dfa787c628dbc6822b65f76edfaa1373a92ce312ef6e0c79250592",
     "assessment_v2": "6ac79ac9cbc34c8e0b824f4127c5b4975bc2a803e5320fe47531369b68499dd5",
     "assessment_v1": "524730fc13cb964271e5fb709e0c58ad9d85c22c960d6f1e0f083806b6d7d892",
 }

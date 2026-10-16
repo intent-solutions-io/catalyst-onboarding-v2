@@ -46,6 +46,7 @@ from .models import (
 from .common import DECIDABLE, Refused, actor_ref, require  # noqa: F401  (re-exported for callers)
 from .messages import build_email, enqueue_file_copy, message_id, verified_address  # noqa: F401
 from .rendering import TemplateRefused, canonical_digest, check_version, render
+from .questions import sent_text
 from .scheduling import schedule_after_acceptance
 from .staff_items import event, open_item, resolve_item
 
@@ -156,7 +157,7 @@ def approve_question(question_id: int, user) -> ApprovedMessage:
             raise Refused("no_approved_template_version")
         try:
             message = _freeze(application, ApprovedMessage.Kind.QUESTION, recipient, version,
-                              {"display_name": application.display_name, "question_text": question.text},
+                              {"display_name": application.display_name, "question_text": sent_text(question)},
                               actor_ref(user), ApprovedMessage.Authority.STAFF)
         except TemplateRefused as exc:
             raise Refused(str(exc)) from None

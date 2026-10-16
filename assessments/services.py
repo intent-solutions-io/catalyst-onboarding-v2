@@ -208,6 +208,7 @@ def author_clarification(application_id: int, user, *, text: str, criterion_id: 
     try:
         return questions.author_question(application_id, user, text=text, criterion_id=criterion_id,
                                          evidence_gap=evidence_gap, alternative_route=alternative_route,
-                                         requires_evidence=requires_evidence, round=clarification.staff_round(application))
+                                         requires_evidence=requires_evidence, round=clarification.staff_round(application),
+                                         stages=CLARIFY_STAGES)
     except common.Refused as exc:
         raise Refused(str(exc)) from None

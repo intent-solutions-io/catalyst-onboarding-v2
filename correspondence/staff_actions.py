@@ -29,10 +29,11 @@ from applications.links import CONFIRM_PATH
 from applications.models import TERMINAL_STAGES, ApplicationEvent
 from workflow.models import AutomationPause, PendingAction
 
-from .questions import answers_settled
+from .questions import answers_settled, sent_text
 from .models import (
     ApprovedMessage,
     ApprovedMessageQuestion,
+    InboundMessage,
     OutboundMessage,
     Question,
     QuestionReplyLink,
@@ -133,7 +134,7 @@ def decide_uncertain_send(message_id: int, user, decision: str, note: str = "") 
                 disposition=Disposition.SUPERSEDED, disposition_at=Now(), disposition_by=actor)
             try:
                 revised = _freeze(application, message.kind, message.recipient, version,
-                                  {"display_name": application.display_name, "question_text": questions[0].text},
+                                  {"display_name": application.display_name, "question_text": sent_text(questions[0])},
                                   actor, ApprovedMessage.Authority.STAFF, supersedes=message)
             except TemplateRefused as exc:
                 raise Refused(str(exc)) from None
@@ -265,12 +266,19 @@ def withdraw_question(question_id: int, user, reason_code: str, note: str = "") 
             resolve_item(item, code="question_withdrawn", actor_ref=actor, note=note,
                          effects={"question": str(question.public_id)})
             resolved.append(str(item.public_id))
-        # The reply itself is never dropped: its reply_needs_review item stays open for D3 or D4.
-        answers_settled(application)  # P3 3B.3: the last open question withdrawn may end a clarification round
+        # The reply itself is never dropped: its reply_needs_review item stays open for D3 or D4. Queued P3
+        # message-level interpretation of those replies is cancelled; a running one re-checks its questions.
+        still_asked = set(QuestionReplyLink.objects.filter(inbound_message_id__in=voided, state="pending").values_list(
+            "inbound_message_id", flat=True))  # a reply still answering another question keeps its interpretation
+        for message_ref in InboundMessage.objects.filter(pk__in=set(voided) - still_asked).values_list("public_id", flat=True):
+            cancelled_interpretations += PendingAction.objects.filter(
+                kind="interpret_message", status=Status.QUEUED, input_ref__startswith=f"{message_ref}:").update(
+                status=Status.CANCELLED, last_error="question_withdrawn", completed_at=Now(), updated_at=Now())
         event(application, "question_withdrawn", {
             "question": str(question.public_id), "reason": reason_code, "voided_links": len(voided),
             "cancelled_interpretations": cancelled_interpretations, "resolved_items": resolved},
             actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
+        answers_settled(application)  # P3 3B.3: the last open question withdrawn may end a clarification round
     question.refresh_from_db()
     return question
 

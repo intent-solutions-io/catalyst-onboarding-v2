@@ -39,7 +39,7 @@
 </table>
 <p>Advisory recommendation: {{ run.output.recommendation }} (confidence {{ run.output.confidence }}), resting on {% for c in run.output.basis_criteria %}{{ c }}{% if not forloop.last %}, {% endif %}{% endfor %}: <bdi>{{ run.output.recommendation_basis|visible }}</bdi></p>
 {% if run.output.limitations %}<p>Limitations:</p><ul>{% for l in run.output.limitations %}<li><bdi>{{ l|visible }}</bdi></li>{% endfor %}</ul>{% endif %}
-{% if run.output.proposed_questions %}<p>Proposed questions (not sent; staff approval comes with 3B.3):</p><ul>{% for q in run.output.proposed_questions %}<li><bdi>{{ q.text|visible }}</bdi></li>{% endfor %}</ul>{% endif %}
+{% if run.output.proposed_questions %}<p>Questions this run proposed (stored as proposed questions below; never sent without staff approval):</p><ul>{% for q in run.output.proposed_questions %}<li><bdi>{{ q.text|visible }}</bdi></li>{% endfor %}</ul>{% endif %}
 {% endif %}{% endif %}
 <h2>Clarification</h2>
 <p>Every question names the criterion and the evidence gap it addresses. Nothing is sent until an operator approves it.</p>

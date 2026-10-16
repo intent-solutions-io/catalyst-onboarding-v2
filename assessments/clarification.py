@@ -29,8 +29,8 @@ OPEN = (Question.Status.OPEN, Question.Status.REPLY_PENDING)
 
 
 def propose_from_run(run, output) -> int:
-    if run.round > settings.CATALYST_ASSESSMENT_ROUNDS:
-        return 0
+    if run.round >= settings.CATALYST_ASSESSMENT_ROUNDS:
+        return 0  # a question asked in the last round could never be reassessed
     already = Question.objects.filter(application_id=run.application_id, origin=Question.Origin.MODEL, round=run.round).count()
     created = 0
     for proposal in output.proposed_questions:

@@ -1,4 +1,4 @@
-"""The assessment output contract (018 5.3, schema version 2) and its deterministic checks.
+"""The assessment output contract (018 5.3, schema version 3) and its deterministic checks.
 
 The pydantic model bounds the shape; `problems` then checks what a schema cannot: every criterion exactly once,
 citations to aliases that were sent, quotes copied verbatim from exactly the text that was sent and long enough

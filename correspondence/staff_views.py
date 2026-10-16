@@ -158,7 +158,9 @@ def item_detail(request, public_id):
 def reply_detail(request, public_id):
     message = get_object_or_404(InboundMessage.objects.select_related("application"), public_id=public_id)
     links = message.question_links.select_related("question").order_by("question_id")
-    interpretation = message.interpretations.filter(status="completed").order_by("-attempt").first()
+    # Only advice computed on the derivative shown now: after a re-derivation old spans would point at other text.
+    interpretation = message.interpretations.filter(status="completed", text_sha256=message.derived_text_sha256).order_by(
+        "-attempt").first()
     advice = []
     if interpretation is not None:  # P3 3B.3: advice only, shown beside the question; never pre-selected
         texts = {str(link.question.public_id): link.question.text for link in links}

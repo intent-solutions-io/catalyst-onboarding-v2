@@ -57,13 +57,17 @@ def create_question(application, *, text: str, origin: str, criterion_id: str, e
 
 
 def author_question(application_id: int, user, *, text: str, criterion_id: str, evidence_gap: str,
-                    alternative_route: str = "", requires_evidence: bool = False, round: int = 0) -> Question:
-    """018 step 6: staff write a question; it is stored proposed and still needs P2 approval to be sent."""
+                    alternative_route: str = "", requires_evidence: bool = False, round: int = 0,
+                    stages: tuple = ()) -> Question:
+    """018 step 6: staff write a question; it is stored proposed and still needs P2 approval to be sent. `stages`,
+    when given, is checked under the application lock."""
     require(user, "author_question")
     with transaction.atomic():
         application = Application.objects.select_for_update(of=("self",)).get(pk=application_id)
         if application.stage in TERMINAL_STAGES:
             raise Refused("application_closed")
+        if stages and application.stage not in stages:
+            raise Refused("stage_not_clarifying")
         question = create_question(
             application, text=text, origin=Question.Origin.STAFF, criterion_id=criterion_id, evidence_gap=evidence_gap,
             alternative_route=alternative_route, requires_evidence=requires_evidence, raised_by="staff", round=round,
@@ -78,3 +82,12 @@ def answers_settled(application) -> None:
     hook = getattr(settings, "CATALYST_ANSWERS_CONFIRMED_HOOK", None)
     if hook:
         import_string(hook)(application)
+
+
+def sent_text(question) -> str:
+    """What the applicant reads (019 section 5, D-35): the question and, where one exists, the alternative
+    evidence route, so a person with confidential or private work is offered another way. Both were screened when
+    the question was created; P2 questions have no route and are sent unchanged."""
+    if not question.alternative_route:
+        return question.text
+    return f"{question.text}\n\nIf you cannot share that, you could instead: {question.alternative_route}"

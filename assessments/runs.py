@@ -22,7 +22,7 @@ from django.db import connection, transaction
 from django.db.models import Sum
 from django.db.models.functions import Coalesce, Now
 
-from applications.models import TERMINAL_STAGES, Application, ApplicationEvent, Stage
+from applications.models import Application, ApplicationEvent, Stage
 from applications.stages import StageConflict, transition
 from correspondence.models import StaffItem
 from correspondence.staff_items import open_item, resolve_item
@@ -72,8 +72,8 @@ def enqueue_assessment(application, trigger: str, why: list | None = None, round
         open_item("assessment_capped", f"runs:{application.public_ref}", application=application)
         why.append("application_run_budget")
         return None
-    if round is None:  # a first run or a rerun stays in the current round (3B.3 rounds, 018 step 8)
-        latest = runs.filter(status=Run.SUCCEEDED).order_by("-round").first()
+    if round is None:  # a first run or a rerun stays in the round of the latest run, whatever its outcome (018 step 8)
+        latest = runs.order_by("-round", "-id").first()
         round = latest.round if latest is not None else 1
     run = AssessmentRun.objects.create(
         application=application, adopted_version=application.versions.get(public_id=value["version"]),
@@ -201,7 +201,12 @@ class RunAssessment:
         if stop:
             return (Status.DONE, stop, False, lambda: (
                 _finish_run(run, Run.CAPPED, error_code=stop), _staff(application, "assessment_capped", run)), None), None, None
-        request = snapshot.build_request(application, current, pack)
+        try:
+            request = snapshot.build_request(application, current, pack)
+        except ValueError:  # a confirmed answer no longer matches the snapshot: refuse cleanly, nothing reserved
+            return (Status.DONE, "answer_changed", False, lambda: (
+                _finish_run(run, Run.REFUSED, error_code="answer_changed"),
+                _staff(application, "assessment_input_changed", run)), None), None, None
         AssessmentInvocation.objects.create(
             run=run, application=application, snapshot_sha256=run.snapshot_sha256, attempt=claim.attempt,
             reserved_requests=REQUESTS_PER_ATTEMPT, reserved_tokens=agent.attempt_tokens())
@@ -253,12 +258,11 @@ class RunAssessment:
                         input_tokens=outcome.input_tokens, output_tokens=outcome.output_tokens, provider=outcome.provider,
                         model_id=outcome.model_id[:100], output_mode=outcome.output_mode, library_version=pydantic_ai.__version__)
             event(application, "assessment_completed", {"run": str(run.public_id), "snapshot": run.snapshot_sha256[:16]})
-            if application.stage not in TERMINAL_STAGES:
-                clarification.propose_from_run(run, outcome.output)  # stored proposed; nothing is sent (P3-D-5)
             settle_items(application, "assessment_succeeded", f"pending_action:{claim.id}")
             try:  # unconditional on the content: no output field chooses a transition (018 4 step 4)
                 transition(application.pk, (Stage.ASSESSING,), Stage.AWAITING_DECISION, event_kind="assessment_ready_for_decision",
                            data={"run": str(run.public_id)}, actor_ref=f"pending_action:{claim.id}")
             except StageConflict:
-                pass  # the application left `assessing` meanwhile: the run is history only
+                return  # the application left `assessing` meanwhile: the run is history only, and proposes nothing
+            clarification.propose_from_run(run, outcome.output)  # stored proposed; nothing is sent (P3-D-5)
         ledger.finish(claim, self, status=Status.DONE, write=write)

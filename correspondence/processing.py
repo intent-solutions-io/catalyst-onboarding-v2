@@ -140,6 +140,28 @@ class ReplyInterpreter(Protocol):
     def interpret(self, request: InterpretRequest) -> "InterpretResult | InterpretUnavailable": ...
 
 
+OWN_LINE_MIN = 15  # a sent line or question this long, found in a reply, is our text even unquoted (3B.3 review)
+_LIST_MARKER = re.compile(r"^(?:\d+[.)]|[-*])\s+")
+
+
+def own_text_ranges(text: str, sent_body: str, question_texts=()) -> list[Span]:
+    """Where our own words appear in a reply, quoted or not: the sent body, each of its lines of at least
+    OWN_LINE_MIN characters and each question text, matched with any run of whitespace standing for any other
+    (clients re-wrap). A span inside these ranges cites us, not the applicant (018 5.2, 5.4)."""
+    lines = [_LIST_MARKER.sub("", line.strip()) for line in sent_body.splitlines()]
+    candidates = [sent_body.strip()] + [line for line in lines if len(line) >= OWN_LINE_MIN]
+    candidates += [q.strip() for q in question_texts if len(q.strip()) >= OWN_LINE_MIN]  # "Why?" never masks an answer
+    found = set()
+    for candidate in candidates:
+        words = candidate.split()
+        if not words:
+            continue
+        # Clients re-wrap, re-case and number our text: any whitespace run, any case, an optional list marker.
+        pattern = re.compile(r"(?:\d+[.)]\s*|[-*]\s+)?" + r"\s+".join(re.escape(w) for w in words), re.I)
+        found.update(m.span() for m in pattern.finditer(text))
+    return [Span(s, e) for s, e in sorted(found)]
+
+
 def text_sha256(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
@@ -175,7 +197,7 @@ def validate_proposals(request: InterpretRequest, proposals, stored_sha256: str,
         problems.append("text_changed")
     if provenance is not None and (not isinstance(provenance.usage, dict) or len(provenance.usage) > MAX_USAGE_KEYS):
         problems.append("usage_unbounded")
-    sent = [m.span() for m in re.finditer(re.escape(request.sent_body.strip()), request.text)] if request.sent_body.strip() else []
+    sent = [(s.start, s.end) for s in own_text_ranges(request.text, request.sent_body, [q.text for q in request.questions])]
     for proposal in proposals:
         if proposal.outcome not in OUTCOMES:
             problems.append("unknown_outcome")
@@ -380,9 +402,13 @@ def create_interpretation(application, message) -> bool:
     return True
 
 
-def _evidence_flags(message, questions) -> list[str]:
-    """018 5.4, the missing rule: a question that requires evidence, answered with no attachment or link."""
-    linked = bool(message.attachments) or bool(re.search(r"https?://|www\.", message.derived_text, re.I))
+def _evidence_flags(message, request, questions) -> list[str]:
+    """018 5.4, the missing rule: a question that requires evidence, answered with no attachment or link of the
+    applicant's own (a link in quoted text or in our own message does not count)."""
+    excluded = list(request.quoted) + own_text_ranges(request.text, request.sent_body, [q.text for q in questions])
+    own_links = any(not any(x.start < m.end() and m.start() < x.end for x in excluded)
+                    for m in re.finditer(r"https?://|www\.", request.text, re.I))
+    linked = bool(message.attachments) or own_links
     return [] if linked else [f"evidence_required_but_absent:{q.public_id}" for q in questions if q.requires_evidence]
 
 
@@ -415,7 +441,9 @@ class InterpretMessage:
                 early, prepared = self.precall(claim)
                 if early is not None:
                     status, code = early
-                    ledger.finish(claim, self, status=status, error=code)
+                    # A pause before anything is recorded returns the attempt (the 3B.2 rule for runs).
+                    ledger.finish(claim, self, status=status, error=code, refund_attempt=code == "automation_paused",
+                                  due_in=timedelta(seconds=settings.CATALYST_WORKER_POLL_SECONDS) if status == Status.QUEUED else None)
                     return
         except ledger.LeaseLost:
             return
@@ -431,6 +459,15 @@ class InterpretMessage:
             return (Status.FAILED, "message_not_found"), None
         if message.status != Inbound.AWAITING_PROCESSING:
             return (Status.CANCELLED, "decided_by_staff"), None  # nothing is disclosed after staff decided (TEST-P3-55)
+        if getattr(settings, "CATALYST_REPLY_INTERPRETATION_ACTIVATION", 0) < 1:
+            return (Status.CANCELLED, "interpretation_not_active"), None  # the suspension lever (019 section 10)
+        if application.stage in TERMINAL_STAGES:
+            return (Status.CANCELLED, "application_closed"), None
+        if AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists():
+            return (Status.QUEUED, "automation_paused"), None  # nothing recorded yet for this attempt
+        # Earlier attempts that never finished were possibly billed: they stay counted and are marked abandoned.
+        ReplyInterpretation.objects.filter(message=message, status="started").update(
+            status=ReplyInterpretation.Status.ABANDONED, code="interrupted", finished_at=Now())
         if message.derived_text_sha256 != digest:
             return (Status.DONE, "text_changed"), None
         if not interpretable(message):
@@ -439,6 +476,8 @@ class InterpretMessage:
                      .order_by("question_id"))
         if not links:
             return (Status.DONE, "no_pending_questions"), None
+        if len(links) > 20:
+            return (Status.DONE, "too_many_questions"), None
         interpreter = import_string(settings.CATALYST_REPLY_INTERPRETER)()
         refusal = interpreter.admit(application)  # model availability and the shared daily budget, before any record
         attempt = ReplyInterpretation.objects.filter(message=message).count() + 1
@@ -471,13 +510,19 @@ class InterpretMessage:
             return finish(ReplyInterpretation.Status.SUPERSEDED, code="decided_by_staff")
         if message.derived_text_sha256 != request.text_sha256:
             return finish(ReplyInterpretation.Status.TEXT_CHANGED, code="text_changed")
+        if not interpretable(message):
+            return finish(ReplyInterpretation.Status.SUPERSEDED, code="no_longer_eligible")
+        pending = set(QuestionReplyLink.objects.filter(inbound_message=message, state="pending").values_list(
+            "question__public_id", flat=True))
+        if {str(p) for p in pending} != {q.id for q in request.questions}:  # a question withdrawn mid-call
+            return finish(ReplyInterpretation.Status.SUPERSEDED, code="questions_changed")
         if isinstance(outcome, InterpretUnavailable):
             return finish(ReplyInterpretation.Status.UNAVAILABLE, code=outcome.code[:64])
         problems = validate_proposals(request, outcome.proposals, message.derived_text_sha256, outcome.provenance)
         provenance = {k: v for k, v in vars(outcome.provenance).items()}
         if problems:
             return finish(ReplyInterpretation.Status.INVALID, problems=problems, provenance=provenance)
-        finish(ReplyInterpretation.Status.COMPLETED, provenance=provenance, flags=_evidence_flags(message, questions),
+        finish(ReplyInterpretation.Status.COMPLETED, provenance=provenance, flags=_evidence_flags(message, request, questions),
                proposals=[{"question": p.question_id, "outcome": p.outcome, "spans": [[s.start, s.end] for s in p.spans],
                            "note": p.note} for p in outcome.proposals])
         event(message.application, "reply_interpreted", {"message": str(message.public_id),
