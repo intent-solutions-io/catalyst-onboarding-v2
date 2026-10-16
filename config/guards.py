@@ -112,7 +112,8 @@ def mail_problems(settings) -> list[str]:
     return problems
 
 
-DISPATCH_SETTINGS = ("CATALYST_ATTENTION_OPENER", "CATALYST_ACTION_HANDLERS")
+DISPATCH_SETTINGS = ("CATALYST_ATTENTION_OPENER", "CATALYST_ACTION_HANDLERS", "CATALYST_REPLY_INTERPRETER",
+                     "CATALYST_ANSWERS_CONFIRMED_HOOK", "CATALYST_REPLY_INTERPRETATION_ACTIVATION")
 
 
 def dispatch_problems(settings, environ: Mapping[str, str]) -> list[str]:
@@ -122,6 +123,10 @@ def dispatch_problems(settings, environ: Mapping[str, str]) -> list[str]:
     opener = getattr(settings, "CATALYST_ATTENTION_OPENER", None)
     if opener is not None and not str(opener).startswith("correspondence."):
         problems.append("CATALYST_ATTENTION_OPENER must name a correspondence function")
+    for name in ("CATALYST_REPLY_INTERPRETER", "CATALYST_ANSWERS_CONFIRMED_HOOK"):  # P3 3B.3
+        path = getattr(settings, name, None)
+        if path is not None and not str(path).startswith("assessments."):
+            problems.append(f"{name} must name an assessments object")
     for kind, path in (getattr(settings, "CATALYST_ACTION_HANDLERS", None) or {}).items():
         if not str(path).startswith(("correspondence.", "workflow.", "assessments.")):
             problems.append(f"CATALYST_ACTION_HANDLERS[{kind!r}] must name a correspondence, workflow or assessments handler")

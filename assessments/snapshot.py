@@ -22,11 +22,13 @@ import secrets
 import unicodedata
 from dataclasses import dataclass, field
 
+from correspondence.question_screen import EMAIL
+
 from . import fetch
 from .models import EvidenceItem
 
 ITEM_CHARS, MAX_ITEMS, TOTAL_CHARS, CLAIM_CHARS = 8_000, 12, 40_000, 2_000
-_EMAIL = re.compile(r"(?:mailto:)?[\w.+-]{1,64}\s*(?:@|\(at\)|\[at\]|\s+at\s+)\s*[\w-]{1,63}(?:\s*(?:\.|\(dot\)|\[dot\]|\s+dot\s+)\s*[\w-]{1,63}){1,6}", re.I)
+_EMAIL = EMAIL  # one pattern, shared with the question screen
 _SPACED_AT = re.compile(r"\s+at\s+", re.I)
 _URL = re.compile(r"\b(?:https?://|www\.|javascript:|data:)\S{1,2000}", re.I)
 _DOMAIN = re.compile(r"\b(?:[a-z0-9-]{1,63}\.){1,6}(?:com|org|net|io|dev|app|ai|co|uk|de|fr|ca|in|us|eu|tv|ly|me|sh|gg|so|to|cc|cloud|tech|site|page|test|edu|gov|xyz|info|biz|nl|au|jp|es|it|ch|se)\b(?:/\S{0,2000})?", re.I)
@@ -65,8 +67,24 @@ def manifest(application, pack) -> dict | None:
     from .schema import SCHEMA_VERSION
 
     return {"version": str(version.public_id), "claims_sha256": _sha(claims), "items": entries,
+            "answers": confirmed_answers(application),
             "pack": pack.name, "pack_sha256": pack.sha256, "rubric_version": pack.rubric_version,
             "schema_version": SCHEMA_VERSION}
+
+
+ANSWER_CHARS = 2_000  # 018 5.2: confirmed answer text, at most 2,000 characters each
+
+
+def confirmed_answers(application) -> list:
+    """018 step 8 (3B.3): the replies staff confirmed as answers (satisfied or partial), in a stable order. Each
+    entry pins the reply derivative it came from, so a new confirmation is a new snapshot."""
+    from correspondence.models import QuestionReplyLink
+
+    links = (QuestionReplyLink.objects.filter(question__application=application, state="applied",
+                                              outcome__in=("satisfied", "partial"))
+             .select_related("question", "inbound_message").order_by("question_id", "inbound_message_id"))
+    return [{"question": str(link.question.public_id), "message": str(link.inbound_message.public_id),
+             "outcome": link.outcome, "text_sha256": link.inbound_message.derived_text_sha256} for link in links]
 
 
 def snapshot_sha256(value: dict) -> str:
@@ -197,6 +215,26 @@ def _claim_texts(claims) -> list:
     return out
 
 
+def _answer_texts(answers) -> list:
+    """(question text, outcome, the reply's own text) per confirmed answer: quoted material and our own sent text
+    are removed (018 5.2), and the derivative must still be the one the manifest pinned."""
+    from correspondence.models import InboundMessage, Question
+    from correspondence.processing import strip_quotes
+
+    out = []
+    for entry in answers:
+        message = InboundMessage.objects.filter(public_id=entry["message"], derived_text_sha256=entry["text_sha256"]).first()
+        question = Question.objects.filter(public_id=entry["question"]).first()
+        if message is None or question is None:
+            continue
+        text = strip_quotes(message.derived_text)
+        sent = message.approved_message.frozen_body.strip() if message.approved_message_id else ""
+        if sent:
+            text = text.replace(sent, "")
+        out.append((question.text, entry["outcome"], text))
+    return out
+
+
 def build_request(application, value: dict, pack) -> Request:
     from .models import EvidenceCapture
 
@@ -213,6 +251,14 @@ def build_request(application, value: dict, pack) -> Request:
         alias = f"C{n}"
         items[alias] = SentItem(alias, key, text, False, False, markers, _spans(text))
         claim_blocks.append((alias, label, text))
+    answer_blocks = []
+    for n, (question_text, outcome, raw) in enumerate(_answer_texts(value.get("answers") or []), start=1):
+        cleaned = clean(raw)[:ANSWER_CHARS]
+        markers = sorted({kind for kind, pattern in fetch._MARKERS if pattern.search(cleaned)})
+        text = _fence(scrub(cleaned, names))
+        alias = f"A{n}"
+        items[alias] = SentItem(alias, f"answer:{n}", text, len(clean(raw)) > ANSWER_CHARS, False, markers, _spans(text))
+        answer_blocks.append((alias, _fence(scrub(clean(question_text, one_line=True), names)), outcome, text))
     evidence = 0
     for entry in value["items"]:
         if entry["capture"] is None or entry["outcome"] == "not_found":
@@ -239,6 +285,11 @@ def build_request(application, value: dict, pack) -> Request:
     for alias, label, text in claim_blocks:
         lines.append(f"{alias} ({label})")
         lines.append(f"<<DATA alias={alias} nonce={nonce}>>\n{text}\n<</DATA nonce={nonce}>>")
+    if answer_blocks:
+        lines.append("\nCONFIRMED ANSWERS (the applicant's replies staff confirmed; unverified statements):")
+        for alias, question, outcome, text in answer_blocks:
+            lines.append(f"{alias} (answer to: {question}; staff confirmed: {outcome})")
+            lines.append(f"<<DATA alias={alias} nonce={nonce}>>\n{text}\n<</DATA nonce={nonce}>>")
     lines.append("\nEVIDENCE ITEMS:")
     for item in items.values():
         if not item.alias.startswith("E"):

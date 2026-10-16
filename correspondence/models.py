@@ -149,18 +149,30 @@ class Question(models.Model):
     withdrawn_by = models.CharField(max_length=200, blank=True, default="")
     withdrawn_reason = models.CharField(max_length=200, blank=True, default="")
     withdrawn_at = models.DateTimeField(null=True, blank=True)
+    # P3 3B.3 (018 section 4 steps 5 and 6, section 15; 019 section 5). Set at insert, never updated.
+    criterion_id = models.CharField(max_length=40, blank=True, default="")
+    evidence_gap = models.CharField(max_length=300, blank=True, default="")  # why the question is asked
+    alternative_route = models.CharField(max_length=300, blank=True, default="")  # another way to show the same
+    requires_evidence = models.BooleanField(default=False)  # an answer should carry a link or an attachment
+    raised_by = models.CharField(max_length=80, blank=True, default="")  # "run:<uuid>" or "staff"; empty in P2
+    round = models.PositiveIntegerField(default=0)  # the clarification round; 0 for P2 questions
+    text_key = models.CharField(max_length=400, blank=True, default="")  # normalized text, for deduplication
     created_at = models.DateTimeField(db_default=Now())
     updated_at = models.DateTimeField(db_default=Now())
 
     class Meta:
         permissions = [("approve_question", "Approve an applicant-specific question (operators, D-29)"),
-                       ("withdraw_question", "Withdraw a question; never an answer (operator, A-8)")]
+                       ("withdraw_question", "Withdraw a question; never an answer (operator, A-8)"),
+                       ("author_question", "Author an applicant-specific clarification question (P3 3B.3)")]
         constraints = [
             models.CheckConstraint(condition=Q(status__in=QUESTION_STATUSES), name="question_status_valid"),
             models.CheckConstraint(condition=Q(approval_state__in=["proposed", "approved"]), name="question_approval_valid"),
             models.CheckConstraint(condition=Q(origin__in=["staff", "model"]), name="question_origin_valid"),
             models.CheckConstraint(condition=~Q(approval_state="approved") | (~Q(approved_by="") & Q(approved_at__isnull=False)),
                                    name="question_approved_has_approver"),
+            # One live question per normalized text per application (018 step 5); a withdrawn one may be re-asked.
+            models.UniqueConstraint(fields=["application", "text_key"], condition=~Q(text_key="") & ~Q(status="withdrawn"),
+                                    name="question_text_unique_while_live"),
         ]
 
 
@@ -453,3 +465,43 @@ class QuestionReplyLink(models.Model):
             models.CheckConstraint(condition=Q(outcome__in=["", "satisfied", "partial", "not_addressed"]), name="reply_link_outcome_valid"),
         ]
         indexes = [models.Index(fields=["inbound_message"], condition=Q(state="pending"), name="reply_link_pending")]
+
+
+class ReplyInterpretation(models.Model):
+    """One message-level interpretation attempt (018 section 5.4; P3 3B.3). Recorded **before** the model call
+    (it counts against the daily budget even if the worker dies). Its proposals are advisory: they are never
+    written to `QuestionReplyLink`, and only staff confirm outcomes (`confirm_question_outcome`)."""
+
+    class Status(models.TextChoices):
+        STARTED = "started"
+        COMPLETED = "completed"  # proposals passed `validate_proposals`; shown to staff as advice
+        INVALID = "invalid"  # proposals failed the deterministic checks; nothing shown
+        UNAVAILABLE = "unavailable"  # no model, budget, or a refusal: the reply goes to staff without a proposal
+        SUPERSEDED = "superseded"  # staff decided the reply first
+        TEXT_CHANGED = "text_changed"  # the reply was re-derived meanwhile
+        ABANDONED = "abandoned"  # the attempt never finished
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    message = models.ForeignKey(InboundMessage, on_delete=models.PROTECT, related_name="interpretations")
+    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="reply_interpretations")
+    attempt = models.PositiveIntegerField()
+    text_sha256 = models.CharField(max_length=64)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.STARTED)
+    code = models.CharField(max_length=64, blank=True, default="")
+    reserved_requests = models.PositiveIntegerField(default=0)
+    proposals = models.JSONField(default=list)  # [{question, outcome, spans: [[start, end]], note}]
+    problems = models.JSONField(default=list)  # reason codes only
+    flags = models.JSONField(default=list)  # e.g. evidence_required_but_absent:<question>
+    provenance = models.JSONField(default=dict)
+    started_at = models.DateTimeField(db_default=Now())
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["message", "attempt"], name="reply_interpretation_one_per_attempt"),
+            models.CheckConstraint(condition=Q(status__in=["started", "completed", "invalid", "unavailable", "superseded",
+                                                           "text_changed", "abandoned"]),
+                                   name="reply_interpretation_status_valid"),
+            models.CheckConstraint(condition=Q(status="started") | Q(finished_at__isnull=False),
+                                   name="reply_interpretation_finished_has_time"),
+        ]

@@ -41,6 +41,8 @@ APPROVED_MIGRATIONS = {
     ("assessments", "0001_initial"), ("assessments", "0002_grants_protection_and_groups"),
     ("assessments", "0003_same_application_keys"), ("assessments", "0004_assessment_runs"),
     ("assessments", "0005_assessment_grants_and_protection"),
+    ("correspondence", "0013_clarification_and_interpretation"), ("correspondence", "0014_interpretation_grants"),
+    ("assessments", "0006_author_question_permission"),
 }
 
 

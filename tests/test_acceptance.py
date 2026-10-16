@@ -266,6 +266,8 @@ DATABASE_CONSTRAINTS = {
     "assessment_run_status_valid", "assessment_run_round_positive", "assessment_run_one_success_per_snapshot",
     "assessment_run_one_in_flight", "assessment_run_success_has_output", "assessment_run_terminal_has_time",
     "assessment_invocation_one_per_attempt", "assessment_invocation_status_valid",
+    "question_text_unique_while_live", "reply_interpretation_one_per_attempt", "reply_interpretation_status_valid",
+    "reply_interpretation_finished_has_time",
 }
 
 

@@ -5,6 +5,11 @@
 trust {{ message.trust_decision }}. Derivation version {{ message.derivation_version }}{% if message.truncated %}; truncated{% endif %}{% if message.omitted_parts %}; some parts omitted{% endif %}.</p>
 <h2>Derivative text (not the original message)</h2>
 <pre class="untrusted">{{ message.derived_text|visible }}</pre>
+{% if interpretation %}<h2>Model reading (advisory)</h2>
+<p>A model's reading of this reply, not an outcome. You choose every outcome below; nothing is pre-selected.</p>
+<ul>{% for a in advice %}<li><bdi>{{ a.question|visible }}</bdi>: {{ a.outcome }}{% if a.note %}; <bdi>{{ a.note|visible }}</bdi>{% endif %}
+{% for q in a.quotes %}<pre class="untrusted">{{ q|visible }}</pre>{% endfor %}</li>{% endfor %}</ul>
+{% if interpretation.flags %}<p>Flags: {% for f in interpretation.flags %}{{ f }}{% if not forloop.last %}, {% endif %}{% endfor %}.</p>{% endif %}{% endif %}
 <h2>Questions</h2>
 {% if can_decide and pending %}
 <form method="post" action="{% url 'correspondence_staff:confirm_outcome' message.public_id %}">{% csrf_token %}

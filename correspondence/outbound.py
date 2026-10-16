@@ -29,7 +29,8 @@ from django.db.models import Max
 from django.db.models.functions import Now
 from django.utils.module_loading import import_string
 
-from applications.models import TERMINAL_STAGES, Application, ApplicationEvent
+from applications.models import TERMINAL_STAGES, Application, ApplicationEvent, Stage
+from applications.stages import transition
 from workflow import ledger
 from workflow.models import AutomationPause, PendingAction
 
@@ -166,6 +167,10 @@ def approve_question(question_id: int, user) -> ApprovedMessage:
         enqueue_send(message, 0)
         event(application, "question_approved", {"question": str(question.public_id), "send_ref": str(message.send_ref)},
               actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor_ref(user))
+        if application.stage == Stage.AWAITING_DECISION:  # 018 step 5: a staff act opens the clarification round
+            transition(application.pk, (Stage.AWAITING_DECISION,), Stage.AWAITING_ANSWERS, event_kind="clarification_started",
+                       data={"question": str(question.public_id)}, actor_type=ApplicationEvent.ActorType.STAFF,
+                       actor_ref=actor_ref(user))
     return message
 
 

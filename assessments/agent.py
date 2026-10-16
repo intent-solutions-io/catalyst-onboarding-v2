@@ -84,15 +84,18 @@ def attempt_tokens() -> int:
     return 2 * settings.CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST + settings.CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT
 
 
-def assess(request) -> Outcome:
+def run_checked(system: str, prompt: str, output_type, check) -> Outcome:
+    """One bounded attempt: at most 2 requests (the call and one repair). `check(output)` returns problem codes;
+    any code triggers the one repair (ModelRetry), and a second failure ends the attempt as invalid output.
+    Shared by the assessment and the reply interpreter, so the live-model refusal and the limits exist once."""
     model = build_model()
-    agent = Agent(model, output_type=AssessmentOutput, system_prompt=request.system, retries=1)
+    agent = Agent(model, output_type=output_type, system_prompt=system, retries=1)
 
     last = []
 
     @agent.output_validator
-    def check(output: AssessmentOutput) -> AssessmentOutput:
-        found = problems(output, request)
+    def validate(output):
+        found = check(output)
         last[:] = found
         if found:
             raise ModelRetry("The output broke these rules; fix them and answer again: " + ", ".join(found))
@@ -103,7 +106,7 @@ def assess(request) -> Outcome:
                          output_tokens_limit=settings.CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT,
                          total_tokens_limit=attempt_tokens())
     try:
-        result = agent.run_sync(request.prompt, usage_limits=limits, model_settings=MODEL_SETTINGS)
+        result = agent.run_sync(prompt, usage_limits=limits, model_settings=MODEL_SETTINGS)
     except UsageLimitExceeded:
         raise BudgetStop("usage_limit_exceeded") from None
     except UnexpectedModelBehavior as exc:
@@ -119,3 +122,7 @@ def assess(request) -> Outcome:
         raise ProviderError(type(exc).__name__) from None
     requests, input_tokens, output_tokens = _usage(result)
     return Outcome(result.output, requests, input_tokens, output_tokens, getattr(model, "model_name", type(model).__name__))
+
+
+def assess(request) -> Outcome:
+    return run_checked(request.system, request.prompt, AssessmentOutput, lambda output: problems(output, request))

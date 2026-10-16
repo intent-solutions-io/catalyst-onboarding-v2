@@ -186,3 +186,28 @@ def rerun_assessment(application_id: int, user, note: str = ""):
                                         actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor_ref(user),
                                         data={"run": str(run.public_id)})
     return run
+
+
+CLARIFY_STAGES = (Stage.AWAITING_DECISION, Stage.AWAITING_ANSWERS)
+
+
+def author_clarification(application_id: int, user, *, text: str, criterion_id: str, evidence_gap: str,
+                         alternative_route: str = "", requires_evidence: bool = False):
+    """018 step 6 (3B.3): a staff-authored clarification question on the P3 screen. It must name a criterion of the
+    current rubric and the evidence gap it addresses; it passes the same screen as model proposals and still needs
+    P2 approval before anything is sent. The permission is `correspondence.author_question`."""
+    from correspondence import common, questions
+
+    from . import clarification, pack as packs
+
+    application = Application.objects.get(pk=application_id)
+    if application.stage not in CLARIFY_STAGES:
+        raise Refused("stage_not_clarifying")
+    if criterion_id not in {c["id"] for c in packs.load().criteria}:
+        raise Refused("unknown_criterion")
+    try:
+        return questions.author_question(application_id, user, text=text, criterion_id=criterion_id,
+                                         evidence_gap=evidence_gap, alternative_route=alternative_route,
+                                         requires_evidence=requires_evidence, round=clarification.staff_round(application))
+    except common.Refused as exc:
+        raise Refused(str(exc)) from None

@@ -20,16 +20,16 @@ from datetime import timedelta
 from django.conf import settings
 from django.db import connection, transaction
 from django.db.models import Sum
-from django.db.models.functions import Coalesce, Now, TruncDate
+from django.db.models.functions import Coalesce, Now
 
-from applications.models import Application, ApplicationEvent, Stage
+from applications.models import TERMINAL_STAGES, Application, ApplicationEvent, Stage
 from applications.stages import StageConflict, transition
 from correspondence.models import StaffItem
 from correspondence.staff_items import open_item, resolve_item
 from workflow import ledger
 from workflow.models import AutomationPause, PendingAction
 
-from . import agent, pack as packs, snapshot
+from . import agent, clarification, pack as packs, snapshot
 from .models import AssessmentInvocation, AssessmentRun
 from .schema import SCHEMA_VERSION, flags
 
@@ -46,7 +46,7 @@ def event(application, kind, data, actor_ref=""):
                                     actor_ref=actor_ref, data=data)
 
 
-def enqueue_assessment(application, trigger: str, why: list | None = None):
+def enqueue_assessment(application, trigger: str, why: list | None = None, round: int | None = None):
     """Returns the queued run, or None when nothing is needed or allowed; `why` receives the reason code."""
     why = why if why is not None else []
     try:
@@ -72,9 +72,12 @@ def enqueue_assessment(application, trigger: str, why: list | None = None):
         open_item("assessment_capped", f"runs:{application.public_ref}", application=application)
         why.append("application_run_budget")
         return None
+    if round is None:  # a first run or a rerun stays in the current round (3B.3 rounds, 018 step 8)
+        latest = runs.filter(status=Run.SUCCEEDED).order_by("-round").first()
+        round = latest.round if latest is not None else 1
     run = AssessmentRun.objects.create(
         application=application, adopted_version=application.versions.get(public_id=value["version"]),
-        trigger=trigger, snapshot=value, snapshot_sha256=digest, prompt_pack=pack.name, prompt_pack_sha256=pack.sha256,
+        trigger=trigger, round=round, snapshot=value, snapshot_sha256=digest, prompt_pack=pack.name, prompt_pack_sha256=pack.sha256,
         rubric_version=pack.rubric_version, schema_version=SCHEMA_VERSION)
     PendingAction.objects.create(kind=KIND, subject_type="application", subject_id=application.public_ref,
                                  input_ref=str(run.public_id), idempotency_key=f"{KIND}:{run.public_id}",
@@ -220,8 +223,9 @@ class RunAssessment:
             t=Sum(Coalesce("used_tokens", "reserved_tokens")))["t"] or 0
         if used + agent.attempt_tokens() > settings.CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION:
             return "application_token_budget"
-        today = invocations.annotate(day=TruncDate("started_at")).filter(day=TruncDate(Now())).aggregate(
-            n=Sum("reserved_requests"))["n"] or 0
+        from .interpret import daily_requests_used
+
+        today = daily_requests_used()  # assessments and reply interpretations share the daily budget (3B.3)
         if today + REQUESTS_PER_ATTEMPT > settings.CATALYST_ASSESSMENT_DAILY_REQUESTS:
             return "daily_request_budget"  # defaults to 0: nothing runs until the owner sets a value
         if AssessmentRun.objects.filter(status=Run.RESERVED).exclude(pk=run.pk).count() >= settings.CATALYST_ASSESSMENT_CONCURRENT_RUNS:
@@ -249,6 +253,8 @@ class RunAssessment:
                         input_tokens=outcome.input_tokens, output_tokens=outcome.output_tokens, provider=outcome.provider,
                         model_id=outcome.model_id[:100], output_mode=outcome.output_mode, library_version=pydantic_ai.__version__)
             event(application, "assessment_completed", {"run": str(run.public_id), "snapshot": run.snapshot_sha256[:16]})
+            if application.stage not in TERMINAL_STAGES:
+                clarification.propose_from_run(run, outcome.output)  # stored proposed; nothing is sent (P3-D-5)
             settle_items(application, "assessment_succeeded", f"pending_action:{claim.id}")
             try:  # unconditional on the content: no output field chooses a transition (018 4 step 4)
                 transition(application.pk, (Stage.ASSESSING,), Stage.AWAITING_DECISION, event_kind="assessment_ready_for_decision",

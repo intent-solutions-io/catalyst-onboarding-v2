@@ -29,6 +29,7 @@ from applications.links import CONFIRM_PATH
 from applications.models import TERMINAL_STAGES, ApplicationEvent
 from workflow.models import AutomationPause, PendingAction
 
+from .questions import answers_settled
 from .models import (
     ApprovedMessage,
     ApprovedMessageQuestion,
@@ -265,6 +266,7 @@ def withdraw_question(question_id: int, user, reason_code: str, note: str = "") 
                          effects={"question": str(question.public_id)})
             resolved.append(str(item.public_id))
         # The reply itself is never dropped: its reply_needs_review item stays open for D3 or D4.
+        answers_settled(application)  # P3 3B.3: the last open question withdrawn may end a clarification round
         event(application, "question_withdrawn", {
             "question": str(question.public_id), "reason": reason_code, "voided_links": len(voided),
             "cancelled_interpretations": cancelled_interpretations, "resolved_items": resolved},
