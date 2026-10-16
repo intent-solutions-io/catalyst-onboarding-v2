@@ -25,13 +25,15 @@ from typing import Protocol
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models.functions import Now
+from django.utils.module_loading import import_string
 
 from applications.models import TERMINAL_STAGES, Application, ApplicationEvent
 from workflow import ledger
 from workflow.models import AutomationPause, PendingAction
 
 from .inbound import ANSWERABLE, PROCESS_REPLY, queue_processing, refresh_question_status
-from .models import InboundMessage, Question, QuestionReplyLink, StaffItem
+from .models import InboundMessage, Question, QuestionReplyLink, ReplyInterpretation, StaffItem
+from .questions import answers_settled
 from .common import Refused, actor_ref, require
 from .messages import verified_address
 from .staff_items import NOTE_LIMIT, clean_note, event, open_item, resolve_item
@@ -39,6 +41,7 @@ from .staff_items import NOTE_LIMIT, clean_note, event, open_item, resolve_item
 Status = PendingAction.Status
 Inbound = InboundMessage.Status
 INTERPRET_REPLY = "interpret_reply"
+INTERPRET_MESSAGE = "interpret_message"  # P3 3B.3: one coalesced interpretation per reply derivative (018 5.4)
 OUTCOMES = {"satisfied": "satisfied", "partial": "partial", "not_addressed": "not_addressed"}
 QUOTE_STRIP_VERSION = 1
 
@@ -137,6 +140,28 @@ class ReplyInterpreter(Protocol):
     def interpret(self, request: InterpretRequest) -> "InterpretResult | InterpretUnavailable": ...
 
 
+OWN_LINE_MIN = 15  # a sent line or question this long, found in a reply, is our text even unquoted (3B.3 review)
+_LIST_MARKER = re.compile(r"^(?:\d+[.)]|[-*])\s+")
+
+
+def own_text_ranges(text: str, sent_body: str, question_texts=()) -> list[Span]:
+    """Where our own words appear in a reply, quoted or not: the sent body, each of its lines of at least
+    OWN_LINE_MIN characters and each question text, matched with any run of whitespace standing for any other
+    (clients re-wrap). A span inside these ranges cites us, not the applicant (018 5.2, 5.4)."""
+    lines = [_LIST_MARKER.sub("", line.strip()) for line in sent_body.splitlines()]
+    candidates = [sent_body.strip()] + [line for line in lines if len(line) >= OWN_LINE_MIN]
+    candidates += [q.strip() for q in question_texts if len(q.strip()) >= OWN_LINE_MIN]  # "Why?" never masks an answer
+    found = set()
+    for candidate in candidates:
+        words = candidate.split()
+        if not words:
+            continue
+        # Clients re-wrap, re-case and number our text: any whitespace run, any case, an optional list marker.
+        pattern = re.compile(r"(?:\d+[.)]\s*|[-*]\s+)?" + r"\s+".join(re.escape(w) for w in words), re.I)
+        found.update(m.span() for m in pattern.finditer(text))
+    return [Span(s, e) for s, e in sorted(found)]
+
+
 def text_sha256(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
@@ -172,7 +197,7 @@ def validate_proposals(request: InterpretRequest, proposals, stored_sha256: str,
         problems.append("text_changed")
     if provenance is not None and (not isinstance(provenance.usage, dict) or len(provenance.usage) > MAX_USAGE_KEYS):
         problems.append("usage_unbounded")
-    sent = [m.span() for m in re.finditer(re.escape(request.sent_body.strip()), request.text)] if request.sent_body.strip() else []
+    sent = [(s.start, s.end) for s in own_text_ranges(request.text, request.sent_body, [q.text for q in request.questions])]
     for proposal in proposals:
         if proposal.outcome not in OUTCOMES:
             problems.append("unknown_outcome")
@@ -339,7 +364,169 @@ class ProcessReply:
                             idempotency_key=f"{INTERPRET_REPLY}:{message.public_id}:{link.question.public_id}")
                 except IntegrityError:
                     pass  # already held by an earlier run of this idempotent action
+            create_interpretation(application, message)
         open_item("reply_needs_review", f"inbound:{message.public_id}", application=application)
+
+
+# --- P3 3B.3: coalesced, advisory reply interpretation (018 section 5.4) --------------------------------------
+#
+# One `interpret_message:<message>:<derivative digest>` action per reply derivative calls the P3 interpreter
+# once for all of the reply's pending questions. Only `trusted` replies (not `staff_associated`, which
+# `eligible()` admits) go to a model (P3-D-6). The proposals are advice stored on a `ReplyInterpretation`; they
+# never touch `QuestionReplyLink`, and only staff confirm outcomes. The implementation is resolved through the
+# code-fixed setting `CATALYST_REPLY_INTERPRETER` (pinned to `assessments.` by `dispatch_problems`).
+
+def interpretable(message) -> bool:
+    return eligible(message) and message.trust_decision == "trusted"
+
+
+def interpretation_key(message) -> str:
+    return f"{INTERPRET_MESSAGE}:{message.public_id}:{message.derived_text_sha256[:16]}"
+
+
+def create_interpretation(application, message) -> bool:
+    """Queue the message-level interpretation when the activation version is in force (a code-fixed setting);
+    earlier replies are released only by `activate_reply_interpretation`. Returns whether a row was created."""
+    if getattr(settings, "CATALYST_REPLY_INTERPRETATION_ACTIVATION", 0) < 1 or not interpretable(message):
+        return False
+    if not QuestionReplyLink.objects.filter(inbound_message=message, state="pending").exists():
+        return False
+    try:
+        with transaction.atomic():
+            PendingAction.objects.create(
+                kind=INTERPRET_MESSAGE, subject_type="application", subject_id=application.public_ref,
+                input_ref=f"{message.public_id}:{message.derived_text_sha256}", idempotency_key=interpretation_key(message),
+                max_attempts=2)
+    except IntegrityError:
+        return False
+    return True
+
+
+def _evidence_flags(message, request, questions) -> list[str]:
+    """018 5.4, the missing rule: a question that requires evidence, answered with no attachment or link of the
+    applicant's own (a link in quoted text or in our own message does not count)."""
+    excluded = list(request.quoted) + own_text_ranges(request.text, request.sent_body, [q.text for q in questions])
+    own_links = any(not any(x.start < m.end() and m.start() < x.end for x in excluded)
+                    for m in re.finditer(r"https?://|www\.", request.text, re.I))
+    linked = bool(message.attachments) or own_links
+    return [] if linked else [f"evidence_required_but_absent:{q.public_id}" for q in questions if q.requires_evidence]
+
+
+class InterpretMessage:
+    kind = INTERPRET_MESSAGE
+    automated = True  # a pause holds it
+    redeliverable = True  # within its attempt bound; every attempt is recorded before its call
+
+    def lock_subject(self, claim) -> None:
+        """Application, then the message's questions, then the message (016 section 5)."""
+        application = Application.objects.select_for_update(of=("self",)).filter(public_ref=claim.subject_id).first()
+        message_ref = claim.input_ref.split(":")[0]
+        if application is not None:
+            list(Question.objects.select_for_update(of=("self",)).filter(
+                reply_links__inbound_message__public_id=message_ref).order_by("id"))
+            InboundMessage.objects.select_for_update(of=("self",)).filter(public_id=message_ref).first()
+
+    def record(self, claim, kind, data) -> None:
+        application = Application.objects.filter(public_ref=claim.subject_id).first()
+        event(application, kind, data, actor_ref=f"pending_action:{claim.id}")
+        if kind == "action_attempts_exhausted" or (kind == "action_failed" and data.get("final")):
+            ReplyInterpretation.objects.filter(message__public_id=claim.input_ref.split(":")[0], status="started").update(
+                status=ReplyInterpretation.Status.ABANDONED, code="handler_error", finished_at=Now())
+
+    def run(self, claim) -> None:
+        try:
+            with transaction.atomic():
+                self.lock_subject(claim)
+                ledger.fence(claim)
+                early, prepared = self.precall(claim)
+                if early is not None:
+                    status, code = early
+                    # A pause before anything is recorded returns the attempt (the 3B.2 rule for runs).
+                    ledger.finish(claim, self, status=status, error=code, refund_attempt=code == "automation_paused",
+                                  due_in=timedelta(seconds=settings.CATALYST_WORKER_POLL_SECONDS) if status == Status.QUEUED else None)
+                    return
+        except ledger.LeaseLost:
+            return
+        interpreter, interpretation, request, questions = prepared
+        outcome = interpreter.interpret(request)  # outside any transaction
+        ledger.finish(claim, self, status=Status.DONE, write=lambda: self._record(interpretation, request, questions, outcome))
+
+    def precall(self, claim):
+        message_ref, _, digest = claim.input_ref.partition(":")
+        application = Application.objects.filter(public_ref=claim.subject_id).first()
+        message = InboundMessage.objects.filter(public_id=message_ref).first()
+        if application is None or message is None or message.application_id != application.pk:
+            return (Status.FAILED, "message_not_found"), None
+        if message.status != Inbound.AWAITING_PROCESSING:
+            return (Status.CANCELLED, "decided_by_staff"), None  # nothing is disclosed after staff decided (TEST-P3-55)
+        if getattr(settings, "CATALYST_REPLY_INTERPRETATION_ACTIVATION", 0) < 1:
+            return (Status.CANCELLED, "interpretation_not_active"), None  # the suspension lever (019 section 10)
+        if application.stage in TERMINAL_STAGES:
+            return (Status.CANCELLED, "application_closed"), None
+        if AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists():
+            return (Status.QUEUED, "automation_paused"), None  # nothing recorded yet for this attempt
+        # Earlier attempts that never finished were possibly billed: they stay counted and are marked abandoned.
+        ReplyInterpretation.objects.filter(message=message, status="started").update(
+            status=ReplyInterpretation.Status.ABANDONED, code="interrupted", finished_at=Now())
+        if message.derived_text_sha256 != digest:
+            return (Status.DONE, "text_changed"), None
+        if not interpretable(message):
+            return (Status.DONE, "ineligible"), None
+        links = list(QuestionReplyLink.objects.filter(inbound_message=message, state="pending").select_related("question")
+                     .order_by("question_id"))
+        if not links:
+            return (Status.DONE, "no_pending_questions"), None
+        if len(links) > 20:
+            return (Status.DONE, "too_many_questions"), None
+        interpreter = import_string(settings.CATALYST_REPLY_INTERPRETER)()
+        refusal = interpreter.admit(application)  # model availability and the shared daily budget, before any record
+        attempt = ReplyInterpretation.objects.filter(message=message).count() + 1
+        if refusal:
+            ReplyInterpretation.objects.create(message=message, application=application, attempt=attempt,
+                                               text_sha256=message.derived_text_sha256, status="unavailable", code=refusal,
+                                               finished_at=Now())
+            return (Status.DONE, refusal), None
+        interpretation = ReplyInterpretation.objects.create(
+            message=message, application=application, attempt=attempt, text_sha256=message.derived_text_sha256,
+            reserved_requests=interpreter.requests_per_attempt)
+        questions = [link.question for link in links]
+        sent = message.approved_message.frozen_body if message.approved_message_id else ""
+        request = InterpretRequest(
+            message_id=str(message.public_id), text=message.derived_text, text_sha256=message.derived_text_sha256,
+            derivation_version=message.derivation_version, redaction_version=message.redaction_version,
+            truncated=message.truncated, omitted_parts=tuple(str(p.get("reason", "")) for p in message.omitted_parts or []),
+            attachments=tuple(str(a.get("type", "")) for a in message.attachments or []),
+            questions=tuple(QuestionRef(str(q.public_id), q.text, q.requires_evidence) for q in questions),
+            quoted=tuple(quoted_ranges(message.derived_text)), sent_body=sent)
+        return None, (interpreter, interpretation, request, questions)
+
+    def _record(self, interpretation, request, questions, outcome) -> None:
+        message = InboundMessage.objects.select_for_update(of=("self",)).get(pk=interpretation.message_id)
+
+        def finish(status, **fields):
+            ReplyInterpretation.objects.filter(pk=interpretation.pk, status="started").update(
+                status=status, finished_at=Now(), **fields)
+        if message.status != Inbound.AWAITING_PROCESSING:
+            return finish(ReplyInterpretation.Status.SUPERSEDED, code="decided_by_staff")
+        if message.derived_text_sha256 != request.text_sha256:
+            return finish(ReplyInterpretation.Status.TEXT_CHANGED, code="text_changed")
+        if not interpretable(message):
+            return finish(ReplyInterpretation.Status.SUPERSEDED, code="no_longer_eligible")
+        pending = set(QuestionReplyLink.objects.filter(inbound_message=message, state="pending").values_list(
+            "question__public_id", flat=True))
+        if {str(p) for p in pending} != {q.id for q in request.questions}:  # a question withdrawn mid-call
+            return finish(ReplyInterpretation.Status.SUPERSEDED, code="questions_changed")
+        if isinstance(outcome, InterpretUnavailable):
+            return finish(ReplyInterpretation.Status.UNAVAILABLE, code=outcome.code[:64])
+        problems = validate_proposals(request, outcome.proposals, message.derived_text_sha256, outcome.provenance)
+        provenance = {k: v for k, v in vars(outcome.provenance).items()}
+        if problems:
+            return finish(ReplyInterpretation.Status.INVALID, problems=problems, provenance=provenance)
+        finish(ReplyInterpretation.Status.COMPLETED, provenance=provenance, flags=_evidence_flags(message, request, questions),
+               proposals=[{"question": p.question_id, "outcome": p.outcome, "spans": [[s.start, s.end] for s in p.spans],
+                           "note": p.note} for p in outcome.proposals])
+        event(message.application, "reply_interpreted", {"message": str(message.public_id),
+                                                         "interpretation": str(interpretation.public_id)})
 
 
 # --- staff services ---------------------------------------------------------------------------------------------
@@ -348,6 +535,10 @@ def _cancel_interpretation(message) -> None:
     PendingAction.objects.filter(kind=INTERPRET_REPLY, input_ref__startswith=f"{message.public_id}:",
                                  status=Status.HELD).update(status=Status.CANCELLED, last_error="decided_by_staff",
                                                             completed_at=Now(), updated_at=Now())
+    # P3 3B.3: queued message-level interpretation is cancelled too (a running one re-checks before and after its call).
+    PendingAction.objects.filter(kind=INTERPRET_MESSAGE, input_ref__startswith=f"{message.public_id}:",
+                                 status__in=(Status.QUEUED, Status.HELD)).update(
+        status=Status.CANCELLED, last_error="decided_by_staff", completed_at=Now(), updated_at=Now())
 
 
 def _review_items(message):
@@ -396,6 +587,7 @@ def confirm_question_outcome(message_id: int, outcomes: dict, user, note: str = 
                          effects={"outcomes": {str(Question.objects.get(pk=q).public_id): o for q, o in outcomes.items()}})
         event(application, "question_outcomes_confirmed", {"message": str(message.public_id), "count": len(links)},
               actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
+        answers_settled(application)  # P3 3B.3: may start reassessment (018 step 8)
     message.refresh_from_db()
     return message
 

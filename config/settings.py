@@ -153,11 +153,20 @@ CATALYST_ACTION_HANDLERS = {
     "start_evidence_collection": "assessments.collection.StartEvidenceCollection",
     "fetch_evidence": "assessments.collection.FetchEvidence",
     "run_assessment": "assessments.runs.RunAssessment",  # 018 4 step 4 (P3 3B.2); test models only
+    "interpret_message": "correspondence.processing.InterpretMessage",  # 018 5.4 (P3 3B.3); test models only
 }
 # The one seam through which the applications app opens a staff item for a `needs_staff_attention` event
 # (016 3.8; 2B.3). Like the handler mapping, a fixed dotted path in code, so `applications` never imports
 # `correspondence` (003 ADR-01) and the creation logic exists once.
 CATALYST_ATTENTION_OPENER = "correspondence.staff_items.open_attention"
+# P3 3B.3 (018 5.4, step 8): the same seam pattern in the other direction. `correspondence` resolves the reply
+# interpreter and the answers-confirmed hook through these fixed paths and never imports `assessments`.
+CATALYST_REPLY_INTERPRETER = "assessments.interpret.Interpreter"
+CATALYST_ANSWERS_CONFIRMED_HOOK = "assessments.clarification.answers_settled"
+# The activation version of message-level reply interpretation (018 5.4). 0: off; process_reply creates no
+# `interpret_message` row. The owner turns it on by changing this value in code, then releases earlier replies
+# with `activate_reply_interpretation`. Even when on, no model runs outside tests (CATALYST_ASSESSMENT_MODEL).
+CATALYST_REPLY_INTERPRETATION_ACTIVATION = 0
 
 # P2 outbound mail (016 A3 to A6, section 6; owner decisions D-27, D-28). Synthetic only: real MXroute is
 # prohibited (D-28, A-4). The host must be a literal loopback address, or in `test` the one named
@@ -230,6 +239,11 @@ CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT = number("CATALYST_ASSESSMENT_OUTP
 CATALYST_ASSESSMENT_CONCURRENT_RUNS = number("CATALYST_ASSESSMENT_CONCURRENT_RUNS", "2")
 # Fail-closed: no run proceeds until the owner sets a daily budget (018 6).
 CATALYST_ASSESSMENT_DAILY_REQUESTS = number("CATALYST_ASSESSMENT_DAILY_REQUESTS", "0", minimum=0)
+# Clarification (018 section 6 and step 5): at most 3 assessment rounds per application, 3 proposals per round.
+CATALYST_ASSESSMENT_ROUNDS = number("CATALYST_ASSESSMENT_ROUNDS", "3")
+CATALYST_QUESTIONS_PER_ROUND = number("CATALYST_QUESTIONS_PER_ROUND", "3")
+# Reply interpretation may use at most this many of the shared daily requests per application (3B.3 review).
+CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION = number("CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION", "10")
 CATALYST_STAFF_DRAFT_TTL_SECONDS = number("CATALYST_STAFF_DRAFT_TTL_SECONDS", "1800")  # 016 3.4: a preview expires
 CATALYST_REMINDER_OVERDUE_MARGIN_SECONDS = number("CATALYST_REMINDER_OVERDUE_MARGIN_SECONDS", "3600", minimum=0)
 if CATALYST_REMINDER_QUIET_START_HOUR > 23 or CATALYST_REMINDER_QUIET_END_HOUR > 23:

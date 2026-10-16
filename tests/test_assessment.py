@@ -55,7 +55,7 @@ def valid(quote=QUOTE, alias="E1", recommendation="hold", **over):
                  "citations": []} for c in pack.load().criteria]
     criteria[0] = {"criterion_id": "work_quality", "rating": "supported", "summary": "Shows parser work.",
                    "citations": [{"evidence_alias": alias, "quote": quote}]}
-    out = {"schema_version": "2", "criteria": criteria, "recommendation": recommendation,
+    out = {"schema_version": "3", "criteria": criteria, "recommendation": recommendation,
            "recommendation_basis": "Only one work sample.", "basis_criteria": ["work_quality"], "confidence": "low",
            "proposed_questions": [], "injection_suspected": False, "injection_citations": [], "limitations": []}
     out.update(over)
@@ -118,7 +118,7 @@ def test_p3_01_a_valid_output_is_stored_with_provenance_and_the_stage_moves_for_
     app, run, seen = assessed(a, monkeypatch, valid())
     assert run.status == "succeeded" and seen["calls"] == 1 and run.requests_used == 1
     assert run.output["criteria"][0]["citations"][0]["quote"] == QUOTE
-    assert (run.prompt_pack, run.prompt_pack_sha256, run.schema_version) == (pack.CURRENT, pack.PINNED[pack.CURRENT], "2")
+    assert (run.prompt_pack, run.prompt_pack_sha256, run.schema_version) == (pack.CURRENT, pack.PINNED[pack.CURRENT], "3")
     assert (run.provider, run.output_mode, run.library_version) == ("test", "tool", "2.55.0")
     assert run.request_sha256 and run.output_sha256
     assert app.stage == "awaiting_decision"  # staff own the next step; nothing is decided
@@ -410,7 +410,7 @@ def test_p3_31_56_a_crash_after_the_call_is_counted_and_yields_at_most_one_resul
         AssessmentRun.objects.create(
             application=app, adopted_version=run.adopted_version, trigger="t", snapshot={},
             snapshot_sha256=run.snapshot_sha256, prompt_pack="p", prompt_pack_sha256="0" * 64, rubric_version=1,
-            schema_version="2", status="succeeded", output={"x": 1}, finished_at=run.finished_at)
+            schema_version="3", status="succeeded", output={"x": 1}, finished_at=run.finished_at)
 
 
 def test_p3_31_a_redelivered_finished_run_is_never_called_again(a, monkeypatch, settings):
@@ -529,7 +529,9 @@ def test_p3_50_the_recommendation_never_chooses_the_next_step(a, monkeypatch, se
     run_worker()
     run.refresh_from_db()
     assert run.status == "succeeded" and Application.objects.get(pk=app.pk).stage == "awaiting_decision"
-    assert Question.objects.count() == 0 and set(PendingAction.objects.values_list("id", flat=True)) == before
+    # 3B.3: the proposal is stored proposed and unsent; no action of any kind was created
+    assert list(Question.objects.values_list("approval_state", flat=True)) == ["proposed"]
+    assert set(PendingAction.objects.values_list("id", flat=True)) == before
 
 
 def test_p3_50_no_provider_client_and_no_output_field_in_control_flow():
@@ -537,6 +539,12 @@ def test_p3_50_no_provider_client_and_no_output_field_in_control_flow():
     flow = code["runs.py"] + code["services.py"] + code["collection.py"]
     for field in ("recommendation", "confidence", "proposed_questions", "injection_suspected", ".rating"):
         assert field not in flow, field
+    # 3B.3: clarification reads the proposals only, and never moves a stage while doing so
+    clarification = code["clarification.py"]
+    for field in ("recommendation", "confidence", "injection_suspected", ".rating"):
+        assert field not in clarification, field
+    propose = clarification.split("def propose_from_run")[1].split("\ndef ")[0]
+    assert "proposed_questions" in propose and "transition" not in propose
     for text in code.values():
         for banned in ("import openai", "from openai", "import anthropic", "agreements", "provisioning", "logfire.configure"):
             assert banned not in text, banned
@@ -589,6 +597,6 @@ def test_the_screen_shows_the_advisory_run_and_never_preselects_it(a, monkeypatc
     c = Client()
     c.force_login(a.assessor)
     page = c.get(reverse("assessments_staff:evidence", args=[app.public_ref])).content.decode()
-    section = page.split("Assessment (advisory)")[1]
+    section = page.split("Assessment (advisory)")[1].split("<h2>Clarification</h2>")[0]
     assert "Advisory recommendation: hold" in section and "not a decision" in section and QUOTE in section
     assert "<option" not in section and "checked" not in section  # shown, never pre-selected

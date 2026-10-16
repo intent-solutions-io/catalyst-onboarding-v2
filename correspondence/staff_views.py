@@ -158,8 +158,17 @@ def item_detail(request, public_id):
 def reply_detail(request, public_id):
     message = get_object_or_404(InboundMessage.objects.select_related("application"), public_id=public_id)
     links = message.question_links.select_related("question").order_by("question_id")
+    # Only advice computed on the derivative shown now: after a re-derivation old spans would point at other text.
+    interpretation = message.interpretations.filter(status="completed", text_sha256=message.derived_text_sha256).order_by(
+        "-attempt").first()
+    advice = []
+    if interpretation is not None:  # P3 3B.3: advice only, shown beside the question; never pre-selected
+        texts = {str(link.question.public_id): link.question.text for link in links}
+        advice = [{"question": texts.get(p["question"], ""), "outcome": p["outcome"], "note": p.get("note", ""),
+                   "quotes": [message.derived_text[s:e] for s, e in p["spans"]]} for p in interpretation.proposals]
     return render(request, "correspondence/staff/reply.html", {
         "message": message, "pending": [link for link in links if link.state == "pending"], "links": links,
+        "interpretation": interpretation, "advice": advice,
         "outcomes": OUTCOME_CHOICES, "close_reasons": processing.CLOSE_REASONS,
         "can_decide": can(request.user, "confirm_question_outcome") and message.status == "awaiting_processing"
         and message.classification == "human",

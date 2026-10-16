@@ -16,7 +16,8 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
 from applications.models import Application
-from correspondence.models import StaffItem
+from correspondence import common as correspondence_rules
+from correspondence.models import Question, StaffItem
 
 from . import services
 from .models import AssessmentRun, EvidenceItem, EvidenceSource
@@ -110,7 +111,33 @@ def evidence(request, public_ref):
                                             reason_code="evidence_required_unavailable").exists(),
         "run": AssessmentRun.objects.filter(application=application).order_by("-id").first(),
         "can_rerun": services.can(request.user, "rerun_assessment") and application.stage == "assessing",
+        "questions": Question.objects.filter(application=application).exclude(round=0).order_by("round", "id"),
+        "can_approve": correspondence_rules.can(request.user, "approve_question"),
+        "can_author": correspondence_rules.can(request.user, "author_question") and application.stage in services.CLARIFY_STAGES,
+        "criteria": _criteria(),
     })
+
+
+def _criteria():
+    from . import pack as packs
+
+    try:
+        return packs.load().criteria
+    except packs.PackRefused:
+        return []
+
+
+@require_POST
+@staff_page(*REVIEW)
+def author(request, public_ref):
+    application = get_object_or_404(Application, public_ref=public_ref)
+    post = request.POST
+    return act(request, reverse("assessments_staff:evidence", args=[public_ref]),
+               lambda: services.author_clarification(
+                   application.pk, request.user, text=post.get("text", ""), criterion_id=post.get("criterion", ""),
+                   evidence_gap=post.get("gap", ""), alternative_route=post.get("route", ""),
+                   requires_evidence=post.get("requires_evidence") == "on"),
+               "Question stored as proposed; approve it to send it.")
 
 
 @require_POST

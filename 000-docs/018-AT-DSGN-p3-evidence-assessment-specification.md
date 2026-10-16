@@ -3,8 +3,8 @@
 | Field | Value |
 |---|---|
 | Document | `018-AT-DSGN-p3-evidence-assessment-specification` |
-| Version | 0.2.2 (2026-10-14: status line corrected and section 15 added). The owner's approval D-34 covers version 0.2.1, sections 1 to 12; sections 13 and 14 are implementation records; section 15 and the P3-D-10 amendment were approved by D-35 |
-| Status | **APPROVED by the owner 2026-10-14 (version 0.2.1; D-34 in `011` section 4), with the recommended defaults `P3-D-1` to `P3-D-16` for synthetic P3.** 3B.1 (PR #30, `d564bfa`) and 3B.2 (PR #32, `8086508`) are merged; 3B.3, 3B.4 and 3C each need their own release. Selection-quality integration (section 15) and the P3-D-10 amendment were approved by D-35. Approval authorizes no live model call, real fetching, real applicant data, real mail, versioned release or deployment. |
+| Version | 0.2.3 (2026-10-16: section 16 added for 3B.3; 0.2.2 corrected the status line and added section 15). The owner's approval D-34 covers version 0.2.1, sections 1 to 12; sections 13 and 14 are implementation records; section 15 and the P3-D-10 amendment were approved by D-35 |
+| Status | **APPROVED by the owner 2026-10-14 (version 0.2.1; D-34 in `011` section 4), with the recommended defaults `P3-D-1` to `P3-D-16` for synthetic P3.** 3B.1 (PR #30, `d564bfa`) and 3B.2 (PR #32, `8086508`) are merged; 3B.3 was released on 2026-10-16 (section 16); 3B.4 and 3C each need their own release. Selection-quality integration (section 15) and the P3-D-10 amendment were approved by D-35. Approval authorizes no live model call, real fetching, real applicant data, real mail, versioned release or deployment. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-13 |
 | Epic | P3, "Collect evidence, run the bounded MiniMax assessment, and record the authorized qualification decision" (`catalyst-v2-oc4`); this task is `catalyst-v2-oc4.1` |
@@ -823,3 +823,112 @@ Rationale: suspending model advice must not strand or silently reject applicants
 
 **Not changed by this section:** the advisory-only rule (D-04), the unconditional stage move on a successful run
 (section 14), the rule that no output field influences a transition, and the synthetic-only scope.
+
+## 16. Implementation notes from 3B.3 (2026-10-16)
+
+Released by the owner ("release 3B.3"). Test models only; no live model call, no real data.
+
+**Built:**
+
+- **Questions** (`correspondence/questions.py`, `correspondence/question_screen.py`):
+  - one creation path for model-proposed and staff-authored questions;
+  - every question passes the one screen (moved from `assessments/schema.py`, so both origins face the same
+    rules);
+  - every question names its criterion and the evidence gap, may give an alternative evidence route, and may
+    require a link or document;
+  - questions are deduplicated by normalized text per application (a partial unique constraint while live) and
+    stored `proposed`;
+  - the new question columns are insert-only for the application role.
+- **Proposals** (`assessments/clarification.py`): inside a successful run's record transaction, at most 3 per
+  round and none after the last round. No stage change and nothing sent. Approving the first question
+  (`approve_question`, a staff act) moves `awaiting_decision → awaiting_answers`.
+- **Staff authoring:** on the P3 evidence screen, with the new permission `correspondence.author_question`, granted
+  to "Assessment operator". Approval and sending stay with the correspondence operators (D-29).
+- **Reassessment** (step 8): `answers_settled`, reached through the code-fixed seam
+  `CATALYST_ANSWERS_CONFIRMED_HOOK`, runs after staff confirm an outcome or withdraw a question.
+  - When no approved question is open, the case returns to `assessing` and a run is queued (round n+1) on a new
+    snapshot. The manifest gains `answers`; the request sends each confirmed reply as an A block: the reply's own
+    text, with quoted material and our sent text removed, cleaned, scrubbed, fenced, at most 2,000 characters.
+  - A duplicate trigger is a no-op. The same snapshot never runs twice.
+  - After the last round (3) the case returns to `awaiting_decision`. If nothing new was confirmed, it also returns
+    there, with an event.
+- **Prompt pack `assessment_v3`, output schema 3:** A aliases, which count as the applicant's own statements for the
+  claims-only cap; `alternative_route` and `requires_evidence` on proposals; a proposal without an evidence gap is
+  refused.
+- **Reply interpretation (5.4):**
+  - `correspondence.processing.InterpretMessage` makes one `interpret_message:<message>:<digest>` call per reply
+    derivative (coalesced). It covers `trusted` replies only (P3-D-6) and runs only when
+    `CATALYST_REPLY_INTERPRETATION_ACTIVATION` (code-fixed, **0 by default**) is in force; earlier replies are
+    released by the owner-run `activate_reply_interpretation`.
+  - **Pre-call:** the message must still be undecided and eligible; the derivative digest must match; the
+    interpreter's `admit` checks that the model is available and the shared daily budget allows an attempt; a
+    `ReplyInterpretation` is recorded before the call.
+  - **Record:** superseded if staff decided meanwhile, text changed if re-derived, otherwise `validate_proposals`
+    runs, plus the `evidence_required_but_absent` flag.
+  - Proposals are advice on the `ReplyInterpretation`, never in `QuestionReplyLink`. Staff decisions cancel queued
+    work.
+  - The implementation is `assessments.interpret.Interpreter` (P2's protocol, no second interface), with prompt
+    pack `interpret_v1`. Each quote must occur exactly once in the stored derivative outside quoted text (one
+    repair otherwise).
+  - Assessments and interpretations share the daily request budget.
+- **Reply screen:** shows the model's reading as advice; no outcome is pre-selected.
+
+**Changes from the two reviews of `cdb2f5c`** (the primary QA review and a scoped review of the interpretation
+boundary):
+
+- **Our own words.** `own_text_ranges` finds our sent body, its lines and the question texts (each at least 15
+  characters) in a reply, even unquoted, re-wrapped, re-cased or numbered. They are removed before anything leaves (interpretation and A
+  blocks). A span or quote inside them is refused, so our own question can never become the applicant's answer.
+- **Scrubbing and caps.**
+  - Question texts are scrubbed and fenced on the interpretation path (the applicant's name could appear in one).
+  - Handles and IPv4 addresses are scrubbed everywhere.
+  - A reply over 8,000 characters is refused before any call.
+  - Quotes are 1 to 300 characters with at least 20 letters or digits.
+  - The free-text note was removed from the interpretation output (a channel from the reply to staff).
+  - Confirmed answers are one A block per reply (at most 6 blocks, 6,000 characters in total); an answer past
+    the cap is listed under missing evidence as "not sent (size limit)", never dropped silently. A manifest answer
+    that no longer resolves ends the run `refused: answer_changed` with a staff item, before any reservation.
+  - The `assessment_v3` and `interpret_v1` wording now matches what is actually redacted; both were re-pinned.
+- **Lifecycle.**
+  - Pre-call re-checks activation (the suspension lever of `019` section 10), the terminal stage and the pause (a
+    pause returns the attempt).
+  - Earlier unfinished attempts are marked abandoned and stay counted.
+  - The record step re-checks eligibility and the pending question set.
+  - Withdrawal cancels queued interpretation of a reply that no longer answers any pending question, and its
+    event precedes the hook.
+  - A per-application daily cap on interpretation requests (10, counting interpretations only) keeps one
+    applicant from starving others.
+  - A finished `ReplyInterpretation` is frozen by the `catalyst_interpretation_result_once` trigger.
+  - The reply screen shows only advice computed on the current derivative.
+- **Rounds.** No proposals in the last round. A rerun keeps the round of the latest run. Proposals are stored only
+  after the stage move succeeds. The authoring stage is checked under the application lock.
+- **Evidence flag.** It counts only links in the applicant's own text, not quoted text or our message.
+- **Owner-decision default: the alternative route reaches the applicant.** The screened route is appended to the
+  sent question text ("If you cannot share that, you could instead: ..."). This uses the approved template's
+  existing `question_text` variable, so no template change is needed (`019` section 5, D-35). Replace it with a
+  template variable if the owner prefers.
+
+**Deviations and limits:**
+
+- **Comparable core questions** (`019` section 5) are not built: they need the approved criteria of `SP-L2-1`
+  (bead "Complete the supervised-delivery role profile").
+- **Staff "reassess"** (step 8) is not built as its own button. Reassessment starts when staff confirm answers or
+  withdraw the last open question; a rerun is possible only in `assessing`.
+- **A question approved outside the clarification stages** (for example a P2-style question in `assessing`) has
+  no reassessment trigger when answered.
+- **The manifest has no open-question set and no answer offsets** (5.1). 3B.4's TEST-P3-51 needs them; they belong
+  to the 3B.4 brief.
+- **Caps on interpretation.** It does not count toward "runs per application, all purposes" or the global
+  concurrency cap (section 6). It is bounded by its own per-message attempts (2), the per-application daily cap
+  and the shared daily budget.
+- **Interpretation is not retried** after a provider error: the reply goes to staff without a proposal (the
+  attempt is still counted).
+- **Quotes containing redaction placeholders** cannot be located in the stored reply, so such quotes are refused.
+- **Answer text.** Confirmed answers send the reply's own text (quoted material and our words removed), not
+  staff-selected spans: staff confirmation records no spans.
+- **Proposals for answered questions** are not dropped at record (4.2): dedup by text covers re-asking the same
+  question; a reworded one is caught only by staff review.
+- **Daily boundary.** The daily budget uses the database's UTC date (`TIME_ZONE` is UTC).
+
+**Tests:** `tests/test_clarification.py` covers TEST-P3-07, 34 to 42 and 55, the activation command, the seams, the
+shared budget and both screens. The 3B.2 tests move to schema 3.

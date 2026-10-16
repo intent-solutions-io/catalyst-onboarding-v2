@@ -25,6 +25,7 @@ from applications.models import TERMINAL_STAGES, Application, ApplicationEvent
 from workflow import ledger
 from workflow.models import AutomationPause, PendingAction
 
+from .questions import sent_text
 from .models import ApprovedMessage, ApprovedMessageQuestion, MailboxCursor, OutboundMessage, Question
 from .outbound import _freeze, current_template_version, enqueue_send, verified_address
 from .rendering import TemplateRefused, render
@@ -163,7 +164,7 @@ class SendReminder(_QuestionAction):
             return refused("contact_not_verified")
         if version is None:
             return refused("no_approved_reminder_template")
-        values = {"display_name": application.display_name, "question_text": question.text}
+        values = {"display_name": application.display_name, "question_text": sent_text(question)}
         try:
             render(version, values)
         except TemplateRefused:

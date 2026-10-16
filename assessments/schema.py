@@ -1,4 +1,4 @@
-"""The assessment output contract (018 5.3, schema version 2) and its deterministic checks.
+"""The assessment output contract (018 5.3, schema version 3) and its deterministic checks.
 
 The pydantic model bounds the shape; `problems` then checks what a schema cannot: every criterion exactly once,
 citations to aliases that were sent, quotes copied verbatim from exactly the text that was sent and long enough
@@ -9,29 +9,15 @@ confidential-material requests. A valid output is not a true assessment: these c
 only (018 5.3); quality is a separate, human-scored evaluation (018 9 B).
 """
 
-import re
-import unicodedata
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-SCHEMA_VERSION = "2"
+from correspondence.question_screen import question_problems, unsafe as _unsafe
+
+SCHEMA_VERSION = "3"  # 3B.3: confirmed-answer aliases (A1..), questions carry an alternative evidence route
 MIN_QUOTE_CHARS = 20  # letters or digits, after removing redaction placeholders
 Rating = Literal["supported", "partly_supported", "not_supported", "insufficient_evidence"]
-_UNSAFE_TEXT = re.compile(
-    r"https?://|www\.|mailto:|javascript:|data:|\]\(|<[a-z/!?]|@|\b[a-z0-9-]+\.(com|org|net|io|dev|app|ai|co|ly|me|sh|fr|ca|in|us|eu|tv|cloud|tech|test)\b",
-    re.I)
-_NUMBER = re.compile(r"\+?\d[\d ()./-]{6,24}\d")
-_REFUSED_QUESTION = re.compile(
-    r"\b(pass(word|phrase|code)\w*|credential\w*|log-?in\w*|sign-?in\w*|api[ _-]?keys?|ssh[ _-]?keys?|private[ _-]?keys?"
-    r"|tokens?|secrets?|seed[ _-]?phrases?|recovery[ _-]?(codes?|phrases?)|pins?|2fa|mfa|one-?time[ _-]?codes?|otp"
-    r"|wallets?|bank\w*|account[ _-]?numbers?|card[ _-]?numbers?|salar\w*|income|ssn|social security"
-    r"|passports?|driv\w*[ _-]?licen[cs]e|national[ _-]?id|id[ _-]?(cards?|documents?)|identity[ _-]?documents?"
-    r"|date[ _-]?of[ _-]?birth|birth\w*|age|how old|nationalit\w*|citizenship|religio\w*|health|medical|disabilit\w*"
-    r"|pregnan\w*|famil\w*|married|marital|children|home[ _-]?address|address|phone|ethnic\w*|race|sexual\w*"
-    r"|source[ _-]?code|customer[ _-]?(lists?|data|names?)|client[ _-]?(data|secrets?|names?|lists?)|confidential\w*"
-    r"|nda|contracts?|proprietary|pass[ _-]?words?|credit[ _-]?cards?|cvv|visas?|immigration\w*|gender\w*"
-    r"|politic\w*|union\w*|criminal\w*|tax\w*)\b", re.I)
 Text = Annotated[str, Field(max_length=200)]
 
 
@@ -40,7 +26,7 @@ class Strict(BaseModel):
 
 
 class Citation(Strict):
-    evidence_alias: str = Field(pattern=r"^[CE][0-9]{1,2}$")
+    evidence_alias: str = Field(pattern=r"^[CEA][0-9]{1,2}$")  # C claims, E evidence, A confirmed answers
     quote: str = Field(min_length=1, max_length=300)
 
 
@@ -54,11 +40,13 @@ class Finding(Strict):
 class ProposedQuestion(Strict):
     text: str = Field(min_length=1, max_length=400)
     criterion_id: str = Field(max_length=40)
-    why_needed: str = Field(max_length=200)
+    why_needed: str = Field(max_length=200)  # the evidence gap the question addresses (019 section 5)
+    alternative_route: str = Field(default="", max_length=200)  # another way to show the same thing, if any
+    requires_evidence: bool = False  # the answer should carry a link or an attachment
 
 
 class AssessmentOutput(Strict):
-    schema_version: Literal["2"]
+    schema_version: Literal["3"]
     criteria: list[Finding] = Field(min_length=1, max_length=8)
     recommendation: Literal["admit", "decline", "hold"]
     recommendation_basis: str = Field(max_length=600)
@@ -68,12 +56,6 @@ class AssessmentOutput(Strict):
     injection_suspected: bool = False
     injection_citations: list[Citation] = Field(default_factory=list, max_length=4)
     limitations: list[Text] = Field(default_factory=list, max_length=5)
-
-
-def _unsafe(text: str) -> bool:
-    phone = any(sum(ch.isdigit() for ch in m.group(0)) >= 9 for m in _NUMBER.finditer(text))  # not a year range
-    return phone or bool(_UNSAFE_TEXT.search(text)) or any(
-        unicodedata.category(ch) in ("Cc", "Cf", "Co", "Cs") for ch in text if ch not in "\n\t")
 
 
 def _substance(quote: str) -> int:
@@ -103,7 +85,7 @@ def problems(output: AssessmentOutput, request) -> list[str]:
             found.append("duplicate_citation")
         for citation in finding.citations:
             found.extend(_citation_problems(citation, request))
-        if finding.citations and all(c.evidence_alias.startswith("C") for c in finding.citations) and \
+        if finding.citations and all(c.evidence_alias[0] in "CA" for c in finding.citations) and \
                 finding.rating in ("supported", "not_supported"):
             found.append("claims_only_rating_above_partly_supported")
         evidence = [request.items[c.evidence_alias] for c in finding.citations if c.evidence_alias in request.items
@@ -115,15 +97,12 @@ def problems(output: AssessmentOutput, request) -> list[str]:
     if output.injection_suspected != bool(output.injection_citations):
         found.append("injection_flag_and_citations_disagree")
     for question in output.proposed_questions:
-        texts.append(question.why_needed)
+        texts.extend([question.why_needed, question.alternative_route])
         if question.criterion_id not in ids:
             found.append("question_names_an_unknown_criterion")
-        plain = question.text.translate(str.maketrans("\u2018\u2019\u201c\u201d\u2013\u2014", "''\"\"--"))
-        from .snapshot import _EMAIL  # obfuscated addresses too ("a (at) b dot c"); stricter, for questions only
-
-        if _unsafe(question.text) or _EMAIL.search(question.text) or _REFUSED_QUESTION.search(question.text) or \
-                not plain.isascii():  # English only
-            found.append("question_refused")
+        if not question.why_needed.strip():
+            found.append("question_names_no_evidence_gap")
+        found.extend(question_problems(question.text))  # the same screen staff-authored questions pass
     if any(_unsafe(t) for t in texts):
         found.append("free_text_contains_a_link_contact_or_markup")
     return sorted(set(found))
@@ -153,7 +132,7 @@ def flags(output: AssessmentOutput, request) -> list[str]:
         out.append("decline_without_a_negative_finding")
     if getattr(request, "missing", None) and any(f.rating == "not_supported" for f in output.criteria):
         out.append("not_supported_while_evidence_is_missing")
-    if any(f.citations and all(c.evidence_alias.startswith("C") for c in f.citations) and f.rating != "insufficient_evidence"
+    if any(f.citations and all(c.evidence_alias[0] in "CA" for c in f.citations) and f.rating != "insufficient_evidence"
            for f in output.criteria):
         out.append("rating_rests_on_claims_only")
     if output.injection_suspected:
