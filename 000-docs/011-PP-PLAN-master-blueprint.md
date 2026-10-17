@@ -403,7 +403,8 @@ after GATE-P2 (D-33). 3A is the specification and the owner's P3 decision brief 
 owner approved `018` 0.2.1 and released 3B.1 on 2026-10-14 (D-34), then 3B.2 the same day ("release 3B.2");
 3B.3 and 3B.4 each need their own release; 3C is the GATE-P3 verification. Live model use and
 real fetching are not authorized by any of these. 3B.1 merged as `d564bfa` (PR #30) and 3B.2 as `8086508`
-(PR #32); the owner released 3B.3 on 2026-10-16 ("release 3B.3") and 3B.4 on 2026-10-17 ("release 3B.4"). Selection-quality work (section 11) attaches to 3B.3, 3B.4, 3C and 3E without changing their release or
+(PR #32); the owner released 3B.3 on 2026-10-16 ("release 3B.3") and 3B.4 on 2026-10-17 ("release 3B.4"), merged as `2bb3281` (PR #34) and `25603b0` (PR #35); 3C was
+released the same day ("release 3C"): the GATE-P3 run and after-action report `020` await the owner's sign-off. Selection-quality work (section 11) attaches to 3B.3, 3B.4, 3C and 3E without changing their release or
 gate.
 
 | Key | Bead | Title | Depends on |

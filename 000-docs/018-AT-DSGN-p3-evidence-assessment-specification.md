@@ -3,8 +3,8 @@
 | Field | Value |
 |---|---|
 | Document | `018-AT-DSGN-p3-evidence-assessment-specification` |
-| Version | 0.2.4 (2026-10-17: section 17 added for 3B.4; 0.2.3 added section 16 for 3B.3; 0.2.2 corrected the status line and added section 15). The owner's approval D-34 covers version 0.2.1, sections 1 to 12; sections 13 and 14 are implementation records; section 15 and the P3-D-10 amendment were approved by D-35 |
-| Status | **APPROVED by the owner 2026-10-14 (version 0.2.1; D-34 in `011` section 4), with the recommended defaults `P3-D-1` to `P3-D-16` for synthetic P3.** 3B.1 (PR #30, `d564bfa`) and 3B.2 (PR #32, `8086508`) are merged; 3B.3 was released on 2026-10-16 (section 16) and 3B.4 on 2026-10-17 (section 17); 3C needs its own release. Selection-quality integration (section 15) and the P3-D-10 amendment were approved by D-35. Approval authorizes no live model call, real fetching, real applicant data, real mail, versioned release or deployment. |
+| Version | 0.2.5 (2026-10-17: section 18 added for 3C; 0.2.4 added section 17 for 3B.4; 0.2.3 added section 16 for 3B.3; 0.2.2 corrected the status line and added section 15). The owner's approval D-34 covers version 0.2.1, sections 1 to 12; sections 13 and 14 are implementation records; section 15 and the P3-D-10 amendment were approved by D-35 |
+| Status | **APPROVED by the owner 2026-10-14 (version 0.2.1; D-34 in `011` section 4), with the recommended defaults `P3-D-1` to `P3-D-16` for synthetic P3.** 3B.1 (PR #30, `d564bfa`) and 3B.2 (PR #32, `8086508`) are merged; 3B.3 was released on 2026-10-16 (section 16), 3B.4 and 3C on 2026-10-17 (sections 17 and 18); GATE-P3 awaits the owner's sign-off. Selection-quality integration (section 15) and the P3-D-10 amendment were approved by D-35. Approval authorizes no live model call, real fetching, real applicant data, real mail, versioned release or deployment. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-13 |
 | Epic | P3, "Collect evidence, run the bounded MiniMax assessment, and record the authorized qualification decision" (`catalyst-v2-oc4`); this task is `catalyst-v2-oc4.1` |
@@ -1050,3 +1050,31 @@ Released by the owner ("release 3B.4"). No live model call, no real data, no P4 
 
 **Tests:** `tests/test_decision.py` covers TEST-P3-04, 43 to 49 and 51 to 53, the human-only path and the
 rationale. TEST-P3-50's static check now includes `decisions.py`.
+
+## 18. Verification and closeout (3C, 2026-10-17)
+
+Released by the owner ("release 3C"). Verification only; no feature was added.
+
+- **The acceptance map.** `tests/acceptance.py` maps all 57 cases (`P3_CASES`, 120 test references, from the case
+  numbers in test names plus the review tests that prove the same case). The D-35 rules form `P3_SUPPORTING`
+  (question gap and route, decision rationale and policy reference, human-only assessment).
+- **The gate.** `tests/conftest.py` reports and gates P3 like GATE-S1 and GATE-P2: a full run fails unless every case
+  is PASS. `tests/test_acceptance.py` checks that the map names exactly the cases of section 9 and that every mapped
+  test exists.
+- **What it proves and what it does not.** GATE-P3 proves software, permissions, provenance and workflow on
+  synthetic data with test models. It is not a validation of selection quality (`011` section 11; `019` sections 7
+  to 9).
+- **After-action report:** `000-docs/000-aars/020-AA-AACR-p3-evidence-assessment.md`, with the proposed sign-off
+  statement.
+
+**Owner decisions carried out of P3** (consolidated from sections 14, 16 and 17; each keeps a fail-closed default):
+
+1. POL-05: who may decide. Until recorded, nobody can (the authority setting is None).
+2. What clears a capped assessment snapshot (bead `catalyst-v2-oc4.8`).
+3. Whether repeat form submissions may block a decision through an identity item (POL-01 and POL-12; rate limit in
+   P6).
+4. POL-10: decision text cannot be erased today.
+5. Whether a tampered prompt pack should still allow a human-only decision.
+6. Whether `reason_code` becomes a controlled list.
+7. How the alternative route reaches the applicant (today: appended to the question text).
+8. When to turn on reply interpretation (activation setting 0) and authorize live use (after `catalyst-v2-oc4.9`).

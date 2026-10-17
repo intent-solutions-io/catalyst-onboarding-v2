@@ -376,6 +376,8 @@ from tests import acceptance
 acceptance.CASES = {"TEST-PROBE": [%s]}
 acceptance.SUPPORTING = {}
 acceptance.P2_CASES = {}
+acceptance.P3_CASES = {}
+acceptance.P3_SUPPORTING = {}
 """
 
 
@@ -429,9 +431,16 @@ def test_the_p2_acceptance_map_names_exactly_the_cases_in_016():
     assert planned == sorted(acceptance.P2_CASES) and len(planned) == 54
 
 
+def test_the_p3_acceptance_map_names_exactly_the_cases_in_018():
+    spec = (ROOT / "000-docs/018-AT-DSGN-p3-evidence-assessment-specification.md").read_text()
+    planned = sorted(set(re.findall(r"^\| (TEST-P3-\d\d) \|", spec, flags=re.M)))
+    assert planned == sorted(acceptance.P3_CASES) and len(planned) == 57
+
+
 def test_every_mapped_test_exists():
     missing = []
-    for names in {**acceptance.CASES, **acceptance.SUPPORTING, **acceptance.P2_CASES}.values():
+    for names in {**acceptance.CASES, **acceptance.SUPPORTING, **acceptance.P2_CASES, **acceptance.P3_CASES,
+                  **acceptance.P3_SUPPORTING}.values():
         assert names
         for name in names:
             module, function = name.split("::")

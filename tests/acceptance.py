@@ -1,5 +1,6 @@
-"""The first-slice acceptance plan (005 S1.7, GATE-S1) and the P2 correspondence plan (016 section 7, GATE-P2),
-each mapped to the tests that prove each case (S1-T8; P2 task 2C).
+"""The first-slice acceptance plan (005 S1.7, GATE-S1), the P2 correspondence plan (016 section 7, GATE-P2) and the
+P3 evidence and assessment plan (018 section 9, GATE-P3), each mapped to the tests that prove each case (S1-T8;
+P2 task 2C; P3 task 3C).
 
 Each case names test functions as "module::function", where every parametrized instance counts, or
 one instance as "module::function[id]" where a case depends on that instance specifically. tests/conftest.py reports every case at the end of a run as PASS (all its tests ran and passed),
@@ -538,6 +539,268 @@ P2_CASES = {
     ],
 }
 
+
+
+# P3 acceptance plan (018 section 9; GATE-P3, task 3C): each case names the tests that prove it, by the case
+# numbers in their names plus the review tests that prove the same case. Reported and gated like S1 and P2.
+# GATE-P3 proves software, permissions, provenance and workflow; it is not a validation of selection quality
+# (011 section 11, 018 section 15).
+P3_CASES = {
+    "TEST-P3-01": [
+        "test_assessment::test_p3_01_a_valid_output_is_stored_with_provenance_and_the_stage_moves_for_staff",
+    ],
+    "TEST-P3-02": [
+        "test_assessment::test_p3_02_25_malformed_output_gets_one_repair_then_staff_and_never_a_third_request",
+        "test_assessment::test_p3_02_27_provider_errors_are_bounded_then_staff_with_no_stage_change",
+        "test_assessment::test_p3_02_no_model_outside_the_test_mode_refuses_before_any_reservation",
+    ],
+    "TEST-P3-03": [
+        "test_assessment::test_p3_03_24_injected_text_stays_data_and_an_obeying_model_changes_nothing",
+    ],
+    "TEST-P3-04": [
+        "test_decision::test_p3_04_no_decision_authority_refuses_everyone_including_superusers",
+    ],
+    "TEST-P3-05": [
+        "test_evidence::test_p3_05_15_unsafe_urls_are_refused",
+        "test_evidence::test_p3_05_a_host_outside_the_settings_allow_list_is_refused_and_nothing_is_stored",
+        "test_evidence::test_p3_05_fetch_itself_refuses_a_host_off_the_settings_list_and_fixtures_outside_test",
+        "test_evidence::test_p3_05_the_path_prefix_is_a_path_segment_prefix",
+    ],
+    "TEST-P3-06": [
+        "test_evidence::test_p3_06_18_a_transient_failure_retries_then_is_unavailable_never_a_negative_finding",
+    ],
+    "TEST-P3-07": [
+        "test_clarification::test_p3_07_42_a_confirmed_answer_starts_one_reassessment_on_a_new_snapshot_with_the_answer",
+    ],
+    "TEST-P3-08": [
+        "test_assessment::test_p3_08_21_the_snapshot_names_the_adopted_version_and_only_its_own_captures",
+    ],
+    "TEST-P3-09": [
+        "test_evidence::test_p3_09_activation_releases_only_eligible_held_rows_with_events",
+    ],
+    "TEST-P3-10": [
+        "test_evidence::test_p3_10_slots_per_claim_and_source_and_a_changed_adoption_is_refused",
+    ],
+    "TEST-P3-11": [
+        "test_evidence::test_p3_11_address_classification",
+    ],
+    "TEST-P3-12": [
+        "test_evidence::test_p3_12_mixed_dns_answers_refuse_and_a_peer_mismatch_sends_nothing",
+    ],
+    "TEST-P3-13": [
+        "test_evidence::test_p3_13_redirect_hosts_are_bounded_by_the_settings_list",
+        "test_evidence::test_p3_13_redirects_are_revalidated",
+    ],
+    "TEST-P3-14": [
+        "test_evidence::test_p3_14_the_byte_cap_truncates_and_the_deadline_stops_a_slow_drip",
+        "test_evidence::test_p3_14_the_deadline_bounds_a_server_that_drips_its_headers",
+        "test_evidence::test_p3_14_the_deadline_bounds_a_server_that_never_finishes_the_tls_handshake",
+    ],
+    "TEST-P3-15": [
+        "test_evidence::test_p3_05_15_unsafe_urls_are_refused",
+        "test_evidence::test_p3_15_a_malformed_applicant_url_is_refused_and_never_leaves_the_application_stuck",
+        "test_evidence::test_p3_15_a_malformed_url_claim_ends_refused_and_collection_completes",
+        "test_evidence::test_p3_15_content_type_and_encoding_are_refused_and_refusals_are_not_retried",
+    ],
+    "TEST-P3-16": [
+        "test_evidence::test_p3_16_requests_carry_no_cookie_or_credential_and_logs_hold_no_path",
+    ],
+    "TEST-P3-17": [
+        "test_evidence::test_p3_17_captures_are_immutable_and_hold_no_raw_bytes",
+    ],
+    "TEST-P3-18": [
+        "test_evidence::test_p3_06_18_a_transient_failure_retries_then_is_unavailable_never_a_negative_finding",
+        "test_evidence::test_p3_18_private_and_missing_pages_are_never_negative_findings",
+    ],
+    "TEST-P3-19": [
+        "test_evidence::test_p3_19_completion_happens_once_when_the_last_fetches_finish",
+        "test_evidence::test_p3_19_two_last_fetches_racing_complete_collection_exactly_once",
+    ],
+    "TEST-P3-20": [
+        "test_evidence::test_p3_20_a_required_unavailable_item_holds_for_staff_until_they_proceed_or_refetch",
+        "test_evidence::test_p3_20_proceed_without_moves_on_and_resolves_the_item",
+    ],
+    "TEST-P3-21": [
+        "test_assessment::test_p3_08_21_the_snapshot_names_the_adopted_version_and_only_its_own_captures",
+    ],
+    "TEST-P3-22": [
+        "test_assessment::test_p3_22_a_fabricated_alias_is_repaired_once",
+        "test_assessment::test_p3_22_quotes_must_carry_substance_and_never_only_placeholders",
+    ],
+    "TEST-P3-23": [
+        "test_assessment::test_p3_23_admit_against_an_unsupported_required_criterion_is_flagged_not_changed",
+    ],
+    "TEST-P3-24": [
+        "test_assessment::test_p3_03_24_injected_text_stays_data_and_an_obeying_model_changes_nothing",
+    ],
+    "TEST-P3-25": [
+        "test_assessment::test_p3_02_25_malformed_output_gets_one_repair_then_staff_and_never_a_third_request",
+    ],
+    "TEST-P3-26": [
+        "test_assessment::test_p3_26_a_race_for_the_last_unit_is_serialized_by_the_advisory_lock",
+        "test_assessment::test_p3_26_global_concurrency_waits_without_spending_an_attempt",
+        "test_assessment::test_p3_26_the_daily_budget_defaults_to_zero_and_stops_before_any_call",
+        "test_assessment::test_p3_26_the_per_snapshot_budget_counts_every_recorded_invocation",
+        "test_assessment::test_p3_26_unknown_usage_counts_at_its_full_reservation_against_the_application",
+    ],
+    "TEST-P3-27": [
+        "test_assessment::test_p3_02_27_provider_errors_are_bounded_then_staff_with_no_stage_change",
+    ],
+    "TEST-P3-28": [
+        "test_assessment::test_p3_28_input_changed_between_freeze_and_call_refuses_without_a_call",
+    ],
+    "TEST-P3-29": [
+        "test_assessment::test_p3_29_57_names_contacts_links_and_identifiers_never_leave",
+        "test_assessment::test_p3_29_a_claim_cannot_forge_prompt_structure",
+    ],
+    "TEST-P3-30": [
+        "test_assessment::test_p3_30_live_models_are_refused_everywhere_and_requests_are_disabled",
+    ],
+    "TEST-P3-31": [
+        "test_assessment::test_p3_31_56_a_crash_after_the_call_is_counted_and_yields_at_most_one_result",
+        "test_assessment::test_p3_31_a_redelivered_finished_run_is_never_called_again",
+        "test_assessment::test_p3_31_the_invocation_is_committed_before_the_model_is_called",
+    ],
+    "TEST-P3-32": [
+        "test_assessment::test_p3_32_a_reasoning_part_is_never_persisted",
+    ],
+    "TEST-P3-33": [
+        "test_assessment::test_p3_33_a_tampered_prompt_pack_is_refused_at_enqueue",
+        "test_assessment::test_p3_33_finished_runs_cannot_be_rewritten_by_any_role",
+    ],
+    "TEST-P3-34": [
+        "test_clarification::test_p3_34_a_harmful_or_linked_proposal_never_becomes_a_question",
+        "test_clarification::test_p3_34_a_model_proposal_is_stored_proposed_with_its_gap_and_is_unsendable_until_approved",
+        "test_clarification::test_p3_34_a_proposal_must_name_its_evidence_gap",
+    ],
+    "TEST-P3-35": [
+        "test_clarification::test_p3_35_duplicates_are_dropped_and_a_round_holds_at_most_three",
+    ],
+    "TEST-P3-36": [
+        "test_clarification::test_p3_36_authoring_needs_its_permission_a_known_criterion_and_a_gap",
+        "test_clarification::test_p3_36_staff_author_a_question_through_the_screen_and_it_is_sent_through_p2",
+    ],
+    "TEST-P3-37": [
+        "test_clarification::test_p3_37_39_one_reply_is_interpreted_once_as_advice_and_staff_still_confirm",
+        "test_clarification::test_review_one_call_covers_every_pending_question_of_a_reply",
+    ],
+    "TEST-P3-38": [
+        "test_clarification::test_p3_38_ineligible_replies_make_no_call",
+        "test_clarification::test_p3_38_the_default_model_setting_refuses_before_any_record_of_a_call",
+        "test_clarification::test_recheck_a_closed_application_is_never_interpreted",
+        "test_clarification::test_review_a_paused_or_deactivated_interpretation_records_nothing",
+    ],
+    "TEST-P3-39": [
+        "test_clarification::test_p3_37_39_one_reply_is_interpreted_once_as_advice_and_staff_still_confirm",
+        "test_clarification::test_p3_39_a_quote_that_is_not_in_the_reply_gets_one_repair_then_no_proposal",
+        "test_clarification::test_recheck_our_question_re_cased_and_numbered_is_still_ours",
+        "test_clarification::test_review_our_own_words_repeated_unquoted_are_never_the_applicants_answer",
+    ],
+    "TEST-P3-40": [
+        "test_clarification::test_p3_40_evidence_required_but_absent_is_reported",
+        "test_clarification::test_review_the_evidence_flag_counts_only_the_applicants_own_links",
+    ],
+    "TEST-P3-41": [
+        "test_clarification::test_p3_41_55_a_staff_decision_before_the_call_stops_the_disclosure",
+        "test_clarification::test_p3_41_a_rederived_reply_ends_text_changed",
+        "test_clarification::test_p3_41_a_staff_decision_during_the_call_supersedes_the_result",
+        "test_clarification::test_recheck_a_question_withdrawn_during_the_call_supersedes_the_result",
+        "test_clarification::test_recheck_the_reply_screen_ignores_advice_on_an_older_derivative",
+    ],
+    "TEST-P3-42": [
+        "test_clarification::test_p3_07_42_a_confirmed_answer_starts_one_reassessment_on_a_new_snapshot_with_the_answer",
+        "test_clarification::test_p3_42_rounds_are_bounded_and_the_last_round_returns_to_staff",
+        "test_clarification::test_p3_42_withdrawing_the_last_open_question_ends_the_round",
+        "test_clarification::test_review_the_last_round_proposes_nothing_at_default_settings",
+    ],
+    "TEST-P3-43": [
+        "test_decision::test_p3_43_51_a_newly_confirmed_answer_makes_the_run_stale",
+    ],
+    "TEST-P3-44": [
+        "test_decision::test_p3_44_a_decision_is_one_transaction_with_its_held_follow_on",
+        "test_decision::test_review_a_decision_withdraws_unsent_questions_and_none_can_be_sent_afterwards",
+        "test_decision::test_review_a_failure_creating_the_follow_on_rolls_everything_back",
+    ],
+    "TEST-P3-45": [
+        "test_decision::test_p3_45_two_concurrent_decisions_one_wins",
+    ],
+    "TEST-P3-46": [
+        "test_decision::test_p3_46_decisions_are_append_only_for_every_role",
+        "test_decision::test_review_a_supplied_transaction_marker_is_overwritten_and_truncate_is_refused",
+    ],
+    "TEST-P3-47": [
+        "test_decision::test_p3_47_an_identity_item_blocks_and_admit_is_refused_while_paused",
+        "test_decision::test_recheck_an_open_sent_question_blocks_the_decision",
+    ],
+    "TEST-P3-48": [
+        "test_decision::test_p3_48_the_screen_records_a_decision_through_one_post",
+        "test_decision::test_p3_48_the_screen_shows_everything_escaped_and_only_permitted_outcomes",
+        "test_decision::test_review_hostile_claim_text_is_escaped_and_nothing_is_preselected",
+    ],
+    "TEST-P3-49": [
+        "test_decision::test_p3_49_a_repeat_after_decline_creates_nothing_new_and_asks_staff",
+    ],
+    "TEST-P3-50": [
+        "test_assessment::test_p3_50_no_provider_client_and_no_output_field_in_control_flow",
+        "test_assessment::test_p3_50_the_recommendation_never_chooses_the_next_step",
+    ],
+    "TEST-P3-51": [
+        "test_decision::test_p3_43_51_a_newly_confirmed_answer_makes_the_run_stale",
+        "test_decision::test_p3_51_a_changed_question_set_or_a_re_fetch_is_refused",
+        "test_decision::test_review_exact_refusals_for_pending_evidence_a_run_in_flight_and_a_decided_stage",
+    ],
+    "TEST-P3-52": [
+        "test_decision::test_p3_52_no_role_can_move_into_a_decided_stage_without_a_decision_row",
+        "test_decision::test_review_the_backstop_needs_a_matching_decision_from_this_very_transaction",
+        "test_decision::test_review_the_backstop_refuses_another_applications_decision_and_a_decided_insert",
+    ],
+    "TEST-P3-53": [
+        "test_decision::test_p3_53_after_pol05_a_superuser_or_ungranted_staff_is_refused_and_the_setting_is_code_only",
+        "test_decision::test_review_a_group_grant_never_confers_the_decision",
+        "test_decision::test_review_the_selection_policy_setting_is_validated",
+    ],
+    "TEST-P3-54": [
+        "test_evidence::test_p3_54_classify_has_no_environment_branch_and_fixtures_need_the_test_environment",
+    ],
+    "TEST-P3-55": [
+        "test_clarification::test_p3_41_55_a_staff_decision_before_the_call_stops_the_disclosure",
+    ],
+    "TEST-P3-56": [
+        "test_assessment::test_p3_31_56_a_crash_after_the_call_is_counted_and_yields_at_most_one_result",
+        "test_assessment::test_p3_56_a_pause_before_the_invocation_refunds_and_records_nothing",
+        "test_assessment::test_p3_56_the_poison_path_abandons_the_run_and_opens_a_staff_item",
+        "test_clarification::test_review_an_interrupted_attempt_stays_counted_and_exhaustion_abandons_it",
+    ],
+    "TEST-P3-57": [
+        "test_assessment::test_p3_29_57_names_contacts_links_and_identifiers_never_leave",
+        "test_assessment::test_p3_57_names_applicant_needs_a_full_name_in_the_sent_text",
+        "test_assessment::test_p3_57_names_are_scrubbed_on_word_boundaries",
+        "test_assessment::test_p3_57_scrubbing_a_hostile_page_is_linear",
+        "test_assessment::test_p3_57_zero_width_and_full_width_names_are_still_scrubbed",
+        "test_clarification::test_review_a_confirmed_answer_leaves_as_one_scrubbed_block_without_our_words",
+        "test_clarification::test_review_canaries_never_leave_through_a_reply_or_its_question",
+    ],
+}
+
+# D-35 (019, 018 sections 15 to 17): the selection-quality rules P3 implements. Not numbered cases; reported and
+# gated with GATE-P3 like the S1 supporting evidence.
+P3_SUPPORTING = {
+    "D-35 question rules (gap, alternative route, screen)": [
+        "test_clarification::test_p3_34_a_proposal_must_name_its_evidence_gap",
+        "test_clarification::test_review_the_alternative_route_reaches_the_applicant",
+        "test_clarification::test_create_question_refuses_unsafe_gaps_and_routes",
+    ],
+    "D-35 decision rationale and policy reference": [
+        "test_decision::test_d35_every_criterion_needs_capability_strength_and_a_note",
+        "test_decision::test_review_no_evidence_means_capability_unknown",
+    ],
+    "D-35 human-only assessment": [
+        "test_decision::test_d35_a_human_only_assessment_is_allowed_only_when_model_advice_is_unavailable",
+        "test_decision::test_d35_human_only_is_never_a_shortcut_past_a_working_assessment",
+        "test_decision::test_review_human_only_is_reachable_when_staff_get_the_case_back_without_a_reassessment",
+        "test_decision::test_recheck_human_only_after_the_run_cap_in_assessing",
+    ],
+}
 
 def key(nodeid: str) -> str:
     """'tests/test_x.py::test_name[param]' -> 'test_x::test_name' (the function: every instance)."""
