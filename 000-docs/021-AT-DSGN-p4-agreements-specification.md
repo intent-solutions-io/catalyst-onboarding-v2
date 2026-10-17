@@ -4,7 +4,7 @@
 |---|---|
 | Document | `021-AT-DSGN-p4-agreements-specification` |
 | Version | 0.2.0 (draft for owner review; the independent security and privacy review applied, section 14) |
-| Status | **PROPOSED.** Nothing here is approved until the owner records a decision in `011` section 4. Approval would authorize synthetic P4 only: a local fake Documenso, synthetic placeholder PDFs, no real envelope, no agreement text, no deployment. |
+| Status | **APPROVED by the owner 2026-10-17 (version 0.2.0; D-37 in `011` section 4), with the recommended defaults `P4-D-1` to `P4-D-20` for synthetic P4.** 4B.1 to 4C each need their own release; the read-only Documenso version check (P4-D-2) needs its own authorization. No real envelope, agreement text, real data or deployment is authorized. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-17 |
 | Epic | P4, "Issue and verify the NDA, User Agreement and other required agreements through Documenso with protected custody" (`catalyst-v2-hdg`); this task is `catalyst-v2-hdg.1` |
