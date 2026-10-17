@@ -409,6 +409,7 @@ above):
 **Webhook mechanism, INSPECTED.** Read from the installed version's public source at tag `v2.20.0`
 (`packages/lib/server-only/webhooks/execute-webhook-call.ts` and the job that calls it). No credential was used and
 no request was made to the installation:
+
 - The provider POSTs JSON with a plain shared secret in `X-Documenso-Secret`. There is no signature and no
   timestamp. It waits at most 10 seconds and follows no redirect.
 - The body is `{event, payload, createdAt, webhookEndpoint}`. `payload` is the document: its legacy numeric id,
