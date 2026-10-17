@@ -105,7 +105,7 @@ def pytest_collectreport(report):
 
 # The acceptance report (005 S1.7 and 016 section 7, tests/acceptance.py): every case's status at the end of
 # the run. A full run (no file, -k or -m selection, nothing deselected) fails unless every case is PASS: that
-# is GATE-S1's and GATE-P2's "every case PASS at one head", enforced wherever the whole suite runs (CI and
+# is GATE-S1's, GATE-P2's and GATE-P3's "every case PASS at one head", enforced wherever the whole suite runs (CI and
 # scripts/test.sh).
 _acceptance = {"outcomes": {}, "deselected": False, "statuses": {}, "full": False}
 
@@ -126,7 +126,8 @@ def case_status(names, outcomes):
 def pytest_sessionfinish(session, exitstatus):
     config = session.config
     outcomes = _acceptance["outcomes"]
-    groups = {**acceptance.CASES, **acceptance.SUPPORTING, **acceptance.P2_CASES}
+    groups = {**acceptance.CASES, **acceptance.SUPPORTING, **acceptance.P2_CASES, **acceptance.P3_CASES,
+              **acceptance.P3_SUPPORTING}
     _acceptance["statuses"] = {case: case_status(names, outcomes) for case, names in groups.items()}
     mapped = {name for names in groups.values() for name in names}
     _acceptance["full"] = (
@@ -148,7 +149,9 @@ def pytest_terminal_summary(terminalreporter):
         return  # nothing mapped ran (a child probe or an unrelated file): no report
     for title, gate, groups in (
             ("first-slice acceptance (005 S1.7)", "GATE-S1", {**acceptance.CASES, **acceptance.SUPPORTING}),
-            ("P2 correspondence acceptance (016 section 7)", "GATE-P2", acceptance.P2_CASES)):
+            ("P2 correspondence acceptance (016 section 7)", "GATE-P2", acceptance.P2_CASES),
+            ("P3 evidence and assessment acceptance (018 section 9)", "GATE-P3",
+             {**acceptance.P3_CASES, **acceptance.P3_SUPPORTING})):
         terminalreporter.section(title)
         part = {case: statuses[case] for case in groups}
         for case, status in part.items():

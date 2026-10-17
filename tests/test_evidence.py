@@ -325,6 +325,9 @@ def test_p3_19_completion_happens_once_when_the_last_fetches_finish(ev):
     assert app.stage == "assessing"
     assert ApplicationEvent.objects.filter(application=app, kind="evidence_collection_complete").count() == 1
     assert {i.status for i in items(app)} == {"fetched"}
+    from assessments.models import AssessmentRun
+
+    assert AssessmentRun.objects.filter(application=app).count() == 1  # step 3 hands over to exactly one run (3C)
 
 
 def test_p3_20_a_required_unavailable_item_holds_for_staff_until_they_proceed_or_refetch(ev):
@@ -353,6 +356,9 @@ def test_p3_20_proceed_without_moves_on_and_resolves_the_item(ev):
     assert app.stage == "assessing"
     assert StaffItem.objects.get(reason_code="evidence_required_unavailable").status == "resolved"
     assert ApplicationEvent.objects.get(kind="evidence_collection_complete").data["proceeded_without"] is True
+    from assessments.models import AssessmentRun
+
+    assert AssessmentRun.objects.filter(application=app).count() == 1  # proceeding hands over to one run (3C)
 
 
 def test_a_pause_holds_collection_and_no_model_or_assessment_runs(ev):
