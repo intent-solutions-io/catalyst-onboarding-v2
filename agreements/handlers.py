@@ -714,7 +714,9 @@ class CancelEnvelope(_ProviderStep):
         if orphan is None or orphan.instance.application.public_ref != claim.subject_id or not orphan.envelope_id:
             return Decision(Status.FAILED, "orphan_not_found"), None
         if not provider.configured():
-            return Decision(Status.HELD, "provider_not_configured"), None
+            return Decision(Status.FAILED, "provider_not_configured", write=lambda: open_item(
+                CANCEL_UNKNOWN, f"cancel:{claim.input_ref}", application=orphan.instance.application,
+                pending_action_id=claim.id)), None
         earlier = list(EnvelopeAttempt.objects.filter(instance=orphan.instance, step=Step.CANCEL,
                                                       envelope_id=orphan.envelope_id,
                                                       outcome__in=(Out.SENDING, Out.UNKNOWN)).order_by("id"))

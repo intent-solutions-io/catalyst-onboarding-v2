@@ -728,11 +728,7 @@ def test_p4_28_the_client_bounds_time_encoding_truncation_and_its_own_configurat
     assert provider.envelope({"id": "envelope_1", "status": "WEIRD", "recipients": []}).status == "UNKNOWN"
 
 
-def test_p4_20_the_agreement_guard_is_wired_and_requires_a_test_host():
-    import inspect
-
-    assert "agreement_problems" in inspect.getsource(guards.all_problems)
-
+def test_p4_20_the_agreement_guard_requires_a_test_host():
     class Test:
         CATALYST_ENV = "test"
         CATALYST_AGREEMENT_PROVIDER_URL = "https://documenso.example.com/api/v2"
@@ -745,3 +741,92 @@ def test_p4_20_the_agreement_guard_is_wired_and_requires_a_test_host():
 def test_p4_09_the_command_needs_a_real_approval_reference():
     with pytest.raises(CommandError):
         call_command("activate_agreements", "--activation-version", "1", "--approval-ref", "   ", stdout=StringIO())
+
+
+# --- 4B.1 QA re-check: failing-test protection for each recovery fix -----------------------------------------------
+
+def test_p4_12_a_pending_distribute_is_reconciled_before_a_later_refusal(g, monkeypatch):
+    app = admitted(g, monkeypatch)
+    approve(g)
+    activate()
+    monkeypatch.setattr(handlers.DistributeAgreement, "after_call",
+                        lambda self, claim, result: (_ for _ in ()).throw(RuntimeError("synthetic crash")))
+    run_worker()
+    monkeypatch.setattr(handlers.DistributeAgreement, "after_call", lambda self, claim, result: None)
+    StaffItem.objects.create(application=Application.objects.get(pk=app.pk), reason_code="hard_bounce",
+                             dedupe_key="inbound:synthetic")  # a refusal reason appears after the exchange
+    expire_lease(g, "distribute_agreement")
+    run_worker()
+    instance = nda(Application.objects.get(pk=app.pk))
+    assert instance.issue_status == "issued" and len(g.fake.calls("POST", "/envelope/distribute")) == 1
+    assert not items(app, handlers.DISTRIBUTE_REFUSED).exists()  # the email may have gone: reconciled, not refused
+
+
+def test_p4_11_a_defect_during_the_exchange_is_an_unknown_outcome(g, monkeypatch):
+    app = admitted(g, monkeypatch)
+    approve(g)
+    activate()
+    monkeypatch.setattr(provider, "create_from_template", lambda *a: (_ for _ in ()).throw(RuntimeError("defect")))
+    run_worker()
+    instance = nda(Application.objects.get(pk=app.pk))
+    attempt = instance.attempts.get(step="create")
+    assert (attempt.outcome, attempt.outcome_code) == ("unknown", "handler_error")
+    assert instance.issue_status == "create_uncertain" and items(app, handlers.CREATE_UNKNOWN).count() == 1
+
+
+def test_p4_11_a_reconciliation_that_cannot_finish_opens_a_staff_item(g, monkeypatch, settings):
+    app = admitted(g, monkeypatch)
+    approve(g)
+    activate()
+    g.fake.fault("POST /envelope/use", ("drop_before",))
+    monkeypatch.setattr(handlers, "search", lambda *a: (_ for _ in ()).throw(RuntimeError("defect")))
+    run_worker()
+    assert set(PendingAction.objects.filter(kind="reconcile_agreement").values_list("status", flat=True)) == {"failed"}
+    assert items(app, handlers.CREATE_UNKNOWN).count() == 1
+
+
+def test_p4_09_a_refusal_returns_issue_nda_to_held_without_using_up_its_attempts(g, monkeypatch):
+    app = admitted(g, monkeypatch)
+    approve(g)
+    action = PendingAction.objects.get(kind="issue_nda")
+    owner = g.committed.connect("owner", autocommit=True)
+    owner.execute("UPDATE workflow_pendingaction SET input_ref = %s WHERE id = %s",
+                  ["00000000-0000-0000-0000-000000000000", action.pk])
+    for _ in range(action.max_attempts + 1):  # more refusals than attempts
+        owner.execute("UPDATE workflow_pendingaction SET status = 'queued', due_at = now() WHERE id = %s", [action.pk])
+        run_worker()
+        assert PendingAction.objects.filter(pk=action.pk, status="held", attempts=0).exists()
+    owner.execute("UPDATE workflow_pendingaction SET input_ref = %s WHERE id = %s",
+                  [str(app.qualification_decisions.get().public_id), action.pk])
+    activate()
+    run_worker()
+    assert nda(Application.objects.get(pk=app.pk)).issue_status == "issued"
+
+
+def test_p4_30_an_orphan_cancel_without_a_provider_goes_to_staff(g, monkeypatch, settings):
+    app = admitted(g, monkeypatch)
+    approve(g)
+    activate()
+    g.fake.fault("POST /envelope/use", ("drop_before",))
+    run_worker()
+    instance = nda(Application.objects.get(pk=app.pk))
+    old_key = instance.external_key
+    services.decide_uncertain_create(instance.pk, g.agreement_decider, "abandon")
+    g.fake.add_envelope(template_ref=g.template.provider_template_ref, external_id=old_key, status="PENDING",
+                        recipients=[{"id": 7001, "email": "ada@example.test"}])
+    real = provider.find
+
+    def find_then_unconfigure(*args):  # the provider disappears between finding the orphan and cancelling it
+        try:
+            return real(*args)
+        finally:
+            settings.CATALYST_AGREEMENT_PROVIDER_URL = ""
+    monkeypatch.setattr(provider, "find", find_then_unconfigure)
+    run_worker()
+    assert PendingAction.objects.get(kind="cancel_envelope").status == "failed"
+    assert items(app, handlers.CANCEL_UNKNOWN).count() == 1 and items(app, handlers.LATE_ORPHAN).count() == 1
+
+
+def test_p4_20_all_problems_reports_agreement_settings_from_the_environment(settings):
+    assert any("CATALYST_AGREEMENT_PROVIDER_TOKEN" in p
+               for p in guards.all_problems(settings, {"CATALYST_AGREEMENT_PROVIDER_TOKEN": "x"}))

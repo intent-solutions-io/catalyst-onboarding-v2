@@ -123,9 +123,11 @@ def protect(apps, schema_editor):
           RETURN NEW;""")
     # Recipients are fixed before the create: none may be added once the instance has left create_pending.
     _function(schema_editor, "catalyst_agreement_recipient_open", f"""
+          -- FOR SHARE waits for a create holding the instance, so its attempt row is seen (4B.1 security re-check).
           IF NOT EXISTS (SELECT 1 FROM public.{INSTANCE} i WHERE i.id = NEW.instance_id AND i.envelope_id = ''
                          AND i.issue_status IN ('held', 'create_pending')
-                         AND NOT EXISTS (SELECT 1 FROM public.{ATTEMPT} a WHERE a.instance_id = i.id)) THEN
+                         AND NOT EXISTS (SELECT 1 FROM public.{ATTEMPT} a WHERE a.instance_id = i.id)
+                         FOR SHARE OF i) THEN
             RAISE EXCEPTION 'agreement recipient: recipients are fixed before the first provider call'
               USING ERRCODE = 'insufficient_privilege';
           END IF;
