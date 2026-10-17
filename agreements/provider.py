@@ -67,6 +67,7 @@ class Recipient:
     role: str
     signing_order: int | None
     signing_status: str
+    expired: bool = False
 
 
 @dataclass(frozen=True)
@@ -252,7 +253,7 @@ def _recipient(raw) -> Recipient:
     order = raw.get("signingOrder")
     return Recipient(email=_text(raw.get("email")), role=_enum(raw.get("role"), ROLES),
                      signing_order=order if isinstance(order, int) and not isinstance(order, bool) else None,
-                     signing_status=_enum(raw.get("signingStatus"), SIGNING))
+                     signing_status=_enum(raw.get("signingStatus"), SIGNING), expired=bool(raw.get("expired")))
 
 
 def envelope(raw) -> Envelope:
@@ -319,3 +320,36 @@ def download(item_id: str) -> bytes:
     if not response.body.startswith(b"%PDF-"):
         raise ProviderError("download_not_pdf", sent=True, status=response.status)
     return response.body
+
+
+EVENTS = ("DOCUMENT_CREATED", "DOCUMENT_SENT", "DOCUMENT_OPENED", "DOCUMENT_SIGNED", "DOCUMENT_RECIPIENT_COMPLETED",
+          "DOCUMENT_COMPLETED", "DOCUMENT_REJECTED", "DOCUMENT_CANCELLED", "DOCUMENT_REMINDER_SENT",
+          "DOCUMENT_RECIPIENT_REJECTED")
+
+
+@dataclass(frozen=True)
+class Hint:
+    """A webhook body, allowlisted (021 section 6). The installed version posts `{event, payload, createdAt,
+    webhookEndpoint}`; `payload` is the document with its legacy numeric id, `externalId`, `status`, `templateId` and
+    recipients, tokens included (021 section 15). Only these facts survive; a hint never verifies anything."""
+
+    event: str
+    external_id: str
+    status: str
+    template_number: int | None
+    recipients: tuple
+
+
+def hint(raw) -> Hint | None:
+    if not isinstance(raw, dict) or not isinstance(raw.get("payload"), dict):
+        return None
+    doc = raw["payload"]
+    recipients = doc.get("recipients", [])
+    if not isinstance(recipients, list) or not all(isinstance(r, dict) for r in recipients):
+        return None
+    number = doc.get("templateId")
+    return Hint(event=_enum(raw.get("event"), EVENTS), external_id=_text(doc.get("externalId"), 64),
+                status=_enum(doc.get("status"), STATUSES),
+                template_number=number if isinstance(number, int) and not isinstance(number, bool) else None,
+                recipients=tuple(_recipient(r) for r in recipients))
+

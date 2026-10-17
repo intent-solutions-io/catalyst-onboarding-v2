@@ -17,7 +17,7 @@ from django.db.models import Q
 from django.db.models.functions import Now
 
 ISSUE = ["held", "create_pending", "created", "create_uncertain", "distribute_pending", "distribute_uncertain", "issued",
-         "failed_needs_staff", "cancelled", "superseded"]
+         "failed_needs_staff", "cancel_pending", "cancel_uncertain", "cancelled", "superseded"]
 SIGNING = ["not_started", "partially_signed", "signing_complete_observed", "signing_complete_verified", "declined",
            "expired", "cancelled"]
 CUSTODY = ["not_due", "pending", "stored_verified", "failed_retry_pending", "failed_needs_staff"]
@@ -95,7 +95,9 @@ class AgreementInstance(models.Model):
 
     class Meta:
         permissions = [("decide_uncertain_agreement",
-                        "Decide an agreement step whose provider outcome is unknown (decision-maker; P4-D-8)")]
+                        "Decide an agreement step whose provider outcome is unknown (decision-maker; P4-D-8)"),
+                       ("manage_agreements",
+                        "Cancel, reissue or stop an applicant's agreements (decision-maker; P4-D-9, P4-D-18, P4-D-20)")]
         constraints = [
             models.CheckConstraint(condition=Q(issue_status__in=ISSUE), name="agreement_issue_status_valid"),
             models.CheckConstraint(condition=Q(signing_status__in=SIGNING), name="agreement_signing_status_valid"),
@@ -169,3 +171,43 @@ class EnvelopeAttempt(models.Model):
             models.CheckConstraint(condition=Q(outcome__in=ATTEMPT_OUTCOMES), name="envelope_attempt_outcome_valid"),
         ]
         indexes = [models.Index(fields=["external_key"], name="envelope_attempt_key")]
+
+
+class CurrentTransactionId(models.Func):
+    template = "pg_current_xact_id()::text::bigint"
+    output_field = models.BigIntegerField()
+
+
+class ProviderObservation(models.Model):
+    """What the provider said about an envelope, from a webhook (a hint) or a fresh read (021 sections 4 and 6;
+    4B.2). Protected history: append-only for every role (ADR-14). Only allowlisted facts are kept: statuses, roles,
+    orders, and whether the provider's envelope and recipients equal ours; never a name, address, token or link.
+
+    `signing_complete_verified` is only accepted by the database when a read observation in the same transaction shows
+    the envelope complete, every required recipient signed, our identity and our recipients (migration 0004)."""
+
+    class Source(models.TextChoices):
+        WEBHOOK = "webhook"
+        READ = "read"
+
+    instance = models.ForeignKey(AgreementInstance, on_delete=models.PROTECT, related_name="observations")
+    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="+")
+    source = models.CharField(max_length=16, choices=Source.choices)
+    event = models.CharField(max_length=40, blank=True, default="")  # the webhook event name, or "" for a read
+    envelope_status = models.CharField(max_length=16)
+    recipients = models.JSONField(default=list)  # [{"role", "order", "signing_status", "expired"}]
+    identity_match = models.BooleanField(default=False)  # envelope id, externalId and template are ours
+    recipients_match = models.BooleanField(default=False)  # exactly our recipients' addresses and roles
+    all_required_signed = models.BooleanField(default=False)
+    content_sha256 = models.CharField(max_length=64)  # of the allowlisted facts, so an exact replay is a no-op
+    observed_at = models.DateTimeField(db_default=Now())
+    created_txid = models.BigIntegerField(db_default=CurrentTransactionId())
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(condition=Q(source__in=["webhook", "read"]), name="observation_source_valid"),
+            models.UniqueConstraint(fields=["instance", "source", "event", "content_sha256"],
+                                    condition=Q(source="webhook"), name="observation_webhook_once"),
+        ]
+        indexes = [models.Index(fields=["instance", "observed_at"], name="observation_instance_time")]
+

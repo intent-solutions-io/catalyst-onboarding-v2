@@ -193,7 +193,7 @@ def test_p4_24_signing_tokens_and_links_are_never_stored_or_logged(g, monkeypatc
         assert not any(s in dump for s in SIGNING_SECRETS), table
     assert not any(s in caplog.text for s in SIGNING_SECRETS) and TOKEN not in caplog.text
     parsed = provider.read(nda(app).envelope_id)
-    assert set(vars(parsed.recipients[0])) == {"email", "role", "signing_order", "signing_status"}
+    assert set(vars(parsed.recipients[0])) == {"email", "role", "signing_order", "signing_status", "expired"}
 
 
 # --- TEST-P4-11, 30: unknown creates ---------------------------------------------------------------------------
@@ -469,11 +469,23 @@ def test_p4_26_protections_hold_for_every_role(g, monkeypatch):
     for conn in roles.values():  # D-15: no User Agreement before the NDA is signing_complete_verified
         with pytest.raises(errors.InsufficientPrivilege, match="D-15"):
             conn.execute(INSERT, [app.pk, ua.pk, f"ag_ua_{id(conn)}", "", "create_pending", "not_started", "user_agreement"])
-    # Stated limit (021 section 15): the status columns are the application's to write until 4B.2 decides whether the
-    # fresh read becomes database-visible. With the NDA verified, the backstop lets the User Agreement through.
-    roles["app"].execute("UPDATE agreements_agreementinstance SET signing_status = 'signing_complete_verified' WHERE id = %s",
-                         [instance.pk])
+    # 4B.2: verification is database-visible. Writing the status alone is refused for every role; it takes a read
+    # observation recorded in the same transaction.
+    verify = "UPDATE agreements_agreementinstance SET signing_status = 'signing_complete_verified' WHERE id = %s"
+    for conn in roles.values():
+        with pytest.raises(errors.InsufficientPrivilege, match="fresh read"):
+            conn.execute(verify, [instance.pk])
+    with g.committed.connect("app") as conn:
+        conn.execute("INSERT INTO agreements_providerobservation (instance_id, application_id, source, event, envelope_status,"
+                     " recipients, identity_match, recipients_match, all_required_signed, content_sha256, observed_at,"
+                     " created_txid) VALUES (%s, %s, 'read', '', 'COMPLETED', '[]', true, true, true, 'x', now(), 0)",
+                     [instance.pk, app.pk])
+        conn.execute(verify, [instance.pk])
+        conn.commit()
     roles["app"].execute(INSERT, [app.pk, ua.pk, "ag_ua_ok", "", "create_pending", "not_started", "user_agreement"])
+    for conn in roles.values():  # once verified, never changed
+        with pytest.raises(errors.InsufficientPrivilege, match="never changes"):
+            conn.execute("UPDATE agreements_agreementinstance SET signing_status = 'cancelled' WHERE id = %s", [instance.pk])
     assert AgreementInstance.objects.filter(application=app, agreement_type__key="user_agreement").count() == 1
 
 

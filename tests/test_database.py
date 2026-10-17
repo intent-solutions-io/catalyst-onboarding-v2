@@ -45,6 +45,7 @@ APPROVED_MIGRATIONS = {
     ("assessments", "0006_author_question_permission"), ("assessments", "0007_qualification_decision"),
     ("assessments", "0008_decision_protection"),
     ("agreements", "0001_initial"), ("agreements", "0002_protection_and_types"),  # P4 4B.1
+    ("agreements", "0003_provider_observations"), ("agreements", "0004_observation_protection_and_verification"),  # 4B.2
 }
 
 

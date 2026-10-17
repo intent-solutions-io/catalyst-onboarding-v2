@@ -4,7 +4,7 @@
 |---|---|
 | Document | `011-PP-PLAN-master-blueprint` (the only master blueprint for this repository) |
 | Version | 1.2.0 (current status corrected and the candidate selection-quality contract added, section 11, 2026-10-14; 1.1.0 recorded the ADR decisions of 2026-10-10) |
-| Status | **APPROVED IN SCOPE** (section 10): project direction, amended requirements and the bounded synthetic first-slice scope; later owner decisions D-16 to D-38 are recorded in section 4. **Current (2026-10-17):** GATE-S1 (D-26) and GATE-P2 (D-33) signed off for synthetic work; P3 accepted for synthetic work: GATE-P3 signed off 2026-10-17 (D-36). **Not approved:** the open policies of section 6 beyond their recorded synthetic decisions, live model use, real applicant data, provider writes, deployment and release; implementation only as each handoff is released. Items marked PROPOSED stay proposals; section 11 and `019` were approved on 2026-10-14 (D-35). |
+| Status | **APPROVED IN SCOPE** (section 10): project direction, amended requirements and the bounded synthetic first-slice scope; later owner decisions D-16 to D-39 are recorded in section 4. **Current (2026-10-17):** GATE-S1 (D-26) and GATE-P2 (D-33) signed off for synthetic work; P3 accepted for synthetic work: GATE-P3 signed off 2026-10-17 (D-36). **Not approved:** the open policies of section 6 beyond their recorded synthetic decisions, live model use, real applicant data, provider writes, deployment and release; implementation only as each handoff is released. Items marked PROPOSED stay proposals; section 11 and `019` were approved on 2026-10-14 (D-35). |
 | Owner | Jeremy Longshore (product owner and approver) |
 | Reviewers | `catalyst-django-architect` (build design), `catalyst-independent-qa` (independent review); results in section 9 |
 | Date | 2026-10-09 |
@@ -76,7 +76,7 @@ direct database edits or a coding agent. The learning site itself is not replace
 
 ## 4. Owner decisions and boundaries
 
-### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-38)
+### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-39)
 
 The owner gave this project direction in the build-contract instruction of 2026-10-09, in the
 invoking session. It is recorded here verbatim so a fresh session can check the source. The owner
@@ -262,6 +262,13 @@ documenso check and release 4B.1". This is recorded as authority for one read-on
 authorize any request that uses a provider credential, any envelope, webhook or email from the real installation,
 real agreement text or data, release or deployment, and it does not release 4B.2.
 
+**4B.2, 2026-10-17** (source of D-39). After 4B.1 merged (PR #38), the owner wrote in the invoking session: "release
+4B.2". This is recorded as the release of 4B.2 (`catalyst-v2-hdg.3`) for synthetic work against the local fake
+Documenso. The open 4B.1 items (the draft-orphan handling, the bounded watch, the public version tag) were not
+answered, so their recorded defaults stand (`021` sections 15 and 16). It authorizes no real Documenso request,
+webhook or email, no public webhook exposure (P6), no agreement text or real data, and not 4B.3, release or
+deployment.
+
 ### 4.2 Decision summary
 
 Decision records with rationale live in `003` section "Architecture decisions". This table is the
@@ -301,6 +308,7 @@ summary a reader needs first.
 | D-30 | POL-13, P2 role matrix (`016` section F) for synthetic operation only: operators handle routine correspondence; identity-affecting resolutions, uncertain-send decisions and collector restarts need the decision-maker role; template approval stays with the owner. MFA, network restriction and production staff access remain undecided | OWNER-DECIDED 2026-10-12 (P2 slice) | section 4.1; `016` F |
 | D-31 | POL-19 fail-closed: a mismatched or unverifiable identity produces a staff exception with no automatic positive effect and no identity or dossier change; only the decision-maker resolves identity-affecting cases | OWNER-DECIDED 2026-10-12 | section 4.1; `016` C3, C4, F |
 | D-34 | `018` (P3 evidence, assessment and qualification specification) version 0.2.1 approved with its recommended defaults `P3-D-1` to `P3-D-16` for synthetic P3; 3B.1 (`catalyst-v2-oc4.2`) released. Not authorized: a live model call, real fetching, real applicant data, 3B.2 to 3C (each needs its own release), a versioned release or a deployment. The decisions marked for GATE-PILOT or later (real fetching, the applicant notice, retention, live model use) stay conditions at those gates | OWNER-DECIDED 2026-10-14 | section 4.1; `018` section 8 |
+| D-39 | 4B.2 released for synthetic work against the local fake Documenso: webhooks as hints, observations, the sweep, database-visible completion verification, the D-15 sequence, decline, expiry, cancel at the provider, withdrawal during agreements. Not authorized: real Documenso use, public webhook exposure, agreement text, real data, 4B.3, release, deployment | OWNER-DECIDED 2026-10-17 | section 4.1; `021` section 16 |
 | D-38 | The read-only check of the installed Documenso (version and published API schema; no credential, write or envelope) authorized and done (`021` section 15); 4B.1 released for synthetic work against a local fake Documenso. Not authorized: credentialed provider requests, real envelopes, webhooks or email, agreement text, real data, 4B.2, release, deployment | OWNER-DECIDED 2026-10-17 | section 4.1; `021` section 15 |
 | D-37 | `021` (P4 agreements specification) version 0.2.0 approved with its recommended defaults `P4-D-1` to `P4-D-20` for synthetic P4 (a local fake Documenso, synthetic placeholder PDFs). Not authorized: 4B.1 to 4C (each needs its own release), the read-only Documenso version check (P4-D-2, separately), real Documenso use, agreement text, real data, release, deployment | OWNER-DECIDED 2026-10-17 | section 4.1; `021` section 11 |
 | D-36 | GATE-P3 signed off for synthetic P3: every TEST-P3 case and the three D-35 groups PASS on PostgreSQL in CI at one head (CI run 39002427812 on `069b39c`; 846 passed; GATE-P3 PASS 60, GATE-P2 PASS 54, GATE-S1 PASS 25; FAIL 0, INCOMPLETE 0, NOT RUN 0), one independent QA review of the closeout, after-action report `020` filed with its limits. Not a validation of selection quality. Not authorized: live model use, real fetching, real data, release, deployment; POL-05 stays open | OWNER-DECIDED 2026-10-17 | section 4.1; `020` |

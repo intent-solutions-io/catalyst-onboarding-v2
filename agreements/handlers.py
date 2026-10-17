@@ -66,6 +66,13 @@ SIGNED_ORPHAN = "agreement_orphan_signed"  # an orphan was signed: never verifie
 WATCH_FAILED = "agreement_orphan_watch_failed"
 
 
+def _start_sweep(instance) -> None:
+    """The first read of a newly issued envelope, at the sweep interval (4B.2; webhooks may bring it forward)."""
+    from .completion import enqueue_read  # completion builds on this module
+
+    enqueue_read(instance, due_in=timedelta(seconds=settings.CATALYST_AGREEMENT_READ_INTERVAL_SECONDS))
+
+
 def new_key() -> str:
     """Opaque, random, and free of applicant data (021 section 10)."""
     return f"ag_{secrets.token_hex(16)}"
@@ -421,8 +428,12 @@ class CreateAgreement(_ProviderStep):
 
         def write():
             self._finish_attempt(plan.attempt_id, Out.SUCCEEDED, "created", envelope_id=result)
-            AgreementInstance.objects.filter(pk=instance.pk).update(envelope_id=result, issue_status="distribute_pending",
-                                                                    updated_at=Now())
+            if not AgreementInstance.objects.filter(pk=instance.pk, issue_status="create_pending").update(
+                    envelope_id=result, issue_status="distribute_pending", updated_at=Now()):
+                # Stopped or cancelled meanwhile (4B.2): the draft is recorded on its attempt, never distributed.
+                event(instance.application, "agreement_created_after_stop", {"instance": str(instance.public_id)},
+                      actor_ref=f"pending_action:{claim.id}")
+                return
             event(instance.application, "agreement_envelope_created", {"instance": str(instance.public_id)},
                   actor_ref=f"pending_action:{claim.id}")
             enqueue_distribute(instance)
@@ -486,7 +497,9 @@ class DistributeAgreement(_ProviderStep):
         if result in ("distributed", "already_distributed"):
             def write():
                 self._finish_attempt(plan.attempt_id, Out.SUCCEEDED, result)
-                AgreementInstance.objects.filter(pk=instance.pk).update(issue_status="issued", updated_at=Now())
+                if AgreementInstance.objects.filter(pk=instance.pk, issue_status="distribute_pending").update(
+                        issue_status="issued", updated_at=Now()):
+                    _start_sweep(instance)
                 event(instance.application, "agreement_issued", {"instance": str(instance.public_id), "how": result},
                       actor_ref=actor)
             return ledger.finish(claim, self, status=Status.DONE, write=write)
@@ -641,8 +654,15 @@ class ReconcileAgreement:
             if not EnvelopeAttempt.objects.filter(pk=attempt.pk, outcome=Out.UNKNOWN).update(
                     outcome=Out.FOUND_BY_EVIDENCE, finished_at=Now()):
                 return
+            if attempt.step == Step.CANCEL and AgreementInstance.objects.filter(
+                    pk=instance.pk, issue_status="cancel_uncertain").update(issue_status="cancelled",
+                                                                            signing_status="cancelled", updated_at=Now()):
+                PendingAction.objects.filter(kind="cancel_agreement", input_ref=str(instance.public_id),
+                                             status=Status.UNCERTAIN).update(
+                    status=Status.DONE, last_error="found_by_evidence", completed_at=Now(), updated_at=Now())
             if attempt.step == Step.DISTRIBUTE and AgreementInstance.objects.filter(
                     pk=instance.pk, issue_status="distribute_uncertain").update(issue_status="issued", updated_at=Now()):
+                _start_sweep(instance)
                 PendingAction.objects.filter(kind=DISTRIBUTE, input_ref=str(instance.public_id), status=Status.UNCERTAIN).update(
                     status=Status.DONE, last_error="found_by_evidence", completed_at=Now(), updated_at=Now())
                 event(instance.application, "agreement_issued", {"instance": str(instance.public_id), "how": "found_by_evidence"},

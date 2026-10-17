@@ -274,7 +274,7 @@ DATABASE_CONSTRAINTS = {
     "agreement_issue_status_valid", "agreement_signing_status_valid", "agreement_custody_status_valid",
     "agreement_one_live_per_type", "agreement_external_key_unique", "agreement_envelope_unique",
     "agreement_recipient_one_per_slot", "agreement_recipient_who_valid", "envelope_attempt_step_valid",
-    "envelope_attempt_outcome_valid",
+    "envelope_attempt_outcome_valid", "observation_source_valid", "observation_webhook_once",  # 4B.2
 }
 
 

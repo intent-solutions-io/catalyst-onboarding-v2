@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document | `021-AT-DSGN-p4-agreements-specification` |
-| Version | 0.3.0 (0.2.0 approved, D-37; 0.3.0 adds section 15: the installed-version check and the 4B.1 record, D-38) |
+| Version | 0.4.0 (0.2.0 approved, D-37; section 15: the installed-version check and the 4B.1 record, D-38; section 16: the 4B.2 record, D-39) |
 | Status | **APPROVED by the owner 2026-10-17 (version 0.2.0; D-37 in `011` section 4), with the recommended defaults `P4-D-1` to `P4-D-20` for synthetic P4.** 4B.1 to 4C each need their own release; the read-only Documenso version check (P4-D-2) needs its own authorization. No real envelope, agreement text, real data or deployment is authorized. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-17 |
@@ -403,3 +403,67 @@ above):
   - The fake follows the published schema, not observed behaviour (proof A only).
   - A compromised migration owner can drop the triggers (ADR-14).
   - Whether repeating a distribute is safe remains NOT VERIFIED, so it is never repeated.
+
+## 16. The 4B.2 record (D-39)
+
+**Webhook mechanism, INSPECTED.** Read from the installed version's public source at tag `v2.20.0`
+(`packages/lib/server-only/webhooks/execute-webhook-call.ts` and the job that calls it). No credential was used and
+no request was made to the installation:
+- The provider POSTs JSON with a plain shared secret in `X-Documenso-Secret`. There is no signature and no
+  timestamp. It waits at most 10 seconds and follows no redirect.
+- The body is `{event, payload, createdAt, webhookEndpoint}`. `payload` is the document: its legacy numeric id,
+  `externalId`, `status`, `templateId`, and recipients including their tokens.
+- The provider refuses private webhook URLs, so a public endpoint is needed at P6 (P4-D-17).
+- The provider stores our response body and headers, so the endpoint answers with an empty body.
+
+**4B.2 as built** (bead `catalyst-v2-hdg.3`; tests `tests/test_agreement_completion.py`):
+
+- **Webhooks** (`agreements/views.py`). The route is mounted only in `test` and `development`.
+  - At most two secrets (one rotation), each compared in constant time. A missing or wrong secret gets a bare 401.
+  - The body is size-capped and parsed into an allowlist. CSRF is exempt for this view only, and the view logs
+    nothing.
+  - It routes by our key alone. Unknown keys and unreadable bodies get the same empty 200.
+  - A known key records a webhook observation (an exact replay is a no-op) and schedules a coalesced read. A
+    completion hint moves the status to `signing_complete_observed`, never further.
+  - A set-aside old key triggers an early orphan check, which extends the counted watch of section 15.
+- **Reads** (`agreements/completion.py`).
+  - One queued or running read per instance at most. A new read never runs sooner than a minimum interval after the
+    last one.
+  - Each read is recorded as an observation of allowlisted facts. Statuses and roles are stored, and whether the
+    envelope and recipients are ours; addresses and tokens are not.
+  - A pending envelope schedules the next read at the sweep interval: the sweep is per instance, not one global
+    job.
+  - Reads are automated: a pause holds them, and resuming runs the one coalesced read.
+- **Verification is database-visible**, deciding the limit stated in section 15.
+  - `signing_complete_verified` is accepted only while the instance is issued, and only with a read observation in
+    the same transaction showing completion, our identity, exactly our recipients and every required signature.
+  - A verified status never changes.
+  - Observations are protected history.
+  - Remaining limit: a compromised application role could insert such an observation itself.
+- **Outcomes of a read:**
+  - **Declined:** automation is paused and a staff item opens (P4-D-9).
+  - **Expired:** a staff item opens.
+  - **Cancelled in the provider's interface:** a staff item opens.
+  - **Completed with changed recipients:** observed, never verified.
+  - **Another envelope, key or template:** never verified.
+  - **A completion on a cancelled or superseded instance:** a staff item, never verified (TEST-P4-29).
+- **The D-15 sequence.** When a type passes its gate, `advance_agreements` re-reads the previous envelope at the
+  moment of issue (REQ-011) and only then starts the next type. A stale or changed read issues nothing and opens a
+  staff item.
+- **Staff services, permission `manage_agreements`, assigned to no group:**
+  - **Cancel at the provider** (P4-D-18): its own reconciled action, with `cancel_pending` and `cancel_uncertain`.
+  - **Reissue** after a decline or a cancellation: a new instance, the old one marked superseded.
+  - **Stop agreements** for a withdrawal, closure or hold (P4-D-20): every live envelope is cancelled; an unknown
+    create is set aside and its key watched; nothing more is issued.
+  - **Decide an unknown distribute:** distribute again (the step re-reads first) or cancel.
+- **Deviations and limits:**
+  - The NDA gate needs custody too (P4-D-6), and custody is 4B.3. Until then the User Agreement is never issued in
+    the normal flow; the sequence tests set the NDA gate to signing alone.
+  - The P5 hand-off after the last type is 4B.3.
+  - Stopping agreements does not move the stage: that is POL-12, in P5.
+  - An expired envelope must be cancelled before reissue.
+  - A draft cannot be cancelled at the provider (section 15). Cancelling an instance whose envelope is still a draft
+    closes it locally (`left_draft`); the draft was never sent.
+  - Reminders and expiry settings (P4-D-10) are provider defaults in the fake; none are configured.
+  - Whether the real read and webhook carry exactly our recipient roles is NOT VERIFIED. A false refusal is possible
+    until a credentialed check is authorized.
