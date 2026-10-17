@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     "applications",
     "correspondence",
     "assessments",  # P3 (018; D-34)
+    "agreements",  # P4 (021; D-37)
 ]
 MIDDLEWARE = [
     "config.redaction.PrivateConfirmationResponses",  # outermost: covers responses built outside the view
@@ -154,6 +155,12 @@ CATALYST_ACTION_HANDLERS = {
     "fetch_evidence": "assessments.collection.FetchEvidence",
     "run_assessment": "assessments.runs.RunAssessment",  # 018 4 step 4 (P3 3B.2); test models only
     "interpret_message": "correspondence.processing.InterpretMessage",  # 018 5.4 (P3 3B.3); test models only
+    # P4 4B.1 (021 section 4): the held `issue_nda` from 3B.4 stays held until `activate_agreements` releases it.
+    "issue_nda": "agreements.handlers.IssueAgreement",
+    "create_agreement": "agreements.handlers.CreateAgreement",
+    "distribute_agreement": "agreements.handlers.DistributeAgreement",
+    "reconcile_agreement": "agreements.handlers.ReconcileAgreement",
+    "cancel_envelope": "agreements.handlers.CancelEnvelope",
 }
 # The one seam through which the applications app opens a staff item for a `needs_staff_attention` event
 # (016 3.8; 2B.3). Like the handler mapping, a fixed dotted path in code, so `applications` never imports
@@ -270,6 +277,30 @@ if CATALYST_MAIL_SEND_DEADLINE_SECONDS * 2 > CATALYST_WORKER_LEASE_SECONDS:
 # Admissible reconciliation evidence (016 A5): none until a provider check verifies a source (8.3). A
 # dotted path to a class with `find(message_id)`; tests point it at a declared synthetic source.
 CATALYST_SEND_EVIDENCE_SOURCE = os.environ.get("CATALYST_SEND_EVIDENCE_SOURCE", "")
+
+# P4 agreements (021; 4B.1). Synthetic only: the provider is a local fake Documenso in `test`. The URL, the pinned
+# address, the trust store and the API token are fixed in code and empty everywhere else, so nothing can reach a
+# real Documenso (config.guards.agreement_problems, TEST-P4-20). A production token arrives through SOPS at P6, never
+# as a setting here.
+CATALYST_AGREEMENT_PROVIDER_URL = ""  # e.g. https://documenso.test:<port>/api/v2 in tests
+CATALYST_AGREEMENT_PROVIDER_ADDRESS = ""  # the literal loopback address the provider host is pinned to
+CATALYST_AGREEMENT_PROVIDER_CA_FILE = ""
+CATALYST_AGREEMENT_PROVIDER_TOKEN = ""
+CATALYST_AGREEMENT_DEADLINE_SECONDS = number("CATALYST_AGREEMENT_DEADLINE_SECONDS",
+                                             str(max(1, min(10, CATALYST_WORKER_LEASE_SECONDS // 2))))
+CATALYST_AGREEMENT_MAX_BYTES = number("CATALYST_AGREEMENT_MAX_BYTES", "1048576")
+CATALYST_AGREEMENT_ATTEMPTS = number("CATALYST_AGREEMENT_ATTEMPTS", "3")
+CATALYST_AGREEMENT_RECONCILE_CHECKS = number("CATALYST_AGREEMENT_RECONCILE_CHECKS", "3")
+CATALYST_AGREEMENT_RECONCILE_GRACE_SECONDS = number("CATALYST_AGREEMENT_RECONCILE_GRACE_SECONDS", "300", minimum=0)
+CATALYST_AGREEMENT_DISTRIBUTE_SETTLE_SECONDS = number("CATALYST_AGREEMENT_DISTRIBUTE_SETTLE_SECONDS", "600", minimum=0)
+CATALYST_AGREEMENT_LIST_PAGES = number("CATALYST_AGREEMENT_LIST_PAGES", "3")  # the bounded reconciliation listing
+CATALYST_AGREEMENT_LIST_PAGE_SIZE = number("CATALYST_AGREEMENT_LIST_PAGE_SIZE", "50")
+CATALYST_AGREEMENT_ORPHAN_CHECKS = number("CATALYST_AGREEMENT_ORPHAN_CHECKS", "6")  # P4-D-19: watching an old key
+CATALYST_AGREEMENT_RETRY_AFTER_MAX_SECONDS = number("CATALYST_AGREEMENT_RETRY_AFTER_MAX_SECONDS", "3600", minimum=0)
+if CATALYST_AGREEMENT_DEADLINE_SECONDS * 2 > CATALYST_WORKER_LEASE_SECONDS:
+    raise ImproperlyConfigured("CATALYST_AGREEMENT_DEADLINE_SECONDS must be at most half of CATALYST_WORKER_LEASE_SECONDS")
+if CATALYST_AGREEMENT_LIST_PAGE_SIZE > 100:
+    raise ImproperlyConfigured("CATALYST_AGREEMENT_LIST_PAGE_SIZE is at most 100 (the installed API's limit)")
 
 # ADR-18 (D-19): the custom user model exists before the first migration.
 AUTH_USER_MODEL = "accounts.User"

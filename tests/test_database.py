@@ -44,6 +44,7 @@ APPROVED_MIGRATIONS = {
     ("correspondence", "0013_clarification_and_interpretation"), ("correspondence", "0014_interpretation_grants"),
     ("assessments", "0006_author_question_permission"), ("assessments", "0007_qualification_decision"),
     ("assessments", "0008_decision_protection"),
+    ("agreements", "0001_initial"), ("agreements", "0002_protection_and_types"),  # P4 4B.1
 }
 
 

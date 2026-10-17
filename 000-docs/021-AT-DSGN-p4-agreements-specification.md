@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document | `021-AT-DSGN-p4-agreements-specification` |
-| Version | 0.2.0 (draft for owner review; the independent security and privacy review applied, section 14) |
+| Version | 0.3.0 (0.2.0 approved, D-37; 0.3.0 adds section 15: the installed-version check and the 4B.1 record, D-38) |
 | Status | **APPROVED by the owner 2026-10-17 (version 0.2.0; D-37 in `011` section 4), with the recommended defaults `P4-D-1` to `P4-D-20` for synthetic P4.** 4B.1 to 4C each need their own release; the read-only Documenso version check (P4-D-2) needs its own authorization. No real envelope, agreement text, real data or deployment is authorized. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-17 |
@@ -316,3 +316,60 @@ against the local fake Documenso (proof A); none touches a real installation.
 New owner decisions P4-D-14 to P4-D-20 and cases TEST-P4-23 to 32. The reviewer's remaining question, whether 4B.1
 may start before the database protection and cancel designs are approved, is answered by putting both inside 4B.1
 and 4B.2 under this specification.
+
+## 15. Installed-version check and the 4B.1 record (D-38)
+
+**The check (P4-D-2), 2026-10-17, read-only.** The owner authorized one check of the installed Documenso: its
+container image tag and its published OpenAPI document, fetched without a credential. No envelope, webhook, email or
+write was made. Findings, now **INSPECTED** for the installed version (they replace the matching NOT VERIFIED tags
+above):
+
+| # | Finding | Effect on the design |
+|---|---|---|
+| 1 | Image tag `v2.20.0`; the OpenAPI document is "Documenso v2 API" (OpenAPI 3.0.3) with 89 paths, 31 of them envelope paths | v2 envelopes are served (P4-D-2 holds) |
+| 2 | `POST /envelope/use` takes `multipart/form-data` with a `payload` object: `envelopeId` (the template), `externalId`, `recipients` (`id`, `email`, `name`, `signingOrder`), `distributeDocument`; it returns `id` and per recipient `token` and `signingUrl` | step 2 as designed; tokens dropped by the adapter |
+| 3 | `POST /envelope/distribute` takes `envelopeId` and `meta` (`distributionMethod` `EMAIL` or `NONE`, optional subject and message) and also returns tokens and signing links | step 3 sends no subject or message |
+| 4 | `GET /envelope/{id}` returns `externalId`, a numeric `templateId`, `status` (`DRAFT`, `PENDING`, `COMPLETED`, `REJECTED`, `CANCELLED`) and per recipient `signingStatus` (`NOT_SIGNED`, `SIGNED`, `REJECTED`) and `token` | the H2 finding is confirmed for reads: the allowlist is required |
+| 5 | `GET /envelope` filters by `templateId`, `type`, `status` and others, pages of at most 100, ordered by `createdAt`; there is **no `externalId` filter** | reconciliation uses the bounded listing (section 5); the free-text `query` is not relied on |
+| 6 | Authentication is an API key in the `Authorization` header | the client sends it there and nowhere else |
+| 7 | `v2.20.0` refuses a non-GET API request without `Authorization` (an Origin check) | API-key calls are unaffected |
+| 8 | `GET /envelope/item/{id}/download` takes `version` (`signed`, `original`, `pending`); its schema declares a JSON response | the binary download is **NOT VERIFIED**; 4B.3 establishes it before custody depends on it |
+| 9 | `POST /envelope/cancel` takes `envelopeId` and an optional `reason` | used for orphans in 4B.1 |
+| 10 | Webhook signing is not in the OpenAPI document | still NOT VERIFIED; 4B.2 establishes it before the endpoint depends on it |
+| 11 | `envelope/use` names a template by its envelope id (a string); created envelopes carry a numeric `templateId` | each template version stores both; that they correspond is NOT VERIFIED until a credentialed check is authorized |
+
+**4B.1 as built** (bead `catalyst-v2-hdg.2`; tests `tests/test_agreements.py` against `tests/documenso_fake.py`):
+
+- **Records.** The `agreements` app holds types (seeded: `nda`, then `user_agreement`), template versions, instances,
+  recipients and a new record, `EnvelopeAttempt`: one row per create, distribute or cancel exchange, written
+  `sending` before the request leaves and keeping every key ever used (the P2 attempt pattern).
+  `ProviderObservation`, `StoredDocument`, `DocumentAccess` and `RequiredDetails` come with 4B.2 and 4B.3, each with
+  its protection.
+- **Protections (migration `agreements` 0002).**
+  - A template version changes only while it is a draft, and only its approval columns.
+  - Recipients are append-only.
+  - An envelope id is set once.
+  - One live instance per (application, type).
+  - The D-15 backstop refuses a User Agreement instance until the NDA is `signing_complete_verified`.
+  - Every protection holds for the application role and the migration owner.
+- **The client** (`agreements/provider.py`) is new rather than the evidence fetcher, because it must POST. It keeps
+  the same pinned address, peer check, deadline and TLS rules, and adds:
+  - no redirect, even on the same host;
+  - a size cap;
+  - a `%PDF` check on downloads;
+  - an allowlist that drops tokens and signing links.
+- **Outcome classes.** Before sending, a 429 and any other 4xx mean the provider did not act. Anything else after
+  sending means unknown: it is reconciled and never retried.
+- **Deviations, each recorded here:**
+  - A successful create goes straight to `distribute_pending`, because the distribute is queued in the same
+    transaction, so `created` is not a resting state.
+  - An unknown distribute that the settle window does not resolve opens a staff item. The decision service for it
+    comes in 4B.2, with cancel at the provider for instances.
+  - 4B.1 cancels orphans only. It cancels a `PENDING` orphan; it leaves a `DRAFT` orphan alone, because a draft was
+    never sent; a completed orphan opens a staff item.
+  - The test-only API token is a code-fixed setting that is empty outside `test`. A production token arrives through
+    SOPS at P6.
+- **Limits.**
+  - The fake follows the published schema, not observed behaviour (proof A only).
+  - A compromised migration owner can drop the triggers (ADR-14).
+  - Whether repeating a distribute is safe remains NOT VERIFIED, so it is never repeated.
