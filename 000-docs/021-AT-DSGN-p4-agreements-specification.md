@@ -345,21 +345,35 @@ above):
   `sending` before the request leaves and keeping every key ever used (the P2 attempt pattern).
   `ProviderObservation`, `StoredDocument`, `DocumentAccess` and `RequiredDetails` come with 4B.2 and 4B.3, each with
   its protection.
-- **Protections (migration `agreements` 0002).**
-  - A template version changes only while it is a draft, and only its approval columns.
-  - Recipients are append-only.
-  - An envelope id is set once.
-  - One live instance per (application, type).
-  - The D-15 backstop refuses a User Agreement instance until the NDA is `signing_complete_verified`.
-  - Every protection holds for the application role and the migration owner.
+- **Protections (migration `agreements` 0002), each enforced by a trigger for every role unless noted:**
+  - A template version is born an unapproved draft. It changes only while a draft, and then only its approval
+    columns. It is never deleted.
+  - An instance is born in its initial state, on an approved template version of its own type. Its identity
+    columns are fixed, its envelope id is set once and a key is never reused.
+  - Recipients are added only before the first provider call, then append-only.
+  - One live instance per (application, type), enforced by a unique index.
+  - The D-15 backstop refuses a User Agreement instance until the application's live NDA is
+    `signing_complete_verified`.
+  - Attempt identities and the agreement types are protected from the application role by column grants only; the
+    migration owner can change them (ADR-14).
+  - **Stated limit:** the status columns are the application role's to write. That `signing_complete_verified` came
+    from a fresh read is an application control. 4B.2 decides whether to make it database-visible, for example by
+    requiring a read observation row.
 - **The client** (`agreements/provider.py`) is new rather than the evidence fetcher, because it must POST. It keeps
   the same pinned address, peer check, deadline and TLS rules, and adds:
   - no redirect, even on the same host;
   - a size cap;
   - a `%PDF` check on downloads;
   - an allowlist that drops tokens and signing links.
-- **Outcome classes.** Before sending, a 429 and any other 4xx mean the provider did not act. Anything else after
-  sending means unknown: it is reconciled and never retried.
+- **Outcome classes.** A failure before sending, a 429 or any other 4xx means the provider did not act. Anything else
+  after sending is an unknown outcome: a timeout, a reset, a 5xx, a 408, a redirect, a truncated or unreadable
+  response, or a defect during the exchange. An unknown outcome is reconciled and never retried. Every later claim
+  reconciles an earlier `sending` or `unknown` attempt before any other check, so no pause, stage change or refusal
+  can strand it. A step or reconciliation that cannot finish opens a staff item.
+- **Provider strings** are validated before they reach a record. An envelope id must match `[A-Za-z0-9_-]{1,64}`.
+  Statuses, signing statuses, roles and types map to the known values, and anything else reads as `UNKNOWN`.
+- **Before distributing**, the re-read must show exactly our recipients (address and role). An added or swapped
+  recipient refuses the distribute, so Documenso never emails an unverified address.
 - **Deviations, each recorded here:**
   - A successful create goes straight to `distribute_pending`, because the distribute is queued in the same
     transaction, so `created` is not a resting state.
@@ -367,8 +381,24 @@ above):
     comes in 4B.2, with cancel at the provider for instances.
   - 4B.1 cancels orphans only. It cancels a `PENDING` orphan; it leaves a `DRAFT` orphan alone, because a draft was
     never sent; a completed orphan opens a staff item.
-  - The test-only API token is a code-fixed setting that is empty outside `test`. A production token arrives through
-    SOPS at P6.
+  - 4B.1 cannot cancel a draft orphan, because the installed API cancels pending envelopes only, and our creates
+    are always drafts. The attempt records `left_draft`, the late-orphan staff item stays open, and the draft is left
+    at the provider. P4-D-19 says "cancelled at the provider"; for a draft, deleting it is a provider-side retention
+    act, so it waits for the owner (with POL-10).
+  - The orphan watch is a count of checks (`CATALYST_AGREEMENT_ORPHAN_CHECKS`, synthetic default 6 at the
+    reconcile grace, about 30 minutes), not an endless sweep. The "deadline" for an unknown create is likewise a
+    count of checks (default 3). A match after the watch ends is not detected; 4B.2's sweep can extend it.
+  - Instances are born `create_pending`; `held` and `created` are not used as resting states.
+  - The instance's `external_key` is updatable, but only to a key never used before.
+  - A pause at create or distribute defers the step (the P2 rule for automated sends). It does not refuse it.
+  - Template approval is the owner's alone. Counsel's approval (POL-07) is added when counsel is named.
+  - The provider URL, its pinned loopback address, the trust store and the API token are fixed in code. They are
+    empty in every environment and set only by test fixtures. The URL must name a `.test` host. A production token
+    arrives through SOPS at P6.
+  - Staff services refuse superusers: authority is the named permission, held by an active staff user (as P2 and
+    P3).
+  - A distribute refused by a P2 send check, or because the provider's recipients differ from ours, leaves the draft
+    at the provider and the instance `failed_needs_staff`. The resolution services come in 4B.2.
 - **Limits.**
   - The fake follows the published schema, not observed behaviour (proof A only).
   - A compromised migration owner can drop the triggers (ADR-14).

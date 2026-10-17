@@ -7,6 +7,7 @@ start; the same functions back a system check for ``manage.py check`` output.
 
 import re
 import ipaddress
+from urllib.parse import urlsplit
 from collections.abc import Mapping
 
 POSTGRESQL_ENGINE = "django.db.backends.postgresql"
@@ -192,6 +193,9 @@ def agreement_problems(settings, environ: Mapping[str, str]) -> list[str]:
     if url:
         if not url.startswith("https://"):
             problems.append("CATALYST_AGREEMENT_PROVIDER_URL must be https")
+        host = (urlsplit(url).hostname or "") if url.startswith("https://") else ""
+        if not host.endswith(".test"):  # a reserved test name, so a loopback forward to a real host cannot pass
+            problems.append("CATALYST_AGREEMENT_PROVIDER_URL must name a .test host")
         if not is_loopback_literal(getattr(settings, "CATALYST_AGREEMENT_PROVIDER_ADDRESS", "")):
             problems.append("CATALYST_AGREEMENT_PROVIDER_ADDRESS must be a literal loopback address")
     return problems

@@ -301,6 +301,8 @@ if CATALYST_AGREEMENT_DEADLINE_SECONDS * 2 > CATALYST_WORKER_LEASE_SECONDS:
     raise ImproperlyConfigured("CATALYST_AGREEMENT_DEADLINE_SECONDS must be at most half of CATALYST_WORKER_LEASE_SECONDS")
 if CATALYST_AGREEMENT_LIST_PAGE_SIZE > 100:
     raise ImproperlyConfigured("CATALYST_AGREEMENT_LIST_PAGE_SIZE is at most 100 (the installed API's limit)")
+if CATALYST_AGREEMENT_MAX_BYTES > 16 * 1024 * 1024 or CATALYST_AGREEMENT_LIST_PAGES > 20:
+    raise ImproperlyConfigured("CATALYST_AGREEMENT_MAX_BYTES is at most 16 MiB and CATALYST_AGREEMENT_LIST_PAGES at most 20")
 
 # ADR-18 (D-19): the custom user model exists before the first migration.
 AUTH_USER_MODEL = "accounts.User"

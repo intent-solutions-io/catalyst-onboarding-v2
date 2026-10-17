@@ -19,7 +19,10 @@ reach a record, a log or a screen (021 section 6, TEST-P4-24).
 """
 
 import http.client
+import ipaddress
 import json
+import math
+import re
 import socket
 import ssl
 import threading
@@ -31,6 +34,10 @@ from urllib.parse import quote, urlencode, urlsplit
 from django.conf import settings
 
 USER_AGENT = "catalyst-onboarding/agreements"
+ENVELOPE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+STATUSES = ("DRAFT", "PENDING", "COMPLETED", "REJECTED", "CANCELLED")  # anything else reads as UNKNOWN
+SIGNING = ("NOT_SIGNED", "SIGNED", "REJECTED")
+ROLES = ("CC", "SIGNER", "VIEWER", "APPROVER", "ASSISTANT")
 UNKNOWN_STATUSES = (408,)  # a timeout reply: the provider may still act
 
 
@@ -92,13 +99,19 @@ def _target():
     if parts.scheme != "https" or not parts.hostname or parts.query or parts.fragment:
         raise ProviderError("provider_url_invalid", sent=False)
     address = settings.CATALYST_AGREEMENT_PROVIDER_ADDRESS
-    if not address:
+    try:
+        loopback = ipaddress.ip_address(address).is_loopback
+    except ValueError:
+        loopback = False
+    if not loopback:  # re-checked here, not only at start-up: synthetic P4 talks to a local fake only
         raise ProviderError("provider_address_not_pinned", sent=False)
+    if not settings.CATALYST_AGREEMENT_PROVIDER_CA_FILE:
+        raise ProviderError("provider_trust_store_missing", sent=False)  # never the system store, never SSL_CERT_* vars
     return parts.hostname, parts.port or 443, parts.path.rstrip("/"), address
 
 
 def _tls_context():
-    context = ssl.create_default_context(cafile=settings.CATALYST_AGREEMENT_PROVIDER_CA_FILE or None)
+    context = ssl.create_default_context(cafile=settings.CATALYST_AGREEMENT_PROVIDER_CA_FILE)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     return context
 
@@ -173,6 +186,9 @@ def exchange(method: str, path: str, *, query: dict | None = None, body: bytes |
             size += len(chunk)
             if size > cap:
                 raise ProviderError("response_too_large", sent=True, status=status)
+        declared = response.getheader("Content-Length")
+        if declared is not None and declared.isdigit() and int(declared) != size:
+            raise ProviderError("response_truncated", sent=True, status=status)
         if not 200 <= status < 300:
             raise ProviderError(f"http_{status}", sent=True, status=status)
         content = (response.getheader("Content-Type") or "").split(";")[0].strip().lower()
@@ -198,9 +214,12 @@ def exchange(method: str, path: str, *, query: dict | None = None, body: bytes |
 def _retry_after(response) -> float | None:
     value = (response.getheader("Retry-After") or "").strip()
     try:
-        return min(float(value), float(settings.CATALYST_AGREEMENT_RETRY_AFTER_MAX_SECONDS)) if value else None
+        seconds = float(value) if value else None
     except ValueError:
         return None  # an HTTP-date is not honoured: the ledger's backoff applies instead
+    if seconds is None or not math.isfinite(seconds) or seconds < 0:
+        return None
+    return min(seconds, float(settings.CATALYST_AGREEMENT_RETRY_AFTER_MAX_SECONDS))
 
 
 def _json(response: Response):
@@ -216,13 +235,24 @@ def _text(value, limit=320) -> str:
     return value[:limit] if isinstance(value, str) else ""
 
 
+def _enum(value, allowed) -> str:
+    """A provider-controlled code reaches records only as one of the known values (4B.1 review)."""
+    return value if value in allowed else "UNKNOWN"
+
+
+def _envelope_id(value) -> str:
+    if not isinstance(value, str) or not ENVELOPE_ID.fullmatch(value):
+        raise ProviderError("response_unreadable", sent=True, status=200)
+    return value
+
+
 def _recipient(raw) -> Recipient:
     if not isinstance(raw, dict):
         raise ProviderError("response_unreadable", sent=True, status=200)
     order = raw.get("signingOrder")
-    return Recipient(email=_text(raw.get("email")), role=_text(raw.get("role"), 16),
+    return Recipient(email=_text(raw.get("email")), role=_enum(raw.get("role"), ROLES),
                      signing_order=order if isinstance(order, int) and not isinstance(order, bool) else None,
-                     signing_status=_text(raw.get("signingStatus"), 16))
+                     signing_status=_enum(raw.get("signingStatus"), SIGNING))
 
 
 def envelope(raw) -> Envelope:
@@ -230,9 +260,10 @@ def envelope(raw) -> Envelope:
     if not isinstance(raw, dict) or not isinstance(raw.get("id"), str) or not isinstance(raw.get("recipients", []), list):
         raise ProviderError("response_unreadable", sent=True, status=200)
     number = raw.get("templateId")
-    return Envelope(id=_text(raw["id"], 64), external_id=_text(raw.get("externalId"), 64), status=_text(raw.get("status"), 16),
+    return Envelope(id=_envelope_id(raw["id"]), external_id=_text(raw.get("externalId"), 64),
+                    status=_enum(raw.get("status"), STATUSES),
                     template_number=number if isinstance(number, int) and not isinstance(number, bool) else None,
-                    type=_text(raw.get("type"), 16), recipients=tuple(_recipient(r) for r in raw.get("recipients", [])),
+                    type=_enum(raw.get("type"), ("DOCUMENT", "TEMPLATE")), recipients=tuple(_recipient(r) for r in raw.get("recipients", [])),
                     created_at=_text(raw.get("createdAt"), 40))
 
 
@@ -250,9 +281,9 @@ def create_from_template(template_ref: str, external_key: str, recipients: list[
     body, content_type = _multipart({"envelopeId": template_ref, "externalId": external_key,
                                      "recipients": recipients, "distributeDocument": False})
     data = _json(exchange("POST", "/envelope/use", body=body, content_type=content_type))
-    if not isinstance(data, dict) or not isinstance(data.get("id"), str) or not data["id"]:
+    if not isinstance(data, dict):
         raise ProviderError("response_unreadable", sent=True, status=200)
-    return data["id"][:64]
+    return _envelope_id(data.get("id"))
 
 
 def distribute(envelope_id: str) -> None:

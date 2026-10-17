@@ -236,8 +236,10 @@ EXPECTED_TRIGGERS = {
     ("applications_application", "catalyst_decided_stage_needs_decision"),  # P3 3B.4
     ("assessments_qualificationdecision", "catalyst_decision_txid"),
     ("agreements_agreementtemplateversion", "catalyst_agreement_template_frozen"),  # P4 4B.1
-    ("agreements_agreementinstance", "catalyst_agreement_envelope_once"),
-    ("agreements_agreementinstance", "catalyst_agreement_nda_first"),
+    ("agreements_agreementtemplateversion", "catalyst_agreement_template_draft"),
+    ("agreements_agreementinstance", "catalyst_agreement_instance_insert"),
+    ("agreements_agreementinstance", "catalyst_agreement_instance_fixed"),
+    ("agreements_agreementrecipient", "catalyst_agreement_recipient_open"),
     ("agreements_agreementrecipient", "catalyst_append_only"), ("agreements_agreementrecipient", "catalyst_no_truncate"),
 }
 

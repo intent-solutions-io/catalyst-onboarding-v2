@@ -69,6 +69,9 @@ def decide_uncertain_create(instance_id: int, user, choice: str) -> AgreementIns
                                                  outcome=EnvelopeAttempt.Outcome.UNKNOWN).order_by("-id").first()
         if attempt is None:
             raise Refused("no_unknown_attempt")
+        if StaffItem.objects.filter(reason_code=handlers.DUPLICATE_ENVELOPES, dedupe_key=f"create:{attempt.public_id}",
+                                    status=StaffItem.Status.OPEN).exists():
+            raise Refused("duplicate_envelopes_open")  # more than one envelope carries this key: never a third
         if PendingAction.objects.filter(kind=handlers.RECONCILE, input_ref=str(attempt.public_id),
                                         status__in=(PendingAction.Status.QUEUED, PendingAction.Status.RUNNING)).exists():
             raise Refused("reconciliation_in_progress")  # decide only once the evidence checks have ended

@@ -187,9 +187,7 @@ def test_p4_24_signing_tokens_and_links_are_never_stored_or_logged(g, monkeypatc
     app = issued(g, monkeypatch)
     assert "token" in str(g.fake.envelopes) and "signingUrl" in str(g.fake.envelopes)  # the fake does return them
     owner = g.committed.connect("owner", autocommit=True)
-    tables = [r[0] for r in owner.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND "
-                                          "(tablename LIKE 'agreements%' OR tablename LIKE 'applications%' OR "
-                                          "tablename LIKE 'workflow%' OR tablename LIKE 'correspondence_staffitem%')")]
+    tables = [r[0] for r in owner.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")]  # every table
     for table in tables:
         dump = str(owner.execute(f"SELECT * FROM {table}").fetchall())  # noqa: S608 (fixed table names)
         assert not any(s in dump for s in SIGNING_SECRETS), table
@@ -407,37 +405,75 @@ def test_p4_25_distribute_refuses_when_a_p2_send_check_fails(g, monkeypatch, pro
 
 # --- TEST-P4-26: database protections, bypassing the services -------------------------------------------------
 
+def ua_template(env):
+    version = AgreementTemplateVersion.objects.create(
+        agreement_type=AgreementType.objects.get(key="user_agreement"), version=1, provider_template_ref="envelope_template_ua",
+        provider_template_number=102, recipient_slots={"SIGNER:1": 7002}, pdf_sha256=hashlib.sha256(PDF).hexdigest())
+    return services.approve_template_version(version.pk, env.template_owner, version.pdf_sha256)
+
+
+INSERT = ("INSERT INTO agreements_agreementinstance (public_id, application_id, agreement_type_id, template_version_id,"
+          " external_key, envelope_id, issue_status, signing_status, custody_status, created_at, updated_at)"
+          " SELECT gen_random_uuid(), %s, t.id, %s, %s, %s, %s, %s, 'not_due', now(), now()"
+          " FROM agreements_agreementtype t WHERE t.key = %s")
+
+
 def test_p4_26_protections_hold_for_every_role(g, monkeypatch):
     app = issued(g, monkeypatch)
     instance = nda(app)
     recipient = instance.recipients.get()
+    ua = ua_template(g)
+    attempt = instance.attempts.first()
     roles = {role: g.committed.connect(role, autocommit=True) for role in ("app", "owner")}
     refused = (errors.InsufficientPrivilege, errors.RaiseException)
+    draft = AgreementTemplateVersion.objects.create(  # an unapproved draft: content is fixed even before approval
+        agreement_type=AgreementType.objects.get(key="nda"), version=2, provider_template_ref="envelope_template_nda2",
+        provider_template_number=103, recipient_slots={"SIGNER:1": 7003}, pdf_sha256="0" * 64)
     for role, conn in roles.items():
         for sql, params in (
                 ("UPDATE agreements_agreementrecipient SET email = 'x@example.test' WHERE id = %s", [recipient.pk]),
                 ("DELETE FROM agreements_agreementrecipient WHERE id = %s", [recipient.pk]),
                 ("TRUNCATE agreements_agreementrecipient CASCADE", []),
+                ("INSERT INTO agreements_agreementrecipient (instance_id, role, signing_order, required, who, name, email)"
+                 " VALUES (%s, 'SIGNER', 2, true, 'staff', 'x', 'x@example.test')", [instance.pk]),  # after the create
                 ("UPDATE agreements_agreementtemplateversion SET pdf_sha256 = 'x' WHERE id = %s", [g.template.pk]),
+                ("UPDATE agreements_agreementtemplateversion SET pdf_sha256 = 'x' WHERE id = %s", [draft.pk]),
                 ("UPDATE agreements_agreementtemplateversion SET status = 'draft' WHERE id = %s", [g.template.pk]),
                 ("DELETE FROM agreements_agreementtemplateversion WHERE id = %s", [g.template.pk]),
-                ("UPDATE agreements_agreementinstance SET envelope_id = 'envelope_other' WHERE id = %s", [instance.pk])):
+                ("INSERT INTO agreements_agreementtemplateversion (agreement_type_id, version, provider_template_ref,"
+                 " provider_template_number, recipient_slots, pdf_sha256, status, approved_by, approved_at, created_at)"
+                 " SELECT id, 9, 'envelope_x', 9, '{}', 'x', 'approved', 'user:1', now(), now()"
+                 " FROM agreements_agreementtype WHERE key = 'nda'", []),  # born approved, bypassing the owner
+                ("UPDATE agreements_agreementinstance SET envelope_id = 'envelope_other' WHERE id = %s", [instance.pk]),
+                ("UPDATE agreements_agreementinstance SET agreement_type_id = agreement_type_id + 1 WHERE id = %s", [instance.pk]),
+                ("UPDATE agreements_envelopeattempt SET external_key = 'ag_other' WHERE id = %s", [attempt.pk]),
+                ("UPDATE agreements_agreementtype SET gate = 'signing' WHERE key = 'nda'", [])):
+            if role == "owner" and sql.startswith(("UPDATE agreements_envelopeattempt", "UPDATE agreements_agreementtype")):
+                continue  # column grants protect these from the application role; the owner runs migrations (ADR-14)
             with pytest.raises(refused):
                 conn.execute(sql, params)
+    EnvelopeAttempt.objects.create(instance=instance, step="create", external_key="ag_used_before", outcome="decided_not_sent")
+    for conn in roles.values():  # a key is never reused (P4-D-19), for every role
+        with pytest.raises(refused, match="never reused"):
+            conn.execute("UPDATE agreements_agreementinstance SET external_key = 'ag_used_before' WHERE id = %s", [instance.pk])
     with pytest.raises(errors.InsufficientPrivilege):
         roles["app"].execute("DELETE FROM agreements_agreementinstance WHERE id = %s", [instance.pk])
-    insert = ("INSERT INTO agreements_agreementinstance (public_id, application_id, agreement_type_id, template_version_id,"
-              " external_key, envelope_id, issue_status, signing_status, custody_status, created_at, updated_at)"
-              " SELECT gen_random_uuid(), %s, t.id, %s, %s, '', 'held', 'not_started', 'not_due', now(), now()"
-              " FROM agreements_agreementtype t WHERE t.key = %s")
     with pytest.raises(errors.UniqueViolation):  # one live instance per (application, type)
-        roles["app"].execute(insert, [app.pk, g.template.pk, "ag_second", "nda"])
+        roles["app"].execute(INSERT, [app.pk, g.template.pk, "ag_second", "", "create_pending", "not_started", "nda"])
+    for params in ([app.pk, ua.pk, "ag_bad1", "", "create_pending", "signing_complete_verified", "user_agreement"],
+                   [app.pk, ua.pk, "ag_bad2", "envelope_x", "create_pending", "not_started", "user_agreement"],
+                   [app.pk, g.template.pk, "ag_bad3", "", "create_pending", "not_started", "user_agreement"],  # wrong type
+                   [app.pk, draft.pk, "ag_bad4", "", "create_pending", "not_started", "nda"]):  # unapproved version
+        with pytest.raises(errors.InsufficientPrivilege, match="agreement instance"):
+            roles["app"].execute(INSERT, params)
     for conn in roles.values():  # D-15: no User Agreement before the NDA is signing_complete_verified
         with pytest.raises(errors.InsufficientPrivilege, match="D-15"):
-            conn.execute(insert, [app.pk, g.template.pk, f"ag_ua_{id(conn)}", "user_agreement"])
+            conn.execute(INSERT, [app.pk, ua.pk, f"ag_ua_{id(conn)}", "", "create_pending", "not_started", "user_agreement"])
+    # Stated limit (021 section 15): the status columns are the application's to write until 4B.2 decides whether the
+    # fresh read becomes database-visible. With the NDA verified, the backstop lets the User Agreement through.
     roles["app"].execute("UPDATE agreements_agreementinstance SET signing_status = 'signing_complete_verified' WHERE id = %s",
                          [instance.pk])
-    roles["app"].execute(insert, [app.pk, g.template.pk, "ag_ua_ok", "user_agreement"])
+    roles["app"].execute(INSERT, [app.pk, ua.pk, "ag_ua_ok", "", "create_pending", "not_started", "user_agreement"])
     assert AgreementInstance.objects.filter(application=app, agreement_type__key="user_agreement").count() == 1
 
 
@@ -510,3 +546,202 @@ def test_agreement_records_are_not_in_the_admin_and_fixtures_are_synthetic():
     assert "documenso.example.test" in text and "intentsolutions" not in text
     assert connection.vendor == "postgresql"
     assert AgreementRecipient.Role.SIGNER == "SIGNER"
+
+
+# --- 4B.1 review: recovery paths, orphans, duplicates and the remaining clauses -----------------------------------
+
+def expire_lease(env, kind, poison=False):
+    env.committed.connect("owner", autocommit=True).execute(
+        "UPDATE workflow_pendingaction SET lease_expires_at = now() - interval '1 second'"
+        + (", attempts = max_attempts" if poison else "") + " WHERE kind = %s AND status = 'running'", [kind])
+
+
+@pytest.mark.parametrize("poison", [False, True], ids=["lease_expired", "attempts_exhausted"])
+@pytest.mark.parametrize("step", ["create", "distribute"])
+def test_p4_03_12_a_crash_after_the_exchange_reconciles_and_never_sends_again(g, monkeypatch, step, poison):
+    app = admitted(g, monkeypatch)
+    approve(g)
+    activate()
+    handler = handlers.CreateAgreement if step == "create" else handlers.DistributeAgreement
+    path = "/envelope/use" if step == "create" else "/envelope/distribute"
+
+    def crash(self, claim, result):  # the request reached the provider; the worker dies before recording it
+        raise RuntimeError("synthetic crash")
+    monkeypatch.setattr(handler, "after_call", crash)
+    run_worker()
+    action = PendingAction.objects.get(kind=f"{step}_agreement")
+    assert action.status == "running" and len(g.fake.calls("POST", path)) == 1
+    assert EnvelopeAttempt.objects.get(step=step).outcome == "sending"
+    monkeypatch.setattr(handler, "after_call", lambda self, claim, result: None)
+    expire_lease(g, f"{step}_agreement", poison)
+    run_worker()
+    instance = nda(Application.objects.get(pk=app.pk))
+    assert len(g.fake.calls("POST", path)) == 1  # never sent a second time
+    assert instance.issue_status == "issued" and len(g.fake.envelopes) == 1
+    assert EnvelopeAttempt.objects.get(step=step).outcome == "found_by_evidence"
+    assert PendingAction.objects.filter(pk=action.pk, status="done", last_error="found_by_evidence").exists()
+
+
+def test_p4_30_a_late_draft_orphan_is_recorded_left_and_kept_open_for_staff(g, monkeypatch):
+    app = admitted(g, monkeypatch)
+    approve(g)
+    activate()
+    g.fake.fault("POST /envelope/use", ("drop_before",))
+    run_worker()
+    instance = nda(Application.objects.get(pk=app.pk))
+    old_key = instance.external_key
+    services.decide_uncertain_create(instance.pk, g.agreement_decider, "not_sent")
+    g.fake.add_envelope(template_ref=g.template.provider_template_ref, external_id=old_key,  # our creates are drafts
+                        recipients=[{"id": 7001, "email": "ada@example.test"}])
+    run_worker()
+    cancel = EnvelopeAttempt.objects.get(step="cancel")
+    assert (cancel.outcome, cancel.outcome_code) == ("not_sent", "left_draft")  # never recorded as cancelled
+    assert not g.fake.calls("POST", "/envelope/cancel") and items(app, handlers.LATE_ORPHAN).count() == 1
+    assert EnvelopeAttempt.objects.get(external_key=old_key, step="create").outcome == "orphan_found"
+
+
+def test_p4_11_duplicate_envelopes_for_one_key_go_to_staff_and_block_a_new_create(g, monkeypatch):
+    app = admitted(g, monkeypatch)
+    approve(g)
+    activate()
+    g.fake.fault("POST /envelope/use", ("drop_after",))
+    real = provider.create_from_template
+
+    def create(template_ref, external_key, recipients):
+        try:
+            return real(template_ref, external_key, recipients)
+        finally:
+            g.fake.add_envelope(template_ref=template_ref, external_id=external_key,
+                                recipients=[{"id": 7001, "email": "ada@example.test"}])
+    monkeypatch.setattr(provider, "create_from_template", create)
+    run_worker()
+    instance = nda(Application.objects.get(pk=app.pk))
+    assert instance.issue_status == "create_uncertain" and not instance.envelope_id
+    assert items(app, handlers.DUPLICATE_ENVELOPES).count() == 1 and not g.fake.calls("POST", "/envelope/distribute")
+    with pytest.raises(services.Refused, match="duplicate_envelopes_open"):
+        services.decide_uncertain_create(instance.pk, g.agreement_decider, "not_sent")
+
+
+def test_p4_11_only_our_key_template_document_and_recipients_are_evidence():
+    from types import SimpleNamespace
+
+    class Recipients:
+        def all(self):
+            return [SimpleNamespace(email="Ada@Example.test")]
+    instance = SimpleNamespace(recipients=Recipients(), template_version=SimpleNamespace(provider_template_number=101))
+    ada = (provider.Recipient("ada@example.test", "SIGNER", 1, "NOT_SIGNED"),)
+    good = provider.Envelope("envelope_1", "ag_k", "DRAFT", 101, "DOCUMENT", ada)
+    assert handlers.matches(good, instance, "ag_k")
+    for bad in (good.__class__("envelope_1", "ag_other", "DRAFT", 101, "DOCUMENT", ada),
+                good.__class__("envelope_1", "ag_k", "DRAFT", 202, "DOCUMENT", ada),
+                good.__class__("envelope_1", "ag_k", "DRAFT", 101, "TEMPLATE", ada),
+                good.__class__("envelope_1", "ag_k", "DRAFT", 101, "DOCUMENT", ada + (provider.Recipient(
+                    "extra@example.test", "SIGNER", 2, "NOT_SIGNED"),))):
+        assert not handlers.matches(bad, instance, "ag_k")
+
+
+def test_p4_18_distribute_honours_a_429_and_reconciles_a_5xx(g, monkeypatch):
+    app = admitted(g, monkeypatch)
+    approve(g)
+    activate()
+    g.fake.fault("POST /envelope/distribute", ("status", 429, {"Retry-After": "nan"}), ("status", 503))
+    run_worker()
+    instance = nda(Application.objects.get(pk=app.pk))
+    attempts = list(instance.attempts.filter(step="distribute").order_by("id").values_list("outcome", "outcome_code"))
+    assert attempts == [("not_sent", "rate_limited"), ("unknown", "http_503")]  # a 5xx may have acted: reconciled
+    assert instance.issue_status == "distribute_uncertain" and items(app, handlers.DISTRIBUTE_UNKNOWN).count() == 1
+
+
+def test_p4_22_reconciliation_runs_while_automation_is_paused(g, monkeypatch):
+    app = admitted(g, monkeypatch)
+    approve(g)
+    activate()
+    g.fake.fault("POST /envelope/use", ("drop_before",))
+
+    def pause_now(self, claim, result):
+        AutomationPause.objects.create(subject_type="application", subject_id=app.public_ref, reason="synthetic", actor_ref="t")
+    monkeypatch.setattr(handlers.CreateAgreement, "after_call", pause_now)
+    run_worker()
+    assert AutomationPause.objects.exists()
+    assert set(PendingAction.objects.filter(kind="reconcile_agreement").values_list("status", flat=True)) == {"done"}
+    assert items(app, handlers.CREATE_UNKNOWN).count() == 1  # an unknown outcome is never parked by a pause
+
+
+def test_p4_25_create_refuses_when_the_recipient_is_no_longer_the_verified_address(g, monkeypatch):
+    from workflow import ledger
+
+    app = admitted(g, monkeypatch)
+    approve(g)
+    activate()
+    assert ledger.run_one()  # step 1 only: the instance and its recipient
+    monkeypatch.setattr(handlers, "verified_address", lambda application: "changed@example.test")
+    run_worker()
+    assert not g.fake.requests and items(app, handlers.DISTRIBUTE_REFUSED).count() == 1
+
+
+def test_p4_25_distribute_refuses_when_the_provider_recipients_differ(g, monkeypatch):
+    app = admitted(g, monkeypatch)
+    approve(g)
+    activate()
+
+    def add_recipient(self, claim, result):  # someone added a recipient in the provider's interface
+        g.fake.envelopes[result]["recipients"].append({"email": "stranger@example.test", "role": "SIGNER",
+                                                       "signingOrder": 2, "signingStatus": "NOT_SIGNED"})
+    monkeypatch.setattr(handlers.CreateAgreement, "after_call", add_recipient)
+    run_worker()
+    instance = nda(Application.objects.get(pk=app.pk))
+    assert instance.issue_status == "failed_needs_staff" and not g.fake.calls("POST", "/envelope/distribute")
+    assert items(app, handlers.ENVELOPE_MISMATCH).count() == 1
+
+
+def test_p4_28_the_client_bounds_time_encoding_truncation_and_its_own_configuration(tls, settings):
+    fake = FakeDocumenso(tls.documenso).start()
+    try:
+        configure(settings, fake, tls)
+        settings.CATALYST_AGREEMENT_DEADLINE_SECONDS = 1
+        fake.fault("GET /envelope/", ("slow", 2), ("encoded",), ("truncated",))
+        for code in ("deadline_exceeded|timeout", "content_encoding_refused", "response_truncated|connection_failed"):
+            with pytest.raises(provider.ProviderError, match=code) as raised:
+                provider.read("envelope_0001")
+            assert raised.value.sent and raised.value.unknown
+        settings.CATALYST_AGREEMENT_PROVIDER_CA_FILE = ""
+        with pytest.raises(provider.ProviderError, match="provider_trust_store_missing"):
+            provider.read("envelope_0001")
+        settings.CATALYST_AGREEMENT_PROVIDER_CA_FILE = tls.ca
+        settings.CATALYST_AGREEMENT_PROVIDER_ADDRESS = "203.0.113.5"
+        with pytest.raises(provider.ProviderError, match="provider_address_not_pinned") as raised:
+            provider.read("envelope_0001")
+        assert not raised.value.sent
+    finally:
+        fake.stop()
+
+    class Response:
+        def __init__(self, value):
+            self.value = value
+
+        def getheader(self, name):
+            return self.value
+    assert provider._retry_after(Response("nan")) is None and provider._retry_after(Response("-5")) is None
+    assert provider._retry_after(Response("999999")) == settings.CATALYST_AGREEMENT_RETRY_AFTER_MAX_SECONDS
+    with pytest.raises(provider.ProviderError, match="response_unreadable"):
+        provider.envelope({"id": "envelope 1; DROP", "recipients": []})
+    assert provider.envelope({"id": "envelope_1", "status": "WEIRD", "recipients": []}).status == "UNKNOWN"
+
+
+def test_p4_20_the_agreement_guard_is_wired_and_requires_a_test_host():
+    import inspect
+
+    assert "agreement_problems" in inspect.getsource(guards.all_problems)
+
+    class Test:
+        CATALYST_ENV = "test"
+        CATALYST_AGREEMENT_PROVIDER_URL = "https://documenso.example.com/api/v2"
+        CATALYST_AGREEMENT_PROVIDER_ADDRESS = "127.0.0.1"
+    assert any(".test host" in p for p in guards.agreement_problems(Test, {}))
+    Test.CATALYST_AGREEMENT_PROVIDER_URL = "https://documenso.example.test/api/v2"
+    assert guards.agreement_problems(Test, {}) == []
+
+
+def test_p4_09_the_command_needs_a_real_approval_reference():
+    with pytest.raises(CommandError):
+        call_command("activate_agreements", "--activation-version", "1", "--approval-ref", "   ", stdout=StringIO())

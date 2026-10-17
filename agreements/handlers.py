@@ -63,6 +63,7 @@ DUPLICATE_ENVELOPES = "agreement_duplicate_envelopes"
 LATE_ORPHAN = "agreement_late_orphan"
 CANCEL_UNKNOWN = "agreement_cancel_unknown"
 SIGNED_ORPHAN = "agreement_orphan_signed"  # an orphan was signed: never verified, staff decide
+WATCH_FAILED = "agreement_orphan_watch_failed"
 
 
 def new_key() -> str:
@@ -211,8 +212,8 @@ class IssueAgreement(_AgreementAction):
         if paused(application):
             return Decision(Status.QUEUED, "automation_paused", refund=True, due_in=_poll())
 
-        def held(reason):
-            return Decision(Status.HELD, reason, write=lambda: event(
+        def held(reason):  # refunded: a refusal never uses up the attempts a later release needs (4B.1 review)
+            return Decision(Status.HELD, reason, refund=True, write=lambda: event(
                 application, "agreement_issue_refused", {"reason": reason}, actor_ref=f"pending_action:{claim.id}"))
         if application.stage != Stage.ADMITTED:
             return held("stage_not_admitted")
@@ -270,6 +271,9 @@ class _ProviderStep(_AgreementAction):
             result = self.call(plan)
         except provider.ProviderError as exc:
             result = exc
+        except Exception as exc:  # a defect during the exchange: the request may have left, so the outcome is unknown
+            logger.error("action %s (%s): the provider call raised %s", claim.id, claim.kind, type(exc).__name__)
+            result = provider.ProviderError("handler_error", sent=True)
         try:
             self.after_call(claim, result)
             self.record_result(claim, plan, result)
@@ -283,18 +287,27 @@ class _ProviderStep(_AgreementAction):
 
     # --- shared checks ---------------------------------------------------------------------------------------
 
-    def _context(self, claim):
+    def _context(self, claim, key: str):
+        """Load the subject, then, before any other check, reconcile an earlier exchange whose outcome is unknown: no
+        refusal, pause or stage change may strand it (4B.1 review)."""
         application = Application.objects.filter(public_ref=claim.subject_id).first()
         instance = (AgreementInstance.objects.select_related("template_version", "agreement_type", "application")
                     .filter(public_id=claim.input_ref).first())
         if application is None or instance is None or instance.application_id != application.pk:
             return None, None, Decision(Status.FAILED, "instance_not_found")
+        pending = self._pending(instance, key)
+        if pending:
+            return application, instance, self._to_reconcile(claim, instance, pending)
         if paused(application):
             return application, instance, Decision(Status.QUEUED, "automation_paused", refund=True, due_in=_poll())
         if application.stage != Stage.AGREEMENTS:
             return application, instance, Decision(Status.CANCELLED, "stage_changed")
         if not provider.configured():
-            return application, instance, Decision(Status.HELD, "provider_not_configured")
+            def unconfigured():
+                AgreementInstance.objects.filter(pk=instance.pk).update(issue_status="failed_needs_staff", updated_at=Now())
+                open_item(PROVIDER_UNAVAILABLE, f"{self.step}:{instance.public_id}", application=application,
+                          pending_action_id=claim.id)
+            return application, instance, Decision(Status.FAILED, "provider_not_configured", write=unconfigured)
         return application, instance, None
 
     def _pending(self, instance, key: str):
@@ -356,18 +369,19 @@ class _ProviderStep(_AgreementAction):
         return ledger.finish(claim, self, status=Status.QUEUED, error=exc.code, due_in=due,
                              write=lambda: self._finish_attempt(plan.attempt_id, Out.NOT_SENT, exc.code))
 
-    def record(self, claim, kind, data) -> None:
-        super().record(claim, kind, data)
-        if kind == "action_attempts_exhausted":  # the poison rule finished this step uncertain (ledger rule 2)
-            instance = AgreementInstance.objects.filter(public_id=claim.input_ref).first()
-            if instance is not None:
-                attempts = list(EnvelopeAttempt.objects.filter(instance=instance, step=self.step,
-                                                               outcome__in=(Out.SENDING, Out.UNKNOWN)).order_by("id"))
-                if attempts:
-                    EnvelopeAttempt.objects.filter(pk__in=[a.pk for a in attempts], outcome=Out.SENDING).update(
-                        outcome=Out.UNKNOWN, outcome_code="attempts_exhausted", finished_at=Now())
-                    AgreementInstance.objects.filter(pk=instance.pk).update(issue_status=self.uncertain_status, updated_at=Now())
-                    enqueue_reconcile(attempts[-1], 1)
+    def on_final_failure(self, claim, application) -> None:
+        """The poison rule, or a defect on the final attempt, finished this step (uncertain: it is not redeliverable).
+        An attempt that may have reached the provider is reconciled; otherwise staff are told (4B.1 review)."""
+        instance = AgreementInstance.objects.filter(public_id=claim.input_ref, application=application).first()
+        attempts = list(EnvelopeAttempt.objects.filter(instance=instance, step=self.step, pending_action_id=claim.id,
+                                                       outcome__in=(Out.SENDING, Out.UNKNOWN)).order_by("id")) if instance else []
+        if not attempts:
+            super().on_final_failure(claim, application)
+            return
+        EnvelopeAttempt.objects.filter(pk__in=[a.pk for a in attempts], outcome=Out.SENDING).update(
+            outcome=Out.UNKNOWN, outcome_code="attempts_exhausted", finished_at=Now())
+        AgreementInstance.objects.filter(pk=instance.pk).update(issue_status=self.uncertain_status, updated_at=Now())
+        enqueue_reconcile(attempts[-1], 1)
 
 
 class CreateAgreement(_ProviderStep):
@@ -376,15 +390,12 @@ class CreateAgreement(_ProviderStep):
     uncertain_status = "create_uncertain"
 
     def check(self, claim):
-        application, instance, early = self._context(claim)
+        key = _action_key(claim).rpartition(":")[2]
+        application, instance, early = self._context(claim, key)
         if early is not None:
             return early, None
-        key = _action_key(claim).rpartition(":")[2]
         if instance.issue_status != "create_pending" or key != instance.external_key:
             return Decision(Status.DONE, "not_pending"), None  # created, decided or superseded meanwhile
-        pending = self._pending(instance, key)
-        if pending:
-            return self._to_reconcile(claim, instance, pending), None
         recipients = list(instance.recipients.order_by("signing_order", "id"))
         if any(r.who == "applicant" and r.email != verified_address(application) for r in recipients):
             return Decision(Status.FAILED, "recipient_changed", write=lambda: open_item(
@@ -424,7 +435,8 @@ class DistributeAgreement(_ProviderStep):
     uncertain_status = "distribute_uncertain"
 
     def check(self, claim):
-        application, instance, early = self._context(claim)
+        current = AgreementInstance.objects.filter(public_id=claim.input_ref).values_list("external_key", flat=True).first()
+        application, instance, early = self._context(claim, current or "")
         if early is not None:
             return early, None
         if instance.issue_status != "distribute_pending" or not instance.envelope_id:
@@ -444,11 +456,10 @@ class DistributeAgreement(_ProviderStep):
                 event(application, "agreement_distribute_refused", {"instance": str(instance.public_id), "reason": reason},
                       actor_ref=f"pending_action:{claim.id}")
             return Decision(Status.FAILED, reason, write=refuse), None
-        pending = self._pending(instance, instance.external_key)
-        if pending:
-            return self._to_reconcile(claim, instance, pending), None
         attempt = self._attempt(claim, instance, envelope_id=instance.envelope_id)
-        return None, Plan(attempt.pk, instance.pk, envelope_id=instance.envelope_id, external_key=instance.external_key)
+        ours = tuple(sorted((r.email.lower(), r.role) for r in instance.recipients.all()))
+        return None, Plan(attempt.pk, instance.pk, envelope_id=instance.envelope_id, external_key=instance.external_key,
+                          recipients=ours)
 
     def call(self, plan: Plan):
         """Re-read first (021 section 5): a repeat distribute is avoided, because its behaviour is NOT VERIFIED."""
@@ -458,6 +469,8 @@ class DistributeAgreement(_ProviderStep):
             raise provider.ProviderError(exc.code, sent=False, status=exc.status) from None  # a read changes nothing
         if current.id != plan.envelope_id or current.external_id != plan.external_key:
             return "mismatch"
+        if tuple(sorted((r.email.lower(), r.role) for r in current.recipients)) != plan.recipients:
+            return "recipients_mismatch"  # Documenso would email someone Catalyst did not verify (4B.1 review)
         if current.status == "PENDING":
             return "already_distributed"
         if current.status != "DRAFT":
@@ -534,8 +547,17 @@ class ReconcileAgreement:
                 AgreementInstance.objects.select_for_update(of=("self",)).filter(pk=attempt.instance_id).first()
 
     def record(self, claim, kind, data) -> None:
-        event(Application.objects.filter(public_ref=claim.subject_id).first(), kind, data,
-              actor_ref=f"pending_action:{claim.id}")
+        application = Application.objects.filter(public_ref=claim.subject_id).first()
+        event(application, kind, data, actor_ref=f"pending_action:{claim.id}")
+        if application is not None and (kind == "action_attempts_exhausted" or (kind == "action_failed" and data.get("final"))):
+            # A reconciliation that cannot finish never leaves an unknown outcome silent (4B.1 review).
+            attempt = EnvelopeAttempt.objects.filter(public_id=claim.input_ref).first()
+            reason = {Step.CREATE: CREATE_UNKNOWN, Step.DISTRIBUTE: DISTRIBUTE_UNKNOWN}.get(
+                attempt.step if attempt else "", CANCEL_UNKNOWN)
+            if attempt is not None and attempt.outcome in (Out.DECIDED_NOT_SENT, Out.ABANDONED):
+                reason = WATCH_FAILED
+            open_item(reason, f"{attempt.step if attempt else 'reconcile'}:{claim.input_ref}", application=application,
+                      pending_action_id=claim.id)
 
     def run(self, claim) -> None:
         attempt = (EnvelopeAttempt.objects.select_related("instance__application", "instance__template_version")
@@ -655,7 +677,13 @@ class ReconcileAgreement:
             event(instance.application, "agreement_orphan_found", {"instance": str(instance.public_id),
                                                                    "attempt": str(attempt.public_id), "count": len(found)},
                   actor_ref=actor)
-            enqueue_cancel(EnvelopeAttempt.objects.get(pk=attempt.pk))
+            orphans = [EnvelopeAttempt.objects.get(pk=attempt.pk)]
+            for extra in found[1:]:  # every matching envelope is an orphan, each recorded and cancelled
+                orphans.append(EnvelopeAttempt.objects.create(
+                    instance=instance, step=Step.CREATE, external_key=attempt.external_key, pending_action_id=claim.id,
+                    outcome=Out.ORPHAN_FOUND, outcome_code="duplicate_orphan", envelope_id=extra.id, finished_at=Now()))
+            for orphan in orphans:
+                enqueue_cancel(orphan)
         ledger.finish(claim, self, status=Status.DONE, write=write)
 
 
@@ -669,11 +697,16 @@ class CancelEnvelope(_ProviderStep):
     def lock_subject(self, claim) -> None:
         ReconcileAgreement.lock_subject(self, claim)
 
-    def record(self, claim, kind, data) -> None:
-        application = Application.objects.filter(public_ref=claim.subject_id).first()
-        event(application, kind, data, actor_ref=f"pending_action:{claim.id}")
-        if application is not None and kind in ("action_attempts_exhausted", "action_failed"):
-            open_item(CANCEL_UNKNOWN, f"cancel:{claim.input_ref}", application=application, pending_action_id=claim.id)
+    def on_final_failure(self, claim, application) -> None:
+        """A cancel that cannot finish: an attempt that may have reached the provider is reconciled, and staff are told
+        either way."""
+        attempts = list(EnvelopeAttempt.objects.filter(step=Step.CANCEL, pending_action_id=claim.id,
+                                                       outcome__in=(Out.SENDING, Out.UNKNOWN)).order_by("id"))
+        if attempts:
+            EnvelopeAttempt.objects.filter(pk__in=[a.pk for a in attempts], outcome=Out.SENDING).update(
+                outcome=Out.UNKNOWN, outcome_code="attempts_exhausted", finished_at=Now())
+            enqueue_reconcile(attempts[-1], 1)
+        open_item(CANCEL_UNKNOWN, f"cancel:{claim.input_ref}", application=application, pending_action_id=claim.id)
 
     def check(self, claim):
         orphan = (EnvelopeAttempt.objects.select_related("instance__application")
@@ -730,8 +763,11 @@ class CancelEnvelope(_ProviderStep):
         actor = f"pending_action:{claim.id}"
 
         def write():
-            succeeded = result in ("cancelled", "already_cancelled", "status_draft")
-            self._finish_attempt(plan.attempt_id, Out.SUCCEEDED if succeeded else Out.NOT_SENT, result)
+            # A draft orphan cannot be cancelled (the installed API cancels pending envelopes only) and was never sent:
+            # it is left, recorded as `left_draft`, and its staff item stays open (021 section 15).
+            succeeded = result in ("cancelled", "already_cancelled")
+            self._finish_attempt(plan.attempt_id, Out.SUCCEEDED if succeeded else Out.NOT_SENT,
+                                 "left_draft" if result == "status_draft" else result)
             if result == "status_completed":
                 open_item(SIGNED_ORPHAN, f"cancel:{claim.input_ref}", application=instance.application,
                           pending_action_id=claim.id)

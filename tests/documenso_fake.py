@@ -9,12 +9,16 @@ them (TEST-P4-24).
 - ("drop_before",): close without processing;
 - ("status", code, headers): answer with that status and an empty JSON body, without processing;
 - ("redirect", location): answer 302 without processing;
-- ("oversize",): answer 200 with a body larger than any cap.
+- ("oversize",): answer 200 with a body larger than any cap;
+- ("slow", seconds): wait, then answer normally;
+- ("encoded",): answer 200 with a compressed-encoding header;
+- ("truncated",): declare a longer body than is sent, then close.
 """
 
 import json
 import ssl
 import threading
+import time
 from datetime import UTC, datetime, timedelta
 from email.parser import BytesParser
 from email.policy import HTTP
@@ -123,6 +127,18 @@ class FakeDocumenso:
             return
         if fault and fault[0] == "oversize":
             return self._send(handler, 200, {"id": "x" * 3_000_000})
+        if fault and fault[0] == "slow":
+            time.sleep(fault[1])
+        if fault and fault[0] in ("encoded", "truncated"):
+            handler.send_response(200)
+            handler.send_header("Content-Type", "application/json")
+            if fault[0] == "encoded":
+                handler.send_header("Content-Encoding", "gzip")
+            handler.send_header("Content-Length", "100" if fault[0] == "truncated" else "2")
+            handler.end_headers()
+            handler.wfile.write(b"{}")
+            handler.close_connection = True
+            return
         if handler.headers.get("Authorization") != TOKEN:
             return self._send(handler, 401, {"message": "Unauthorized"})
         with self._lock:
