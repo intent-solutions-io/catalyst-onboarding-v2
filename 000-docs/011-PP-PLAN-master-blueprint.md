@@ -428,6 +428,19 @@ gate.
 | (3B.2 follow-up) | `catalyst-v2-oc4.8` | Decide what clears a capped assessment snapshot and give staff that path without a shell | owner decision; not a GATE-P3 blocker unless the owner says so |
 | (3B.2 follow-up) | `catalyst-v2-oc4.9` | Build the live-call protections before any live model call | before any live call, including 3E |
 
+**Agreement tasks (P4), specified in handoff 4A (`021`, PROPOSED).** The owner released 4A on 2026-10-17 ("release
+4A") after GATE-P3 (D-36). 4A is the specification and the owner's P4 decision brief (`021` section 11, proposals
+`P4-D-1` to `P4-D-13`); 4B.1 to 4B.3 each need their own release; 4C is the GATE-P4 verification. No real Documenso
+use is authorized by any of these.
+
+| Key | Bead | Title | Depends on |
+|---|---|---|---|
+| 4A | `catalyst-v2-hdg.1` | Specify the P4 agreements lifecycle on Documenso and prepare the owner's P4 decisions | GATE-P3 (D-36) |
+| 4B.1 | `catalyst-v2-hdg.2` | Create and distribute agreement envelopes against a local fake Documenso without ever creating two | 4A approval; P4-D-1 to P4-D-4, P4-D-8, P4-D-13; the read-only version check |
+| 4B.2 | `catalyst-v2-hdg.3` | Verify signing completion by a fresh read, enforce NDA before User Agreement, and handle webhooks as hints | 4B.1; P4-D-5, P4-D-9, P4-D-10 |
+| 4B.3 | `catalyst-v2-hdg.4` | Keep signed documents in audited custody, collect required details, and hand completed applicants to P5 | 4B.2; P4-D-6, P4-D-7, P4-D-11 |
+| 4C | `catalyst-v2-hdg.5` | Verify P4: the GATE-P4 acceptance run, one independent QA review and the after-action report | 4B.1 to 4B.3 |
+
 **Candidate selection-quality tasks (section 11, approved D-35).** Epic `catalyst-v2-f1u`, "Improve candidate selection
 through a versioned standard, a small evaluation and operational feedback". It does not block GATE-P3.
 

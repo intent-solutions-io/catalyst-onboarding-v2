@@ -179,6 +179,9 @@ traceability, not written); their phase refines them at handoff A.
 | REQ-038 | `assessments` | P3 3B.4; before real use | the D-35 human-only tests (GATE-P3 supporting group); the automatic notice to the applicant is not built (POL-17) | CI run | GATE-P3 (software); GATE-PILOT |
 | REQ-039 | `019` section 8 | 3E; every material change | evaluation report per version | evaluation report and owner approval | GATE-PILOT; each activation |
 
+P4 cases are specified in `021` section 12 (PROPOSED): TEST-P4-01 to TEST-P4-08 keep their meaning above; TEST-P4-09 to
+TEST-P4-22 extend REQ-005, REQ-008, REQ-011, REQ-030, REQ-031 and REQ-032, each built in its 4B task.
+
 P3 cases are specified in `018` section 9 (PROPOSED): TEST-P3-01 to TEST-P3-08 keep their meaning above; TEST-P3-09
 to TEST-P3-57 extend REQ-008, REQ-009, REQ-010, REQ-029, REQ-033 and REQ-034, each built in its 3B task.
 

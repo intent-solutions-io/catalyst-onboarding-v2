@@ -69,7 +69,7 @@
 Current (2026-10-17):
 
 1. The open selection-quality inputs (`019` section 13): domain expert, operational delegate, private evaluation location.
-2. The P3 owner decisions (`018` section 18), first POL-05, and the release of the next phase.
+2. Owner review of the P4 specification `021` (handoff 4A, draft pull request) and its decisions `P4-D-1` to `P4-D-13`; the P3 owner decisions (`018` section 18), first POL-05.
 3. Owner decision on what clears a capped assessment snapshot; live-call protections before any 3E run.
 4. Profiling of the runtime suite (bead `catalyst-v2-egz`).
 
