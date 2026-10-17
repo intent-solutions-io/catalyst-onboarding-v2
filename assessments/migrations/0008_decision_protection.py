@@ -7,7 +7,10 @@
 #    a decision row with the matching outcome was inserted in the same transaction. "Same transaction" is the row's
 #    `created_txid` (its database default, the top-level transaction id) equal to the current one: unlike `xmin`,
 #    it holds when the row was inserted inside a savepoint.
-# 3. The decision permission exists (0007) but is assigned to no group: it is granted to named people only.
+# 3. The decision permission exists (0007) but is assigned to no group: it is granted to named people only, and
+#    `decisions.can_decide` ignores group grants.
+# The backstop guards code paths and stray writes; it does not stop a compromised application role, which may
+# insert a decision row itself (stated in 018 section 17).
 from django.db import migrations
 
 from config.db_roles import apply_grants
@@ -44,6 +47,20 @@ def protect(apps, schema_editor):
         END $$
     """, params=None)
     schema_editor.execute("REVOKE ALL ON FUNCTION public.catalyst_decided_stage_needs_decision() FROM PUBLIC")
+    # The transaction marker is always the database's own: a supplied value is overwritten (3B.4 review). Django
+    # names db_default columns in its INSERT, so a column-level grant cannot do this.
+    schema_editor.execute("""
+        CREATE FUNCTION public.catalyst_decision_txid() RETURNS trigger
+        LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
+        BEGIN
+          NEW.created_txid := pg_current_xact_id()::text::bigint;
+          NEW.created_at := now();
+          RETURN NEW;
+        END $$
+    """, params=None)
+    schema_editor.execute("REVOKE ALL ON FUNCTION public.catalyst_decision_txid() FROM PUBLIC")
+    schema_editor.execute(f"CREATE TRIGGER catalyst_decision_txid BEFORE INSERT ON public.{DECISION} "
+                          "FOR EACH ROW EXECUTE FUNCTION public.catalyst_decision_txid()")
     schema_editor.execute("CREATE CONSTRAINT TRIGGER catalyst_decided_stage_needs_decision "
                           "AFTER INSERT OR UPDATE OF stage ON public.applications_application "
                           "DEFERRABLE INITIALLY DEFERRED FOR EACH ROW "
@@ -51,6 +68,8 @@ def protect(apps, schema_editor):
 
 
 def unprotect(apps, schema_editor):
+    schema_editor.execute(f"DROP TRIGGER IF EXISTS catalyst_decision_txid ON public.{DECISION}")
+    schema_editor.execute("DROP FUNCTION IF EXISTS public.catalyst_decision_txid()")
     schema_editor.execute("DROP TRIGGER IF EXISTS catalyst_decided_stage_needs_decision ON public.applications_application")
     schema_editor.execute("DROP FUNCTION IF EXISTS public.catalyst_decided_stage_needs_decision()")
     schema_editor.execute(f"DROP TRIGGER IF EXISTS catalyst_append_only ON public.{DECISION}")

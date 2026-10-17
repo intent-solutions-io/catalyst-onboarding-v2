@@ -19,6 +19,7 @@ from django.views.decorators.http import require_GET, require_POST
 from applications.models import Application
 from correspondence import common as correspondence_rules
 from correspondence.models import Question, StaffItem
+from workflow.models import AutomationPause
 
 from . import services
 from .models import AssessmentRun, EvidenceItem, EvidenceSource
@@ -141,11 +142,13 @@ def decision(request, public_ref):
     version, claims, rows = _rows(application)
     state = decisions.decision_state(application)
     may = decisions.can_decide(request.user)
+    paused = AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists()
     return render(request, "assessments/staff/decision.html", {
         "application": application, "version": version, "claims": claims, "rows": rows, "state": state,
         "newer_versions": application.versions.filter(version_number__gt=version.version_number).count() if version else 0,
         "run": state["run"] or state["latest_run"], "authority": settings.CATALYST_QUALIFICATION_AUTHORITY is not None,
-        "may_decide": may, "outcomes": list(decisions.STAGE_FOR) if may else [],
+        "may_decide": may, "outcomes": [o for o in decisions.STAGE_FOR if may and not (o == "admit" and paused)],
+        "decidable": application.stage == "awaiting_decision" or (application.stage == "assessing" and state["human_only_allowed"]),
         "capability": decisions.CAPABILITY, "strength": decisions.EVIDENCE_STRENGTH,
         "criteria": state["pack"].criteria if state["pack"] else [],
         "policy_ref": decisions.policy_ref(state["pack"]) if state["pack"] else "",

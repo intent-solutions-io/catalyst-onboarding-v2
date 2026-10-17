@@ -203,7 +203,7 @@ INSPECTED), so registering a handler cannot run them. The activation command is 
 | While a run or fetch is in flight | Result |
 |---|---|
 | a newer submission version arrives, unadopted | ignored; the run uses the adopted version (TEST-P3-08); the existing `newer_unverified_version` staff item opens (S1 rule) |
-| the application leaves `assessing` meanwhile (closed or withdrawn; `on_hold` is only ever a recorded `hold` decision from `awaiting_decision`) | the record transaction compare-and-sets the expected stage `assessing`; on a mismatch it records the run and transitions nothing |
+| the application leaves `assessing` meanwhile (closed or withdrawn; `on_hold` is only ever a recorded `hold` decision, from `awaiting_decision` or, for a human-only assessment, from `assessing`; section 17) | the record transaction compare-and-sets the expected stage `assessing`; on a mismatch it records the run and transitions nothing |
 | the adoption changes | the pre-call or record check finds a different snapshot digest: the run ends `refused: input_changed`, no transition, a staff item |
 | evidence changes (re-fetch) | a new capture; the frozen snapshot still names the old one; the result is valid history for that snapshot only |
 | a reply is re-derived | the derivative digest pin (P2 10.9) no longer matches: interpretation ends `text_changed` |
@@ -410,7 +410,8 @@ transition, an event and one held follow-on action. Prerequisites checked inside
   is fixed in code and refused from the environment by `dispatch_problems`;
 - the snapshot digest the decision-maker saw equals the digest recomputed now from the current manifest (any
   re-fetch, newly confirmed answer, changed question set or rubric bump refuses, as P2's
-  `confirm_question_outcome(expected_digest=)` does); the stage is compare-and-set from `awaiting_decision`;
+  `confirm_question_outcome(expected_digest=)` does); the stage is compare-and-set from `awaiting_decision`
+  (or from `assessing` for a recorded human-only assessment after a failed run, the D-35 amendment; section 17);
   no evidence item is pending;
 - the run is this application's latest succeeded, valid run on the current adopted version, and no run is in
   flight; no open identity-affecting staff item exists;
@@ -961,9 +962,17 @@ Released by the owner ("release 3B.4"). No live model call, no real data, no P4 
   - It then records the decision, moves the stage, writes an event and creates the held follow-on (`issue_nda` or
     `send_decline`; nothing for hold).
 - **Human-only assessment (the D-35 amendment of P3-D-10).** It is allowed only when there is no succeeded run for
-  the current snapshot and model advice is suspended (the model setting "none") or the latest run for this
-  snapshot failed. Then it is allowed from `awaiting_decision` or `assessing`, with a recorded reason. It is never
-  a shortcut past a working assessment.
+  the current snapshot and no run is in flight, **and** one of these holds:
+  - model advice is suspended (the model setting "none");
+  - the latest run for this snapshot failed;
+  - staff got the case back without a reassessment (`awaiting_decision`);
+  - no run can be queued any more (`assessing` at the run cap).
+
+  It is allowed from `awaiting_decision` or `assessing`, with a recorded reason, and is never a shortcut past a
+  working assessment (as amended after review; see below).
+- **Open questions.** A decision is refused while an approved question is still open or awaiting processing:
+  staff withdraw it first, so its reminders stop. Unsent proposed questions are withdrawn by the decision, with
+  an event.
 - **Database backstop** (TEST-P3-52). A deferred constraint trigger on applications refuses, for every role, any
   move into `admitted`, `declined` or `on_hold` without a matching decision inserted in the same transaction. The
   row's `created_txid` (a database default of the top-level transaction id) is compared, because `xmin` differs
@@ -983,8 +992,56 @@ Released by the owner ("release 3B.4"). No live model call, no real data, no P4 
   on the declined application with the staff item `repeat_after_decline` (resolved by acknowledgement under the
   identity permission). No new application is created. Withdrawn and closed stay with P5.
 
+**Changes from the two reviews of `c4fa72f`** (the primary QA review and a scoped security review):
+
+- **Human-only reachability.** It is now also allowed when staff get the case back without a reassessment (the
+  round cap, or a reassessment that could not be queued) and no run is in flight. Previously a confirmed answer
+  in the last round could strand the applicant once a live model is configured. The screen labels a run that is
+  not for the current snapshot.
+- **Authority.** `can_decide` counts only a permission granted to the user directly (a group grant never counts)
+  and requires a staff user.
+- **The transaction marker.** `catalyst_decision_txid` (BEFORE INSERT) overwrites `created_txid` and `created_at`,
+  so a supplied value never counts. A column-level grant cannot do this, because Django names `db_default`
+  columns in its INSERT. The backstop now has negative tests for each of these cases, run through committed
+  connections:
+  - a decision from an earlier transaction;
+  - the wrong outcome;
+  - another application's decision;
+  - a decided INSERT;
+  - a rolled-back savepoint;
+  - the positive savepoint case.
+- **Questions end with the decision.** Unsent proposed questions are withdrawn ("decided", with an event naming
+  them), `approve_question` refuses an admitted or held application, and a sent question still open refuses the
+  decision (`open_question_pending`).
+- **Migration 0008 was edited in place** during review. No database ran the earlier version (synthetic, no
+  deployment).
+- **Rationale.** With strength of evidence `none`, capability must be `unknown` (`019` section 5: absence of
+  evidence is never lack of ability). Over-length notes are refused, not cut. A non-dict entry is refused.
+- **Screen and other fixes.**
+  - A confidential description is shown whenever it exists (it is sent whether or not the box was ticked).
+  - Admit is not offered while paused, and no form is shown at a non-decidable stage.
+  - `repeat_after_decline` has a staff label.
+  - The selection-policy setting is validated (`SP-<role>-<n>` or empty).
+  - Integrity errors are mapped by constraint name.
+
+**Owner decisions surfaced by the reviews (fail-closed defaults kept):**
+
+- **Repeat submissions can stall a decision.** Anyone who knows a verified applicant's address can open a
+  `repeat_after_verification` or `repeat_after_decline` item, and an open identity item blocks the decision until
+  staff acknowledge it. Kept fail-closed. POL-01 and POL-12 decide whether such items should block, and P6 adds
+  the intake rate limit; repeat items are not coalesced yet.
+- **Decision text cannot be erased.** The retention role has SELECT only on decisions (append-only, protected
+  history), so a deletion request cannot be met for the rationale or reason text. This is POL-10. Staff guidance
+  is "facts about the evidence only".
+- **A tampered or unknown prompt pack** leaves no snapshot and therefore no decision, even human-only. This is
+  fail-closed and accepted until the owner says otherwise.
+- **`reason_code`** is a free slug, not a controlled list (POL-05).
+
 **Deviations and limits:**
 
+- **The backstop guards code paths, not a compromised application role.** That role may insert a decision row
+  itself; the trigger then only requires one.
+- **Entry only.** No database guard covers leaving a decided stage; the terminal rule is code-only (P4 and P5).
 - **No reconsideration** (P3-D-11). A decline is terminal, and the held follow-ons do nothing until P4 and POL-06.
 - **Hold.** `on_hold` has no exit in P3; what follows a hold is POL-05 or POL-12.
 - **The decision digest covers the question set, not the answer offsets.** A newly confirmed answer changes the

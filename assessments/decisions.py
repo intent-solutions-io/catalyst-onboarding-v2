@@ -28,7 +28,9 @@ import re
 
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
+from django.contrib.auth.backends import ModelBackend
 from django.db import IntegrityError, transaction
+from django.db.models.functions import Now
 
 from applications.models import Application, ApplicationEvent, Stage
 from applications.stages import StageConflict, transition
@@ -48,6 +50,7 @@ CAPABILITY = ("shown", "partly_shown", "not_shown", "unknown")
 EVIDENCE_STRENGTH = ("strong", "moderate", "weak", "none")
 FAILED = ("refused", "invalid_output", "failed", "capped", "abandoned")
 _REASON_CODE = re.compile(r"^[a-z][a-z_]{2,39}$")
+NOTE_MAX = 500
 # Staff items that concern who the applicant is: a decision waits until they are resolved (018 section 7).
 IDENTITY_ITEMS = tuple(code for code, resolutions in RESOLUTIONS.items()
                        if "resolve_identity_exception" in resolutions.values())
@@ -61,8 +64,13 @@ def clean_note(text: str) -> str:
 
 
 def can_decide(user) -> bool:
-    return (settings.CATALYST_QUALIFICATION_AUTHORITY is not None and user is not None and user.is_authenticated
-            and user.is_active and not user.is_superuser and user.has_perm("assessments.record_qualification_decision"))
+    """POL-05 recorded, and a staff human holding the permission **directly**: a group grant never counts, so the
+    authority cannot spread by adding the permission to a group (3B.4 reviews)."""
+    if settings.CATALYST_QUALIFICATION_AUTHORITY is None or user is None or not user.is_authenticated:
+        return False
+    if not user.is_active or user.is_superuser or not user.is_staff:
+        return False
+    return "assessments.record_qualification_decision" in ModelBackend().get_user_permissions(user)
 
 
 def policy_ref(pack) -> str:
@@ -94,10 +102,18 @@ def decision_state(application) -> dict:
                  .order_by("-id").first()) if current else None
     questions = sorted([str(q), s, a] for q, s, a in Question.objects.filter(application=application).exclude(round=0)
                        .values_list("public_id", "status", "approval_state"))
-    human_only_allowed = succeeded is None and (
-        settings.CATALYST_ASSESSMENT_MODEL == "none"  # model advice suspended or not configured
-        or (run is not None and run.snapshot_sha256 == current and run.status in FAILED))
+    in_flight = AssessmentRun.objects.filter(application=application, status__in=("queued", "reserved")).exists()
+    # Human-only (D-35) when no valid run exists for the current snapshot and none is coming: advice suspended, the
+    # run for this snapshot failed, or the application was handed back to staff without a reassessment (the round
+    # cap, or a reassessment that could not be queued). Never while a run is in flight or a valid one exists.
+    human_only_allowed = succeeded is None and not in_flight and current != "" and (
+        settings.CATALYST_ASSESSMENT_MODEL == "none"
+        or (run is not None and run.snapshot_sha256 == current and run.status in FAILED)
+        or application.stage == Stage.AWAITING_DECISION
+        or (application.stage == Stage.ASSESSING  # no run can be queued any more: the run cap is reached
+            and AssessmentRun.objects.filter(application=application).count() >= settings.CATALYST_ASSESSMENT_RUNS_PER_APPLICATION))
     return {"pack": pack, "manifest": manifest, "snapshot": current, "run": succeeded, "latest_run": run,
+            "stale_run": run is not None and succeeded is None and run.status == "succeeded",
             "questions": questions, "human_only_allowed": human_only_allowed,
             "digest": _sha({"snapshot": current, "questions": questions,
                             "run": str(succeeded.public_id) if succeeded else ""})}
@@ -109,10 +125,18 @@ def _rationale(pack, rationale: dict) -> dict:
         raise Refused("rationale_needed_for_every_criterion")
     out = {}
     for criterion in ids:
-        entry = rationale[criterion] or {}
+        entry = rationale[criterion]
+        if not isinstance(entry, dict):
+            raise Refused("rationale_needs_capability_and_evidence_strength")
         if entry.get("capability") not in CAPABILITY or entry.get("evidence_strength") not in EVIDENCE_STRENGTH:
             raise Refused("rationale_needs_capability_and_evidence_strength")
-        note = clean_note(str(entry.get("note", "")))
+        if entry["evidence_strength"] == "none" and entry["capability"] != "unknown":
+            # 019 section 5: with no evidence, capability is unknown; absence of evidence is never lack of ability
+            raise Refused("rationale_no_evidence_means_capability_unknown")
+        raw = str(entry.get("note", ""))
+        if len(raw.strip()) > NOTE_MAX:
+            raise Refused("rationale_note_too_long")  # refused, not silently cut: the record is what was written
+        note = clean_note(raw)
         if not note:
             raise Refused("rationale_needs_a_note")
         out[criterion] = {"capability": entry["capability"], "evidence_strength": entry["evidence_strength"], "note": note}
@@ -129,9 +153,11 @@ def record_decision(application_id: int, user, *, outcome: str, reason_code: str
         raise Refused("unknown_outcome")
     if not _REASON_CODE.match(reason_code or ""):
         raise Refused("reason_code_invalid")
+    if len((reason_text or "").strip()) > NOTE_MAX or len((human_only_reason or "").strip()) > 300:
+        raise Refused("text_too_long")
     reason_text = clean_note(reason_text)
     human_only = bool(human_only_reason.strip())
-    human_only_reason = clean_note(human_only_reason)[:300] if human_only else ""
+    human_only_reason = clean_note(human_only_reason) if human_only else ""
     actor = f"user:{user.pk}"
     with transaction.atomic():
         application = Application.objects.select_for_update(of=("self",)).get(pk=application_id)
@@ -158,6 +184,9 @@ def record_decision(application_id: int, user, *, outcome: str, reason_code: str
             raise Refused("stage_not_decidable")
         if StaffItem.objects.filter(application=application, status="open", reason_code__in=IDENTITY_ITEMS).exists():
             raise Refused("identity_item_open")
+        if Question.objects.filter(application=application, approval_state=Question.Approval.APPROVED,
+                                   status__in=(Question.Status.OPEN, Question.Status.REPLY_PENDING)).exists():
+            raise Refused("open_question_pending")  # sent and unanswered: withdraw it first (its reminders stop too)
         if outcome == "admit" and AutomationPause.objects.filter(subject_type="application",
                                                                  subject_id=application.public_ref).exists():
             raise Refused("admit_refused_while_paused")
@@ -170,14 +199,27 @@ def record_decision(application_id: int, user, *, outcome: str, reason_code: str
                     human_only_reason=human_only_reason, reason_code=reason_code, reason_text=reason_text,
                     rationale=checked, snapshot_sha256=state["snapshot"], decision_digest=state["digest"],
                     policy_ref=policy_ref(state["pack"]), actor_ref=actor)
-        except IntegrityError:
-            raise Refused("already_decided") from None  # one admit or decline per application (TEST-P3-45)
+        except IntegrityError as exc:
+            constraint = getattr(getattr(exc.__cause__, "diag", None), "constraint_name", "")
+            if constraint == "decision_one_final_per_application":
+                raise Refused("already_decided") from None  # one admit or decline per application (TEST-P3-45)
+            raise Refused("decision_invalid") from None
         try:
             transition(application.pk, from_stages, STAGE_FOR[outcome], event_kind=f"qualification_{outcome}",
                        data={"decision": str(decision.public_id), "basis": decision.basis, "policy": decision.policy_ref},
                        actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
         except StageConflict:
             raise Refused("stage_not_decidable") from None
+        # Unsent proposed questions end with the decision: nothing is sent to a decided applicant (3B.4 review).
+        unsent = Question.objects.filter(application=application, approval_state=Question.Approval.PROPOSED).exclude(
+            status=Question.Status.WITHDRAWN)
+        withdrawn = [str(q) for q in unsent.values_list("public_id", flat=True)]
+        unsent.update(status=Question.Status.WITHDRAWN, withdrawn_by=actor, withdrawn_reason="decided",
+                      withdrawn_at=Now(), updated_at=Now())
+        if withdrawn:
+            ApplicationEvent.objects.create(application=application, kind="questions_withdrawn_by_decision",
+                                            actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor,
+                                            data={"decision": str(decision.public_id), "questions": withdrawn})
         kind = FOLLOW_ON.get(outcome)
         if kind:
             PendingAction.objects.create(kind=kind, subject_type="application", subject_id=application.public_ref,

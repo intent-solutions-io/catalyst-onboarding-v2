@@ -4,6 +4,7 @@
 <p>Stage {{ application.stage }}. {% if version %}Adopted version {{ version.version_number }}{% if newer_versions %}; {{ newer_versions }} newer unverified version(s) exist and are not used{% endif %}.{% else %}No adopted version.{% endif %}
 Selection policy: {{ policy_ref }}.</p>
 {% include "assessments/staff/_claims.html" %}
+{% if state.stale_run %}<p><strong>The run below is not for the current snapshot</strong> (new evidence or a confirmed answer arrived since). It is shown as history, not as advice for this decision.</p>{% endif %}
 {% include "assessments/staff/_run.html" %}
 <h2>Clarification questions</h2>
 {% if questions %}<ul>{% for q in questions %}<li><bdi>{{ q.text|visible }}</bdi> ({{ q.criterion_id }}; {{ q.approval_state }}, {{ q.status }})</li>{% endfor %}</ul>{% else %}<p>None.</p>{% endif %}
@@ -11,7 +12,8 @@ Selection policy: {{ policy_ref }}.</p>
 <p>The decision will cite snapshot {{ state.snapshot|truncatechars:17 }}{% if state.run %} and run {{ state.run.public_id }}{% endif %}. If anything changes before you submit, the decision is refused and this page shows the new state.</p>
 {% if not authority %}<p>No decision authority is configured (POL-05). Nobody can record a decision.</p>
 {% elif not may_decide %}<p>You may not record a decision.</p>
-{% elif not state.run and not state.human_only_allowed %}<p>No valid assessment for the current snapshot: rerun it, or wait for the reassessment.</p>
+{% elif not decidable %}<p>This application is not at a stage where a decision can be recorded ({{ application.stage }}).</p>
+{% elif not state.run and not state.human_only_allowed %}<p>No valid assessment for the current snapshot yet: a run or a reassessment is in progress.</p>
 {% else %}
 <form method="post" action="{% url 'assessments_staff:decide' application.public_ref %}">{% csrf_token %}
 <input type="hidden" name="digest" value="{{ state.digest }}">

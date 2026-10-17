@@ -3,7 +3,7 @@
 <dl>
   {% if claims.contribution %}<dt>What the applicant says they personally did</dt><dd><pre class="untrusted">{{ claims.contribution|visible }}</pre></dd>{% endif %}
   {% if claims.experience %}<dt>Relevant experience (claimed)</dt><dd><pre class="untrusted">{{ claims.experience|visible }}</pre></dd>{% endif %}
-  {% if claims.confidential %}<dt>Private or confidential work (claimed)</dt><dd><pre class="untrusted">{{ claims.confidential_description|visible }}</pre></dd>{% endif %}
+  {% if claims.confidential or claims.confidential_description %}<dt>Private or confidential work (claimed)</dt><dd><pre class="untrusted">{{ claims.confidential_description|visible }}</pre></dd>{% endif %}
 </dl>
 <h2>Claims and observations</h2>
 <table><tr><th>Claim</th><th>Observation</th><th>Cannot prove</th><th></th></tr>

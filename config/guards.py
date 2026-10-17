@@ -5,6 +5,7 @@ them reports a problem, so every process (web server, management command, future
 start; the same functions back a system check for ``manage.py check`` output.
 """
 
+import re
 import ipaddress
 from collections.abc import Mapping
 
@@ -167,6 +168,9 @@ def decision_problems(settings, environ: Mapping[str, str]) -> list[str]:
                 ("CATALYST_QUALIFICATION_AUTHORITY", "CATALYST_SELECTION_POLICY") if name in environ]
     if getattr(settings, "CATALYST_QUALIFICATION_AUTHORITY", None) not in (None, "explicit_permission"):
         problems.append("CATALYST_QUALIFICATION_AUTHORITY must be None or 'explicit_permission'")
+    policy = getattr(settings, "CATALYST_SELECTION_POLICY", "")
+    if policy and not re.fullmatch(r"SP-[A-Z0-9]{1,8}-[0-9]{1,4}", policy):
+        problems.append("CATALYST_SELECTION_POLICY must be empty or an SP-<role>-<n> identifier (019 section 6)")
     return problems
 
 

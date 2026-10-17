@@ -176,8 +176,8 @@ def test_p3_51_a_changed_question_set_or_a_re_fetch_is_refused(d, monkeypatch):
     EvidenceItem.objects.create(application=app, adopted_version=item.adopted_version, source=item.source,
                                 claim_ref=item.claim_ref, request_url=item.request_url,
                                 request_url_sha256=item.request_url_sha256, round=item.round + 1)  # a re-fetch
-    with pytest.raises(Refused, match="evidence_pending|no_valid_assessment"):
-        decide(d, app, "hold")  # even with the fresh digest: the run no longer describes the evidence
+    with pytest.raises(Refused, match="^evidence_pending$"):
+        decide(d, app, "hold")  # even with the fresh digest: the new round is still pending
 
 
 # --- TEST-P3-47: identity items and pauses --------------------------------------------------------------------------
@@ -269,3 +269,221 @@ def test_p3_49_a_repeat_after_decline_creates_nothing_new_and_asks_staff(d, monk
     app.refresh_from_db()
     assert app.stage == "declined" and app.versions.count() == 2
     assert StaffItem.objects.filter(application=app, reason_code="repeat_after_decline", status="open").count() == 1
+
+
+# === review of c4fa72f =============================================================================================
+
+def _decision_sql(conn, app_id, outcome="hold"):
+    version = conn.execute("SELECT id FROM applications_submissionversion WHERE application_id = %s ORDER BY id LIMIT 1",
+                           [app_id]).fetchone()[0]
+    conn.execute("INSERT INTO assessments_qualificationdecision (public_id, application_id, adopted_version_id, outcome, basis,"
+                 " human_only_reason, reason_code, reason_text, rationale, snapshot_sha256, decision_digest, policy_ref,"
+                 " actor_ref, second_actor_ref) VALUES (gen_random_uuid(), %s, %s, %s, 'human_only', 'synthetic', 'synthetic',"
+                 " '', '{}', 'x', 'x', 'x', 'test', '')", [app_id, version, outcome])
+
+
+def test_review_the_backstop_needs_a_matching_decision_from_this_very_transaction(d, monkeypatch):
+    app = ready_app(d, monkeypatch)
+    owner = d.committed.connect("owner", autocommit=True)
+    _decision_sql(owner, app.pk)  # committed in an earlier transaction
+    with pytest.raises(errors.InsufficientPrivilege):
+        owner.execute("UPDATE applications_application SET stage = 'on_hold' WHERE id = %s", [app.pk])
+    tx = d.committed.connect("owner", autocommit=False)
+    _decision_sql(tx, app.pk, "hold")  # the wrong outcome for the stage
+    tx.execute("UPDATE applications_application SET stage = 'admitted' WHERE id = %s", [app.pk])
+    with pytest.raises(errors.InsufficientPrivilege):
+        tx.commit()  # deferred: checked at commit
+    tx.rollback()
+    tx.execute("SAVEPOINT s")
+    _decision_sql(tx, app.pk, "hold")
+    tx.execute("ROLLBACK TO SAVEPOINT s")  # the decision is gone with its savepoint
+    tx.execute("UPDATE applications_application SET stage = 'on_hold' WHERE id = %s", [app.pk])
+    with pytest.raises(errors.InsufficientPrivilege):
+        tx.commit()
+    tx.rollback()
+    tx.execute("SAVEPOINT s")
+    _decision_sql(tx, app.pk, "hold")
+    tx.execute("RELEASE SAVEPOINT s")  # a decision inside a savepoint of this transaction counts
+    tx.execute("UPDATE applications_application SET stage = 'on_hold' WHERE id = %s", [app.pk])
+    tx.commit()
+    assert Application.objects.get(pk=app.pk).stage == "on_hold"
+
+
+def test_review_the_backstop_refuses_another_applications_decision_and_a_decided_insert(d, monkeypatch):
+    app = ready_app(d, monkeypatch)
+    tx = d.committed.connect("owner", autocommit=False)
+    columns = [r[0] for r in tx.execute("SELECT column_name FROM information_schema.columns WHERE table_name ="
+                                        " 'applications_application' AND column_name NOT IN ('id', 'public_ref', 'email_key',"
+                                        " 'stage')").fetchall()]
+    new_id = tx.execute(f"INSERT INTO applications_application (public_ref, email_key, stage, {', '.join(columns)}) SELECT"
+                        f" gen_random_uuid(), 'other@example.test', 'admitted', {', '.join(columns)} FROM"
+                        " applications_application WHERE id = %s RETURNING id", [app.pk]).fetchone()[0]
+    _decision_sql(tx, app.pk, "admit")  # a decision, but for a different application
+    with pytest.raises(errors.InsufficientPrivilege):
+        tx.commit()
+    tx.rollback()
+    assert not Application.objects.filter(pk=new_id).exists()
+
+
+def test_review_a_supplied_transaction_marker_is_overwritten_and_truncate_is_refused(d, monkeypatch):
+    app = ready_app(d, monkeypatch)
+    conn = d.committed.connect("app", autocommit=True)
+    conn.execute("INSERT INTO assessments_qualificationdecision (public_id, application_id, adopted_version_id, outcome,"
+                 " basis, human_only_reason, reason_code, reason_text, rationale, snapshot_sha256, decision_digest,"
+                 " policy_ref, actor_ref, second_actor_ref, created_txid) SELECT gen_random_uuid(), %s, id, 'hold',"
+                 " 'human_only', 'x', 'x', '', '{}', 'x', 'x', 'x', 'x', '', 1 FROM applications_submissionversion"
+                 " WHERE application_id = %s LIMIT 1", [app.pk, app.pk])
+    assert conn.execute("SELECT created_txid FROM assessments_qualificationdecision WHERE application_id = %s",
+                        [app.pk]).fetchone()[0] != 1
+    with pytest.raises((errors.InsufficientPrivilege, errors.RaiseException)):
+        conn.execute("TRUNCATE assessments_qualificationdecision")
+
+
+def test_review_human_only_is_reachable_when_staff_get_the_case_back_without_a_reassessment(d, monkeypatch, settings):
+    from correspondence import outbound, processing
+
+    from assessments import services
+
+    settings.CATALYST_ASSESSMENT_ROUNDS = 1
+    app = ready_app(d, monkeypatch)
+    q = services.author_clarification(app.pk, d.author, text=ASK, criterion_id="contribution", evidence_gap="gap")
+    outbound.approve_question(q.pk, d.author)
+    inbound = reply_to(q, "I wrote the tokenizer of the synthetic parser myself.")
+    processing.confirm_question_outcome(inbound.pk, {q.pk: "satisfied"}, d.author)
+    app.refresh_from_db()
+    assert app.stage == "awaiting_decision"  # the round cap handed it back; the run no longer fits the snapshot
+    with pytest.raises(Refused, match="no_valid_assessment"):
+        decide(d, app, "hold")
+    client = Client()
+    client.force_login(d.decider)
+    page = client.get(reverse("assessments_staff:decision", args=[app.public_ref])).content.decode()
+    assert "not for the current snapshot" in page and "human-only assessment" in page
+    decision = decide(d, app, "hold", human_only_reason="The case came back after the last round; I read everything.")
+    assert decision.basis == "human_only"
+
+
+def test_review_a_decision_withdraws_unsent_questions_and_none_can_be_sent_afterwards(d, monkeypatch):
+    from correspondence import outbound
+    from correspondence.common import Refused as CorrespondenceRefused
+    from correspondence.models import Question
+
+    app, _ = assessed_with(d, monkeypatch, valid(proposed_questions=[proposal()]))
+    decide(d, app, "admit")
+    q = Question.objects.get(application=app)
+    assert (q.status, q.withdrawn_reason) == ("withdrawn", "decided")
+    staff_q = Question.objects.create(application=app, text="Which synthetic suite did you write?")
+    with pytest.raises(CorrespondenceRefused, match="application_decided"):
+        outbound.approve_question(staff_q.pk, d.author)
+
+
+def test_review_no_evidence_means_capability_unknown(d, monkeypatch):
+    app = ready_app(d, monkeypatch)
+    for capability in ("shown", "partly_shown", "not_shown"):
+        with pytest.raises(Refused, match="rationale_no_evidence_means_capability_unknown"):
+            decide(d, app, "hold", rationale=rationale(capability, "none"))
+    assert decide(d, app, "hold", rationale=rationale("unknown", "none")).outcome == "hold"
+
+
+def test_review_exact_refusals_for_pending_evidence_a_run_in_flight_and_a_decided_stage(d, monkeypatch):
+    from assessments import runs
+
+    app = ready_app(d, monkeypatch)
+    item = EvidenceItem.objects.get(application=app)
+    EvidenceItem.objects.create(application=app, adopted_version=item.adopted_version, source=item.source,
+                                claim_ref=item.claim_ref, request_url=item.request_url,
+                                request_url_sha256=item.request_url_sha256, round=item.round + 1)  # pending
+    with pytest.raises(Refused, match="^evidence_pending$"):
+        decide(d, app, "hold")
+    from django.db.models.functions import Now
+
+    EvidenceItem.objects.filter(application=app, round=item.round + 1).update(status="unavailable", reason_code="synthetic",
+                                                                              finished_at=Now())
+    with transaction.atomic():  # a new snapshot now exists: a reassessment is queued
+        assert runs.enqueue_assessment(Application.objects.select_for_update().get(pk=app.pk), "staff_rerun") is not None
+    with pytest.raises(Refused, match="^assessment_in_flight$"):
+        decide(d, app, "hold")
+
+
+def test_review_a_failure_creating_the_follow_on_rolls_everything_back(d, monkeypatch):
+    app = ready_app(d, monkeypatch)
+
+    class Broken:
+        Status = PendingAction.Status
+
+        class objects:
+            @staticmethod
+            def create(**kwargs):
+                raise RuntimeError("synthetic failure creating the held follow-on")
+    monkeypatch.setattr(decisions, "PendingAction", Broken)
+    with pytest.raises(RuntimeError):
+        decide(d, app, "admit")
+    assert not QualificationDecision.objects.exists() and Application.objects.get(pk=app.pk).stage == "awaiting_decision"
+
+
+def test_review_a_group_grant_never_confers_the_decision(d, monkeypatch):
+    app = ready_app(d, monkeypatch)
+    owner = d.committed.connect("owner", autocommit=True)
+    owner.execute("INSERT INTO auth_group_permissions (group_id, permission_id) SELECT g.id, p.id FROM auth_group g,"
+                  " auth_permission p WHERE g.name = 'Assessment operator' AND p.codename = 'record_qualification_decision'")
+    member = staff(d, "group-member-p3", "Assessment operator")
+    assert member.has_perm("assessments.record_qualification_decision")  # Django would say yes
+    with pytest.raises(PermissionDenied):
+        decide(d, app, user=member)
+
+
+def test_review_hostile_claim_text_is_escaped_and_nothing_is_preselected(d, monkeypatch):
+    from tests.test_assessment import scripted
+
+    scripted(monkeypatch, valid())
+    seen_app = collect(d, work_url_1=url(d, "/w"), contribution="<script>alert(1)</script> I wrote it.")
+    run_worker()
+    client = Client()
+    client.force_login(d.decider)
+    page = client.get(reverse("assessments_staff:decision", args=[seen_app.public_ref])).content.decode()
+    assert "<script>alert(1)</script>" not in page and "&lt;script&gt;" in page
+    form = page.split("<h2>Decision</h2>")[1]
+    assert 'name="outcome"' in form and " selected" not in form and "checked" not in form
+
+
+def test_review_the_selection_policy_setting_is_validated():
+    class Fake:
+        CATALYST_QUALIFICATION_AUTHORITY = None
+        CATALYST_SELECTION_POLICY = "anything goes"
+    assert guards.decision_problems(Fake, {})
+    Fake.CATALYST_SELECTION_POLICY = "SP-L2-1"
+    assert guards.decision_problems(Fake, {}) == []
+
+
+def test_recheck_human_only_after_the_run_cap_in_assessing(d, monkeypatch, settings):
+    from django.db.models.functions import Now
+
+    from tests.test_assessment import scripted
+
+    scripted(monkeypatch, valid())
+    handlers = dict(settings.CATALYST_ACTION_HANDLERS)
+    settings.CATALYST_ACTION_HANDLERS = {k: v for k, v in handlers.items() if k != "run_assessment"}
+    app = collect(d, work_url_1=url(d, "/w"))
+    settings.CATALYST_ACTION_HANDLERS = handlers
+    item = EvidenceItem.objects.get(application=app)
+    EvidenceItem.objects.create(application=app, adopted_version=item.adopted_version, source=item.source,
+                                claim_ref=item.claim_ref, request_url=item.request_url, round=item.round + 1,
+                                request_url_sha256=item.request_url_sha256, status="unavailable", reason_code="synthetic",
+                                finished_at=Now())
+    run_worker()  # the run ends refused: input_changed; the stage stays `assessing`
+    settings.CATALYST_ASSESSMENT_RUNS_PER_APPLICATION = 1  # no further run can be queued
+    app.refresh_from_db()
+    assert app.stage == "assessing" and decisions.decision_state(app)["human_only_allowed"]
+    decision = decide(d, app, "hold", human_only_reason="No run can be queued any more; I read every item.")
+    assert decision.basis == "human_only"
+
+
+def test_recheck_an_open_sent_question_blocks_the_decision(d, monkeypatch):
+    from correspondence.models import Question
+
+    app = ready_app(d, monkeypatch)
+    q = Question.objects.create(application=app, text=ASK, round=1, criterion_id="contribution", evidence_gap="gap")
+    d.committed.connect("owner", autocommit=True).execute(  # test setup: a question sent earlier and still open
+        "UPDATE correspondence_question SET approval_state = 'approved', approved_by = 'user:1', approved_at = now()"
+        " WHERE id = %s", [q.pk])
+    with pytest.raises(Refused, match="^open_question_pending$"):
+        decide(d, app, "hold")
