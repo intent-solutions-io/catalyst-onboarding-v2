@@ -69,7 +69,7 @@
 Current (2026-10-14):
 
 1. The open selection-quality inputs (`019` section 13): domain expert, operational delegate, private evaluation location.
-2. 3B.3 clarification loop: released 2026-10-16, in review (bead `catalyst-v2-oc4.4`).
+2. 3B.3 clarification loop merged (PR #34); 3B.4 qualification decision released 2026-10-17, in review (bead `catalyst-v2-oc4.5`).
 3. Owner decision on what clears a capped assessment snapshot; live-call protections before any 3E run.
 4. Profiling of the runtime suite (bead `catalyst-v2-egz`).
 

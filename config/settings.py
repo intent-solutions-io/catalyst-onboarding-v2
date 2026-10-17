@@ -241,6 +241,14 @@ CATALYST_ASSESSMENT_CONCURRENT_RUNS = number("CATALYST_ASSESSMENT_CONCURRENT_RUN
 CATALYST_ASSESSMENT_DAILY_REQUESTS = number("CATALYST_ASSESSMENT_DAILY_REQUESTS", "0", minimum=0)
 # Clarification (018 section 6 and step 5): at most 3 assessment rounds per application, 3 proposals per round.
 CATALYST_ASSESSMENT_ROUNDS = number("CATALYST_ASSESSMENT_ROUNDS", "3")
+# The qualification decision (018 section 7; P3 3B.4). Who may decide is POL-05: until the owner records it this
+# stays None and every decision is refused, superusers included. Once decided it is set here in code to
+# "explicit_permission" (assessments.record_qualification_decision, granted to named people only). Never from the
+# environment (config.guards.decision_problems).
+CATALYST_QUALIFICATION_AUTHORITY = None
+# The active selection policy (019 section 6), set in code by a recorded owner activation. Empty: none is approved,
+# and decisions record the synthetic rubric they relied on instead.
+CATALYST_SELECTION_POLICY = ""
 CATALYST_QUESTIONS_PER_ROUND = number("CATALYST_QUESTIONS_PER_ROUND", "3")
 # Reply interpretation may use at most this many of the shared daily requests per application (3B.3 review).
 CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION = number("CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION", "10")

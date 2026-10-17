@@ -1,0 +1,20 @@
+{% load correspondence_display %}{% if claims is None %}<p>No claims were recorded for this version.</p>{% else %}
+<h2>Statements</h2>
+<dl>
+  {% if claims.contribution %}<dt>What the applicant says they personally did</dt><dd><pre class="untrusted">{{ claims.contribution|visible }}</pre></dd>{% endif %}
+  {% if claims.experience %}<dt>Relevant experience (claimed)</dt><dd><pre class="untrusted">{{ claims.experience|visible }}</pre></dd>{% endif %}
+  {% if claims.confidential %}<dt>Private or confidential work (claimed)</dt><dd><pre class="untrusted">{{ claims.confidential_description|visible }}</pre></dd>{% endif %}
+</dl>
+<h2>Claims and observations</h2>
+<table><tr><th>Claim</th><th>Observation</th><th>Cannot prove</th><th></th></tr>
+{% for row in rows %}
+<tr><td>{{ row.label }}: {% if row.claim.url %}<bdi>{{ row.claim.url|visible }}</bdi>{% endif %}{% if row.claim.note %}; <bdi>{{ row.claim.note|visible }}</bdi>{% endif %}{% if row.claim.name %}<bdi>{{ row.claim.name|visible }}</bdi>{% if row.claim.issuer %}, <bdi>{{ row.claim.issuer|visible }}</bdi>{% endif %}{% if row.claim.identifier %} (<bdi>{{ row.claim.identifier|visible }}</bdi>){% endif %}{% endif %}</td>
+<td>{% if not row.item %}No observation (unsupported assertion: nothing was checked){% else %}{{ row.item.status }}{% if row.item.reason_code %} ({{ row.item.reason_code }}){% endif %}{% if row.item.round > 1 %}, round {{ row.item.round }}{% endif %}
+{% if row.capture %}<br>{{ row.capture.outcome }}; HTTP {{ row.capture.http_status }}; fetched {{ row.capture.fetched_at|date:"Y-m-d H:i" }} UTC from <bdi>{{ row.capture.final_url|visible }}</bdi>{% if row.capture.revision_marker %}; revision <bdi>{{ row.capture.revision_marker|visible }}</bdi>{% endif %}{% if row.capture.truncated %}; truncated{% endif %}{% if row.capture.injection_markers %}; markers: {% for m in row.capture.injection_markers %}{{ m }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}
+<pre class="untrusted">{{ row.capture.derived_text|truncatechars:2000|visible }}</pre>{% endif %}{% endif %}</td>
+<td>{% if row.capture %}{{ row.capture.cannot_prove }}{% endif %}</td>
+<td>{% if can_operate and row.refetchable %}
+<form method="post" action="{% url 'assessments_staff:refetch' row.item.public_id %}">{% csrf_token %}<input name="note" maxlength="500" placeholder="note"> <button>Re-fetch</button></form>{% endif %}</td></tr>
+{% empty %}<tr><td colspan="4">No work samples or credentials were claimed.</td></tr>{% endfor %}
+</table>
+{% endif %}

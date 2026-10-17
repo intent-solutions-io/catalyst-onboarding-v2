@@ -1,0 +1,32 @@
+{% extends "correspondence/staff/base.html" %}{% load correspondence_display %}
+{% block content %}
+<h1>Decision: <bdi>{{ application.display_name|visible }}</bdi></h1>
+<p>Stage {{ application.stage }}. {% if version %}Adopted version {{ version.version_number }}{% if newer_versions %}; {{ newer_versions }} newer unverified version(s) exist and are not used{% endif %}.{% else %}No adopted version.{% endif %}
+Selection policy: {{ policy_ref }}.</p>
+{% include "assessments/staff/_claims.html" %}
+{% include "assessments/staff/_run.html" %}
+<h2>Clarification questions</h2>
+{% if questions %}<ul>{% for q in questions %}<li><bdi>{{ q.text|visible }}</bdi> ({{ q.criterion_id }}; {{ q.approval_state }}, {{ q.status }})</li>{% endfor %}</ul>{% else %}<p>None.</p>{% endif %}
+<h2>Decision</h2>
+<p>The decision will cite snapshot {{ state.snapshot|truncatechars:17 }}{% if state.run %} and run {{ state.run.public_id }}{% endif %}. If anything changes before you submit, the decision is refused and this page shows the new state.</p>
+{% if not authority %}<p>No decision authority is configured (POL-05). Nobody can record a decision.</p>
+{% elif not may_decide %}<p>You may not record a decision.</p>
+{% elif not state.run and not state.human_only_allowed %}<p>No valid assessment for the current snapshot: rerun it, or wait for the reassessment.</p>
+{% else %}
+<form method="post" action="{% url 'assessments_staff:decide' application.public_ref %}">{% csrf_token %}
+<input type="hidden" name="digest" value="{{ state.digest }}">
+<p>For each criterion, record what the evidence shows (capability) and how much evidence there is (strength) separately. Missing or private evidence is never evidence against the applicant.</p>
+<table><tr><th>Criterion</th><th>Capability</th><th>Strength of evidence</th><th>Your reasoning</th></tr>
+{% for c in criteria %}<tr><td>{{ c.id }}</td>
+<td><select name="cap-{{ c.id }}" required><option value="">choose</option>{% for v in capability %}<option value="{{ v }}">{{ v }}</option>{% endfor %}</select></td>
+<td><select name="str-{{ c.id }}" required><option value="">choose</option>{% for v in strength %}<option value="{{ v }}">{{ v }}</option>{% endfor %}</select></td>
+<td><input name="note-{{ c.id }}" maxlength="500" required></td></tr>{% endfor %}
+</table>
+{% if not state.run %}<p>Model advice is unavailable or suspended for this snapshot. This is a human-only assessment (D-35).</p>
+<label>Why a human-only assessment <input name="human_only_reason" maxlength="300" required></label>{% endif %}
+<label>Outcome <select name="outcome" required><option value="">choose</option>{% for o in outcomes %}<option value="{{ o }}">{{ o }}</option>{% endfor %}</select></label>
+<label>Reason code <input name="reason_code" maxlength="40" pattern="[a-z][a-z_]{2,39}" required></label>
+<label>Reason <input name="reason_text" maxlength="500"></label>
+<button>Record the decision</button></form>
+{% endif %}
+{% endblock %}

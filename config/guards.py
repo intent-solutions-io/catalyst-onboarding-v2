@@ -160,6 +160,16 @@ def assessment_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return problems
 
 
+def decision_problems(settings, environ: Mapping[str, str]) -> list[str]:
+    """018 section 7 (P3 3B.4): the decision authority and the selection policy are fixed in code, never taken from
+    the environment; the authority is None (POL-05 undecided) or the one rule the code implements."""
+    problems = [f"{name} may not be set from the environment" for name in
+                ("CATALYST_QUALIFICATION_AUTHORITY", "CATALYST_SELECTION_POLICY") if name in environ]
+    if getattr(settings, "CATALYST_QUALIFICATION_AUTHORITY", None) not in (None, "explicit_permission"):
+        problems.append("CATALYST_QUALIFICATION_AUTHORITY must be None or 'explicit_permission'")
+    return problems
+
+
 def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return (
         database_problems(settings.DATABASES)
@@ -169,4 +179,5 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + dispatch_problems(settings, environ)
         + evidence_problems(settings, environ)
         + assessment_problems(settings, environ)
+        + decision_problems(settings, environ)
     )

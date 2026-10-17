@@ -225,3 +225,57 @@ class AssessmentInvocation(models.Model):
             models.UniqueConstraint(fields=["run", "attempt"], name="assessment_invocation_one_per_attempt"),
             models.CheckConstraint(condition=Q(status__in=["started", "completed", "abandoned"]), name="assessment_invocation_status_valid"),
         ]
+
+
+class CurrentTransactionId(models.Func):
+    template = "pg_current_xact_id()::text::bigint"
+    output_field = models.BigIntegerField()
+
+
+class QualificationDecision(models.Model):
+    """The authorized human decision (018 section 7, J-10; P3 3B.4; D-34 P3-D-9 to P3-D-11, D-35). Insert-only and
+    append-only for every role (ADR-14). It names exactly what it relied on: the adopted version, the run (none for
+    a recorded human-only assessment, the D-35 amendment of P3-D-10), the snapshot digest, the digest of what the
+    decision-maker saw, and the selection policy. Capability and strength of evidence are recorded separately per
+    criterion (019 section 5). A model never writes one."""
+
+    class Outcome(models.TextChoices):
+        ADMIT = "admit"
+        DECLINE = "decline"
+        HOLD = "hold"
+
+    class Basis(models.TextChoices):
+        MODEL_ASSISTED = "model_assisted"  # a valid succeeded run informed the decision
+        HUMAN_ONLY = "human_only"  # model advice unavailable or suspended (D-35)
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="qualification_decisions")
+    adopted_version = models.ForeignKey("applications.SubmissionVersion", on_delete=models.PROTECT, related_name="+")
+    run = models.ForeignKey(AssessmentRun, on_delete=models.PROTECT, null=True, blank=True, related_name="decisions")
+    outcome = models.CharField(max_length=16, choices=Outcome.choices)
+    basis = models.CharField(max_length=16, choices=Basis.choices)
+    human_only_reason = models.CharField(max_length=300, blank=True, default="")
+    reason_code = models.CharField(max_length=40)
+    reason_text = models.TextField(blank=True, default="")
+    rationale = models.JSONField(default=dict)  # {criterion: {capability, evidence_strength, note}}
+    snapshot_sha256 = models.CharField(max_length=64)
+    decision_digest = models.CharField(max_length=64)  # what the decision-maker saw (snapshot, questions, run)
+    policy_ref = models.CharField(max_length=100)  # the selection policy, or the synthetic rubric until one exists
+    actor_ref = models.CharField(max_length=200)
+    second_actor_ref = models.CharField(max_length=200, blank=True, default="")  # P3-D-9: optional, not required
+    created_at = models.DateTimeField(db_default=Now())
+    # The top-level transaction that inserted the row (the same inside a savepoint); the database backstop
+    # compares it with the current transaction (migration 0008, TEST-P3-52).
+    created_txid = models.BigIntegerField(db_default=CurrentTransactionId())
+
+    class Meta:
+        permissions = [("record_qualification_decision", "Record an admit, decline or hold decision (POL-05; granted explicitly)")]
+        constraints = [
+            models.CheckConstraint(condition=Q(outcome__in=["admit", "decline", "hold"]), name="decision_outcome_valid"),
+            models.CheckConstraint(condition=Q(basis__in=["model_assisted", "human_only"]), name="decision_basis_valid"),
+            models.CheckConstraint(condition=(Q(basis="model_assisted") & Q(run__isnull=False)) |
+                                   (Q(basis="human_only") & Q(run__isnull=True) & ~Q(human_only_reason="")),
+                                   name="decision_basis_matches_run"),
+            models.UniqueConstraint(fields=["application"], condition=Q(outcome__in=["admit", "decline"]),
+                                    name="decision_one_final_per_application"),
+        ]

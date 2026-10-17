@@ -3,7 +3,7 @@
 Entry point for Claude Code in **catalyst-onboarding-v2**, the documentation-first, Django-native
 Solution Catalyst onboarding platform for Intent Solutions. Synthetic only: the first slice (GATE-S1, D-26) and the
 P2 correspondence loop (GATE-P2, D-33) are accepted; P3 is in progress (spec `018`, approved D-34; 3B.1 evidence
-collection and 3B.2 bounded assessment on test models only are merged; 3B.3 clarification is released). Selection-quality governance (approved D-35) is in
+collection and 3B.2 bounded assessment on test models only are merged; 3B.3 clarification is merged; 3B.4 the qualification decision is released). Selection-quality governance (approved D-35) is in
 `011` section 11 and `019`. Repository: https://github.com/intent-solutions-io/catalyst-onboarding-v2 (public).
 
 ## Read first
