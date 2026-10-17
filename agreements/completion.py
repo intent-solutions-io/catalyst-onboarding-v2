@@ -251,6 +251,7 @@ def apply_read(claim, instance_id: int, env: provider.Envelope) -> None:
         reason = RECIPIENTS_CHANGED if not data["recipients_match"] else ENVELOPE_MISMATCH
         open_item(reason, f"read:{ref}", application=application, pending_action_id=claim.id)
         event(application, "agreement_completion_not_verified", {"instance": ref, "reason": reason}, actor_ref=actor)
+        _keep_sweeping(ref)  # the provider may correct it; keep looking (4B.2 re-check)
         return
     if env.status == "REJECTED" or any(r.signing_status == "REJECTED" for r in env.recipients):
         status(signing_status="declined")

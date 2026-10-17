@@ -158,7 +158,15 @@ def cancel_agreement(instance_id: int, user) -> AgreementInstance:
             if PendingAction.objects.filter(kind=handlers.RECONCILE, input_ref__in=[str(a.public_id) for a in attempts],
                                             status__in=(PendingAction.Status.QUEUED, PendingAction.Status.RUNNING)).exists():
                 raise Refused("reconciliation_in_progress")
+            for attempt in attempts:
+                for item in StaffItem.objects.filter(reason_code=handlers.CANCEL_UNKNOWN, status=StaffItem.Status.OPEN,
+                                                     dedupe_key=f"cancel:{attempt.public_id}"):
+                    resolve_item(item, code="decided_cancel_again", actor_ref=actor,
+                                 effects={"instance": str(instance.public_id)})
             attempts.update(outcome=EnvelopeAttempt.Outcome.DECIDED_NOT_SENT, finished_at=Now())
+            PendingAction.objects.filter(kind="cancel_agreement", input_ref=str(instance.public_id),
+                                         status=PendingAction.Status.UNCERTAIN).update(
+                status=PendingAction.Status.DONE, last_error="decided_cancel_again", completed_at=Now(), updated_at=Now())
             AgreementInstance.objects.filter(pk=instance.pk).update(issue_status="failed_needs_staff", updated_at=Now())
             instance.refresh_from_db()
         elif instance.issue_status not in LIVE:

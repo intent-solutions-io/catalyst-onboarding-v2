@@ -219,12 +219,13 @@ def test_p4_01_06_the_user_agreement_waits_for_the_ndas_gate(h, monkeypatch):
     assert not h.fake.calls("POST", "/envelope/use")[1:]
     signing_gate(h)
     try:
+        reads_before = ProviderObservation.objects.filter(instance=instance, source="read").count()
         completion.enqueue_advance(Application.objects.get(pk=app.pk))
         run_worker()
         ua = AgreementInstance.objects.get(application=app, agreement_type__key="user_agreement")
         assert ua.issue_status == "issued" and ua.template_version == h.ua
-        gate_reads = h.fake.calls("GET", f"/envelope/{instance.envelope_id}")
-        assert len(gate_reads) >= 2  # the NDA was re-read at the moment the User Agreement was issued
+        # the NDA was re-read, and the read recorded, at the moment the User Agreement was issued (REQ-011)
+        assert ProviderObservation.objects.filter(instance=instance, source="read").count() == reads_before + 1
     finally:
         reset_gate(h)
 
