@@ -30,6 +30,7 @@ ATTENTION = "needs_staff_attention"
 OK_SEND = (PendingAction.Status.QUEUED, PendingAction.Status.RUNNING, PendingAction.Status.DONE)
 REASONS = {
     "repeat_after_verification": "a submission arrived after the address was verified; it was not adopted",
+    "repeat_after_decline": "a submission arrived after the application was declined; it was not adopted and nothing new was created",
     "newer_unverified_version": "a newer submission exists than the one the applicant confirmed",
     "reply_needs_review": "a reply awaits staff confirmation of its question outcomes",
     "reply_unverified": "a reply could not be authenticated",

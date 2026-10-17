@@ -78,10 +78,20 @@ def _constraint_name(exc: IntegrityError):
     return getattr(diag, "constraint_name", None)
 
 
+def _declined_application(key):
+    """J-02 (P3-D-16, 3B.4): after a decline, a repeat is recorded against the declined application and nothing
+    new is created until POL-01 and POL-12 decide reapplication. Withdrawn and closed stay with P5."""
+    return (Application.objects.select_for_update(of=("self",)).filter(email_key=key, stage="declined")
+            .order_by("-id").first())
+
+
 def _lock_or_create_application(email, key, name):
     application = _open_application(key)
     if application is not None:
         return application, False
+    declined = _declined_application(key)
+    if declined is not None:
+        return declined, False
     _before_insert(key)
     try:
         with transaction.atomic():  # savepoint: the losing side of a race recovers inside the transaction
@@ -159,8 +169,9 @@ def accept_submission(data) -> Outcome:
         event = dict(application=application, actor_type=ApplicationEvent.ActorType.APPLICANT, data={"version_number": number})
         ApplicationEvent.objects.create(kind="submission_received" if new_application else "repeat_submission", **event)
         if verified:
+            reason = "repeat_after_decline" if application.stage == "declined" else "repeat_after_verification"
             attention = ApplicationEvent.objects.create(
-                kind="needs_staff_attention", **{**event, "data": {"version_number": number, "reason": "repeat_after_verification"}}
+                kind="needs_staff_attention", **{**event, "data": {"version_number": number, "reason": reason}}
             )
-            open_staff_item(application, "repeat_after_verification", attention)
+            open_staff_item(application, reason, attention)
     return Outcome(application.public_ref, number, new_application, new_challenge, verified)

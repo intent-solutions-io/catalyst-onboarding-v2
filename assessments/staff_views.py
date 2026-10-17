@@ -7,6 +7,7 @@ linked, and pages are never cached.
 
 from functools import wraps
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
@@ -18,6 +19,7 @@ from django.views.decorators.http import require_GET, require_POST
 from applications.models import Application
 from correspondence import common as correspondence_rules
 from correspondence.models import Question, StaffItem
+from workflow.models import AutomationPause
 
 from . import services
 from .models import AssessmentRun, EvidenceItem, EvidenceSource
@@ -125,6 +127,52 @@ def _criteria():
         return packs.load().criteria
     except packs.PackRefused:
         return []
+
+
+DECIDE = ("review_evidence", "operate_evidence", "record_qualification_decision")
+
+
+@require_GET
+@staff_page(*DECIDE)
+def decision(request, public_ref):
+    """018 section 7 (3B.4): everything the decision relies on, and only the outcomes the viewer may record."""
+    from . import decisions
+
+    application = get_object_or_404(Application, public_ref=public_ref)
+    version, claims, rows = _rows(application)
+    state = decisions.decision_state(application)
+    may = decisions.can_decide(request.user)
+    paused = AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists()
+    return render(request, "assessments/staff/decision.html", {
+        "application": application, "version": version, "claims": claims, "rows": rows, "state": state,
+        "newer_versions": application.versions.filter(version_number__gt=version.version_number).count() if version else 0,
+        "run": state["run"] or state["latest_run"], "authority": settings.CATALYST_QUALIFICATION_AUTHORITY is not None,
+        "may_decide": may, "outcomes": [o for o in decisions.STAGE_FOR if may and not (o == "admit" and paused)],
+        "decidable": application.stage == "awaiting_decision" or (application.stage == "assessing" and state["human_only_allowed"]),
+        "capability": decisions.CAPABILITY, "strength": decisions.EVIDENCE_STRENGTH,
+        "criteria": state["pack"].criteria if state["pack"] else [],
+        "policy_ref": decisions.policy_ref(state["pack"]) if state["pack"] else "",
+        "questions": Question.objects.filter(application=application).exclude(round=0).order_by("round", "id"),
+    })
+
+
+@require_POST
+@staff_page("record_qualification_decision")
+def decide(request, public_ref):
+    from . import decisions
+
+    application = get_object_or_404(Application, public_ref=public_ref)
+    post = request.POST
+    pack = decisions.decision_state(application)["pack"]
+    criteria = [c["id"] for c in pack.criteria] if pack else []  # no snapshot: the service refuses
+    rationale = {c: {"capability": post.get(f"cap-{c}", ""), "evidence_strength": post.get(f"str-{c}", ""),
+                     "note": post.get(f"note-{c}", "")} for c in criteria}
+    return act(request, reverse("assessments_staff:decision", args=[public_ref]),
+               lambda: decisions.record_decision(
+                   application.pk, request.user, outcome=post.get("outcome", ""), reason_code=post.get("reason_code", ""),
+                   reason_text=post.get("reason_text", ""), expected_digest=post.get("digest", ""), rationale=rationale,
+                   human_only_reason=post.get("human_only_reason", "")),
+               "Decision recorded.")
 
 
 @require_POST

@@ -54,6 +54,7 @@ RESOLUTIONS = {
                           "dismiss": "resolve_identity_exception"},
     "sender_mismatch": {"mark_spoof": "resolve_identity_exception", "dismiss": "resolve_identity_exception"},
     "repeat_after_verification": {"acknowledge": "resolve_identity_exception"},
+    "repeat_after_decline": {"acknowledge": "resolve_identity_exception"},  # P3 3B.4, J-02 (P3-D-16)
     "newer_unverified_version": {"acknowledge": "resolve_identity_exception"},
 }
 ACKNOWLEDGE_ONLY = {"processing_error", "message_id_conflict", "mailbox_uidvalidity_changed", "collector_stale",

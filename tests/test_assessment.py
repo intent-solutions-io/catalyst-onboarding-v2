@@ -536,7 +536,7 @@ def test_p3_50_the_recommendation_never_chooses_the_next_step(a, monkeypatch, se
 
 def test_p3_50_no_provider_client_and_no_output_field_in_control_flow():
     code = {p.name: p.read_text() for p in Path(support.ROOT, "assessments").rglob("*.py") if "migrations" not in p.parts}
-    flow = code["runs.py"] + code["services.py"] + code["collection.py"]
+    flow = code["runs.py"] + code["services.py"] + code["collection.py"] + code["decisions.py"]
     for field in ("recommendation", "confidence", "proposed_questions", "injection_suspected", ".rating"):
         assert field not in flow, field
     # 3B.3: clarification reads the proposals only, and never moves a stage while doing so

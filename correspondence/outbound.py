@@ -149,6 +149,8 @@ def approve_question(question_id: int, user) -> ApprovedMessage:
             raise Refused("question_withdrawn")
         if application.stage in TERMINAL_STAGES:
             raise Refused("application_closed")
+        if application.stage in (Stage.ADMITTED, Stage.ON_HOLD):
+            raise Refused("application_decided")  # P3 3B.4: no clarification after a decision
         recipient = verified_address(application)
         if recipient is None:
             raise Refused("contact_not_verified")

@@ -5,6 +5,7 @@ them reports a problem, so every process (web server, management command, future
 start; the same functions back a system check for ``manage.py check`` output.
 """
 
+import re
 import ipaddress
 from collections.abc import Mapping
 
@@ -160,6 +161,19 @@ def assessment_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return problems
 
 
+def decision_problems(settings, environ: Mapping[str, str]) -> list[str]:
+    """018 section 7 (P3 3B.4): the decision authority and the selection policy are fixed in code, never taken from
+    the environment; the authority is None (POL-05 undecided) or the one rule the code implements."""
+    problems = [f"{name} may not be set from the environment" for name in
+                ("CATALYST_QUALIFICATION_AUTHORITY", "CATALYST_SELECTION_POLICY") if name in environ]
+    if getattr(settings, "CATALYST_QUALIFICATION_AUTHORITY", None) not in (None, "explicit_permission"):
+        problems.append("CATALYST_QUALIFICATION_AUTHORITY must be None or 'explicit_permission'")
+    policy = getattr(settings, "CATALYST_SELECTION_POLICY", "")
+    if policy and not re.fullmatch(r"SP-[A-Z0-9]{1,8}-[0-9]{1,4}", policy):
+        problems.append("CATALYST_SELECTION_POLICY must be empty or an SP-<role>-<n> identifier (019 section 6)")
+    return problems
+
+
 def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return (
         database_problems(settings.DATABASES)
@@ -169,4 +183,5 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + dispatch_problems(settings, environ)
         + evidence_problems(settings, environ)
         + assessment_problems(settings, environ)
+        + decision_problems(settings, environ)
     )
