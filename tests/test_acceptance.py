@@ -269,6 +269,12 @@ DATABASE_CONSTRAINTS = {
     "question_text_unique_while_live", "reply_interpretation_one_per_attempt", "reply_interpretation_status_valid",
     "reply_interpretation_finished_has_time",
     "decision_outcome_valid", "decision_basis_valid", "decision_basis_matches_run", "decision_one_final_per_application",
+    # P4 4B.1 (021 section 3)
+    "agreement_template_one_per_version", "agreement_template_status_valid", "agreement_template_approved_has_actor",
+    "agreement_issue_status_valid", "agreement_signing_status_valid", "agreement_custody_status_valid",
+    "agreement_one_live_per_type", "agreement_external_key_unique", "agreement_envelope_unique",
+    "agreement_recipient_one_per_slot", "agreement_recipient_who_valid", "envelope_attempt_step_valid",
+    "envelope_attempt_outcome_valid",
 }
 
 
@@ -282,7 +288,7 @@ def test_s1_20_every_named_constraint_exists_in_the_database():
         names |= {r[0] for r in cursor.fetchall()}  # partial unique constraints are unique indexes
     assert DATABASE_CONSTRAINTS <= names, DATABASE_CONSTRAINTS - names
     # The list above covers every constraint the models declare (plus the two composite foreign keys).
-    declared = {c.name for label in ("applications", "workflow", "correspondence", "assessments")
+    declared = {c.name for label in ("applications", "workflow", "correspondence", "assessments", "agreements")
                 for model in apps.get_app_config(label).get_models() for c in model._meta.constraints}
     assert declared <= DATABASE_CONSTRAINTS, declared - DATABASE_CONSTRAINTS
 

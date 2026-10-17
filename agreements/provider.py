@@ -1,0 +1,321 @@
+"""The hardened Documenso client (021 sections 5, 6 and 10; 4B.1). Synthetic only: the provider is the local fake.
+
+Every exchange:
+
+- goes to `CATALYST_AGREEMENT_PROVIDER_URL`'s host, connected at the pinned address and nowhere else; the connected
+  peer is checked before TLS (a resolver can never redirect it);
+- verifies TLS against the configured trust store (verification is never switched off);
+- follows no redirect, caps the response size and bounds the whole exchange with one deadline;
+- authenticates with the API key in `Authorization` (the installed version's documented scheme, 021 section 15),
+  which never appears in an error, a log line or `repr`.
+
+Errors carry whether the request may have reached the provider (`sent`). For a write that matters: before sending,
+or on a 429 or a definite 4xx, the provider did not act; anything else after sending (a timeout, a reset, a 5xx, a
+redirect, an unreadable 2xx) is an **unknown** outcome, reconciled and never retried blindly (021 section 5).
+
+Responses are parsed into an allowlist (`Envelope`, `Recipient`). Signing tokens and signing links, which the
+installed version returns from `envelope/use`, `envelope/distribute` and envelope reads, are dropped here and never
+reach a record, a log or a screen (021 section 6, TEST-P4-24).
+"""
+
+import http.client
+import ipaddress
+import json
+import math
+import re
+import socket
+import ssl
+import threading
+import time
+import uuid
+from dataclasses import dataclass
+from urllib.parse import quote, urlencode, urlsplit
+
+from django.conf import settings
+
+USER_AGENT = "catalyst-onboarding/agreements"
+ENVELOPE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+STATUSES = ("DRAFT", "PENDING", "COMPLETED", "REJECTED", "CANCELLED")  # anything else reads as UNKNOWN
+SIGNING = ("NOT_SIGNED", "SIGNED", "REJECTED")
+ROLES = ("CC", "SIGNER", "VIEWER", "APPROVER", "ASSISTANT")
+UNKNOWN_STATUSES = (408,)  # a timeout reply: the provider may still act
+
+
+class ProviderError(Exception):
+    """`code` is a reason code; `sent` says whether the request may have reached the provider."""
+
+    def __init__(self, code: str, *, sent: bool, status: int | None = None, retry_after: float | None = None):
+        super().__init__(code)
+        self.code, self.sent, self.status, self.retry_after = code, sent, status, retry_after
+
+    @property
+    def unknown(self) -> bool:
+        """For a write: the provider may have acted, so the outcome is unknown."""
+        if not self.sent:
+            return False
+        if self.status is None or self.status in UNKNOWN_STATUSES:
+            return True
+        return not (400 <= self.status < 500)  # 3xx, 5xx: unknown; 4xx (429 included): the provider did not act
+
+    def __repr__(self):
+        return f"ProviderError({self.code!r}, sent={self.sent}, status={self.status})"
+
+
+@dataclass(frozen=True)
+class Recipient:
+    email: str
+    role: str
+    signing_order: int | None
+    signing_status: str
+
+
+@dataclass(frozen=True)
+class Envelope:
+    id: str
+    external_id: str
+    status: str
+    template_number: int | None
+    type: str
+    recipients: tuple
+    created_at: str = ""
+
+
+@dataclass(frozen=True)
+class Response:
+    status: int
+    content_type: str
+    body: bytes
+
+
+def configured() -> bool:
+    return bool(settings.CATALYST_AGREEMENT_PROVIDER_URL)
+
+
+def _target():
+    url = settings.CATALYST_AGREEMENT_PROVIDER_URL
+    if not url:
+        raise ProviderError("provider_not_configured", sent=False)
+    parts = urlsplit(url)
+    if parts.scheme != "https" or not parts.hostname or parts.query or parts.fragment:
+        raise ProviderError("provider_url_invalid", sent=False)
+    address = settings.CATALYST_AGREEMENT_PROVIDER_ADDRESS
+    try:
+        loopback = ipaddress.ip_address(address).is_loopback
+    except ValueError:
+        loopback = False
+    if not loopback:  # re-checked here, not only at start-up: synthetic P4 talks to a local fake only
+        raise ProviderError("provider_address_not_pinned", sent=False)
+    if not settings.CATALYST_AGREEMENT_PROVIDER_CA_FILE:
+        raise ProviderError("provider_trust_store_missing", sent=False)  # never the system store, never SSL_CERT_* vars
+    return parts.hostname, parts.port or 443, parts.path.rstrip("/"), address
+
+
+def _tls_context():
+    context = ssl.create_default_context(cafile=settings.CATALYST_AGREEMENT_PROVIDER_CA_FILE)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return context
+
+
+def exchange(method: str, path: str, *, query: dict | None = None, body: bytes | None = None,
+             content_type: str = "") -> Response:
+    """One bounded HTTPS exchange. Raises ProviderError for anything but a 2xx or a 4xx response with a body."""
+    host, port, base, address = _target()
+    deadline = time.monotonic() + settings.CATALYST_AGREEMENT_DEADLINE_SECONDS
+    sent = False
+    raw, watchdog, expired, live = None, None, threading.Event(), {}
+
+    def remaining() -> float:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise ProviderError("deadline_exceeded", sent=sent)
+        return left
+
+    def expire():
+        expired.set()
+        try:
+            live["sock"].shutdown(socket.SHUT_RDWR)
+        except (OSError, KeyError):
+            pass
+
+    try:
+        raw = socket.create_connection((address, port), timeout=min(10.0, remaining()))
+        live["sock"] = raw
+        watchdog = threading.Timer(remaining(), expire)
+        watchdog.daemon = True
+        watchdog.start()
+        if raw.getpeername()[0] != address:
+            raise ProviderError("peer_not_allowed", sent=False)
+        tls = _tls_context().wrap_socket(raw, server_hostname=host, do_handshake_on_connect=False)
+        raw = live["sock"] = tls
+        tls.settimeout(remaining())
+        tls.do_handshake()
+        connection = http.client.HTTPSConnection(host, port, timeout=remaining())
+        connection.sock = tls  # never reconnects or re-resolves
+        target = f"{base}{path}" + (f"?{urlencode(query)}" if query else "")
+        connection.putrequest(method, target, skip_host=True, skip_accept_encoding=True)
+        connection.putheader("Host", host if port == 443 else f"{host}:{port}")
+        connection.putheader("User-Agent", USER_AGENT)
+        connection.putheader("Accept-Encoding", "identity")
+        connection.putheader("Connection", "close")
+        connection.putheader("Authorization", settings.CATALYST_AGREEMENT_PROVIDER_TOKEN)
+        if body is not None:
+            connection.putheader("Content-Type", content_type)
+            connection.putheader("Content-Length", str(len(body)))
+        sent = True  # from here on, the provider may receive the request
+        connection.endheaders(body)
+        tls.settimeout(remaining())
+        response = connection.getresponse()
+        if expired.is_set():
+            raise ProviderError("deadline_exceeded", sent=True)
+        status = response.status
+        if 300 <= status < 400:
+            raise ProviderError("redirect_refused", sent=True, status=status)  # never followed, on or off host
+        if status == 429:
+            raise ProviderError("rate_limited", sent=True, status=429, retry_after=_retry_after(response))
+        if (response.getheader("Content-Encoding") or "identity").strip().lower() != "identity":
+            raise ProviderError("content_encoding_refused", sent=True, status=status)
+        cap, chunks, size = settings.CATALYST_AGREEMENT_MAX_BYTES, [], 0
+        while True:
+            tls.settimeout(remaining())
+            chunk = response.read1(min(65536, cap + 1 - size))
+            if expired.is_set():
+                raise ProviderError("deadline_exceeded", sent=True, status=status)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+            if size > cap:
+                raise ProviderError("response_too_large", sent=True, status=status)
+        declared = response.getheader("Content-Length")
+        if declared is not None and declared.isdigit() and int(declared) != size:
+            raise ProviderError("response_truncated", sent=True, status=status)
+        if not 200 <= status < 300:
+            raise ProviderError(f"http_{status}", sent=True, status=status)
+        content = (response.getheader("Content-Type") or "").split(";")[0].strip().lower()
+        return Response(status, content, b"".join(chunks))
+    except ProviderError:
+        raise
+    except ssl.SSLCertVerificationError:
+        raise ProviderError("tls_certificate_refused", sent=sent) from None
+    except (TimeoutError, socket.timeout):
+        raise ProviderError("deadline_exceeded" if expired.is_set() else "timeout", sent=sent) from None
+    except (ssl.SSLError, ConnectionError, OSError, http.client.HTTPException, ValueError):
+        raise ProviderError("deadline_exceeded" if expired.is_set() else "connection_failed", sent=sent) from None
+    finally:
+        if watchdog is not None:
+            watchdog.cancel()
+        if raw is not None:
+            try:
+                raw.close()
+            except OSError:
+                pass
+
+
+def _retry_after(response) -> float | None:
+    value = (response.getheader("Retry-After") or "").strip()
+    try:
+        seconds = float(value) if value else None
+    except ValueError:
+        return None  # an HTTP-date is not honoured: the ledger's backoff applies instead
+    if seconds is None or not math.isfinite(seconds) or seconds < 0:
+        return None
+    return min(seconds, float(settings.CATALYST_AGREEMENT_RETRY_AFTER_MAX_SECONDS))
+
+
+def _json(response: Response):
+    if response.content_type != "application/json":
+        raise ProviderError("response_not_json", sent=True, status=response.status)
+    try:
+        return json.loads(response.body)
+    except ValueError:
+        raise ProviderError("response_unreadable", sent=True, status=response.status) from None
+
+
+def _text(value, limit=320) -> str:
+    return value[:limit] if isinstance(value, str) else ""
+
+
+def _enum(value, allowed) -> str:
+    """A provider-controlled code reaches records only as one of the known values (4B.1 review)."""
+    return value if value in allowed else "UNKNOWN"
+
+
+def _envelope_id(value) -> str:
+    if not isinstance(value, str) or not ENVELOPE_ID.fullmatch(value):
+        raise ProviderError("response_unreadable", sent=True, status=200)
+    return value
+
+
+def _recipient(raw) -> Recipient:
+    if not isinstance(raw, dict):
+        raise ProviderError("response_unreadable", sent=True, status=200)
+    order = raw.get("signingOrder")
+    return Recipient(email=_text(raw.get("email")), role=_enum(raw.get("role"), ROLES),
+                     signing_order=order if isinstance(order, int) and not isinstance(order, bool) else None,
+                     signing_status=_enum(raw.get("signingStatus"), SIGNING))
+
+
+def envelope(raw) -> Envelope:
+    """The allowlist: everything else in a provider response (tokens, signing links, names, fields) is dropped."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("id"), str) or not isinstance(raw.get("recipients", []), list):
+        raise ProviderError("response_unreadable", sent=True, status=200)
+    number = raw.get("templateId")
+    return Envelope(id=_envelope_id(raw["id"]), external_id=_text(raw.get("externalId"), 64),
+                    status=_enum(raw.get("status"), STATUSES),
+                    template_number=number if isinstance(number, int) and not isinstance(number, bool) else None,
+                    type=_enum(raw.get("type"), ("DOCUMENT", "TEMPLATE")), recipients=tuple(_recipient(r) for r in raw.get("recipients", [])),
+                    created_at=_text(raw.get("createdAt"), 40))
+
+
+def _multipart(payload: dict) -> tuple[bytes, str]:
+    boundary = uuid.uuid4().hex
+    body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"payload\"\r\n"
+            f"Content-Type: application/json\r\n\r\n{json.dumps(payload)}\r\n--{boundary}--\r\n").encode()
+    return body, f"multipart/form-data; boundary={boundary}"
+
+
+# --- operations (the installed v2.20.0 envelope API; 021 section 15) -------------------------------------------
+
+def create_from_template(template_ref: str, external_key: str, recipients: list[dict]) -> str:
+    """`POST /envelope/use` as a draft (`distributeDocument: false`, P4-D-4). Returns the new envelope id only."""
+    body, content_type = _multipart({"envelopeId": template_ref, "externalId": external_key,
+                                     "recipients": recipients, "distributeDocument": False})
+    data = _json(exchange("POST", "/envelope/use", body=body, content_type=content_type))
+    if not isinstance(data, dict):
+        raise ProviderError("response_unreadable", sent=True, status=200)
+    return _envelope_id(data.get("id"))
+
+
+def distribute(envelope_id: str) -> None:
+    """`POST /envelope/distribute`: Documenso emails the recipients. No subject or message is sent (021 section 10)."""
+    body = json.dumps({"envelopeId": envelope_id, "meta": {"distributionMethod": "EMAIL"}}).encode()
+    _json(exchange("POST", "/envelope/distribute", body=body, content_type="application/json"))
+
+
+def read(envelope_id: str) -> Envelope:
+    return envelope(_json(exchange("GET", f"/envelope/{quote(envelope_id, safe='')}")))
+
+
+def find(template_number: int, page: int) -> tuple[list[Envelope], int]:
+    """One page of documents created from a template, newest first (the bounded reconciliation listing: the installed
+    version has no lookup by `externalId`, 021 section 15). Returns the page and the total page count."""
+    query = {"type": "DOCUMENT", "templateId": template_number, "orderByColumn": "createdAt",
+             "orderByDirection": "desc", "page": page, "perPage": settings.CATALYST_AGREEMENT_LIST_PAGE_SIZE}
+    data = _json(exchange("GET", "/envelope", query=query))
+    if not isinstance(data, dict) or not isinstance(data.get("data"), list):
+        raise ProviderError("response_unreadable", sent=True, status=200)
+    pages = data.get("totalPages")
+    return [envelope(e) for e in data["data"]], pages if isinstance(pages, int) and not isinstance(pages, bool) else 1
+
+
+def cancel(envelope_id: str) -> None:
+    body = json.dumps({"envelopeId": envelope_id}).encode()
+    exchange("POST", "/envelope/cancel", body=body, content_type="application/json")
+
+
+def download(item_id: str) -> bytes:
+    """The signed PDF of an envelope item (4B.3 stores it). Anything that is not a PDF is refused."""
+    response = exchange("GET", f"/envelope/item/{quote(item_id, safe='')}/download", query={"version": "signed"})
+    if not response.body.startswith(b"%PDF-"):
+        raise ProviderError("download_not_pdf", sent=True, status=response.status)
+    return response.body

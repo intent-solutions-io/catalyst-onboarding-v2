@@ -7,6 +7,7 @@ start; the same functions back a system check for ``manage.py check`` output.
 
 import re
 import ipaddress
+from urllib.parse import urlsplit
 from collections.abc import Mapping
 
 POSTGRESQL_ENGINE = "django.db.backends.postgresql"
@@ -129,8 +130,8 @@ def dispatch_problems(settings, environ: Mapping[str, str]) -> list[str]:
         if path is not None and not str(path).startswith("assessments."):
             problems.append(f"{name} must name an assessments object")
     for kind, path in (getattr(settings, "CATALYST_ACTION_HANDLERS", None) or {}).items():
-        if not str(path).startswith(("correspondence.", "workflow.", "assessments.")):
-            problems.append(f"CATALYST_ACTION_HANDLERS[{kind!r}] must name a correspondence, workflow or assessments handler")
+        if not str(path).startswith(("correspondence.", "workflow.", "assessments.", "agreements.")):
+            problems.append(f"CATALYST_ACTION_HANDLERS[{kind!r}] must name a correspondence, workflow, assessments or agreements handler")
     return problems
 
 
@@ -174,6 +175,32 @@ def decision_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return problems
 
 
+AGREEMENT_TEST_ONLY = ("CATALYST_AGREEMENT_PROVIDER_URL", "CATALYST_AGREEMENT_PROVIDER_ADDRESS",
+                       "CATALYST_AGREEMENT_PROVIDER_CA_FILE", "CATALYST_AGREEMENT_PROVIDER_TOKEN")
+
+
+def agreement_problems(settings, environ: Mapping[str, str]) -> list[str]:
+    """021 section 10 (P4 4B.1; TEST-P4-20): no real Documenso. The provider URL, its pinned address, the trust store
+    and the token are fixed in code, never from the environment, and empty outside `test`. In `test` the URL must be
+    https and the pinned address a literal loopback address, so only the local fake can answer."""
+    problems = [f"{name} may not be set from the environment" for name in AGREEMENT_TEST_ONLY if name in environ]
+    if getattr(settings, "CATALYST_ENV", "") != "test":
+        for name in AGREEMENT_TEST_ONLY:
+            if getattr(settings, name, ""):
+                problems.append(f"{name} is allowed only in the test environment (synthetic agreements only)")
+        return problems
+    url = getattr(settings, "CATALYST_AGREEMENT_PROVIDER_URL", "")
+    if url:
+        if not url.startswith("https://"):
+            problems.append("CATALYST_AGREEMENT_PROVIDER_URL must be https")
+        host = (urlsplit(url).hostname or "") if url.startswith("https://") else ""
+        if not host.endswith(".test"):  # a reserved test name, so a loopback forward to a real host cannot pass
+            problems.append("CATALYST_AGREEMENT_PROVIDER_URL must name a .test host")
+        if not is_loopback_literal(getattr(settings, "CATALYST_AGREEMENT_PROVIDER_ADDRESS", "")):
+            problems.append("CATALYST_AGREEMENT_PROVIDER_ADDRESS must be a literal loopback address")
+    return problems
+
+
 def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return (
         database_problems(settings.DATABASES)
@@ -184,4 +211,5 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + evidence_problems(settings, environ)
         + assessment_problems(settings, environ)
         + decision_problems(settings, environ)
+        + agreement_problems(settings, environ)
     )

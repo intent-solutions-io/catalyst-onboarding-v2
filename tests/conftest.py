@@ -167,7 +167,9 @@ def pytest_terminal_summary(terminalreporter):
 RUN_IDENTITY = {"marker": f"catalyst-test-run:{uuid.uuid4()}"}
 # Slice data plus staff accounts, their sessions and the admin log (S1-T7); the read-only group and its
 # permissions come from migrations and are kept.
-SLICE_TABLES = re.compile(r"^((applications|workflow|correspondence|assessments)_|accounts_user|django_session$|django_admin_log$)")
+# The agreement types are the P4-D-1 inventory seeded by migration (like the groups), so the reset keeps them.
+SLICE_TABLES = re.compile(r"^((applications|workflow|correspondence|assessments)_|agreements_(?!agreementtype$)|accounts_user"
+                          r"|django_session$|django_admin_log$)")
 RESET_TRIGGER = "catalyst_no_truncate"
 _session = {}
 
@@ -233,6 +235,12 @@ EXPECTED_TRIGGERS = {
     ("assessments_qualificationdecision", "catalyst_append_only"), ("assessments_qualificationdecision", "catalyst_no_truncate"),
     ("applications_application", "catalyst_decided_stage_needs_decision"),  # P3 3B.4
     ("assessments_qualificationdecision", "catalyst_decision_txid"),
+    ("agreements_agreementtemplateversion", "catalyst_agreement_template_frozen"),  # P4 4B.1
+    ("agreements_agreementtemplateversion", "catalyst_agreement_template_draft"),
+    ("agreements_agreementinstance", "catalyst_agreement_instance_insert"),
+    ("agreements_agreementinstance", "catalyst_agreement_instance_fixed"),
+    ("agreements_agreementrecipient", "catalyst_agreement_recipient_open"),
+    ("agreements_agreementrecipient", "catalyst_append_only"), ("agreements_agreementrecipient", "catalyst_no_truncate"),
 }
 
 
