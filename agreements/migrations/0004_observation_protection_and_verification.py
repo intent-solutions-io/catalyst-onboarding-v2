@@ -6,7 +6,8 @@
 # 2. Verification is database-visible (decided in 4B.2, closing the limit stated for 4B.1): an instance's
 #    `signing_status` becomes `signing_complete_verified` only while it is issued and only when a read observation
 #    inserted in the same transaction shows the envelope complete, our identity, exactly our recipients and every
-#    required recipient signed. A verified status never changes again. This guards code paths and stray writes; a
+#    required recipient signed, and only from issued (no resurrected cancelled or superseded instance). A verified
+#    instance never changes its signing or issue status again (4B.2 security review). This guards code paths and stray writes; a
 #    compromised application role could insert such an observation itself (021 section 15).
 # 3. The `manage_agreements` permission exists and is assigned to no group (021 section 9).
 from django.contrib.auth.management import create_permissions
@@ -40,12 +41,13 @@ def protect(apps, schema_editor):
         CREATE FUNCTION public.catalyst_agreement_verified_needs_read() RETURNS trigger
         LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
         BEGIN
-          IF OLD.signing_status = 'signing_complete_verified' AND NEW.signing_status IS DISTINCT FROM OLD.signing_status THEN
+          IF OLD.signing_status = 'signing_complete_verified'
+             AND (NEW.signing_status IS DISTINCT FROM OLD.signing_status OR NEW.issue_status IS DISTINCT FROM OLD.issue_status) THEN
             RAISE EXCEPTION 'agreement instance: a verified signing status never changes'
               USING ERRCODE = 'insufficient_privilege';
           END IF;
           IF NEW.signing_status = 'signing_complete_verified' AND OLD.signing_status IS DISTINCT FROM NEW.signing_status
-             AND (NEW.issue_status <> 'issued' OR NOT EXISTS (
+             AND (OLD.issue_status <> 'issued' OR NEW.issue_status <> 'issued' OR NOT EXISTS (
                SELECT 1 FROM public.{OBSERVATION} o
                WHERE o.instance_id = NEW.id AND o.source = 'read' AND o.envelope_status = 'COMPLETED'
                  AND o.identity_match AND o.recipients_match AND o.all_required_signed

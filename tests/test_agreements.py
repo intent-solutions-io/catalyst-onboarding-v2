@@ -486,6 +486,19 @@ def test_p4_26_protections_hold_for_every_role(g, monkeypatch):
     for conn in roles.values():  # once verified, never changed
         with pytest.raises(errors.InsufficientPrivilege, match="never changes"):
             conn.execute("UPDATE agreements_agreementinstance SET signing_status = 'cancelled' WHERE id = %s", [instance.pk])
+        with pytest.raises(errors.InsufficientPrivilege, match="never changes"):
+            conn.execute("UPDATE agreements_agreementinstance SET issue_status = 'superseded' WHERE id = %s", [instance.pk])
+    # A cancelled instance cannot be resurrected and verified in one write, even with a matching observation.
+    ua_row = AgreementInstance.objects.get(application=app, agreement_type__key="user_agreement")
+    roles["app"].execute("UPDATE agreements_agreementinstance SET issue_status = 'cancelled' WHERE id = %s", [ua_row.pk])
+    with g.committed.connect("app") as conn:
+        conn.execute("INSERT INTO agreements_providerobservation (instance_id, application_id, source, event, envelope_status,"
+                     " recipients, identity_match, recipients_match, all_required_signed, content_sha256, observed_at,"
+                     " created_txid) VALUES (%s, %s, 'read', '', 'COMPLETED', '[]', true, true, true, 'y', now(), 0)",
+                     [ua_row.pk, app.pk])
+        with pytest.raises(errors.InsufficientPrivilege, match="fresh read"):
+            conn.execute("UPDATE agreements_agreementinstance SET issue_status = 'issued',"
+                         " signing_status = 'signing_complete_verified' WHERE id = %s", [ua_row.pk])
     assert AgreementInstance.objects.filter(application=app, agreement_type__key="user_agreement").count() == 1
 
 

@@ -457,6 +457,38 @@ no request was made to the installation:
   - **Stop agreements** for a withdrawal, closure or hold (P4-D-20): every live envelope is cancelled; an unknown
     create is set aside and its key watched; nothing more is issued.
   - **Decide an unknown distribute:** distribute again (the step re-reads first) or cancel.
+- **After the 4B.2 reviews:**
+  - **Reads are never delayed by coalescing.** A webhook brings the queued sweep read forward to "now, but not
+    sooner than the minimum interval". A hint during a running read queues one follow-up.
+  - **The sweep survives an outage.** A read that fails for good opens a staff item and arms the next periodic
+    read.
+  - **Verification is fixed once reached.** The database also refuses verification on any instance that was not
+    already issued, so a cancelled or superseded instance cannot be resurrected and verified. A verified instance
+    never changes its signing or issue status.
+  - **Stop and cancel wait for exchanges in flight.** They refuse while a create, distribute or cancel is running.
+    A distribute that lands on an instance a cancel already closed queues a new cancel.
+  - **Pauses follow P4-D-9 as approved.** Decline, expiry and a cancel made in the provider's interface each pause
+    automation and open a staff item.
+  - **Hold versus stop.** A hold can be resumed by a decision-maker (`resume_agreements`, which also re-runs the
+    sequence after staff fix what stopped it). Withdrawal and closure are final.
+  - **Staff items and permissions.**
+    - A failed advance opens a staff item.
+    - Reissue refuses an already-superseded instance, and refuses while a completion-after-cancel item is open.
+    - Cancelling from the unknown-distribute decision also needs `manage_agreements`.
+    - `cancel_agreement` is the remedy for `cancel_uncertain` once its reconciliation has ended.
+  - **The webhook is hardened.**
+    - A digits-only `Content-Length` check.
+    - Malformed or deeply nested bodies and internal failures all get the uniform empty 200.
+    - The secrets and the body are marked sensitive for error reports.
+    - At most 20 recipients per body.
+    - A repeat of the last observation is not stored.
+    - A completion hint moves only an issued instance with our identity.
+    - Old-key orphan checks have a minimum interval and a per-key cap.
+- **Open for the owner:**
+  - Whether Documenso emails the applicant when an envelope is cancelled is NOT VERIFIED. If it does, that email
+    is not subject to the P2 bounce and address checks.
+  - How a verified NDA whose recipients changed before the gate read is resolved, beyond the staff item and
+    `resume_agreements`.
 - **Deviations and limits:**
   - The NDA gate needs custody too (P4-D-6), and custody is 4B.3. Until then the User Agreement is never issued in
     the normal flow; the sequence tests set the NDA gate to signing alone.

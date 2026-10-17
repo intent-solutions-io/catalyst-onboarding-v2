@@ -345,7 +345,7 @@ def hint(raw) -> Hint | None:
         return None
     doc = raw["payload"]
     recipients = doc.get("recipients", [])
-    if not isinstance(recipients, list) or not all(isinstance(r, dict) for r in recipients):
+    if not isinstance(recipients, list) or len(recipients) > 20 or not all(isinstance(r, dict) for r in recipients):
         return None
     number = doc.get("templateId")
     return Hint(event=_enum(raw.get("event"), EVENTS), external_id=_text(doc.get("externalId"), 64),

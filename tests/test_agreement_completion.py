@@ -185,7 +185,7 @@ def test_p4_15_partial_rejection_expiry_and_cancellation(h, monkeypatch, what, s
     assert instance.signing_status == signing
     if reason:
         assert items(app, reason).count() == 1
-    assert AutomationPause.objects.filter(subject_id=app.public_ref).exists() == (what == "reject")  # P4-D-9
+    assert AutomationPause.objects.filter(subject_id=app.public_ref).exists() == (what != "partial")  # P4-D-9
     assert not AgreementInstance.objects.filter(application=app, agreement_type__key="user_agreement").exists()
 
 
@@ -282,6 +282,10 @@ def test_p4_29_cancel_is_reconciled_at_the_provider_and_a_later_completion_goes_
     reads_now()
     instance.refresh_from_db()
     assert instance.signing_status == "cancelled" and items(app, "agreement_completed_after_cancel").count() == 1
+    with pytest.raises(services.Refused, match="completion_after_cancel_open"):  # staff look at the completion first
+        services.reissue_agreement(instance.pk, h.agreement_decider)
+    from correspondence.staff_items import resolve_item
+    resolve_item(items(app, "agreement_completed_after_cancel").get(), code="reviewed", actor_ref="user:synthetic")
     new = services.reissue_agreement(instance.pk, h.agreement_decider)  # a decision-maker reissues (P4-D-9)
     run_worker()
     assert AgreementInstance.objects.get(pk=instance.pk).issue_status == "superseded"
@@ -399,3 +403,138 @@ def test_p4_20_webhook_secrets_are_test_only_and_at_most_two():
         CATALYST_ENV = "test"
         CATALYST_AGREEMENT_WEBHOOK_SECRETS = ["a", "b", "c"]
     assert any("two" in p for p in guards.agreement_problems(Test, {}))
+
+
+# --- 4B.2 review: failing-test protection for each fix ------------------------------------------------------------------
+
+def test_p4_13_a_webhook_brings_the_read_forward_without_waiting_for_the_sweep(h, monkeypatch):
+    app = issued(h, monkeypatch)
+    instance = nda(app)
+    h.fake.sign(instance.envelope_id)
+    post(h.fake.webhook(instance.envelope_id))
+    run_worker()  # no forcing: the hint made the queued sweep read due now
+    assert nda(Application.objects.get(pk=app.pk)).signing_status == "signing_complete_verified"
+
+
+def test_p4_18_the_sweep_survives_a_provider_outage(h, monkeypatch, settings):
+    app = issued(h, monkeypatch)
+    settings.CATALYST_AGREEMENT_PROVIDER_URL = "https://documenso.example.test:9/api/v2"
+    reads_now()
+    assert items(app, "agreement_provider_unavailable").count() == 1
+    nxt = PendingAction.objects.get(kind="read_agreement", status="queued")  # the next sweep read is armed
+    assert (nxt.due_at - timezone.now()).total_seconds() > 60
+
+
+def test_p4_32_a_stop_waits_for_a_running_exchange_and_a_late_distribute_is_cancelled_again(h, monkeypatch):
+    app = admitted(h, monkeypatch)
+    approve(h)
+    activate()
+    seen = {}
+
+    def during_distribute(self, claim, result):
+        with pytest.raises(services.Refused, match="provider_step_in_progress"):
+            services.stop_agreements(app.pk, h.agreement_decider, "withdrawn")
+        instance = nda(Application.objects.get(pk=app.pk))
+        AgreementInstance.objects.filter(pk=instance.pk).update(issue_status="cancelled")  # as if a cancel had closed it
+        seen["instance"] = instance
+    from agreements import handlers
+    monkeypatch.setattr(handlers.DistributeAgreement, "after_call", during_distribute)
+    run_worker()
+    instance = AgreementInstance.objects.get(pk=seen["instance"].pk)
+    assert instance.issue_status == "cancelled" and h.fake.envelopes[instance.envelope_id]["status"] == "CANCELLED"
+    assert len(h.fake.calls("POST", "/envelope/cancel")) == 1  # the envelope that went out was cancelled
+
+
+def test_p4_06_an_advance_that_cannot_issue_opens_a_staff_item(h, monkeypatch):
+    from agreements import handlers
+
+    app = issued(h, monkeypatch)
+    instance = nda(app)
+    signing_gate(h)
+    try:
+        with monkeypatch.context() as m:  # the contact is no longer verified
+            m.setattr(handlers, "verified_address", lambda application: None)
+            h.fake.sign(instance.envelope_id)
+            reads_now()
+        assert items(app, "agreement_advance_failed").count() == 1
+        assert not AgreementInstance.objects.filter(application=app, agreement_type__key="user_agreement").exists()
+        services.resume_agreements(app.pk, h.agreement_decider)  # staff fixed it: the sequence runs again
+        run_worker()
+        assert AgreementInstance.objects.filter(application=app, agreement_type__key="user_agreement").exists()
+    finally:
+        reset_gate(h)
+
+
+@pytest.mark.parametrize("state", ["superseded", "cancel_pending"])
+def test_p4_29_a_valid_completion_on_a_closed_instance_is_never_verified(h, monkeypatch, state):
+    app = issued(h, monkeypatch)
+    instance = nda(app)
+    AgreementInstance.objects.filter(pk=instance.pk).update(issue_status=state)
+    h.fake.sign(instance.envelope_id)  # every recipient signed, envelope complete: valid in every other way
+    post(h.fake.webhook(instance.envelope_id))
+    reads_now()
+    instance.refresh_from_db()
+    assert instance.signing_status == "not_started" and items(app, "agreement_completed_after_cancel").count() == 1
+
+
+def test_p4_13_a_completed_hint_never_moves_a_declined_or_unissued_instance(h, monkeypatch):
+    app = issued(h, monkeypatch)
+    instance = nda(app)
+    h.fake.reject(instance.envelope_id)
+    reads_now()
+    body = h.fake.webhook(instance.envelope_id)
+    body["payload"]["status"] = "COMPLETED"
+    post(body)
+    assert nda(Application.objects.get(pk=app.pk)).signing_status == "declined"
+
+
+def test_p4_08_every_secret_is_compared_and_csrf_does_not_block_the_provider(h, monkeypatch, settings):
+    import hmac as hmac_module
+
+    from agreements import views
+
+    app = issued(h, monkeypatch)
+    calls = []
+    real = hmac_module.compare_digest
+    monkeypatch.setattr(views.hmac, "compare_digest", lambda a, b: calls.append(1) or real(a, b))
+    settings.CATALYST_AGREEMENT_WEBHOOK_SECRETS = [SECRET, "other-secret"]
+    body = h.fake.webhook(nda(app).envelope_id)
+    response = Client(enforce_csrf_checks=True).post(HOOK, data=json.dumps(body), content_type="application/json",
+                                                     HTTP_X_DOCUMENSO_SECRET=SECRET)
+    assert response.status_code == 200 and len(calls) == 2  # matched on the first, compared with both
+    assert post(body, CONTENT_LENGTH="²").status_code == 413  # an odd length header is refused, never a 500
+
+
+def test_p4_23_hints_for_an_old_key_are_rate_limited(h, monkeypatch, settings):
+    app = admitted(h, monkeypatch)
+    approve(h)
+    activate()
+    h.fake.fault("POST /envelope/use", ("drop_before",))
+    run_worker()
+    instance = nda(Application.objects.get(pk=app.pk))
+    old_key = instance.external_key
+    services.decide_uncertain_create(instance.pk, h.agreement_decider, "abandon")
+    run_worker()  # the counted watch ends
+    watches = lambda: PendingAction.objects.filter(kind="reconcile_agreement", idempotency_key__contains=":watch:").count()  # noqa: E731
+    before = watches()
+    body = {"event": "DOCUMENT_SENT", "payload": {"id": 1, "externalId": old_key, "status": "PENDING", "templateId": 101,
+                                                  "recipients": []}}
+    for _ in range(20):
+        assert post(body).status_code == 200
+    run_worker()
+    assert watches() == before  # the last watch ran within the minimum interval: no new listing
+    settings.CATALYST_AGREEMENT_READ_MIN_INTERVAL_SECONDS = 0
+    post(body)
+    assert watches() == before + 1
+
+
+def test_p4_32_a_hold_is_resumable_and_a_withdrawal_is_final(h, monkeypatch):
+    app = issued(h, monkeypatch)
+    services.stop_agreements(app.pk, h.agreement_decider, "on_hold")
+    run_worker()
+    services.resume_agreements(app.pk, h.agreement_decider)
+    assert not completion.stopped(Application.objects.get(pk=app.pk))
+    services.stop_agreements(app.pk, h.agreement_decider, "withdrawn")
+    with pytest.raises(services.Refused, match="stopped_for_good"):
+        services.resume_agreements(app.pk, h.agreement_decider)
+

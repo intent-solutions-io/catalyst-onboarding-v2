@@ -23,8 +23,8 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models.functions import Now
-from django.utils import timezone
+from django.db.models import Value
+from django.db.models.functions import Greatest, Least, Now
 
 from applications.models import Application, Stage
 from correspondence.staff_items import event, open_item
@@ -55,8 +55,9 @@ COMPLETED_AFTER_CANCEL = "agreement_completed_after_cancel"  # never verified (T
 TEMPLATE_MISSING = "agreement_template_missing"
 GATE_READ_FAILED = "agreement_gate_read_failed"
 
-LIVE_READ = ("issued", "cancel_pending", "cancel_uncertain", "superseded", "cancelled", "failed_needs_staff")
+ADVANCE_FAILED = "agreement_advance_failed"
 STOPPED_EVENT = "agreements_stopped"
+RESUMED_EVENT = "agreements_resumed"
 
 
 def _poll() -> timedelta:
@@ -64,7 +65,9 @@ def _poll() -> timedelta:
 
 
 def stopped(application) -> bool:
-    return application.events.filter(kind=STOPPED_EVENT).exists()
+    """A stop (P4-D-20) holds until a decision-maker resumes it; only a hold can be resumed (4B.2 review)."""
+    last = application.events.filter(kind__in=(STOPPED_EVENT, RESUMED_EVENT)).order_by("-id").first()
+    return last is not None and last.kind == STOPPED_EVENT
 
 
 # --- observations -------------------------------------------------------------------------------------------------
@@ -104,18 +107,25 @@ def read_identity(instance, env: provider.Envelope) -> bool:
 
 # --- scheduling a read --------------------------------------------------------------------------------------------
 
-def enqueue_read(instance, *, due_in: timedelta | None = None) -> PendingAction:
-    """Inside the caller's transaction with the instance locked. Coalesced: an existing queued or running read is
-    returned unchanged, so any number of webhooks makes at most one pending read per instance."""
-    pending = PendingAction.objects.filter(kind=READ, input_ref=str(instance.public_id),
-                                           status__in=(Status.QUEUED, Status.RUNNING)).first()
-    if pending is not None:
-        return pending
-    due = timezone.now() + (due_in or timedelta(0))
+def _due(instance, due_in: timedelta | None):
+    """The database clock plus `due_in`, never sooner than the minimum interval after the last read."""
+    due = Now() + (due_in or timedelta(0))
     last = (ProviderObservation.objects.filter(instance=instance, source=ProviderObservation.Source.READ)
             .order_by("-observed_at").values_list("observed_at", flat=True).first())
     if last is not None:
-        due = max(due, last + timedelta(seconds=settings.CATALYST_AGREEMENT_READ_MIN_INTERVAL_SECONDS))
+        due = Greatest(due, Value(last + timedelta(seconds=settings.CATALYST_AGREEMENT_READ_MIN_INTERVAL_SECONDS)))
+    return due
+
+
+def enqueue_read(instance, *, due_in: timedelta | None = None) -> PendingAction:
+    """Inside the caller's transaction with the instance locked. Coalesced onto a queued read, which is brought
+    forward when this one is due sooner (a webhook advances the sweep's read); a running read gets one follow-up, so
+    a hint arriving mid-read is never lost (4B.2 review). At most one queued read per instance, whatever the flood."""
+    due = _due(instance, due_in)
+    pending = PendingAction.objects.filter(kind=READ, input_ref=str(instance.public_id), status=Status.QUEUED).first()
+    if pending is not None:
+        PendingAction.objects.filter(pk=pending.pk).update(due_at=Least("due_at", due))
+        return pending
     n = PendingAction.objects.filter(kind=READ, input_ref=str(instance.public_id)).count() + 1
     return PendingAction.objects.create(
         kind=READ, subject_type="application", subject_id=instance.application.public_ref,
@@ -123,9 +133,12 @@ def enqueue_read(instance, *, due_in: timedelta | None = None) -> PendingAction:
         max_attempts=settings.CATALYST_AGREEMENT_ATTEMPTS)
 
 
+def _sweep_on(instance) -> None:
+    enqueue_read(instance, due_in=timedelta(seconds=settings.CATALYST_AGREEMENT_READ_INTERVAL_SECONDS))
+
+
 def enqueue_advance(application) -> PendingAction:
-    pending = PendingAction.objects.filter(kind=ADVANCE, subject_id=application.public_ref,
-                                           status__in=(Status.QUEUED, Status.RUNNING)).first()
+    pending = PendingAction.objects.filter(kind=ADVANCE, subject_id=application.public_ref, status=Status.QUEUED).first()
     if pending is not None:
         return pending
     n = PendingAction.objects.filter(kind=ADVANCE, subject_id=application.public_ref).count() + 1
@@ -143,7 +156,7 @@ def enqueue_cancel_instance(instance) -> PendingAction:
         max_attempts=settings.CATALYST_AGREEMENT_ATTEMPTS)
 
 
-def _pause(application, reason: str) -> None:
+def _pause(application, reason: str) -> None:  # P4-D-9: decline, expiry and a provider-side cancel
     if not AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists():
         AutomationPause.objects.create(subject_type="application", subject_id=application.public_ref, reason=reason,
                                        actor_ref="system")
@@ -168,6 +181,7 @@ class ReadAgreement:
         event(application, kind, data, actor_ref=f"pending_action:{claim.id}")
         if application is not None and (kind == "action_attempts_exhausted" or (kind == "action_failed" and data.get("final"))):
             open_item(PROVIDER_UNAVAILABLE, f"read:{claim.input_ref}", application=application, pending_action_id=claim.id)
+            _keep_sweeping(claim.input_ref)
 
     def run(self, claim) -> None:
         instance = (AgreementInstance.objects.select_related("application", "template_version")
@@ -182,14 +196,23 @@ class ReadAgreement:
             env = provider.read(instance.envelope_id)  # outside any transaction
         except provider.ProviderError as exc:
             if claim.final:
-                ledger.finish(claim, self, status=Status.FAILED, error=exc.code, write=lambda: open_item(
-                    PROVIDER_UNAVAILABLE, f"read:{instance.public_id}", application=instance.application,
-                    pending_action_id=claim.id))
+                def failed():  # staff are told, and the sweep goes on: an outage never ends it (4B.2 review)
+                    open_item(PROVIDER_UNAVAILABLE, f"read:{instance.public_id}", application=instance.application,
+                              pending_action_id=claim.id)
+                    _keep_sweeping(claim.input_ref)
+                ledger.finish(claim, self, status=Status.FAILED, error=exc.code, write=failed)
             else:
                 due = timedelta(seconds=exc.retry_after) if exc.retry_after is not None else None
                 ledger.finish(claim, self, status=Status.QUEUED, error=exc.code, due_in=due)
             return
         ledger.finish(claim, self, status=Status.DONE, write=lambda: apply_read(claim, instance.pk, env))
+
+
+def _keep_sweeping(instance_ref) -> None:
+    instance = AgreementInstance.objects.select_related("application").filter(public_id=instance_ref).first()
+    if instance is not None and instance.issue_status == "issued" and instance.envelope_id and instance.signing_status in (
+            "not_started", "partially_signed", "signing_complete_observed"):
+        _sweep_on(instance)
 
 
 def apply_read(claim, instance_id: int, env: provider.Envelope) -> None:
@@ -207,6 +230,7 @@ def apply_read(claim, instance_id: int, env: provider.Envelope) -> None:
     if not data["identity_match"]:
         open_item(ENVELOPE_MISMATCH, f"read:{ref}", application=application, pending_action_id=claim.id)
         event(application, "agreement_read_mismatch", {"instance": ref}, actor_ref=actor)
+        _keep_sweeping(ref)
         return
     if instance.issue_status in ("superseded", "cancelled", "cancel_pending", "cancel_uncertain"):
         if env.status == "COMPLETED":  # TEST-P4-29: never verified, never dropped
@@ -236,11 +260,13 @@ def apply_read(claim, instance_id: int, env: provider.Envelope) -> None:
         return
     if env.status == "CANCELLED":
         status(signing_status="cancelled", issue_status="cancelled")
+        _pause(application, "agreement_cancelled_at_provider")
         open_item(CANCELLED_AT_PROVIDER, f"read:{ref}", application=application, pending_action_id=claim.id)
         event(application, "agreement_cancelled_at_provider", {"instance": ref}, actor_ref=actor)
         return
     if any(r.expired for r in env.recipients):
         status(signing_status="expired")
+        _pause(application, "agreement_expired")
         open_item(EXPIRED, f"read:{ref}", application=application, pending_action_id=claim.id)
         event(application, "agreement_expired", {"instance": ref}, actor_ref=actor)
         return
@@ -249,7 +275,7 @@ def apply_read(claim, instance_id: int, env: provider.Envelope) -> None:
     elif instance.signing_status == "signing_complete_observed":
         status(signing_status="partially_signed" if any(r.signing_status == "SIGNED" for r in env.recipients)
                else "not_started")  # a webhook claimed completion that the read does not show
-    enqueue_read(instance, due_in=timedelta(seconds=settings.CATALYST_AGREEMENT_READ_INTERVAL_SECONDS))  # the sweep
+    _sweep_on(instance)  # the sweep
 
 
 # --- the D-15 sequence -----------------------------------------------------------------------------------------------
@@ -285,8 +311,10 @@ class AdvanceAgreements:
         Application.objects.select_for_update(of=("self",)).filter(public_ref=claim.subject_id).first()
 
     def record(self, claim, kind, data) -> None:
-        event(Application.objects.filter(public_ref=claim.subject_id).first(), kind, data,
-              actor_ref=f"pending_action:{claim.id}")
+        application = Application.objects.filter(public_ref=claim.subject_id).first()
+        event(application, kind, data, actor_ref=f"pending_action:{claim.id}")
+        if application is not None and (kind == "action_attempts_exhausted" or (kind == "action_failed" and data.get("final"))):
+            open_item(ADVANCE_FAILED, f"advance:{application.public_ref}", application=application, pending_action_id=claim.id)
 
     def run(self, claim) -> None:
         application = Application.objects.filter(public_ref=claim.subject_id).first()
@@ -322,7 +350,7 @@ class AdvanceAgreements:
         application = Application.objects.get(pk=application.pk)
         if application.stage != Stage.AGREEMENTS or stopped(application):
             return
-        now_previous, now_type, _ = next_step(application)  # re-checked under the lock
+        _, now_type, _ = next_step(application)  # re-checked under the lock
         if now_type is None or now_type.pk != next_type.pk:
             return
         if previous is not None:
@@ -339,7 +367,11 @@ class AdvanceAgreements:
             open_item(TEMPLATE_MISSING, f"advance:{application.public_ref}:{next_type.key}", application=application,
                       pending_action_id=claim.id)
             return
-        start_agreement(application, version, actor)
+        try:
+            start_agreement(application, version, actor)
+        except ValueError as exc:  # the contact is no longer verified: staff decide (4B.2 review)
+            open_item(ADVANCE_FAILED, f"advance:{application.public_ref}", application=application, pending_action_id=claim.id)
+            event(application, "agreement_advance_refused", {"reason": str(exc)}, actor_ref=actor)
 
 
 # --- cancelling an instance at the provider (P4-D-18) ------------------------------------------------------------------

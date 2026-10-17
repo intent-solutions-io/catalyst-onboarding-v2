@@ -500,6 +500,12 @@ class DistributeAgreement(_ProviderStep):
                 if AgreementInstance.objects.filter(pk=instance.pk, issue_status="distribute_pending").update(
                         issue_status="issued", updated_at=Now()):
                     _start_sweep(instance)
+                elif AgreementInstance.objects.filter(pk=instance.pk, issue_status="cancelled").update(
+                        issue_status="cancel_pending", updated_at=Now()):
+                    # The envelope went out after a stop or cancel closed the instance: cancel it again (4B.2 review).
+                    from .completion import enqueue_cancel_instance
+
+                    enqueue_cancel_instance(instance)
                 event(instance.application, "agreement_issued", {"instance": str(instance.public_id), "how": result},
                       actor_ref=actor)
             return ledger.finish(claim, self, status=Status.DONE, write=write)
@@ -655,7 +661,7 @@ class ReconcileAgreement:
                     outcome=Out.FOUND_BY_EVIDENCE, finished_at=Now()):
                 return
             if attempt.step == Step.CANCEL and AgreementInstance.objects.filter(
-                    pk=instance.pk, issue_status="cancel_uncertain").update(issue_status="cancelled",
+                    pk=instance.pk, issue_status="cancel_uncertain", envelope_id=attempt.envelope_id).update(issue_status="cancelled",
                                                                             signing_status="cancelled", updated_at=Now()):
                 PendingAction.objects.filter(kind="cancel_agreement", input_ref=str(instance.public_id),
                                              status=Status.UNCERTAIN).update(
