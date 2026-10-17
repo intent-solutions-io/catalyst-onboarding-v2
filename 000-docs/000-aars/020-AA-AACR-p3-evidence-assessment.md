@@ -5,8 +5,8 @@
 > lets staff ask clarifying questions, and records a decision only a named human may make. Everything here ran on
 > synthetic data and PydanticAI test models: no live model was called and no real applicant was involved.
 
-- **Status:** built; the full local run passes every case; CI on the closeout head and the 3C review's re-check
-  come before the owner's sign-off (proposed statement in section 9).
+- **Status:** GATE-P3 signed off by the owner on 2026-10-17 (D-36 in `011`), on CI run 39002427812 at head
+  `069b39c` (846 passed; GATE-S1 25, GATE-P2 54, GATE-P3 60), accepting the statement in section 9 and its limits.
 - **Lane:** full. Every task had review findings and fixes (section 5).
 - **Epic:** Collect evidence, run the bounded MiniMax assessment, and record the authorized qualification decision
   (bead `catalyst-v2-oc4`).

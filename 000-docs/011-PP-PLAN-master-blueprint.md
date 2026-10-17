@@ -4,7 +4,7 @@
 |---|---|
 | Document | `011-PP-PLAN-master-blueprint` (the only master blueprint for this repository) |
 | Version | 1.2.0 (current status corrected and the candidate selection-quality contract added, section 11, 2026-10-14; 1.1.0 recorded the ADR decisions of 2026-10-10) |
-| Status | **APPROVED IN SCOPE** (section 10): project direction, amended requirements and the bounded synthetic first-slice scope; later owner decisions D-16 to D-35 are recorded in section 4. **Current (2026-10-17):** GATE-S1 (D-26) and GATE-P2 (D-33) signed off for synthetic work; P3 built under `018` (D-34), with 3B.1 to 3B.4 merged and the 3C GATE-P3 run awaiting the owner's sign-off. **Not approved:** the open policies of section 6 beyond their recorded synthetic decisions, live model use, real applicant data, provider writes, deployment and release; implementation only as each handoff is released. Items marked PROPOSED stay proposals; section 11 and `019` were approved on 2026-10-14 (D-35). |
+| Status | **APPROVED IN SCOPE** (section 10): project direction, amended requirements and the bounded synthetic first-slice scope; later owner decisions D-16 to D-36 are recorded in section 4. **Current (2026-10-17):** GATE-S1 (D-26) and GATE-P2 (D-33) signed off for synthetic work; P3 accepted for synthetic work: GATE-P3 signed off 2026-10-17 (D-36). **Not approved:** the open policies of section 6 beyond their recorded synthetic decisions, live model use, real applicant data, provider writes, deployment and release; implementation only as each handoff is released. Items marked PROPOSED stay proposals; section 11 and `019` were approved on 2026-10-14 (D-35). |
 | Owner | Jeremy Longshore (product owner and approver) |
 | Reviewers | `catalyst-django-architect` (build design), `catalyst-independent-qa` (independent review); results in section 9 |
 | Date | 2026-10-09 |
@@ -76,7 +76,7 @@ direct database edits or a coding agent. The learning site itself is not replace
 
 ## 4. Owner decisions and boundaries
 
-### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-35)
+### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-36)
 
 The owner gave this project direction in the build-contract instruction of 2026-10-09, in the
 invoking session. It is recorded here verbatim so a fresh session can check the source. The owner
@@ -239,6 +239,14 @@ selection policy (none exists yet). Still open, because they need names or input
 domain expert for the role profile, the operational delegate role, the private location for real evaluation
 material, the scorecard's minimum counts, and what clears a capped assessment snapshot.
 
+**GATE-P3 sign-off, 2026-10-17** (source of D-36). The owner reviewed the 3C closeout, draft PR #36 (head `069b39c`,
+CI run 39002427812: 846 passed; GATE-S1 PASS 25, GATE-P2 PASS 54, GATE-P3 PASS 60), with the proposed statement in
+after-action report `020` section 9, and wrote in the invoking session: "approve GATE-P3 and merge 36". This is
+recorded as acceptance of that statement, including its limits (a passing case means its mapped tests passed, with
+the gaps listed in `020` section 4; not a validation of selection quality), and as authority to merge PR #36. It
+authorizes no live model use, real fetching, real applicant data, release or deployment, and records no POL-05
+decision: nobody can decide until POL-05 is recorded.
+
 ### 4.2 Decision summary
 
 Decision records with rationale live in `003` section "Architecture decisions". This table is the
@@ -278,6 +286,7 @@ summary a reader needs first.
 | D-30 | POL-13, P2 role matrix (`016` section F) for synthetic operation only: operators handle routine correspondence; identity-affecting resolutions, uncertain-send decisions and collector restarts need the decision-maker role; template approval stays with the owner. MFA, network restriction and production staff access remain undecided | OWNER-DECIDED 2026-10-12 (P2 slice) | section 4.1; `016` F |
 | D-31 | POL-19 fail-closed: a mismatched or unverifiable identity produces a staff exception with no automatic positive effect and no identity or dossier change; only the decision-maker resolves identity-affecting cases | OWNER-DECIDED 2026-10-12 | section 4.1; `016` C3, C4, F |
 | D-34 | `018` (P3 evidence, assessment and qualification specification) version 0.2.1 approved with its recommended defaults `P3-D-1` to `P3-D-16` for synthetic P3; 3B.1 (`catalyst-v2-oc4.2`) released. Not authorized: a live model call, real fetching, real applicant data, 3B.2 to 3C (each needs its own release), a versioned release or a deployment. The decisions marked for GATE-PILOT or later (real fetching, the applicant notice, retention, live model use) stay conditions at those gates | OWNER-DECIDED 2026-10-14 | section 4.1; `018` section 8 |
+| D-36 | GATE-P3 signed off for synthetic P3: every TEST-P3 case and the three D-35 groups PASS on PostgreSQL in CI at one head (CI run 39002427812 on `069b39c`; 846 passed; GATE-P3 PASS 60, GATE-P2 PASS 54, GATE-S1 PASS 25; FAIL 0, INCOMPLETE 0, NOT RUN 0), one independent QA review of the closeout, after-action report `020` filed with its limits. Not a validation of selection quality. Not authorized: live model use, real fetching, real data, release, deployment; POL-05 stays open | OWNER-DECIDED 2026-10-17 | section 4.1; `020` |
 | D-35 | `019` (candidate selection quality and validation) approved as version 1.0.0 together with section 11: assessment purposes, criteria and evidence rules as the draft of `SP-L2-1`, the selection-policy record and change rules (merging never activates), evaluation, scorecard structure, cadence and corrective actions, and the P3-D-10 amendment (human-only assessment when model advice is unavailable or suspended, for 3B.4). Not authorized: code, the 3B.3 or 3B.4 release, live model use, real data, policy activation. Open: domain expert, operational delegate, private evaluation location, scorecard minimums, capped-snapshot path | OWNER-DECIDED 2026-10-14 | section 4.1; `019` section 13 |
 | D-33 | GATE-P2 signed off for synthetic P2: every TEST-P2 case PASS on PostgreSQL in CI at one head (CI run 38439993244 on `1ce791e`; 624 passed; GATE-P2 PASS 54 and GATE-S1 PASS 25, FAIL 0, INCOMPLETE 0, NOT RUN 0), one independent QA review of the closeout, after-action report `017` filed, case dispositions and scope boundaries in `016` §10.12 accepted. The P2 epic `catalyst-v2-7hu` closes. Not authorized: real mail, applicant data, model use, P3, release or deployment. Before real use: the three correction beads (append-only evidence, automatic-pause review, hard-bounce send block) and POL-10 | OWNER-DECIDED 2026-10-13 | section 4.1; `016` 10.12; `017` |
 | D-32 | `015` is public technical documentation, provided its content stays public-safe; future public PDF renderings use unclassified labelling, not the theme's "Confidential" footer | OWNER-DECIDED 2026-10-12 | section 4.1; `016` 8.6; `015` errata item 6 |
@@ -404,7 +413,7 @@ owner approved `018` 0.2.1 and released 3B.1 on 2026-10-14 (D-34), then 3B.2 the
 3B.3 and 3B.4 each need their own release; 3C is the GATE-P3 verification. Live model use and
 real fetching are not authorized by any of these. 3B.1 merged as `d564bfa` (PR #30) and 3B.2 as `8086508`
 (PR #32); the owner released 3B.3 on 2026-10-16 ("release 3B.3") and 3B.4 on 2026-10-17 ("release 3B.4"), merged as `2bb3281` (PR #34) and `25603b0` (PR #35); 3C was
-released the same day ("release 3C"): the GATE-P3 run and after-action report `020` await the owner's sign-off. Selection-quality work (section 11) attaches to 3B.3, 3B.4, 3C and 3E without changing their release or
+released the same day ("release 3C"); GATE-P3 was signed off on 2026-10-17 (D-36; after-action report `020`). Selection-quality work (section 11) attaches to 3B.3, 3B.4, 3C and 3E without changing their release or
 gate.
 
 | Key | Bead | Title | Depends on |
