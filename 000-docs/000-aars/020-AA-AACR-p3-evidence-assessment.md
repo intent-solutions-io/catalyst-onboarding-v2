@@ -5,7 +5,8 @@
 > lets staff ask clarifying questions, and records a decision only a named human may make. Everything here ran on
 > synthetic data and PydanticAI test models: no live model was called and no real applicant was involved.
 
-- **Status:** built and verified. **GATE-P3 awaits the owner's sign-off** (proposed statement in section 9).
+- **Status:** built; the full local run passes every case; CI on the closeout head and the 3C review's re-check
+  come before the owner's sign-off (proposed statement in section 9).
 - **Lane:** full. Every task had review findings and fixes (section 5).
 - **Epic:** Collect evidence, run the bounded MiniMax assessment, and record the authorized qualification decision
   (bead `catalyst-v2-oc4`).
@@ -14,7 +15,7 @@
 - **GitHub:**
   - specification: PR #28 (`47f6afd`); the selection-quality contract: PR #33 (`0cc9e6b`);
   - 3B.1: PR #30 (`d564bfa`); 3B.2: PR #32 (`8086508`); 3B.3: PR #34 (`2bb3281`); 3B.4: PR #35 (`25603b0`);
-  - 3C: this closeout's pull request.
+  - 3C: PR #36.
 - **Period:** 2026-10-13 to 2026-10-17
 - **Author:** Jeremy Longshore. Claude Code implemented the work; the Catalyst specialist subagents reviewed it.
 - **Template:** 000-AA-TMPL v1.0.0
@@ -35,7 +36,8 @@ P3 turns an application into a decision that can be explained afterwards. Staff 
 - **The decision** (3B.4). Only a person explicitly granted the authority may record admit, decline or hold, and only
   on the inputs they saw. The decision records a per-criterion rationale with capability and strength of evidence
   kept separate, and the selection policy it applied. A database trigger refuses any decided stage without a
-  decision row in the same transaction.
+  decision row in the same transaction. It guards against code paths and stray writes, not against a compromised
+  application role, which could insert a decision row itself.
 
 The owner also approved how selection quality is governed and improved (`019`, D-35), and P3 implements its rules:
 evidence gaps and alternative routes on questions, the rationale, the policy reference and a human-only assessment
@@ -84,18 +86,40 @@ the pilot (`011` section 11, `019` sections 7 to 9).
 
 - **The acceptance map.** `tests/acceptance.py` `P3_CASES` maps all 57 cases to 120 test references; `P3_SUPPORTING`
   maps the three D-35 groups to 9 more. `conftest.py` reports and gates them like GATE-S1 and GATE-P2.
-- **Local full run** (`scripts/test.sh`, pinned Python 3.14.8 and PostgreSQL 16.15, 2026-10-17): **843 passed** in 973 s; GATE-S1 PASS 25, GATE-P2 PASS 54, **GATE-P3 PASS 60** (the 57
+- **Local full run** (`scripts/test.sh`, pinned Python 3.14.8 and PostgreSQL 16.15, 2026-10-17): **846 passed** in 946 s; GATE-S1 PASS 25, GATE-P2 PASS 54, **GATE-P3 PASS 60** (the 57
   cases and the 3 D-35 groups); FAIL 0, INCOMPLETE 0, NOT RUN 0; nothing skipped.
 - **CI:** the "Runtime checks" job on this closeout's head, linked from the pull request.
 - **Reviews per task.** Every 3B task had one primary independent QA review plus one scoped specialist review
   (model boundary for 3B.2 and 3B.3, security for 3B.4), a fix-up, and a re-check of both. Dispositions are in
   `018` sections 14, 16 and 17 and on each pull request.
-- **3C review.** One independent QA review of this closeout (result on the pull request).
+- **3C review.** One independent QA review of this closeout. It rated 39 cases proven, 17 partial and 1 weak on
+  the first map. TEST-P3-08 and the TEST-P3-51 re-fetch clause gained tests; 19, 20, 27, 49 and 50 were tightened.
+  What the remaining partial cases do not show is below.
+
+**What the passing cases do not show** (a passing case means its mapped tests passed, not that every clause is
+proven):
+
+| Case | Not shown by the mapped tests |
+| --- | --- |
+| TEST-P3-06 | a staff item for a transient failure that later succeeds |
+| TEST-P3-12, 16 | that the connection goes to the validated address and that no proxy is used, beyond the pinned fixture |
+| TEST-P3-15 | one unicode-query instance passes whether the fetch refuses or not |
+| TEST-P3-21 | a foreign capture injected into a manifest (the manifest only reads the application's own rows) |
+| TEST-P3-24 | the role-marker half of the injection flags |
+| TEST-P3-29 | canaries in notes, headers and non-application identifiers |
+| TEST-P3-30 | that no key is read (none exists in the settings) |
+| TEST-P3-33 | old runs kept intact across a pack change, beyond the result-once trigger |
+| TEST-P3-43 | a stale run on an older adopted version (only one adoption is reachable) |
+| TEST-P3-45 | a forced overlap of the two concurrent decisions |
+| Logs (018 3.3 step 9) | "logs hold host and code only": fetch code logs nothing today, so the clause is untested |
 
 ## 5. Issues and root causes
 
 The most serious findings, by task, and their root causes:
 
+- **3B.1:** the request-forgery pipeline needed a deadline over the whole fetch and refusal of every private,
+  link-local or reserved address after each redirect (`018` section 13). Root cause: per-step checks alone. Fix: one
+  pipeline that validates every hop and pins the connected address.
 - **3B.2:** unfenced applicant claims could forge prompt structure; name scrubbing could invent "the page names the
   applicant"; a one-character quote passed. Root cause: free text was treated as structured. Fix: fence, normalize
   and scrub every untrusted text; minimum-substance quotes.
@@ -121,8 +145,10 @@ The most serious findings, by task, and their root causes:
 
 - **No model cost:** test models only; the daily budget defaults to 0.
 - **New tables:** evidence sources, items and captures; assessment runs and invocations; reply interpretations;
-  qualification decisions. All synthetic; history tables are append-only.
-- **CI time:** the runtime job takes about 10 minutes for about 850 tests.
+  qualification decisions. All synthetic. Captures and decisions are append-only history; runs and
+  interpretations are frozen once finished (result written once).
+- **Test time:** the full run takes about 13 to 16 minutes locally; the CI runtime job's time is cited on the
+  closeout pull request (its limit is 20 minutes).
 - **Nothing deployed.**
 
 ## 8. Rollback procedure and validation
@@ -135,8 +161,9 @@ P3, on synthetic data only. Reversal of the protection migrations is exercised b
 
 **Proposed GATE-P3 sign-off statement for the owner:**
 
-> "I accept GATE-P3 for synthetic P3 at main after the 3C pull request, on CI run evidence GATE-S1 25/25, GATE-P2
-> 54/54 and GATE-P3 60/60 (the 57 cases and the 3 D-35 groups), with the dispositions and deviations in `018` sections 13 to 18.
+> "I accept GATE-P3 for synthetic P3 at main after PR #36, on the CI run of PR #36's final head (run id on the PR) with GATE-S1 25/25,
+> GATE-P2 54/54 and GATE-P3 60/60 (the 57 cases and the 3 D-35 groups; a passing case means its mapped tests
+> passed, with the limits in section 4), and the deviations and owner decisions in `018` sections 13 to 18.
 > This is not a validation of selection quality and does not authorize live model use, real fetching, real applicant
 > data, release or deployment. POL-05 must be recorded before anyone can decide; the correction beads, POL-10 and
 > the live-call protections come before real use."

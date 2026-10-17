@@ -573,6 +573,7 @@ P3_CASES = {
         "test_clarification::test_p3_07_42_a_confirmed_answer_starts_one_reassessment_on_a_new_snapshot_with_the_answer",
     ],
     "TEST-P3-08": [
+        "test_assessment::test_p3_08_a_newer_unadopted_version_never_enters_the_snapshot",
         "test_assessment::test_p3_08_21_the_snapshot_names_the_adopted_version_and_only_its_own_captures",
     ],
     "TEST-P3-09": [
@@ -741,10 +742,12 @@ P3_CASES = {
         "test_decision::test_p3_49_a_repeat_after_decline_creates_nothing_new_and_asks_staff",
     ],
     "TEST-P3-50": [
+        "test_clarification::test_review_layering_holds_and_no_assessment_code_confirms_an_outcome",
         "test_assessment::test_p3_50_no_provider_client_and_no_output_field_in_control_flow",
         "test_assessment::test_p3_50_the_recommendation_never_chooses_the_next_step",
     ],
     "TEST-P3-51": [
+        "test_decision::test_p3_51_a_completed_re_fetch_after_the_screen_was_shown_is_refused",
         "test_decision::test_p3_43_51_a_newly_confirmed_answer_makes_the_run_stale",
         "test_decision::test_p3_51_a_changed_question_set_or_a_re_fetch_is_refused",
         "test_decision::test_review_exact_refusals_for_pending_evidence_a_run_in_flight_and_a_decided_stage",
@@ -757,7 +760,6 @@ P3_CASES = {
     "TEST-P3-53": [
         "test_decision::test_p3_53_after_pol05_a_superuser_or_ungranted_staff_is_refused_and_the_setting_is_code_only",
         "test_decision::test_review_a_group_grant_never_confers_the_decision",
-        "test_decision::test_review_the_selection_policy_setting_is_validated",
     ],
     "TEST-P3-54": [
         "test_evidence::test_p3_54_classify_has_no_environment_branch_and_fixtures_need_the_test_environment",
@@ -791,6 +793,8 @@ P3_SUPPORTING = {
         "test_clarification::test_create_question_refuses_unsafe_gaps_and_routes",
     ],
     "D-35 decision rationale and policy reference": [
+        "test_decision::test_p3_44_a_decision_is_one_transaction_with_its_held_follow_on",
+        "test_decision::test_review_the_selection_policy_setting_is_validated",
         "test_decision::test_d35_every_criterion_needs_capability_strength_and_a_note",
         "test_decision::test_review_no_evidence_means_capability_unknown",
     ],

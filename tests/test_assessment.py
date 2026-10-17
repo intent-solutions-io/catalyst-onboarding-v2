@@ -126,6 +126,25 @@ def test_p3_01_a_valid_output_is_stored_with_provenance_and_the_stage_moves_for_
     assert invocation.status == "completed" and invocation.used_tokens == run.input_tokens + run.output_tokens
 
 
+def test_p3_08_a_newer_unadopted_version_never_enters_the_snapshot(a, monkeypatch):
+    from urllib.parse import urlencode
+
+    from django.test import Client
+
+    from tests.test_evidence import BASE, FORM
+
+    app, run, _ = assessed(a, monkeypatch, valid())
+    adopted = app.adoptions.get().submission_version
+    before = snapshot.snapshot_sha256(snapshot.manifest(app, pack.load(run.prompt_pack)))
+    Client().post(FORM, urlencode({**BASE, "reason": "A newer version, never confirmed."}),
+                  content_type="application/x-www-form-urlencoded")  # the same applicant submits again
+    app.refresh_from_db()
+    assert app.versions.count() == 2 and app.adoptions.get().submission_version == adopted  # not adopted
+    current = snapshot.manifest(app, pack.load(run.prompt_pack))
+    assert current["version"] == str(adopted.public_id) == run.snapshot["version"]
+    assert snapshot.snapshot_sha256(current) == before == run.snapshot_sha256  # the run still describes the inputs
+
+
 def test_p3_08_21_the_snapshot_names_the_adopted_version_and_only_its_own_captures(a, monkeypatch):
     app, run, _ = assessed(a, monkeypatch, valid())
     adopted = app.adoptions.get().submission_version
@@ -158,8 +177,9 @@ def test_p3_22_a_fabricated_alias_is_repaired_once(a, monkeypatch):
     assert "citation_to_an_alias_not_sent" in seen["prompts"][1]  # the repair names the broken rule
 
 
-def test_p3_02_27_provider_errors_are_bounded_then_staff_with_no_stage_change(a, monkeypatch):
-    app, run, seen = assessed(a, monkeypatch, OSError("synthetic 503"))
+@pytest.mark.parametrize("error", [OSError("synthetic 503"), TimeoutError("synthetic timeout")], ids=["error", "timeout"])
+def test_p3_02_27_provider_errors_are_bounded_then_staff_with_no_stage_change(a, monkeypatch, error):
+    app, run, seen = assessed(a, monkeypatch, error)
     assert run.status == "failed" and seen["calls"] == 2  # two ledger attempts, one request each
     assert app.stage == "assessing" and open_items(app, "assessment_failed") == 1
     assert AssessmentInvocation.objects.filter(run=run).count() == 2
@@ -537,11 +557,12 @@ def test_p3_50_the_recommendation_never_chooses_the_next_step(a, monkeypatch, se
 def test_p3_50_no_provider_client_and_no_output_field_in_control_flow():
     code = {p.name: p.read_text() for p in Path(support.ROOT, "assessments").rglob("*.py") if "migrations" not in p.parts}
     flow = code["runs.py"] + code["services.py"] + code["collection.py"] + code["decisions.py"]
-    for field in ("recommendation", "confidence", "proposed_questions", "injection_suspected", ".rating"):
+    for field in ("recommendation", "confidence", "proposed_questions", "injection_suspected", ".rating", '"rating"',
+                  "'rating'"):
         assert field not in flow, field
     # 3B.3: clarification reads the proposals only, and never moves a stage while doing so
     clarification = code["clarification.py"]
-    for field in ("recommendation", "confidence", "injection_suspected", ".rating"):
+    for field in ("recommendation", "confidence", "injection_suspected", ".rating", '"rating"', "'rating'"):
         assert field not in clarification, field
     propose = clarification.split("def propose_from_run")[1].split("\ndef ")[0]
     assert "proposed_questions" in propose and "transition" not in propose

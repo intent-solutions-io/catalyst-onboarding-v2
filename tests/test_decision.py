@@ -163,6 +163,21 @@ def test_p3_43_51_a_newly_confirmed_answer_makes_the_run_stale(d, monkeypatch):
                                   expected_digest=shown, rationale=rationale())
 
 
+def test_p3_51_a_completed_re_fetch_after_the_screen_was_shown_is_refused(d, monkeypatch):
+    from django.db.models.functions import Now
+
+    app = ready_app(d, monkeypatch)
+    shown = decisions.decision_state(app)["digest"]
+    item = EvidenceItem.objects.get(application=app)
+    EvidenceItem.objects.create(application=app, adopted_version=item.adopted_version, source=item.source,
+                                claim_ref=item.claim_ref, request_url=item.request_url, round=item.round + 1,
+                                request_url_sha256=item.request_url_sha256, status="unavailable", reason_code="synthetic",
+                                finished_at=Now())  # a re-fetch that has finished
+    with pytest.raises(Refused, match="^changed_since_shown$"):
+        decisions.record_decision(app.pk, d.decider, outcome="hold", reason_code="synthetic_reason",
+                                  expected_digest=shown, rationale=rationale())
+
+
 def test_p3_51_a_changed_question_set_or_a_re_fetch_is_refused(d, monkeypatch):
     from assessments import services
 
@@ -269,6 +284,9 @@ def test_p3_49_a_repeat_after_decline_creates_nothing_new_and_asks_staff(d, monk
     app.refresh_from_db()
     assert app.stage == "declined" and app.versions.count() == 2
     assert StaffItem.objects.filter(application=app, reason_code="repeat_after_decline", status="open").count() == 1
+    assert app.versions.order_by("-version_number").first().origin == "repeat_after_verification"  # unverified
+    assert not app.adoptions.filter(submission_version__version_number=2).exists()  # never adopted
+    assert not PendingAction.objects.filter(kind="send_verification", subject_id=app.public_ref, status="queued").exists()
 
 
 # === review of c4fa72f =============================================================================================

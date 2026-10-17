@@ -1078,3 +1078,12 @@ Released by the owner ("release 3C"). Verification only; no feature was added.
 6. Whether `reason_code` becomes a controlled list.
 7. How the alternative route reaches the applicant (today: appended to the question text).
 8. When to turn on reply interpretation (activation setting 0) and authorize live use (after `catalyst-v2-oc4.9`).
+9. The daily request budget, which is 0 until the owner sets it: no run happens outside tests until then.
+10. Claims are citable by default (C aliases, capped at `partly_supported`; section 14); a different POL-04 choice
+    means a new prompt pack.
+11. `on_unavailable=staff` applies to required sources only, and `ask_applicant` is not built (section 13).
+12. Confirmed answers send the reply's own text, not staff-selected spans (section 16): a departure from 5.2's
+    "confirmed answer spans only" until staff confirmation records spans.
+13. `on_hold` has no exit in P3 (section 17): what follows a hold is POL-05 or POL-12.
+14. The open inputs of `019` section 13 (domain expert, operational delegate, private evaluation location,
+    scorecard minimums).

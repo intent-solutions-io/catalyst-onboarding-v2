@@ -4,7 +4,7 @@
 |---|---|
 | Document | `011-PP-PLAN-master-blueprint` (the only master blueprint for this repository) |
 | Version | 1.2.0 (current status corrected and the candidate selection-quality contract added, section 11, 2026-10-14; 1.1.0 recorded the ADR decisions of 2026-10-10) |
-| Status | **APPROVED IN SCOPE** (section 10): project direction, amended requirements and the bounded synthetic first-slice scope; later owner decisions D-16 to D-35 are recorded in section 4. **Current (2026-10-14):** GATE-S1 (D-26) and GATE-P2 (D-33) signed off for synthetic work; P3 in progress under `018` (D-34), with 3B.1 and 3B.2 merged and 3B.3 not yet released. **Not approved:** the open policies of section 6 beyond their recorded synthetic decisions, live model use, real applicant data, provider writes, deployment and release; implementation only as each handoff is released. Items marked PROPOSED stay proposals; section 11 and `019` were approved on 2026-10-14 (D-35). |
+| Status | **APPROVED IN SCOPE** (section 10): project direction, amended requirements and the bounded synthetic first-slice scope; later owner decisions D-16 to D-35 are recorded in section 4. **Current (2026-10-17):** GATE-S1 (D-26) and GATE-P2 (D-33) signed off for synthetic work; P3 built under `018` (D-34), with 3B.1 to 3B.4 merged and the 3C GATE-P3 run awaiting the owner's sign-off. **Not approved:** the open policies of section 6 beyond their recorded synthetic decisions, live model use, real applicant data, provider writes, deployment and release; implementation only as each handoff is released. Items marked PROPOSED stay proposals; section 11 and `019` were approved on 2026-10-14 (D-35). |
 | Owner | Jeremy Longshore (product owner and approver) |
 | Reviewers | `catalyst-django-architect` (build design), `catalyst-independent-qa` (independent review); results in section 9 |
 | Date | 2026-10-09 |
@@ -12,8 +12,8 @@
 | Conventions | Intent Blueprint Docs 3.0.0 (stable IDs, evidence status, lifecycle links); doc-filing v4.5 |
 | Supersedes | nothing; the earlier planning drafts named in section 2 were not available |
 
-> **Status (2026-10-14): synthetic only.** Application code exists only for released handoffs (P1, P2, and P3
-> 3B.1 and 3B.2). Nothing is deployed and no real applicant data is used. An assistant recommendation in this
+> **Status (2026-10-17): synthetic only.** Application code exists only for released handoffs (P1, P2, and P3
+> 3B.1 to 3B.4). Nothing is deployed and no real applicant data is used. An assistant recommendation in this
 > document is a proposal, never an owner decision. (Until 2026-10-10 this banner read "PRELIMINARY, subject to
 > review", with code limited to the 1B.1 skeleton; history in sections 4 and 10.)
 

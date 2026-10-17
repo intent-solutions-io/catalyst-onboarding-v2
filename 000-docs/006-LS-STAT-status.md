@@ -7,7 +7,7 @@
 | Source revision | main `25603b0` (P3 3B.4 merged, PR #35); 3C closeout in review |
 | Classification | Public |
 
-> **Status (2026-10-17): P1 and P2 accepted for synthetic work; P3 in progress.** GATE-S1 signed off 2026-10-11 (D-26), GATE-P2 signed off 2026-10-13 (D-33). P3: `018` approved (D-34); 3B.1 evidence collection (PR #30), 3B.2 bounded assessment with test models only (PR #32) and 3B.3 clarification (PR #34) and 3B.4 qualification decision (PR #35) merged; 3C verification done, GATE-P3 awaits the owner's sign-off (after-action report `020`); 3E (live synthetic evaluation) needs separate authorization. The candidate selection-quality contract was approved 2026-10-14 (D-35; `011` section 11, `019`). No deployment, no real applicant data, no live model call; the gates below stay open.
+> **Status (2026-10-17): P1 and P2 accepted for synthetic work; P3 in progress.** GATE-S1 signed off 2026-10-11 (D-26), GATE-P2 signed off 2026-10-13 (D-33). P3: `018` approved (D-34); 3B.1 evidence collection (PR #30), 3B.2 bounded assessment with test models only (PR #32) and 3B.3 clarification (PR #34) and 3B.4 qualification decision (PR #35) merged; 3C verification in review (PR #36); GATE-P3 then awaits the owner's sign-off (after-action report `020`); 3E (live synthetic evaluation) needs separate authorization. The candidate selection-quality contract was approved 2026-10-14 (D-35; `011` section 11, `019`). No deployment, no real applicant data, no live model call; the gates below stay open.
 >
 > (Previous banner, 2026-10-11: "first slice complete; P2 specified and approved for synthetic work; 2B.1 authorized, not yet built".)
 
@@ -24,7 +24,7 @@
 | Candidate selection quality | APPROVED as the governing contract (D-35): authority in `011` section 11; methods, evaluation and scorecard in `019`; open: domain expert, operational delegate, private evaluation location, scorecard minimums, capped-snapshot path | PR #33 |
 | Open product policies | POL-01 decided for the slice (D-25); POL-19 decided (D-31); POL-06 and POL-13 decided for synthetic P2 only (D-29, D-30); POL-03, POL-04 and POL-05 synthetic P3 defaults approved with `018` (D-34); production values open (`011` section 6) | bead "Obtain owner decisions on the open product policies listed in the master blueprint" |
 | Specialist subagents | all eleven discovered in a fresh session; one (`catalyst-django-architect`) probed at runtime | `008` section 5.1 |
-| Documentation and runtime CI | green on every merged head through `main` `1cc96ec` (PR #19, run 38118996279); per-task runs on each task's bead | GitHub Actions |
+| Documentation and runtime CI | green on every merged head through `main` `25603b0` (PR #35); per-task runs on each pull request | GitHub Actions |
 | Runtime CI lane | job "Runtime checks (Python 3.14.8, PostgreSQL 16.15)", aggregated into the required check; failure path demonstrated (probe run 38030066475: runtime failed, required check failed, `safe-merge` refused) | PR #9, closed probe PR #10 |
 | v0.1.0 tag | an automatic tag, not a release (`CHANGELOG.md`) | |
 
@@ -66,7 +66,7 @@
 
 ## Next steps
 
-Current (2026-10-14):
+Current (2026-10-17):
 
 1. The open selection-quality inputs (`019` section 13): domain expert, operational delegate, private evaluation location.
 2. Owner sign-off of GATE-P3 (`000-aars/020` section 9) and the P3 owner decisions (`018` section 18).
