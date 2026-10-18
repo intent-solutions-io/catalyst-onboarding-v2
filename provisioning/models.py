@@ -197,3 +197,59 @@ class CredentialSetup(models.Model):
                                    name="setup_completed_consistent"),
         ]
 
+
+REVOCATION_KINDS = ("setup_links", "password_rotation", "owned_forwarders", "inbound_forwarders", "catch_all",
+                    "sessions", "app_credentials")
+REVOCATION_STATES = ("requested", "pending", "applied_unverified", "verified", "not_applicable", "unsupported",
+                     "exception")
+
+
+class AccessRevocation(models.Model):
+    """023 sections 6 and 11.6 (5B.3): one obligation to remove access after withdrawal or closure. `verified` only for
+    state that can be read back; `applied_unverified` for a write that cannot (a password rotation); `unsupported` for
+    what no documented mechanism covers (sessions, app credentials), which ends only by an owner-accepted `exception`
+    with a reason. Never a deletion of mailbox data."""
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    request = models.ForeignKey(ProvisioningRequest, on_delete=models.PROTECT, related_name="revocations")
+    kind = models.CharField(max_length=24)
+    state = models.CharField(max_length=24, default="requested")
+    note = models.CharField(max_length=500, blank=True, default="")
+    decided_by = models.CharField(max_length=200, blank=True, default="")
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        permissions = [("close_application", "Withdraw or close an application on the applicant's behalf (POL-12)")]
+        constraints = [
+            models.UniqueConstraint(fields=["request", "kind"], name="revocation_one_per_kind"),
+            models.CheckConstraint(condition=Q(kind__in=REVOCATION_KINDS), name="revocation_kind_valid"),
+            models.CheckConstraint(condition=Q(state__in=REVOCATION_STATES), name="revocation_state_valid"),
+            models.CheckConstraint(condition=~Q(state="exception") | ~Q(decided_by=""), name="revocation_exception_decided"),
+        ]
+
+
+class WithdrawalConfirmation(models.Model):
+    """P5-D-8 (5B.3): an explicit, verified withdrawal. Staff send a one-time link to the verified address on the
+    applicant's request; GET shows what withdrawing means, POST commits. Only the token's SHA-256 is stored."""
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="withdrawals")
+    recipient = models.CharField(max_length=320)
+    token_sha256 = models.CharField(max_length=64, blank=True, default="")
+    state = models.CharField(max_length=16, default="pending")  # pending, sent, used, expired, superseded, uncertain
+    expires_at = models.DateTimeField(null=True, blank=True)
+    requested_by = models.CharField(max_length=200)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["token_sha256"], condition=~Q(token_sha256=""), name="withdrawal_token_unique"),
+            models.UniqueConstraint(fields=["application"], condition=Q(state__in=["pending", "sent"]),
+                                    name="withdrawal_one_live_per_application"),
+            models.CheckConstraint(condition=Q(state__in=["pending", "sent", "used", "expired", "superseded", "uncertain"]),
+                                   name="withdrawal_state_valid"),
+            models.CheckConstraint(condition=~Q(requested_by=""), name="withdrawal_has_requester"),
+        ]
+

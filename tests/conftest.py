@@ -268,6 +268,9 @@ EXPECTED_TRIGGERS = {
     ("provisioning_provisioningattempt", "catalyst_no_truncate"), ("provisioning_provisioningevidence", "catalyst_no_truncate"),
     ("provisioning_credentialsetup", "catalyst_credential_setup_fixed"),  # P5 5B.2
     ("provisioning_credentialsetup", "catalyst_no_truncate"),
+    ("provisioning_accessrevocation", "catalyst_access_revocation_fixed"),  # P5 5B.3
+    ("provisioning_withdrawalconfirmation", "catalyst_withdrawal_confirmation_fixed"),
+    ("provisioning_accessrevocation", "catalyst_no_truncate"), ("provisioning_withdrawalconfirmation", "catalyst_no_truncate"),
 }
 
 

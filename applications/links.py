@@ -20,6 +20,8 @@ def signer() -> Signer:
 # P5 5B.2 (023 section 11): the set-your-own-password page. Its token is in the path too, so the same log redaction
 # and private, no-referrer responses apply (config.redaction).
 SETUP_PATH = "/setup/"
+# P5 5B.3: the applicant's withdrawal confirmation (P5-D-8), protected the same way.
+WITHDRAW_PATH = "/withdraw/"
 
 
 def verification_link(challenge_public_id) -> str:

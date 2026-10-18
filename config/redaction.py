@@ -18,9 +18,9 @@ import re
 
 from django.utils.cache import patch_cache_control
 
-from applications.links import CONFIRM_PATH, SETUP_PATH
+from applications.links import CONFIRM_PATH, SETUP_PATH, WITHDRAW_PATH
 
-PRIVATE_PATHS = (CONFIRM_PATH, SETUP_PATH)
+PRIVATE_PATHS = (CONFIRM_PATH, SETUP_PATH, WITHDRAW_PATH)
 TOKEN_IN_PATH = re.compile("(" + "|".join(re.escape(p) for p in PRIVATE_PATHS) + r")[^/\s?#\"']+")
 LOGGERS = ("django.request", "django.security.csrf", "django.server")
 

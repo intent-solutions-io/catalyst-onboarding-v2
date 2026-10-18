@@ -188,6 +188,9 @@ class CreateMailbox(_Action):
             if request.stop_requested_at is not None:
                 core.set_status(request, "recovered_after_stop")
                 core.item(core.ITEM_LATE_MAILBOX, request, claim_id=claim.id)
+                from .closure import ensure_revocations
+
+                ensure_revocations(request, f"pending_action:{claim.id}")  # no welcome, no reactivation (023 11.5)
                 return
             core.set_status(request, "created")
             core.enqueue(core.VERIFY, request, f"{core.VERIFY}:{request.public_id}:0", due_in=_grace())
@@ -198,8 +201,13 @@ class CreateMailbox(_Action):
             # 023 11.11: a conflict after our own earlier unknown create may be that create landing late: reconcile
             # by reading, and staff confirm, never adopt.
             ProvisioningAttempt.objects.filter(pk=attempt.pk).update(outcome=Outcome.UNKNOWN, code="conflict_after_ours")
-            core.set_status(request, "create_uncertain")
+            core.set_status(request, "stopping" if request.stop_requested_at else "create_uncertain")
             self._enqueue_reconcile(request, attempt)
+        elif request.stop_requested_at is not None and not result.unknown:
+            # Stopped meanwhile and nothing was made (a rejection or a foreign conflict): the stop settles here.
+            ProvisioningAttempt.objects.filter(pk=attempt.pk).update(
+                outcome=Outcome.CONFLICT if result.conflict else Outcome.REJECTED, code=result.code, finished_at=Now())
+            core.set_status(request, "stopped")
         elif result.conflict:  # absent a moment ago, and no earlier unknown create of ours: foreign
             self._conflict(request, attempt, "conflict_on_create", claim.id)
         elif result.unknown:
@@ -222,6 +230,8 @@ class CreateMailbox(_Action):
         current = ProvisioningRequest.objects.get(pk=request.pk)
         if current.status == "create_pending":
             core.set_status(current, "approved")
+        elif current.status == "stopping":
+            core.set_status(current, "stopped")  # no create was sent: the stop settles
 
     def _conflict(self, request, attempt, code, claim_id) -> None:
         ProvisioningAttempt.objects.filter(pk=attempt.pk).update(outcome=Outcome.CONFLICT, code=code, finished_at=Now())
@@ -237,6 +247,8 @@ class CreateMailbox(_Action):
             current = ProvisioningRequest.objects.get(pk=request.pk)
             if current.status in ("approved", "create_pending"):
                 core.set_status(current, "failed_needs_staff")
+            elif current.status == "stopping":
+                core.set_status(current, "stopped")
             core.item(core.ITEM_BLOCKED, current, claim_id=claim.id)
             core.record(current.application, "provisioning_blocked", {"request": str(current.public_id),
                                                                       "reason": problem}, f"pending_action:{claim.id}")
@@ -284,6 +296,10 @@ class ReconcileMailbox(_Action):
                 core.set_status(request, "recovered_after_stop" if request.stop_requested_at else "found_by_evidence")
                 core.item(core.ITEM_LATE_MAILBOX if request.stop_requested_at else core.ITEM_CONFIRM_FOUND, request,
                           claim_id=claim.id)
+                if request.stop_requested_at:
+                    from .closure import ensure_revocations
+
+                    ensure_revocations(request, f"pending_action:{claim.id}")
             else:
                 ProvisioningAttempt.objects.filter(pk=attempt.pk).update(outcome=Outcome.CONFLICT,
                                                                          code="present_but_not_provably_ours",
@@ -297,6 +313,8 @@ class ReconcileMailbox(_Action):
         ProvisioningAttempt.objects.filter(pk=attempt.pk).update(outcome=Outcome.NOT_CREATED, finished_at=Now())
         if request.stop_requested_at is not None:
             core.set_status(request, "stopped")
+            # A create judged "not made" could still land: a bounded watch keeps revocation unsettled until it ends.
+            core.enqueue(core.RECONCILE, request, f"{core.RECONCILE}:{request.public_id}:watch:0", due_in=_grace())
             return
         series = request.attempts.filter(step="create").count()
         if series >= settings.CATALYST_PROVISIONING_ATTEMPTS:  # bounded: never an endless create loop
@@ -320,9 +338,13 @@ class ReconcileMailbox(_Action):
         def write():
             current = ProvisioningRequest.objects.select_related("application", "reservation").get(pk=request.pk)
             if found is not None:
-                core.item(core.ITEM_LATE_MAILBOX, current, claim_id=claim.id)  # rotate and revoke, never delete (5B.3)
+                core.item(core.ITEM_LATE_MAILBOX, current, claim_id=claim.id)  # staff confirm; then rotate and revoke
                 core.record(current.application, "provisioning_late_mailbox", {"request": str(current.public_id)},
                             f"pending_action:{claim.id}")
+                if current.stop_requested_at is not None:
+                    from .closure import ensure_revocations
+
+                    ensure_revocations(current, f"pending_action:{claim.id}")  # it waits for proof it is ours
             elif n + 1 < settings.CATALYST_PROVISIONING_WATCH_CHECKS:
                 core.enqueue(core.RECONCILE, current, f"{core.RECONCILE}:{current.public_id}:watch:{n + 1}",
                              due_in=_grace())
@@ -332,6 +354,10 @@ class ReconcileMailbox(_Action):
                 core.record(current.application, "provisioning_watch_ended", {"request": str(current.public_id)},
                             f"pending_action:{claim.id}")
                 core.return_stage_if_idle(current.application, f"pending_action:{claim.id}")
+                if current.stop_requested_at is not None and current.revocations.exists():
+                    from .closure import _queue_round
+
+                    _queue_round(current)  # the watch ended clean: revocation can settle now
         ledger.finish(claim, self, status=Status.DONE, write=write)
 
 

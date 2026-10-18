@@ -21,10 +21,13 @@ class FakeMailHost(MailHost):
     calls: list = []
     passwords_seen: list = []  # only to prove the test never sees one in a record
     current_passwords: dict = {}  # what the host would accept at login (the fake's only view of it)
+    forwarders: dict = {}  # (domain, alias) -> tuple of destinations
+    catch_all: dict = {}  # domain -> address
 
     @classmethod
     def reset(cls):
         cls.mailboxes, cls.faults, cls.calls, cls.passwords_seen, cls.current_passwords = {}, [], [], [], {}
+        cls.forwarders, cls.catch_all = {}, {}
 
     def _fault(self, *names):
         for name in names:
@@ -68,4 +71,18 @@ class FakeMailHost(MailHost):
         self.current_passwords[(domain.lower(), local_part.lower())] = password
         if fault == "set_unknown":
             raise AdapterError("timeout", sent=True, status=None)
+
+    def list_forwarders(self, domain):
+        self.calls.append(("list_forwarders", domain, ""))
+        if self._fault("list_500"):
+            raise AdapterError("SERVER_ERROR", sent=True, status=500)
+        return sorted((alias, dests) for (d, alias), dests in self.forwarders.items() if d == domain.lower())
+
+    def delete_forwarder(self, domain, alias):
+        self.calls.append(("delete_forwarder", domain, alias))
+        self.forwarders.pop((domain.lower(), alias.lower()), None)
+
+    def read_catch_all(self, domain):
+        self.calls.append(("read_catch_all", domain, ""))
+        return self.catch_all.get(domain.lower(), "")
 
