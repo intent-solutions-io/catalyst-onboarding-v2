@@ -367,4 +367,7 @@ class VerifyMailbox(_Action):
             core.set_status(current, "verified")
             core.record(current.application, "provisioning_verified", {"request": str(current.public_id), "by": "api"},
                         f"pending_action:{claim.id}")
+            from .credentials import open_setup
+
+            open_setup(current, f"pending_action:{claim.id}")  # 5B.2: the set-your-own-password invitation
         ledger.finish(claim, self, status=Status.DONE, write=write)

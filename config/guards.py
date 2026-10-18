@@ -230,6 +230,10 @@ def provisioning_problems(settings, environ: Mapping[str, str]) -> list[str]:
         for name in PROVISIONING_TEST_ONLY:
             if getattr(settings, name, ""):
                 problems.append(f"{name} is allowed only in the test environment (synthetic provisioning only)")
+        base = getattr(settings, "CATALYST_PUBLIC_BASE_URL", "")
+        if getattr(settings, "CATALYST_ENV", "") != "development" and base and not base.startswith("https://"):
+            # Setup and confirmation tokens travel in links: outside test and development only https (5B.2 review).
+            problems.append("CATALYST_PUBLIC_BASE_URL must be https outside test and development")
         return problems
     adapter = getattr(settings, "CATALYST_PROVISIONING_ADAPTER", "")
     if adapter and not adapter.startswith("tests."):

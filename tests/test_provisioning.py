@@ -25,6 +25,7 @@ from tests.test_outbound import staff
 from workflow.models import PendingAction
 
 REFUSED = (errors.InsufficientPrivilege, errors.RaiseException)
+VERIFIED = ("setup_pending",)  # since 5B.2 a verified API mailbox opens its setup at once (exactly this status)
 
 
 @pytest.fixture
@@ -33,7 +34,7 @@ def pv(k, settings):
     owner's named grant, P5-D-3) and two provisioning operators."""
     FakeMailHost.reset()
     settings.CATALYST_PROVISIONING_ADAPTER = "tests.mxroute_fake.FakeMailHost"
-    settings.CATALYST_PROVISIONING_DOMAIN = "example.test"
+    settings.CATALYST_PROVISIONING_DOMAIN = "team.example.test"
     settings.CATALYST_PROVISIONING_RECONCILE_GRACE_SECONDS = 0
     k.approver = grant(k, staff(k, "provisioning-approver"), "approve_provisioning")
     k.op1 = grant(k, staff(k, "provisioning-operator-1"), "operate_provisioning")
@@ -91,7 +92,7 @@ def test_p5_01_release_reads_afresh_and_creates_one_request_awaiting_the_approve
     assert release() == {"dry_run": False, "released": 1}
     assert sorted(reads) == sorted(i.envelope_id for i in AgreementInstanceLive(app))  # a fresh read of each
     request = request_of(app)
-    assert request.status == "awaiting_approval" and request.reservation.address == "ada.example@example.test"
+    assert request.status == "awaiting_approval" and request.reservation.address == "ada.example@team.example.test"
     assert (request.quota_mb, request.send_limit, request.method) == (1024, 100, "api")  # synthetic defaults (P5-D-2)
     assert Application.objects.get(pk=app.pk).stage == "provisioning"
     assert PendingAction.objects.get(kind="provision").status == "done"
@@ -143,7 +144,7 @@ def test_p5_06_a_collision_takes_the_next_suffix_and_an_exception_needs_review(p
     from django.db import IntegrityError, transaction
 
     with pytest.raises(IntegrityError, match="reservation_live_address_unique"), transaction.atomic():
-        AddressReservation.objects.create(application=app, local_part="ada.example2", domain="Example.TEST",
+        AddressReservation.objects.create(application=app, local_part="ada.example2", domain="Team.Example.TEST",
                                           basis="naming_rule")  # never someone else's: unique on the normalized address
 
 
@@ -171,7 +172,7 @@ def test_p5_07_approval_binds_the_exact_address_limits_method_and_prerequisites(
             services.approve(request.pk, user, request.approval_digest)
     with pytest.raises(services.Refused, match="changed_since_shown"):
         services.approve(request.pk, pv.approver, "0" * 64)
-    assert request.approval_digest == core.approval_digest("ada.example@example.test", 1024, 100, "api",
+    assert request.approval_digest == core.approval_digest("ada.example@team.example.test", 1024, 100, "api",
                                                            request.prerequisite_digest)
     services.approve(request.pk, pv.approver, request.approval_digest)
     request.refresh_from_db()
@@ -196,7 +197,7 @@ def test_p5_08_12_the_attempt_is_committed_then_an_absent_read_then_one_create_t
     assert seen["attempt"] == [("sending", True)]  # committed and the absent read recorded before the call
     assert [c[0] for c in FakeMailHost.calls] == ["read", "create", "read"]
     request.refresh_from_db()
-    assert request.status == "verified"
+    assert request.status in VERIFIED
     evidence = ProvisioningEvidence.objects.get(request=request)
     assert evidence.kind == "adapter_read" and evidence.facts["quota_mb"] == 1024 and not evidence.facts["suspended"]
     password = FakeMailHost.passwords_seen[0]
@@ -219,7 +220,7 @@ def test_p5_09_an_unknown_create_is_reconciled_by_reading_and_staff_confirm_it_i
     services.confirm_found_mailbox(request.pk, pv.op1, "ours", "Read matches our request exactly")
     run_worker()
     request.refresh_from_db()
-    assert request.status == "verified" and not items(app, core.ITEM_CONFIRM_FOUND).exists()
+    assert request.status in VERIFIED and not items(app, core.ITEM_CONFIRM_FOUND).exists()
 
 
 def test_p5_09_an_unknown_create_that_never_landed_runs_a_new_series_after_the_bounded_checks(pv, monkeypatch):
@@ -228,7 +229,7 @@ def test_p5_09_an_unknown_create_that_never_landed_runs_a_new_series_after_the_b
     run_worker()
     request.refresh_from_db()
     attempts = list(ProvisioningAttempt.objects.filter(step="create").order_by("id").values_list("series", "outcome"))
-    assert attempts == [(0, "not_created"), (1, "succeeded")] and request.status == "verified"
+    assert attempts == [(0, "not_created"), (1, "succeeded")] and request.status in VERIFIED
 
 
 def test_p5_09_a_500_on_the_reconcile_read_is_unknown_never_absent(pv, monkeypatch):
@@ -245,7 +246,7 @@ def test_p5_09_a_mailbox_present_before_our_create_is_a_conflict_and_never_adopt
     from provisioning.adapter import Mailbox
 
     app, request = approved(pv, monkeypatch)
-    FakeMailHost.mailboxes[("example.test", "ada.example")] = Mailbox("ada.example", "example.test", 1024, 100, False)
+    FakeMailHost.mailboxes[("team.example.test", "ada.example")] = Mailbox("ada.example", "team.example.test", 1024, 100, False)
     run_worker()
     request.refresh_from_db()
     assert request.status == "conflict" and items(app, core.ITEM_CONFLICT).count() == 1
@@ -418,7 +419,7 @@ def test_review_a_failed_absent_read_sends_nothing_and_retries(pv, monkeypatch):
     assert outcomes[0] == ("not_created", "absent_read_server_error") and outcomes[-1][0] == "succeeded"
     assert [c[0] for c in FakeMailHost.calls].count("create") == 1
     request.refresh_from_db()
-    assert request.status == "verified"
+    assert request.status in VERIFIED
 
 
 @pytest.mark.parametrize("change", ["absent", "quota", "suspended"])
@@ -431,7 +432,7 @@ def test_p5_12_verification_needs_the_exact_mailbox_and_never_passes_on_anything
 
     def tamper(self, claim, req, attempt, result):
         real(self, claim, req, attempt, result)
-        key = ("example.test", "ada.example")
+        key = ("team.example.test", "ada.example")
         if change == "absent":
             FakeMailHost.mailboxes.pop(key)
         else:
@@ -482,7 +483,7 @@ def test_review_two_applicants_with_the_same_name_never_share_an_address(pv, mon
     from tests.test_outbound import verified_application
 
     other = verified_application(email="ada.second@example.test")
-    AddressReservation.objects.create(application=other, local_part="ada.example", domain="example.test",
+    AddressReservation.objects.create(application=other, local_part="ada.example", domain="team.example.test",
                                       basis="naming_rule")
     app = complete(pv, monkeypatch)
     release()
@@ -540,7 +541,7 @@ def test_review_a_conflict_after_our_own_unknown_create_is_reconciled_and_new_se
     codes = list(ProvisioningAttempt.objects.filter(step="create").order_by("id").values_list("outcome", "code"))
     assert ("not_created", "conflict_after_ours") in codes  # reconciled by reading, never called foreign at once
     request.refresh_from_db()
-    assert request.status == "verified"
+    assert request.status in VERIFIED
 
 
 def test_review_creates_that_keep_coming_back_not_created_stop_at_the_bound(pv, monkeypatch, settings):

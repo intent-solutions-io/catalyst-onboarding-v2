@@ -109,7 +109,7 @@ Tags used in this section:
 | 4 | Create | **API:** the attempt is committed first, then one create call with a random password nobody sees (the setup flow replaces it). A `CONFLICT`, or an unknown outcome, is reconciled by reading that specific mailbox. A mailbox that exists is never assumed to be ours. **Checklist:** a staff task with the recorded steps. | created; conflict; uncertain | Never retried blindly. Duplicates are serialized per address. |
 | 5 | Verify | **API:** an authoritative read of that mailbox, tied to the request. **Checklist:** a different named verifier's attestation (P5-D-5). | verified; not found; conflict | Bounded re-checks, then staff. |
 | 6 | Credential setup | An invitation to the **previously verified external address**, not to the new mailbox. It goes through a secret-bearing message kind that 5B.2 builds (P2 refuses secret-bearing templates today; section 11.2). The page shows on GET and sets the password on POST. The password is handed over only transiently to the privileged operation (section 7). An unknown outcome blocks activation and opens a safe recovery path. | invited; presented; completed; expired; uncertain | A new invitation cancels the old one. A credential operation is never replayed blindly. |
-| 7 | Activate | One transaction: the prerequisites are current, provisioning is verified **and** setup is completed. The stage moves `agreements_complete → active` and the approved welcome is queued; the worker sends it later, outside the transaction. Protective jobs stay. | active | A welcome bounce opens a staff item; the stage stays `active`. |
+| 7 | Activate | One transaction: the prerequisites are current, provisioning is verified **and** setup is completed. The stage moves `provisioning → active` and the approved welcome is queued; the worker sends it later, outside the transaction. Protective jobs stay. | active | A welcome bounce opens a staff item; the stage stays `active`. |
 
 "Invitation accepted by the mail server", "link presented", "credential set" and "access ready" are four
 different facts, and only the last allows activation.
@@ -354,7 +354,7 @@ with stop_requested_at: create_* -> stopping -> stopped | recovered_after_stop; 
 ```text
 invitation_pending -> invited | invitation_uncertain | invitation_failed
 invitation_uncertain -> superseded (bounded) | staff
-invited -> presented -> set_pending -> completed | set_uncertain
+invited -> presented -> set_pending -> completed | set_uncertain | presented (a definite rejection, bounded) | superseded
 set_uncertain -> superseded
 invited | presented -> expired | cancelled | superseded
 ```
@@ -554,3 +554,91 @@ intent is honoured where 5B.1 records an outcome (`recovered_after_stop`); writi
 - **OWNER:** one `approve_provisioning` holder may both reserve a reviewed exception and approve it, which is a
   one-person control. This matches D-47's owner-as-approver; confirm it is accepted.
 - **OWNER (POL-10):** free-text notes in append-only evidence have no purge path.
+
+## 13. The 5B.2 record: setting the password and activation (D-47)
+
+**Built:**
+
+- **`CredentialSetup`** (migrations `0003` and `0004`): one invitation series for a verified mailbox.
+  - The recipient (the verified external address) and the series are fixed.
+  - The token's SHA-256 is written once.
+  - A settled series is final, and an uncertain one can only be superseded.
+  - There is one live series per request. Nothing is deleted or truncated.
+- **Opening a series** (`open_setup`): a verified mailbox, by the API read or the checklist attestation, opens a
+  series. The recipient is never the new mailbox or any address in the company domain.
+- **`SendSetupInvitation`:**
+  - It re-checks the effect boundary and the recipient at send time.
+  - The worker mints the token, sends the link (built from the configured base URL) and stores only the hash.
+  - An uncertain send supersedes the series and opens a new one with a new token, up to
+    `CATALYST_SETUP_INVITE_MAX_SERIES`; then staff decide. A crash after sending counts as uncertain.
+- **The applicant's page** (`/setup/<token>/`):
+  - GET shows the form and never consumes the link.
+  - POST commits under 11.5's compare-and-set. The credential operation runs outside any lock, with the password in
+    memory only.
+  - A definite rejection lets the applicant choose again, up to `CATALYST_SETUP_SET_ATTEMPTS`.
+  - An unknown outcome is `set_uncertain`, never read back, and a new invitation follows.
+  - Every refusal is the same page.
+  - `sensitive_post_parameters`; nothing typed is re-rendered.
+  - Private, no-referrer responses, and the token is redacted from Django's logs (the confirmation-link protections,
+    extended to the setup path).
+- **Inbound mail:** redaction version 2 removes a quoted setup link the way it removes a confirmation link.
+- **`SweepSetup`:** a `set_pending` past the timeout becomes `set_uncertain`, and a new series opens.
+- **`Activate`:**
+  - B6's fresh Documenso read;
+  - then one transaction: the prerequisites, verified provisioning and a completed setup;
+  - `provisioning -> active`;
+  - the approved `provisioning_welcome` (a synthetic draft seeded by migration, sent only once the owner approves
+    it) is frozen and queued for the P2 sender, to the verified external address, naming the new mailbox.
+
+  Without an approved welcome, or before setup completes, activation refuses with a staff item.
+- **The `welcome` approved-message kind** (correspondence migration `0016`).
+
+**Evidence:** `tests/test_credentials.py` (22 tests, with the review regressions): TEST-P5-03, 04, 13 to 16, the
+protections and the recipient re-check at send and redemption, plus the redaction case in `tests/test_inbound.py`.
+
+**Limits:**
+
+- The link has no per-IP rate limit. Attempts are bounded per setup (`CATALYST_SETUP_SET_ATTEMPTS`), and unknown
+  tokens cost one indexed lookup each.
+- Access-log redaction at a proxy is a P6 gate (`024` row 5).
+- The credential service's process isolation is the pre-live P1/P2 choice (11.1). Synthetic P5 calls the fake in
+  process.
+- The welcome's own delivery failures follow P2 (a bounce opens a staff item; the stage stays `active`).
+
+**After the reviews of PR #54** (security: one HIGH; QA: four HIGH; no blocker):
+
+- **The recipient is re-checked at redemption.** At GET and in the POST's locked check, it must still be the current
+  verified contact and outside the company domain. Otherwise the same closed page, and nothing is set.
+- **An unused link ends visibly.** At expiry, `setup_expire` moves it to `expired` and opens a new series, bounded.
+  At the bound, or after a cancelled or refused series, staff send a fresh link with `reissue` (a reason; any live
+  series is superseded first).
+- **Activation is never silently final.**
+  - It now needs the request at `setup_complete`, a completed setup with its timestamp, and a recorded verification
+    of this request.
+  - The welcome is frozen before the stage moves, so there is no activation without a welcome to send.
+  - A refusal opens a staff item. Staff run it again with `retry_activation`, a reason and every check repeated, once
+    the cause is fixed (for example after the owner approves the welcome template).
+- **A sweep acts only on its own attempt, and only after the timeout.**
+- **The password is protected in error reports:** `sensitive_variables` on the view and on `set_password`, and a test
+  that fails inside the recording transaction.
+- **The checklist path never calls the API for the credential.** It opens a staff item, because option (b) is a
+  separately approved contingency.
+- **An https guard:** outside test and development the public base URL must be https.
+
+**Recorded deviation.** The invitation is sent by its own handler, in the S1 verification pattern (a link built at
+send time, only the hash kept). It is not sent as a frozen P2 `ApprovedMessage`, so it has no `OutboundMessage` row
+and no P2 Message-ID: a bounced invitation is not matched to the application. The protective behaviour is that an
+uncertain send supersedes, and an unused link expires into a new series or a staff reissue.
+
+**Pre-live gates added:**
+
+- The credential operation's timeout must be well below `CATALYST_SETUP_SET_TIMEOUT_SECONDS`, so a late write cannot
+  land after a newer series.
+- Secure cookies, HSTS and an https redirect (`024`).
+
+**OWNER:**
+
+- the password policy beyond 8 to 72 characters (validators, or rely on the provider);
+- the production link lifetime;
+- the set of company domains the invitation must avoid;
+- whether to accept, until P6, that `/setup/` has no rate limit.

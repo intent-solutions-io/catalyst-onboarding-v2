@@ -300,13 +300,13 @@ def test_p2_47_a_redaction_version_bump_rederives_from_the_mailbox_and_keeps_no_
     _, message = sent_question(mailbox)
     mailbox.imap.deliver(reply(message, body="secret-like LEAKME123 text"))
     collect()
-    monkeypatch.setattr(mime, "REDACTION_VERSION", 2)
+    monkeypatch.setattr(mime, "REDACTION_VERSION", mime.REDACTION_VERSION + 1)
     monkeypatch.setattr(mime, "_CONFIRM", __import__("re").compile(r"LEAKME\d+"))
     from django.core.management import call_command
     from io import StringIO
     call_command("correspondence_rederive", stdout=StringIO())
     received = InboundMessage.objects.get()
-    assert received.redaction_version == 2 and "LEAKME123" not in received.derived_text
+    assert received.redaction_version == mime.REDACTION_VERSION and "LEAKME123" not in received.derived_text
 
 
 # --- TEST-P2-16, 17, 18: trust and association ----------------------------------------------------------------
@@ -702,7 +702,7 @@ def test_p2_47_rederivation_without_the_source_rederives_the_stored_derivative(m
     mailbox.imap.deliver(reply(message, body="secret-like LEAKME456 text"))
     collect()
     mailbox.imap.folders["INBOX"].messages.clear()  # the source is gone
-    monkeypatch.setattr(mime, "REDACTION_VERSION", 2)
+    monkeypatch.setattr(mime, "REDACTION_VERSION", mime.REDACTION_VERSION + 1)
     monkeypatch.setattr(mime, "_CONFIRM", __import__("re").compile(r"LEAKME\d+"))
     call_command("correspondence_rederive", stdout=StringIO())
     received = InboundMessage.objects.get()
@@ -855,3 +855,13 @@ def test_9kg_1_inbound_locations_are_append_only_for_every_role(mailbox):
                 conn.execute(sql, [location.pk])
         with pytest.raises((errors.InsufficientPrivilege, errors.RaiseException)):
             conn.execute("TRUNCATE correspondence_inboundmessagelocation CASCADE")
+
+
+def test_5b2_a_quoted_setup_link_is_removed_like_a_confirmation_link():
+    """Redaction version 2 (5B.2): a reply quoting a set-your-own-password link never keeps its token, even wrapped."""
+    raw = (b"From: ada@example.test\r\nTo: catalyst@example.test\r\nSubject: Re: setup\r\nMessage-ID: <q@example.test>\r\n"
+           b"MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nThanks!\r\n> http://catalyst.example.test"
+           b"/setup/AbCdEf_SETUPTOKEN_123456\r\n> 7890/\r\n")
+    text = mime.derive(raw, max_text_chars=10_000).text
+    assert "SETUPTOKEN" not in text and "7890" not in text and mime.REDACTED in text and "Thanks!" in text
+

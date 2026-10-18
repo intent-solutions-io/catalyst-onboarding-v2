@@ -294,6 +294,8 @@ DATABASE_CONSTRAINTS = {
     "provisioning_attempt_step_valid",
     "provisioning_attempt_outcome_valid",
     "provisioning_one_open_create",
+    "setup_series_unique", "setup_one_live_per_request", "setup_token_unique", "setup_state_valid",  # 5B.2
+    "setup_invited_has_token", "setup_completed_consistent",
     "stored_document_one_per_item", "stored_document_signed_only", "document_access_outcome_valid",  # 4B.3
     "details_one_per_version", "details_status_valid", "details_confirmed_has_actor",
 }

@@ -18,17 +18,17 @@ import re
 
 from django.utils.cache import patch_cache_control
 
-from applications.links import CONFIRM_PATH
+from applications.links import CONFIRM_PATH, SETUP_PATH
 
-TOKEN_IN_PATH = re.compile(re.escape(CONFIRM_PATH) + r"[^/\s?#\"']+")
-REDACTED = CONFIRM_PATH + "[redacted]"
+PRIVATE_PATHS = (CONFIRM_PATH, SETUP_PATH)
+TOKEN_IN_PATH = re.compile("(" + "|".join(re.escape(p) for p in PRIVATE_PATHS) + r")[^/\s?#\"']+")
 LOGGERS = ("django.request", "django.security.csrf", "django.server")
 
 
 class RedactConfirmationTokens(logging.Filter):
     def filter(self, record):
         message = record.getMessage()
-        redacted = TOKEN_IN_PATH.sub(REDACTED, message)
+        redacted = TOKEN_IN_PATH.sub(lambda m: m.group(1) + "[redacted]", message)
         if redacted != message:
             record.msg, record.args = redacted, ()
             if hasattr(record, "request"):
@@ -42,7 +42,7 @@ class PrivateConfirmationResponses:
 
     def __call__(self, request):
         response = self.get_response(request)
-        if request.path.startswith(CONFIRM_PATH):
+        if request.path.startswith(PRIVATE_PATHS):
             patch_cache_control(response, no_store=True, private=True)
             response["Referrer-Policy"] = "no-referrer"
         return response

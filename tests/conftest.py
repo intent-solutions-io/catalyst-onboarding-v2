@@ -266,6 +266,8 @@ EXPECTED_TRIGGERS = {
     ("provisioning_provisioningevidence", "catalyst_append_only"),
     ("provisioning_addressreservation", "catalyst_no_truncate"), ("provisioning_provisioningrequest", "catalyst_no_truncate"),
     ("provisioning_provisioningattempt", "catalyst_no_truncate"), ("provisioning_provisioningevidence", "catalyst_no_truncate"),
+    ("provisioning_credentialsetup", "catalyst_credential_setup_fixed"),  # P5 5B.2
+    ("provisioning_credentialsetup", "catalyst_no_truncate"),
 }
 
 

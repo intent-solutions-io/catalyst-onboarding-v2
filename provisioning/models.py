@@ -157,3 +157,43 @@ class ProvisioningEvidence(models.Model):
                                                          "staff_confirmed"]), name="provisioning_evidence_kind_valid"),
             models.CheckConstraint(condition=~Q(actor_ref=""), name="provisioning_evidence_has_actor"),
         ]
+
+
+SETUP_STATES = ("invitation_pending", "invitation_sending", "invited", "invitation_uncertain", "invitation_failed",
+                "presented", "set_pending", "completed", "set_uncertain", "expired", "cancelled", "superseded")
+LIVE_SETUP = ("invitation_pending", "invitation_sending", "invited", "presented", "set_pending")
+
+
+class CredentialSetup(models.Model):
+    """023 sections 11.2, 11.5 and 11.7 (5B.2): one set-your-own-password invitation series for a verified mailbox.
+
+    The token is minted by the worker at send time and only its SHA-256 is stored, once. The recipient is the
+    verified external address at the moment the series was opened, and is fixed. The chosen password is never stored
+    anywhere: it travels only in the POST and the in-process call to the credential operation.
+    """
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    request = models.ForeignKey(ProvisioningRequest, on_delete=models.PROTECT, related_name="setups")
+    series = models.PositiveIntegerField()
+    recipient = models.CharField(max_length=320)
+    token_sha256 = models.CharField(max_length=64, blank=True, default="")
+    state = models.CharField(max_length=24, default="invitation_pending")
+    expires_at = models.DateTimeField(null=True, blank=True)
+    set_attempts = models.PositiveIntegerField(default=0)
+    set_started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["request", "series"], name="setup_series_unique"),
+            models.UniqueConstraint(fields=["request"], condition=Q(state__in=LIVE_SETUP), name="setup_one_live_per_request"),
+            models.UniqueConstraint(fields=["token_sha256"], condition=~Q(token_sha256=""), name="setup_token_unique"),
+            models.CheckConstraint(condition=Q(state__in=SETUP_STATES), name="setup_state_valid"),
+            models.CheckConstraint(condition=~Q(state__in=["invited", "presented", "set_pending", "completed"])
+                                   | (~Q(token_sha256="") & Q(expires_at__isnull=False)), name="setup_invited_has_token"),
+            models.CheckConstraint(condition=Q(state="completed") | Q(completed_at__isnull=True),
+                                   name="setup_completed_consistent"),
+        ]
+

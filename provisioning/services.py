@@ -255,6 +255,9 @@ def attest_checklist_verification(request_id: int, user, note: str) -> None:
         _resolve(request, core.ITEM_CHECKLIST, "verified", actor(user))
         core.record(application, "provisioning_verified", {"request": str(request.public_id), "by": "checklist"},
                     actor(user), actor_type="staff")
+        from .credentials import open_setup
+
+        open_setup(request, actor(user))  # 5B.2
 
 
 # --- found by evidence, conflicts and supersession -----------------------------------------------------------------
@@ -297,7 +300,7 @@ def _mailbox_may_exist(request) -> bool:
 def _open_actions(request) -> bool:
     return PendingAction.objects.filter(input_ref=str(request.public_id), status__in=(
         PendingAction.Status.QUEUED, PendingAction.Status.RUNNING, PendingAction.Status.HELD)).exclude(
-        idempotency_key__contains=":watch:").exists()
+        idempotency_key__contains=":watch:").exclude(idempotency_key__startswith="setup_expire:").exists()
 
 
 def supersede(request_id: int, user, reason: str) -> None:
