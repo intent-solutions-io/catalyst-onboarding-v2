@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document | `023-AT-DSGN-p5-provisioning-specification` |
-| Version | 0.2.1 (0.1.0 prepared under D-40; 0.2.0 records the owner's P5 decisions, D-47, and corrects the MXroute research from the public API reference; 0.2.1 resolves the pre-build security and reliability reviews, section 11) |
+| Version | 0.2.1 (0.1.0 prepared under D-40; 0.2.0 records the owner's P5 decisions, D-47, and corrects the MXroute research from the public API reference; 0.2.1 and 0.2.2 resolve the pre-build security and reliability reviews and their re-checks, section 11) |
 | Status | **P5 decisions DECIDED by the owner 2026-10-18 (D-47) for synthetic work; 5A amended and 5B.1 to 5B.3 released for synthetic implementation against a local fake MXroute.** Not authorized: live MXroute access, any provider key, real mailboxes or passwords, real applicant data, role grants to real staff, deployment, and GATE-P5 acceptance (5C stays a draft for the owner). |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-18 |
@@ -425,3 +425,40 @@ None of these blocks synthetic work:
 - the welcome recipient (11.9);
 - the key type our account allows, and the server's password rules. These are pre-live checks that need a separately
   authorized live look.
+
+### 11.11 Re-check amendments (0.2.2)
+
+- **Retiring a live request.**
+  - A `ProvisioningRequest` can end `superseded`. Staff open a replacement when a prerequisite changed after release,
+    and that needs a new approval.
+  - The stage stays `provisioning` while any request is live. It returns to `agreements_complete` by compare-and-set
+    only when the last request ends without a mailbox (`superseded`, `conflict` or `failed_needs_staff`) and no watch
+    is open.
+- **Watching an abandoned create.**
+  - A create that ended `conflict` or `failed_needs_staff` after an unknown outcome gets a bounded watch, in the D-44
+    pattern, with keys `provision_reconcile:<attempt>:watch:<n>` and a re-arm limit.
+  - The reservation stays held while any watch is open.
+  - A late match is treated like `recovered_after_stop`: rotate and revoke, never delete, and open a staff item.
+- **B2 ordering.** The fresh Documenso read runs outside any transaction. The check transaction then re-checks the
+  database facts and the read's digest, and commits the attempt as `sending`. The mailbox "absent" read and the
+  create call run after that commit.
+- **`CONFLICT` provenance.** A `CONFLICT` on a first create, with no earlier unknown attempt of ours, is a foreign
+  mailbox: straight to `conflict`. Only an unknown outcome, or a `CONFLICT` after our own earlier unknown attempt,
+  reaches the `found_by_evidence` confirmation.
+- **Repeating keys.** Every revocation kind that can repeat carries a sequence number, for example
+  `revoke_rotate:<request>:<n>`.
+- **The invitation kind.** It has its own handler, and its uncertain outcome never enqueues the P2 `reconcile_send`
+  or opens `send_outcome_unknown`; it supersedes instead (11.2). The P2 `_freeze` refusal of secret-bearing
+  templates stays for every other kind.
+- **A definite password rejection.** A 400 on `field: password` moves `set_pending` back to `presented` for another
+  choice, up to `CATALYST_SETUP_SET_ATTEMPTS` (a synthetic default of 3), then `superseded`.
+- **Shared forwarders.** Only forwarders owned by the mailbox are deleted automatically. A forwarder that names the
+  address among other destinations, a catch-all or a pointer naming it becomes an `exception` for staff. The API
+  cannot edit a forwarder, and deleting a shared one would cut off its other recipients. The service gains a
+  pointer read.
+- **"No delete method"** means no mailbox, domain or reseller deletion. The adapter still deletes forwarders owned by
+  the mailbox.
+- **Open revocation items can end.** `unsupported` rows (sessions, app credentials) end only by an explicit,
+  owner-accepted `exception` with a recorded reason. That acceptance is shown on the screen and is never automatic.
+- **Setup-path log redaction** stays a blocking pre-live gate (`024` row 5).
+
