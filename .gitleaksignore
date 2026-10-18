@@ -1,0 +1,4 @@
+# Synthetic test strings that gitleaks' generic rules match. Each entry is a fingerprint (commit:file:rule:line) with
+# its reason; nothing listed here is a real credential.
+# PR #53: a deliberately credential-like checklist note in a test, proving such notes are refused.
+2451eddd5c367f22a3d4e97bb8f7f0207be2419c:tests/test_provisioning.py:generic-api-key:517

@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     "correspondence",
     "assessments",  # P3 (018; D-34)
     "agreements",  # P4 (021; D-37)
+    "provisioning",  # P5 (023; D-47)
 ]
 MIDDLEWARE = [
     "config.redaction.PrivateConfirmationResponses",  # outermost: covers responses built outside the view
@@ -166,7 +167,24 @@ CATALYST_ACTION_HANDLERS = {
     "advance_agreements": "agreements.completion.AdvanceAgreements",
     "cancel_agreement": "agreements.completion.CancelAgreement",
     "store_agreement": "agreements.custody.StoreAgreement",  # 4B.3 (021 section 7)
+    # P5 5B.1 (023 sections 5 and 11): the held `provision` hand-off stays held until `activate_provisioning`.
+    "provision_create": "provisioning.handlers.CreateMailbox",
+    "provision_reconcile": "provisioning.handlers.ReconcileMailbox",
+    "provision_verify": "provisioning.handlers.VerifyMailbox",
 }
+# P5 provisioning (023; D-47). Synthetic only: the adapter is a local fake set by tests, the domain a `.test` domain
+# (P5-D-1), and the limits labelled synthetic defaults (P5-D-2), never unlimited. A live adapter, a provider key and
+# the production domain are pre-live gates; the guards refuse them outside the test environment.
+CATALYST_PROVISIONING_ADAPTER = ""
+CATALYST_PROVISIONING_DOMAIN = ""
+CATALYST_PROVISIONING_METHOD = "api"  # P5-D-4: API-first against the fake; "checklist" is the recorded fallback
+CATALYST_PROVISIONING_QUOTA_MB = 1024  # synthetic default (P5-D-2)
+CATALYST_PROVISIONING_SEND_LIMIT = 100  # synthetic default (P5-D-2)
+CATALYST_PROVISIONING_RESERVED_LOCAL_PARTS = []
+CATALYST_PROVISIONING_ATTEMPTS = 3
+CATALYST_PROVISIONING_RECONCILE_CHECKS = 3
+CATALYST_PROVISIONING_RECONCILE_GRACE_SECONDS = 30
+CATALYST_PROVISIONING_WATCH_CHECKS = 3
 # The one seam through which the applications app opens a staff item for a `needs_staff_attention` event
 # (016 3.8; 2B.3). Like the handler mapping, a fixed dotted path in code, so `applications` never imports
 # `correspondence` (003 ADR-01) and the creation logic exists once.

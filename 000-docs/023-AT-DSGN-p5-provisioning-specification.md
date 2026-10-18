@@ -461,3 +461,96 @@ None of these blocks synthetic work:
 - **Open revocation items can end.** `unsupported` rows (sessions, app credentials) end only by an explicit,
   owner-accepted `exception` with a recorded reason. That acceptance is shown on the screen and is never automatic.
 - **Setup-path log redaction** stays a blocking pre-live gate (`024` row 5).
+
+## 12. The 5B.1 record: approved provisioning against the fake (D-47)
+
+**Built** (the `provisioning` app; migrations `0001` and `0002`):
+
+- **Records:** `AddressReservation`, `ProvisioningRequest`, `ProvisioningAttempt` and `ProvisioningEvidence`, with
+  their constraints.
+  - One live reservation per normalized address, and one live request per application.
+  - The quota is at least 1, and the send limit is between 1 and 9600.
+  - Approval is consistent and written once.
+  - At most one open create per request.
+- **Protections, for every role:**
+  - a request's identity, limits and digests are fixed, and its approval, stop and supersession are set once;
+  - a reservation's address is fixed, and its release is written once;
+  - an attempt's identity is fixed, and a settled outcome is final;
+  - evidence is append-only;
+  - a checklist attestation by the creator is refused;
+  - nothing is deleted or truncated.
+- **Permissions:** `approve_provisioning` and `operate_provisioning`, assigned to no group.
+- **`agreements.completion.prerequisites`:** one function for the P4 hand-off and every P5 boundary.
+  `fresh_read_problem` is the fresh Documenso read, outside any transaction, and opens the D-43 integrity hold on a
+  mismatch.
+- **The release command `activate_provisioning`:** versioned, and needs an approval reference. Its steps:
+  - B1's fresh read;
+  - the database checks under the lock;
+  - the naming rule, with suffixes, reserved and role names, and a reviewed exception through `reserve_exception`;
+  - one request awaiting approval;
+  - the stage `agreements_complete -> provisioning`.
+- **`approve`:** the approval digest covers the exact address, limits, method and prerequisite digest.
+- **`CreateMailbox`, the 11.4 B2 order:**
+  1. a fresh read;
+  2. the check transaction, which commits the attempt;
+  3. the authoritative "absent" read;
+  4. one create with a random password nobody sees;
+  5. the fenced result.
+
+  A mailbox present before the create, or a `CONFLICT` with no earlier unknown create of ours, is foreign and never
+  adopted. A `CONFLICT` after our own earlier unknown create, and every unknown outcome (a 429 after sending included),
+  goes to `ReconcileMailbox`, never to a blind repeat.
+- **`ReconcileMailbox`:**
+  - a present mailbox, absent before our create and with matching limits, is `found_by_evidence` for staff to
+    confirm;
+  - an absent one after the bounded checks is "not created", and a new series runs;
+  - a 500 is unknown;
+  - in watch mode, after supersession, it reports a late mailbox and keeps the reservation until the watch ends.
+- **`VerifyMailbox`:** the authoritative read; an SMTP acceptance never counts.
+- **The checklist path:** a recorded creation, and an attestation by a different named operator (refused for the
+  creator by the service and the database).
+- **`supersede`:** the reservation is released only when no mailbox may exist. With no live request left, the stage
+  returns and a new held hand-off awaits release and a new approval.
+- **Guards:** the adapter must be a test fake and the domain a `.test` domain, never set from the environment, and
+  empty outside `test`. The quota is never unlimited.
+
+**Evidence:** `tests/test_provisioning.py` (20 tests, TEST-P5-01, 02, 06 to 11 and 23, supersession, the watch and
+the protections), with the fake in `tests/mxroute_fake.py`.
+
+**Not yet:** the credential setup and activation (5B.2); withdrawal, revocation and the staff screen (5B.3). Stop
+intent is honoured where 5B.1 records an outcome (`recovered_after_stop`); writing it is 5B.3.
+
+**After the reviews of PR #53** (QA: three HIGH; security: one HIGH; no blocker):
+
+- **A 429 after the create was sent is unknown.** It is reconciled by reading, so an address is never freed while a
+  mailbox may exist.
+- **Release** records a prerequisite change since the P4 hand-off and binds today's snapshot into the new approval
+  (the approver always confirms the current state). It reuses only an unused reviewed exception. Otherwise it proposes a fresh address that is not live for
+  anyone and was never tried at the host by this application. A returned hand-off is checked against today's
+  prerequisites. Every refusal leaves a staff item. A dry run writes nothing.
+- **The stage returns only when no live request and no watch remain** (`return_stage_if_idle`). A watch never
+  releases a reservation that a live request uses. `release_address` lets staff release a held address after a watch,
+  with a reason, so the application can move to another address.
+- **A request can be superseded once no work is in flight**, including after a stuck reconcile.
+- **Every effect boundary includes the pause.**
+- **Ordering:**
+  - an earlier open attempt is reconciled before any other check;
+  - the adapter and domain are checked before an attempt is committed;
+  - the absent read is recorded under the fence.
+- **New series after "not created" are bounded.**
+- **The adapter's error codes are sanitized**, so no body or address can reach a record. No exception traceback
+  outlives the create call.
+- **Notes that look like credentials are refused.** Mail-host credential names in the environment are refused.
+- **The database refuses `..` in a local part.**
+
+**Residual limits:**
+
+- The provider-side check of a proposed address (existing mailboxes and forwarders) happens only at the create's
+  absent read: the adapter has no list or forwarder operation yet.
+- No two-worker race test exists (NOT RUN). Serialization rests on the one-open-create and one-live-request unique
+  indexes, which are tested directly. A lost lease between the absent read and the create is handled by the fence
+  but is not exercised by a test.
+- After an attempt settles, its `code` and `finished_at` stay writable; the outcome itself is final.
+- **OWNER:** one `approve_provisioning` holder may both reserve a reviewed exception and approve it, which is a
+  one-person control. This matches D-47's owner-as-approver; confirm it is accepted.
+- **OWNER (POL-10):** free-text notes in append-only evidence have no purge path.

@@ -49,6 +49,7 @@ APPROVED_MIGRATIONS = {
     ("agreements", "0005_stop_intent_and_replacement"), ("agreements", "0006_stop_intent_and_replacement_protection"),  # D-42, D-43
     ("agreements", "0007_custody_and_details"), ("agreements", "0008_custody_and_details_protection"),  # 4B.3
     ("correspondence", "0015_evidence_protection"),  # 9kg.1
+    ("provisioning", "0001_provisioning_records"), ("provisioning", "0002_provisioning_protection"),  # P5 5B.1
 }
 
 
