@@ -756,8 +756,8 @@ Bead `catalyst-v2-hdg.4`; tests in `tests/test_agreement_custody.py`.
 
 **The gate.** `tests/acceptance.py` `P4_CASES` maps TEST-P4-01 to 32. `P4_SUPPORTING` maps D-41 to D-44, the
 hardening 9kg.1 to 9kg.3 and three removed-gate controls. A full run gates GATE-P4 with GATE-S1 to GATE-P3: every
-case must PASS at one head. The after-action report and the proposed sign-off are in `000-aars/022`. **GATE-P4 is
-not signed off until the owner records it.**
+case must PASS at one head. The after-action report and its statement are in `000-aars/022`. **GATE-P4 was signed
+off by the owner on 2026-10-18 (D-45)** on CI run 39103156421 at `f11ca36`.
 
 **The journey** (`tests/test_p4_journey.py`):
 

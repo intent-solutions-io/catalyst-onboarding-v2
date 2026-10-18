@@ -6,8 +6,9 @@
 > against a local fake of the installed Documenso version, on synthetic data. No real envelope, agreement text,
 > applicant or provider credential was used.
 
-- **Status:** **awaiting the owner's GATE-P4 sign-off.** The result is not pre-approved (D-40). The proposed
-  statement is in section 9.
+- **Status:** GATE-P4 signed off by the owner on 2026-10-18 (D-45 in `011`), on CI run 39103156421 at head
+  `f11ca36` (1000 passed; GATE-S1 25, GATE-P2 54, GATE-P3 60, GATE-P4 40), accepting the statement in section 9 and
+  its limits.
 - **Lane:** full. Every task had review findings and fixes (section 5).
 - **Epic:** "Issue and verify the NDA, User Agreement and other required agreements through Documenso with protected
   custody" (bead `catalyst-v2-hdg`).
