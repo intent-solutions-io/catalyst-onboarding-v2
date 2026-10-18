@@ -25,7 +25,7 @@ the "Today" column, "proven" means a test passes in CI; it does not mean deploye
 | 6 | Abuse controls | webhook flood coalescing; staff throttling none | an intake form rate limit (POL-01, POL-12), login throttling, a bulk retrieval alert | GATE-PILOT |
 | 7 | Monitoring | `correspondence_health` command; staff queues | alert wiring to the operator alert channel; the collector, worker liveness and custody failure counts as checks | GATE-STAGING |
 | 8 | Backup of PostgreSQL **and** signed-document storage, taken together | a local synthetic rehearsal: one snapshot plus the referenced files plus a manifest (`tests/test_restore_rehearsal.py`, 9kg.7) | one coherent backup per run: a database dump and the custody directory with a manifest of `StoredDocument` keys and SHA-256 values | GATE-STAGING |
-| 9 | Verified restore | local rehearsal: restore elsewhere, then `verify_custody_restore` and protection checks (9kg.7) | a restore drill into a disposable database and directory, then a checker that every `StoredDocument` row's file exists and hashes equal and no file is unreferenced (proposal: `scripts/verify_custody_restore.py`) | GATE-STAGING |
+| 9 | Verified restore | local rehearsal in the same PostgreSQL instance: a new migrated database at the backup's migration list, then `verify_custody_restore --manifest` and protection checks (9kg.7) | a restore drill into a disposable database and directory, then a checker that every `StoredDocument` row's file exists and hashes equal and no file is unreferenced (proposal: `scripts/verify_custody_restore.py`) | GATE-STAGING |
 | 10 | Rollback | migrations reverse where safe; 0005 and 0006 refuse once used (proven) | a documented rollback for each release; a pre-deploy backup | GATE-STAGING |
 | 11 | Reversible LMS routing | `003` records today's routing, checked read-only on 2026-10-09; v2 routing proposed | a staged, reversible proxy change (owner decision); no proxy change authorized | GATE-CUTOVER |
 | 12 | Release from a tested commit | (INSPECTED from `009` section 5.5, not re-checked against GitHub here) the release workflow publishes only main's CI-green head, writes no history and defaults to a dry run (PR #41) | the owner proposals in `009` section 5.5: a `main` ruleset and a protected release environment (today `main` is unprotected) | any real release |
@@ -37,21 +37,35 @@ the "Today" column, "proven" means a test passes in CI; it does not mean deploye
 Each proposal is validated only against disposable synthetic resources, such as the test containers.
 
 1. **Built as a local rehearsal (bead 9kg.7).** It is synthetic and proves the procedure, not production RPO or RTO.
-   - **The checker:** the management command `verify_custody_restore --storage-dir <dir>`. It is read-only and
-     prints counts and keys, never bytes. It verifies that every `StoredDocument` key exists as a 0600 regular file
-     with the recorded size and SHA-256, and lists orphans without deleting them.
+   - **The checker:** the management command `verify_custody_restore --storage-dir <dir> [--manifest <file>]`. It is
+     read-only and prints counts and keys, never bytes.
+     - It verifies that every `StoredDocument` key exists as a 0600 regular file, not a link, with the recorded size
+       and SHA-256.
+     - With `--manifest`, the restored rows must equal the backup's documents, so an empty or truncated table fails.
+     - Orphans are listed, never deleted, and do not fail the check.
    - **The rehearsal:** `tests/test_restore_rehearsal.py`.
-     - Backup: it takes one REPEATABLE READ snapshot of every public table (COPY), copies the referenced custody
-       files, and writes a manifest of per-table row counts and SHA-256, document keys and digests, and the
-       migration revision.
-     - Restore: into a new database migrated to the same revision, with triggers disabled for the load only (as
+     - **Backup.** One REPEATABLE READ, read-only transaction (asserted). A row committed by another session after the
+       first table is copied is proven absent from the backup. It COPYs every public table, then the custody files
+       for exactly the rows in that snapshot, then a manifest: per-table row counts and an order-independent SHA-256,
+       document keys and digests, and the migration list.
+     - **Restore.** Into a new database in the same PostgreSQL instance, migrated, and checked to be at the backup's
+       migration list before any row loads. The data is loaded with triggers off for the load only (as
        `pg_restore --disable-triggers`).
-     - Verification: it proves the same table bytes, the same enabled protection triggers and the same role
-       privileges as the source. It proves the files verify, and that a missing or a corrupt file fails while an
-       orphan is reported and kept.
-     - No worker runs and no provider is configured during the restore.
-   - **Still open for P6:** real dump tooling (`pg_dump`/`pg_restore`, encryption, off-host copies), a restore drill
-     on staging, and measured recovery times.
+     - **Verification.**
+       - Every table's digest matches the backup.
+       - The restored protection fires: the owner is refused an update, delete or truncate of history.
+       - The triggers and role privileges equal the source's. Both come from migrations, so this proves the target
+         is complete, not that the backup carries them.
+       - The files and the manifest verify.
+       - Missing, corrupt, resized, wrong-mode and linked files fail, and a truncated table fails against its
+         manifest.
+     - **No worker or provider runs** during the restore.
+   - **Still open for P6:**
+     - real dump tooling (`pg_dump`/`pg_restore`, encryption, off-host copies);
+     - roles and other cluster-wide objects, which this rehearsal shares with the source because it restores in the
+       same instance;
+     - a restore drill on staging;
+     - measured recovery times.
 
 2. A `deploy/` example (proposal, not written yet): one compose file for web, worker and PostgreSQL with the three
    roles. Secrets come from SOPS at runtime. The webhook route is off by default.
