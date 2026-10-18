@@ -43,7 +43,7 @@ class AdapterError(Exception):
 
     @property
     def conflict(self) -> bool:
-        return self.status == 409 or self.code == "CONFLICT"
+        return self.status == 409 or self.code == "conflict"
 
     def __repr__(self):
         return f"AdapterError({self.code!r}, sent={self.sent}, status={self.status})"
