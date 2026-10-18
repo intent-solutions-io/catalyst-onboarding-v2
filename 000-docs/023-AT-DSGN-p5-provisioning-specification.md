@@ -4,7 +4,7 @@
 |---|---|
 | Document | `023-AT-DSGN-p5-provisioning-specification` |
 | Version | 0.2.1 (0.1.0 prepared under D-40; 0.2.0 records the owner's P5 decisions, D-47, and corrects the MXroute research from the public API reference; 0.2.1 and 0.2.2 resolve the pre-build security and reliability reviews and their re-checks, section 11) |
-| Status | **P5 decisions DECIDED by the owner 2026-10-18 (D-47) for synthetic work; 5A amended and 5B.1 to 5B.3 released for synthetic implementation against a local fake MXroute.** Not authorized: live MXroute access, any provider key, real mailboxes or passwords, real applicant data, role grants to real staff, deployment, and GATE-P5 acceptance (5C stays a draft for the owner). |
+| Status | **P5 decisions DECIDED by the owner 2026-10-18 (D-47) for synthetic work; 5A amended and 5B.1 to 5B.3 released for synthetic implementation against a local fake MXroute.** Not authorized: live MXroute access, any provider key, real mailboxes or passwords, real applicant data, role grants to real staff, deployment, and any live use. **GATE-P5 signed off 2026-10-18 (D-48)** for synthetic P5 (`025`). |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-18 |
 | Epic | P5, "Provision the approved mailbox, activate the applicant, and support withdrawal and recovery" (`catalyst-v2-tuc`) |
@@ -795,7 +795,7 @@ the pull request):
 **Limits:** the screen has no throttle or MFA of its own (POL-13 at the staging gate), and it is not an accessibility
 audit.
 
-## 16. The 5C record: the GATE-P5 case map, journey and report (draft; GATE-P5 unsigned)
+## 16. The 5C record: the GATE-P5 case map, journey and report (GATE-P5 signed off, D-48)
 
 - **The map.** `tests/acceptance.py` maps TEST-P5-01 to 24 (`P5_CASES`) and five supporting groups
   (`P5_SUPPORTING`):
@@ -827,5 +827,5 @@ audit.
 
   The screen-gate control now removes only that gate and tries all 13 actions. What stays partial is listed in
   `025` section 4.
-- **Report:** `000-aars/025-AA-AACR-p5-provisioning.md`, with the proposed GATE-P5 statement. The owner decides;
-  nothing here signs it.
+- **Report:** `000-aars/025-AA-AACR-p5-provisioning.md`, with the GATE-P5 statement the owner accepted on 2026-10-18
+  (D-48).

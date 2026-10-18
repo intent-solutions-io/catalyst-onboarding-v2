@@ -7,8 +7,9 @@
 > Catalyst revokes access without deleting anything. Everything here ran against a local fake of the documented
 > MXroute operations, on synthetic data. No real mailbox, password, provider key or applicant was used.
 
-- **Status:** DRAFT for the owner. **GATE-P5 is not signed.** The proposed statement is in section 9. Nothing
-  here is accepted until the owner says so.
+- **Status:** GATE-P5 signed off by the owner on 2026-10-18 (D-48 in `011`), on CI run 39165187400 at head
+  `f3d7503` (1144 passed; GATE-S1 25, GATE-P2 54, GATE-P3 60, GATE-P4 40, GATE-P5 29), accepting the statement in
+  section 9 and the partial clauses in section 4.
 - **Lane:** full. Every task had review findings and fixes (section 5).
 - **Epic:** "Provision the approved mailbox, activate the applicant, and support withdrawal and recovery" (bead
   `catalyst-v2-tuc`).
@@ -26,7 +27,7 @@
   - decisions: PR #51 (D-47, `023` 0.2.0, with the public MXroute API);
   - backup and restore rehearsal: PR #52 (9kg.7);
   - 5B.1: PR #53; 5B.2: PR #54; 5B.3a: PR #55; 5B.3b: PR #56;
-  - 5C: this pull request (a draft until the owner decides).
+  - 5C: PR #57 (this report).
 - **Period:** 2026-10-18
 - **Author:** Jeremy Longshore. Claude Code implemented the work; the Catalyst specialist subagents reviewed it.
 - **Template:** 000-AA-TMPL v1.0.0
@@ -236,7 +237,7 @@ The P4 hand-off stays held, as it was before P5. A full P5 rollback was not rehe
 
 ## 9. Next steps
 
-**GATE-P5 sign-off statement (PROPOSED; not accepted):**
+**GATE-P5 sign-off statement (proposed here; accepted by the owner on 2026-10-18, D-48):**
 
 > "I accept GATE-P5 for synthetic P5 at the final head of the 5C pull request, on its CI run (the run, head and gate
 > counts are linked on the pull request; a passing case means its mapped tests passed, with the limits in section
