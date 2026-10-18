@@ -169,7 +169,7 @@ RUN_IDENTITY = {"marker": f"catalyst-test-run:{uuid.uuid4()}"}
 # Slice data plus staff accounts, their sessions and the admin log (S1-T7); the read-only group and its
 # permissions come from migrations and are kept.
 # The agreement types are the P4-D-1 inventory seeded by migration (like the groups), so the reset keeps them.
-SLICE_TABLES = re.compile(r"^((applications|workflow|correspondence|assessments)_|agreements_(?!agreementtype$)|accounts_user"
+SLICE_TABLES = re.compile(r"^((applications|workflow|correspondence|assessments|provisioning)_|agreements_(?!agreementtype$)|accounts_user"
                           r"|django_session$|django_admin_log$)")
 RESET_TRIGGER = "catalyst_no_truncate"
 _session = {}
@@ -259,6 +259,13 @@ EXPECTED_TRIGGERS = {
     ("correspondence_approvedmessage", "catalyst_no_truncate"),
     ("correspondence_messagetemplateversion", "catalyst_template_version_frozen"),
     ("correspondence_messagetemplateversion", "catalyst_no_truncate"),
+    ("provisioning_provisioningrequest", "catalyst_provisioning_request_fixed"),  # P5 5B.1
+    ("provisioning_addressreservation", "catalyst_provisioning_reservation_fixed"),
+    ("provisioning_provisioningattempt", "catalyst_provisioning_attempt_fixed"),
+    ("provisioning_provisioningevidence", "catalyst_provisioning_verifier_differs"),
+    ("provisioning_provisioningevidence", "catalyst_append_only"),
+    ("provisioning_addressreservation", "catalyst_no_truncate"), ("provisioning_provisioningrequest", "catalyst_no_truncate"),
+    ("provisioning_provisioningattempt", "catalyst_no_truncate"), ("provisioning_provisioningevidence", "catalyst_no_truncate"),
 }
 
 

@@ -364,6 +364,57 @@ def latest_details_ref(application, agreement_type) -> str:
     return str(row.public_id) if row else ""
 
 
+def prerequisites(application):
+    """(refs, digest, reason): the exact agreement prerequisites for provisioning, and an empty reason when they all
+    hold. One function for the P4 hand-off and every P5 effect boundary (023 section 11.4), from the database only;
+    a fresh provider read is the caller's, outside any transaction."""
+    _, next_type, reason = next_step(application)
+    types = list(AgreementType.objects.filter(required=True).order_by("order"))
+    if next_type is not None or reason != "all_passed":
+        return {}, "", reason or "agreements_incomplete"
+    if any(not details_confirmed(application, t) for t in types):
+        return {}, "", "details_needed"
+    refs = {}
+    for t in types:
+        live = (AgreementInstance.objects.filter(application=application, agreement_type=t, replaced_at__isnull=True)
+                .exclude(issue_status__in=("superseded", "cancelled")).get())
+        refs[t.key] = {"instance": str(live.public_id),
+                       "documents": sorted(str(d) for d in live.documents.values_list("public_id", flat=True)),
+                       "details": latest_details_ref(application, t)}
+    digest = hashlib.sha256(json.dumps(refs, sort_keys=True).encode()).hexdigest()
+    return refs, digest, ""
+
+
+def live_required_instances(application) -> list:
+    return [AgreementInstance.objects.select_related("template_version", "agreement_type").filter(
+        application=application, agreement_type=t, replaced_at__isnull=True)
+        .exclude(issue_status__in=("superseded", "cancelled")).first()
+        for t in AgreementType.objects.filter(required=True).order_by("order")]
+
+
+def fresh_read_problem(application) -> str:
+    """Outside any transaction: a fresh provider read of every live required agreement must still show it complete,
+    ours, with every required signature (REQ-011; 023 section 11.4). A mismatch opens the D-43 integrity hold. Returns
+    a reason code, or an empty string."""
+    if transaction.get_connection().in_atomic_block:
+        raise RuntimeError("a fresh provider read never runs inside a transaction")
+    for instance in live_required_instances(application):
+        if instance is None or not instance.envelope_id:
+            return "agreements_incomplete"
+        try:
+            env = provider.read(instance.envelope_id)
+        except provider.ProviderError:
+            return "provider_unavailable"
+        data = facts(instance, env.status, env.recipients, identity=read_identity(instance, env))
+        if not (env.status == "COMPLETED" and data["identity_match"] and data["all_required_signed"]):
+            with transaction.atomic():
+                Application.objects.select_for_update(of=("self",)).get(pk=application.pk)
+                observe(instance, ProviderObservation.Source.READ, data)
+                open_integrity_hold(instance, "provisioning_read_mismatch")
+            return "agreement_integrity_hold"
+    return ""
+
+
 def gate_passed(instance) -> bool:
     if instance.signing_status != "signing_complete_verified" or instance.replaced_at or integrity_hold_open(instance):
         return False
@@ -450,18 +501,9 @@ class AdvanceAgreements:
         application = Application.objects.get(pk=application.pk)
         if application.stage != Stage.AGREEMENTS or stopped(application):
             return
-        _, next_type, reason = next_step(application)
-        types = list(AgreementType.objects.filter(required=True).order_by("order"))
-        if next_type is not None or reason != "all_passed" or any(not details_confirmed(application, t) for t in types):
+        refs, digest, reason = prerequisites(application)
+        if reason:
             return
-        refs = {}
-        for t in types:
-            live = (AgreementInstance.objects.filter(application=application, agreement_type=t, replaced_at__isnull=True)
-                    .exclude(issue_status__in=("superseded", "cancelled")).get())
-            refs[t.key] = {"instance": str(live.public_id),
-                           "documents": sorted(str(d) for d in live.documents.values_list("public_id", flat=True)),
-                           "details": latest_details_ref(application, t)}
-        digest = hashlib.sha256(json.dumps(refs, sort_keys=True).encode()).hexdigest()
         try:
             transition(application.pk, (Stage.AGREEMENTS,), Stage.AGREEMENTS_COMPLETE, event_kind="agreements_complete",
                        data={"prerequisites": refs, "digest": digest}, actor_ref=f"pending_action:{claim.id}")

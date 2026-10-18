@@ -461,3 +461,60 @@ None of these blocks synthetic work:
 - **Open revocation items can end.** `unsupported` rows (sessions, app credentials) end only by an explicit,
   owner-accepted `exception` with a recorded reason. That acceptance is shown on the screen and is never automatic.
 - **Setup-path log redaction** stays a blocking pre-live gate (`024` row 5).
+
+## 12. The 5B.1 record: approved provisioning against the fake (D-47)
+
+**Built** (the `provisioning` app; migrations `0001` and `0002`):
+
+- **Records:** `AddressReservation`, `ProvisioningRequest`, `ProvisioningAttempt` and `ProvisioningEvidence`, with
+  their constraints.
+  - One live reservation per normalized address, and one live request per application.
+  - The quota is at least 1, and the send limit is between 1 and 9600.
+  - Approval is consistent and written once.
+  - At most one open create per request.
+- **Protections, for every role:**
+  - a request's identity, limits and digests are fixed, and its approval, stop and supersession are set once;
+  - a reservation's address is fixed, and its release is written once;
+  - an attempt's identity is fixed, and a settled outcome is final;
+  - evidence is append-only;
+  - a checklist attestation by the creator is refused;
+  - nothing is deleted or truncated.
+- **Permissions:** `approve_provisioning` and `operate_provisioning`, assigned to no group.
+- **`agreements.completion.prerequisites`:** one function for the P4 hand-off and every P5 boundary.
+  `fresh_read_problem` is the fresh Documenso read, outside any transaction, and opens the D-43 integrity hold on a
+  mismatch.
+- **The release command `activate_provisioning`:** versioned, and needs an approval reference. Its steps:
+  - B1's fresh read;
+  - the database checks under the lock;
+  - the naming rule, with suffixes, reserved and role names, and a reviewed exception through `reserve_exception`;
+  - one request awaiting approval;
+  - the stage `agreements_complete -> provisioning`.
+- **`approve`:** the approval digest covers the exact address, limits, method and prerequisite digest.
+- **`CreateMailbox`, the 11.4 B2 order:**
+  1. a fresh read;
+  2. the check transaction, which commits the attempt;
+  3. the authoritative "absent" read;
+  4. one create with a random password nobody sees;
+  5. the fenced result.
+
+  A `CONFLICT` is foreign, and a mailbox present before the create is never adopted. An unknown outcome goes to
+  `ReconcileMailbox`, never to a blind repeat.
+- **`ReconcileMailbox`:**
+  - a present mailbox, absent before our create and with matching limits, is `found_by_evidence` for staff to
+    confirm;
+  - an absent one after the bounded checks is "not created", and a new series runs;
+  - a 500 is unknown;
+  - in watch mode, after supersession, it reports a late mailbox and keeps the reservation until the watch ends.
+- **`VerifyMailbox`:** the authoritative read; an SMTP acceptance never counts.
+- **The checklist path:** a recorded creation, and an attestation by a different named operator (refused for the
+  creator by the service and the database).
+- **`supersede`:** the reservation is released only when no mailbox may exist. With no live request left, the stage
+  returns and a new held hand-off awaits release and a new approval.
+- **Guards:** the adapter must be a test fake and the domain a `.test` domain, never set from the environment, and
+  empty outside `test`. The quota is never unlimited.
+
+**Evidence:** `tests/test_provisioning.py` (20 tests, TEST-P5-01, 02, 06 to 11 and 23, supersession, the watch and
+the protections), with the fake in `tests/mxroute_fake.py`.
+
+**Not yet:** the credential setup and activation (5B.2); withdrawal, revocation and the staff screen (5B.3). Stop
+intent is honoured where 5B.1 records an outcome (`recovered_after_stop`); writing it is 5B.3.

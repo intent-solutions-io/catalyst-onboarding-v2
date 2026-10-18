@@ -276,6 +276,24 @@ DATABASE_CONSTRAINTS = {
     "agreement_recipient_one_per_slot", "agreement_recipient_who_valid", "envelope_attempt_step_valid",
     "envelope_attempt_outcome_valid", "observation_source_valid", "observation_webhook_once",  # 4B.2
     "agreement_replacement_consistent",  # D-43
+    # P5 5B.1 (023 section 4)
+    "reservation_live_address_unique",
+    "reservation_basis_valid",
+    "reservation_exception_reviewed",
+    "reservation_local_part_safe",
+    "provisioning_one_live_request",
+    "provisioning_status_valid",
+    "provisioning_method_valid",
+    "provisioning_quota_positive",
+    "provisioning_send_limit_range",
+    "provisioning_approval_consistent",
+    "provisioning_progress_needs_approval",
+    "provisioning_not_self_superseding",
+    "provisioning_evidence_kind_valid",
+    "provisioning_evidence_has_actor",
+    "provisioning_attempt_step_valid",
+    "provisioning_attempt_outcome_valid",
+    "provisioning_one_open_create",
     "stored_document_one_per_item", "stored_document_signed_only", "document_access_outcome_valid",  # 4B.3
     "details_one_per_version", "details_status_valid", "details_confirmed_has_actor",
 }
@@ -291,7 +309,8 @@ def test_s1_20_every_named_constraint_exists_in_the_database():
         names |= {r[0] for r in cursor.fetchall()}  # partial unique constraints are unique indexes
     assert DATABASE_CONSTRAINTS <= names, DATABASE_CONSTRAINTS - names
     # The list above covers every constraint the models declare (plus the two composite foreign keys).
-    declared = {c.name for label in ("applications", "workflow", "correspondence", "assessments", "agreements")
+    declared = {c.name for label in ("applications", "workflow", "correspondence", "assessments", "agreements",
+                                     "provisioning")
                 for model in apps.get_app_config(label).get_models() for c in model._meta.constraints}
     assert declared <= DATABASE_CONSTRAINTS, declared - DATABASE_CONSTRAINTS
 

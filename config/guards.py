@@ -130,8 +130,9 @@ def dispatch_problems(settings, environ: Mapping[str, str]) -> list[str]:
         if path is not None and not str(path).startswith("assessments."):
             problems.append(f"{name} must name an assessments object")
     for kind, path in (getattr(settings, "CATALYST_ACTION_HANDLERS", None) or {}).items():
-        if not str(path).startswith(("correspondence.", "workflow.", "assessments.", "agreements.")):
-            problems.append(f"CATALYST_ACTION_HANDLERS[{kind!r}] must name a correspondence, workflow, assessments or agreements handler")
+        if not str(path).startswith(("correspondence.", "workflow.", "assessments.", "agreements.", "provisioning.")):
+            problems.append(f"CATALYST_ACTION_HANDLERS[{kind!r}] must name a correspondence, workflow, assessments, "
+                            "agreements or provisioning handler")
     return problems
 
 
@@ -213,6 +214,35 @@ def agreement_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return problems
 
 
+PROVISIONING_TEST_ONLY = ("CATALYST_PROVISIONING_ADAPTER", "CATALYST_PROVISIONING_DOMAIN")
+
+
+def provisioning_problems(settings, environ: Mapping[str, str]) -> list[str]:
+    """023 sections 3 and 11.1 (P5 5B.1; TEST-P5-23): no real mail host. The adapter and the domain are fixed in code,
+    never from the environment, and empty outside `test`. In `test` the adapter must be a test fake and the domain a
+    `.test` domain. No live adapter exists; building one is a pre-live gate (D-47)."""
+    problems = [f"{name} may not be set from the environment" for name in PROVISIONING_TEST_ONLY if name in environ]
+    if getattr(settings, "CATALYST_ENV", "") != "test":
+        for name in PROVISIONING_TEST_ONLY:
+            if getattr(settings, name, ""):
+                problems.append(f"{name} is allowed only in the test environment (synthetic provisioning only)")
+        return problems
+    adapter = getattr(settings, "CATALYST_PROVISIONING_ADAPTER", "")
+    if adapter and not adapter.startswith("tests."):
+        problems.append("CATALYST_PROVISIONING_ADAPTER must name a test fake")
+    domain = getattr(settings, "CATALYST_PROVISIONING_DOMAIN", "")
+    if domain and not domain.lower().endswith(".test"):
+        problems.append("CATALYST_PROVISIONING_DOMAIN must be a .test domain")
+    if getattr(settings, "CATALYST_PROVISIONING_METHOD", "api") not in ("api", "checklist"):
+        problems.append("CATALYST_PROVISIONING_METHOD must be api or checklist")
+    quota, limit = getattr(settings, "CATALYST_PROVISIONING_QUOTA_MB", 1), getattr(settings, "CATALYST_PROVISIONING_SEND_LIMIT", 1)
+    if not (isinstance(quota, int) and quota >= 1):
+        problems.append("CATALYST_PROVISIONING_QUOTA_MB must be at least 1 (never unlimited, P5-D-2)")
+    if not (isinstance(limit, int) and 1 <= limit <= 9600):
+        problems.append("CATALYST_PROVISIONING_SEND_LIMIT must be between 1 and 9600")
+    return problems
+
+
 def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return (
         database_problems(settings.DATABASES)
@@ -224,4 +254,5 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + assessment_problems(settings, environ)
         + decision_problems(settings, environ)
         + agreement_problems(settings, environ)
+        + provisioning_problems(settings, environ)
     )
