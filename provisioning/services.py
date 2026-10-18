@@ -354,8 +354,8 @@ def release_address(request_id: int, user, reason: str) -> None:
     request = ProvisioningRequest.objects.get(pk=request_id)
     with transaction.atomic():
         application, request = core.lock(request.application_id, request.pk)
-        if request.status not in ("superseded", "recovered_after_stop", "stopped", "conflict"):
-            raise Refused("request_still_live")
+        if request.status not in ("superseded", "recovered_after_stop", "stopped", "conflict", "failed_needs_staff"):
+            raise Refused("request_still_live")  # failed_needs_staff: e.g. a rejected create left on a closed application
         if core.watch_open(application):
             raise Refused("watch_open")
         if not AddressReservation.objects.filter(pk=request.reservation_id, released_at__isnull=True).update(

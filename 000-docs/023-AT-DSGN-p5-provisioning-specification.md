@@ -772,7 +772,23 @@ permissions grant neither. The tests check this on the correspondence screen and
 - send a withdrawal link;
 - close or withdraw.
 
-**Evidence:** `tests/test_provisioning_screen.py` (7 tests): TEST-P5-19, 20.
+**After the reviews of PR #56:**
+
+- The offered controls mirror the service guards, and a status-by-method table test pins them.
+  - After a close, the address can still be released and a found mailbox still decided.
+  - A late mailbox on a superseded request is offered for a decision.
+  - The checklist path names its operator steps.
+- `release_address` also accepts `failed_needs_staff`, for example a rejected create left on a closed application.
+- Each request shows its blocker (`core.database_problem`) and its open items in plain words.
+- Every refusal is logged with the user, action, application and code, never a typed value. A record from another
+  application or a malformed id is refused as `invalid_request`, and any other error is a server error with its
+  traceback.
+- The page has no navigation into the mail screens.
+- The approval digest is fixed when the request is created, so `changed_since_shown` catches a forged or stale form
+  value. A real change of prerequisites is refused separately as `prerequisites_changed`, and the page shows it as
+  the blocker.
+
+**Evidence:** `tests/test_provisioning_screen.py` (40 tests with their parameters): TEST-P5-19, 20.
 
 **Limits:** the screen has no throttle or MFA of its own (POL-13 at the staging gate), and it is not an accessibility
 audit.

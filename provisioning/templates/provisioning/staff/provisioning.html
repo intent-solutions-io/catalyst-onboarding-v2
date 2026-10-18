@@ -1,12 +1,13 @@
 {% extends "correspondence/staff/base.html" %}{% load correspondence_display %}
+{% block nav %}<nav><a href="{% url 'admin:index' %}">Read-only dossier</a></nav>{% endblock %}
 {% block content %}
 <h1>Provisioning: <bdi>{{ application.display_name|visible }}</bdi></h1>
 <p>Stage: {{ application.stage }}. <strong>Next:</strong> {{ next_action }} (owner: {{ owner }}).</p>
 <p>This screen manages access only. It shows no applicant mail and no signed documents.</p>
 {% if error %}<p class="refused" role="alert">{{ error }}</p>{% endif %}
 
-<h2>Open provisioning items</h2>
-{% if items %}<ul>{% for item in items %}<li>{{ item.reason_code }} (opened {{ item.opened_at|date:"c" }}, {{ item.opened_at|timesince }} ago)</li>{% endfor %}</ul>{% else %}<p>None.</p>{% endif %}
+<h2>Open provisioning items for the application</h2>
+{% if items %}<ul>{% for i in items %}<li>{{ i.text|default:i.item.reason_code }} ({{ i.item.reason_code }}; opened {{ i.item.opened_at|date:"c" }}, {{ i.item.opened_at|timesince }} ago)</li>{% endfor %}</ul>{% else %}<p>None.</p>{% endif %}
 
 {% for row in rows %}{% with r=row.request rid=row.request.public_id|stringformat:"s" %}
 <section aria-labelledby="pr-{{ r.public_id }}">
@@ -16,12 +17,14 @@
 <tr><th scope="row">Address</th><td><bdi>{{ r.reservation.local_part|visible }}@{{ r.reservation.domain|visible }}</bdi> ({{ r.reservation.basis }}){% if r.reservation.released_at %}, released{% endif %}</td></tr>
 <tr><th scope="row">Limits</th><td>{{ r.quota_mb }} MB storage, {{ r.send_limit }} messages per hour</td></tr>
 <tr><th scope="row">Method</th><td>{{ r.method }}</td></tr>
+{% if row.blocker %}<tr><th scope="row">Blocked</th><td class="refused">{{ row.blocker }}: nothing further happens until this is fixed</td></tr>{% endif %}
 <tr><th scope="row">Approval</th><td>{% if r.approved_at %}approved by {{ r.approved_by }} at {{ r.approved_at|date:"c" }}{% else %}not approved{% endif %}</td></tr>
 </table>
+{% if row.items %}<h3>Open items</h3><ul>{% for i in row.items %}<li class="refused">{{ i.text|default:i.item.reason_code }} ({{ i.item.reason_code }}; opened {{ i.item.opened_at|date:"c" }}, {{ i.item.opened_at|timesince }} ago)</li>{% endfor %}</ul>{% endif %}
 
 <h3>Creation and verification</h3>
 {% if row.attempts %}<ul>{% for at in row.attempts %}<li>{{ at.step }} {{ at.series }}: {{ at.outcome }}{% if at.code %} ({{ at.code }}){% endif %}{% if at.absent_before %}; absent before the create{% endif %}, {{ at.started_at|date:"c" }}</li>{% endfor %}</ul>{% else %}<p>No attempts yet.</p>{% endif %}
-{% if row.evidence %}<h4>Evidence</h4><ul>{% for e in row.evidence %}<li>{{ e.kind }} by {{ e.actor_ref }} at {{ e.created_at|date:"c" }}{% if e.note %}: {{ e.note }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+{% if row.evidence %}<h4>Evidence</h4><ul>{% for e in row.evidence %}<li>{{ e.kind }} by {{ e.actor_ref }} at {{ e.created_at|date:"c" }}{% if e.note %}: {{ e.note|visible }}{% endif %}</li>{% endfor %}</ul>{% endif %}
 
 <h3>Credential setup</h3>
 {% if row.setups %}<ul>{% for s in row.setups %}<li>series {{ s.setup.series }}: {{ s.state }}{% if s.setup.expires_at %}, link expires {{ s.setup.expires_at|date:"c" }}{% endif %}</li>{% endfor %}</ul>{% else %}<p>None yet.</p>{% endif %}
@@ -34,7 +37,7 @@
 <ul>{% for v in row.revocations %}<li>{{ v.row.kind }}: {{ v.state }}{% if v.row.decided_by %} (decided by {{ v.row.decided_by }}){% endif %}
 {% if v.exceptionable and may.approve_provisioning %}<form method="post" action="{% url 'provisioning_staff:act' application.public_ref %}" class="inline">{% csrf_token %}
 <input type="hidden" name="action" value="accept_exception"><input type="hidden" name="revocation" value="{{ v.row.public_id }}">
-<label>Why this is accepted (no personal details) <input name="note" maxlength="500" minlength="10" required></label>
+<label>Why this is accepted (no personal details) <input name="note" maxlength="500" minlength="10" required value="{% if form.action == 'accept_exception' and form.revocation == v.row.public_id|stringformat:'s' %}{{ form.note }}{% endif %}"></label>
 <button>Accept as an exception</button></form>{% endif %}</li>{% endfor %}</ul>
 {% if may.operate_provisioning and not row.complete %}<form method="post" action="{% url 'provisioning_staff:act' application.public_ref %}">{% csrf_token %}
 <input type="hidden" name="action" value="recheck_revocation"><input type="hidden" name="request" value="{{ r.public_id }}">
@@ -51,10 +54,11 @@
 <p>You approve exactly: <bdi>{{ r.reservation.local_part|visible }}@{{ r.reservation.domain|visible }}</bdi>, {{ r.quota_mb }} MB, {{ r.send_limit }} per hour, by {{ r.method }}.</p>
 <button>Approve exactly this</button></form>{% endif %}
 
+{% endif %}
 {% if may.operate_provisioning and row.operate %}
 <form method="post" action="{% url 'provisioning_staff:act' application.public_ref %}">{% csrf_token %}
 <input type="hidden" name="request" value="{{ r.public_id }}">
-<label>Reason (no personal details) <input name="note" maxlength="500" minlength="10" required value="{% if form.request == rid %}{{ form.note }}{% endif %}"></label>
+<label>Reason (no personal details) <input name="note" maxlength="500" minlength="10" required value="{% if form.request == rid and form.action in operate_actions %}{{ form.note }}{% endif %}"></label>
 {% if "record_checklist" in row.offered %}<button name="action" value="record_checklist">I created it in the panel</button>{% endif %}
 {% if "attest" in row.offered %}<button name="action" value="attest">I checked the panel listing</button>{% endif %}
 {% if "reissue" in row.offered %}<button name="action" value="reissue">Send a new password link</button>{% endif %}
@@ -62,7 +66,6 @@
 {% if "supersede" in row.offered %}<button name="action" value="supersede">Supersede this request</button>{% endif %}
 {% if "release_address" in row.offered %}<button name="action" value="release_address">Release the address</button>{% endif %}
 </form>
-{% endif %}
 {% endif %}
 {% if may.operate_provisioning %}{% if "confirm_found" in row.offered %}
 <h3>A mailbox seen at this address</h3>
