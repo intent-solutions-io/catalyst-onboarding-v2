@@ -1,6 +1,6 @@
 """The one narrow interface to the mail host (023 sections 3, 11.1 and 11.8; P5-D-4).
 
-Only the documented mailbox operations Catalyst needs exist here: read one mailbox, create one. There is no delete,
+Only the documented mailbox operations Catalyst needs exist here: read one mailbox, create one, set its password. There is no delete,
 no suspend, no domain or reseller operation, and no way to name a path. Synthetic P5 uses a local fake that implements
 this interface in process (`CATALYST_PROVISIONING_ADAPTER`, test only). A live adapter does not exist: building one,
 its key (for one hosting user, never a reseller key) and the separate credential service it runs in are pre-live
@@ -71,6 +71,10 @@ class MailHost:
         raise NotImplementedError
 
     def create(self, domain: str, local_part: str, password: str, quota_mb: int, send_limit: int) -> None:
+        raise NotImplementedError
+
+    def set_password(self, domain: str, local_part: str, password: str) -> None:
+        """The documented PATCH of one mailbox's password (5B.2). Last write wins; the host cannot read it back."""
         raise NotImplementedError
 
 

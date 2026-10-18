@@ -7,7 +7,9 @@ next calls:
 - "create_unknown": the create lands but the answer is lost; "create_lost": no create, an unknown answer;
 - "create_conflict", "create_rejected"; "create_429": the create lands, then a gateway throttles the answer;
 - "read_500": MXroute's failed or ambiguous lookup; "read_500_after_create": the same, only once a create was made;
-- "create_appears_first": someone creates the address in the panel just before our create.
+- "create_appears_first": someone creates the address in the panel just before our create;
+- "set_rejected": the server's password rules refuse a choice (400); "set_unknown": the password changed but the
+  answer was lost.
 """
 
 from provisioning.adapter import AdapterError, MailHost, Mailbox
@@ -18,10 +20,11 @@ class FakeMailHost(MailHost):
     faults: list = []
     calls: list = []
     passwords_seen: list = []  # only to prove the test never sees one in a record
+    current_passwords: dict = {}  # what the host would accept at login (the fake's only view of it)
 
     @classmethod
     def reset(cls):
-        cls.mailboxes, cls.faults, cls.calls, cls.passwords_seen = {}, [], [], []
+        cls.mailboxes, cls.faults, cls.calls, cls.passwords_seen, cls.current_passwords = {}, [], [], [], {}
 
     def _fault(self, *names):
         for name in names:
@@ -53,3 +56,16 @@ class FakeMailHost(MailHost):
         if fault in ("create_unknown", "create_429"):  # the create landed; the answer was lost or throttled
             raise AdapterError("RATE_LIMITED" if fault == "create_429" else "timeout", sent=True,
                                status=429 if fault == "create_429" else None, retry_after=1)
+
+    def set_password(self, domain, local_part, password):
+        self.calls.append(("set_password", domain, local_part))
+        self.passwords_seen.append(password)
+        if (domain.lower(), local_part.lower()) not in self.mailboxes:
+            raise AdapterError("NOT_FOUND", sent=True, status=404)
+        fault = self._fault("set_rejected", "set_unknown")
+        if fault == "set_rejected":  # the server's strength rules refused the choice (a definite 400)
+            raise AdapterError("VALIDATION_ERROR", sent=True, status=400)
+        self.current_passwords[(domain.lower(), local_part.lower())] = password
+        if fault == "set_unknown":
+            raise AdapterError("timeout", sent=True, status=None)
+

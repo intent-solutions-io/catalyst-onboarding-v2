@@ -50,6 +50,8 @@ APPROVED_MIGRATIONS = {
     ("agreements", "0007_custody_and_details"), ("agreements", "0008_custody_and_details_protection"),  # 4B.3
     ("correspondence", "0015_evidence_protection"),  # 9kg.1
     ("provisioning", "0001_provisioning_records"), ("provisioning", "0002_provisioning_protection"),  # P5 5B.1
+    ("correspondence", "0016_welcome_kind"),  # 5B.2
+    ("provisioning", "0003_credential_setup"), ("provisioning", "0004_credential_setup_protection"),
 }
 
 

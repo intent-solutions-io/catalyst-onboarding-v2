@@ -17,5 +17,10 @@ def signer() -> Signer:
     return Signer(key=settings.CATALYST_VERIFICATION_KEY, salt=SALT, fallback_keys=settings.CATALYST_VERIFICATION_FALLBACK_KEYS)
 
 
+# P5 5B.2 (023 section 11): the set-your-own-password page. Its token is in the path too, so the same log redaction
+# and private, no-referrer responses apply (config.redaction).
+SETUP_PATH = "/setup/"
+
+
 def verification_link(challenge_public_id) -> str:
     return f"{settings.CATALYST_PUBLIC_BASE_URL}{CONFIRM_PATH}{signer().sign(str(challenge_public_id))}/"

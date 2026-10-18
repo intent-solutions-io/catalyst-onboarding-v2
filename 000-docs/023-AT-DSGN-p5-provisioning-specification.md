@@ -554,3 +554,53 @@ intent is honoured where 5B.1 records an outcome (`recovered_after_stop`); writi
 - **OWNER:** one `approve_provisioning` holder may both reserve a reviewed exception and approve it, which is a
   one-person control. This matches D-47's owner-as-approver; confirm it is accepted.
 - **OWNER (POL-10):** free-text notes in append-only evidence have no purge path.
+
+## 13. The 5B.2 record: setting the password and activation (D-47)
+
+**Built:**
+
+- **`CredentialSetup`** (migrations `0003` and `0004`): one invitation series for a verified mailbox.
+  - The recipient (the verified external address) and the series are fixed.
+  - The token's SHA-256 is written once.
+  - A settled series is final, and an uncertain one can only be superseded.
+  - There is one live series per request. Nothing is deleted or truncated.
+- **Opening a series** (`open_setup`): a verified mailbox, by the API read or the checklist attestation, opens a
+  series. The recipient is never the new mailbox or any address in the company domain.
+- **`SendSetupInvitation`:**
+  - It re-checks the effect boundary and the recipient at send time.
+  - The worker mints the token, sends the link (built from the configured base URL) and stores only the hash.
+  - An uncertain send supersedes the series and opens a new one with a new token, up to
+    `CATALYST_SETUP_INVITE_MAX_SERIES`; then staff decide. A crash after sending counts as uncertain.
+- **The applicant's page** (`/setup/<token>/`):
+  - GET shows the form and never consumes the link.
+  - POST commits under 11.5's compare-and-set. The credential operation runs outside any lock, with the password in
+    memory only.
+  - A definite rejection lets the applicant choose again, up to `CATALYST_SETUP_SET_ATTEMPTS`.
+  - An unknown outcome is `set_uncertain`, never read back, and a new invitation follows.
+  - Every refusal is the same page.
+  - `sensitive_post_parameters`; nothing typed is re-rendered.
+  - Private, no-referrer responses, and the token is redacted from Django's logs (the confirmation-link protections,
+    extended to the setup path).
+- **Inbound mail:** redaction version 2 removes a quoted setup link the way it removes a confirmation link.
+- **`SweepSetup`:** a `set_pending` past the timeout becomes `set_uncertain`, and a new series opens.
+- **`Activate`:**
+  - B6's fresh Documenso read;
+  - then one transaction: the prerequisites, verified provisioning and a completed setup;
+  - `provisioning -> active`;
+  - the approved `provisioning_welcome` (a synthetic draft seeded by migration, sent only once the owner approves
+    it) is frozen and queued for the P2 sender, to the verified external address, naming the new mailbox.
+
+  Without an approved welcome, or before setup completes, activation refuses with a staff item.
+- **The `welcome` approved-message kind** (correspondence migration `0016`).
+
+**Evidence:** `tests/test_credentials.py` (12 tests): TEST-P5-03, 04, 13 to 16, the protections and the recipient
+re-check, plus the redaction case in `tests/test_inbound.py`.
+
+**Limits:**
+
+- The link has no per-IP rate limit. Attempts are bounded per setup (`CATALYST_SETUP_SET_ATTEMPTS`), and unknown
+  tokens cost one indexed lookup each.
+- Access-log redaction at a proxy is a P6 gate (`024` row 5).
+- The credential service's process isolation is the pre-live P1/P2 choice (11.1). Synthetic P5 calls the fake in
+  process.
+- The welcome's own delivery failures follow P2 (a bounce opens a staff item; the stage stays `active`).
