@@ -104,6 +104,9 @@ def _next_action(application, requests, items) -> tuple[str, str]:  # noqa: C901
         open_rev = AccessRevocation.objects.filter(request__application=application).exclude(state__in=closure.FINAL)
         if open_rev.exists():
             return "Finish removing access (see Revocation below)", "staff, then the owner for exceptions"
+        held = any(r.status in RELEASABLE and r.reservation.released_at is None for r in requests)
+        if items or held:
+            return "Settle the open items or release the held address", "staff"
         return "Closed; nothing more happens", "nobody"
     if AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists():
         return "Automation is paused; provisioning waits", "staff"

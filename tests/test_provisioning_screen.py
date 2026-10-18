@@ -190,7 +190,7 @@ def _stub(status, method="api", stop=False, released=False, conflict=False):
     ("stopped", "api", True, {"release_address"}),
     ("recovered_after_stop", "api", True, {"release_address"}),
 ])
-def test_review_the_screen_offers_exactly_what_each_service_accepts(status, method, closed, expected):
+def test_review_the_offer_table_per_status_and_method_matches_the_service_guards_as_written(status, method, closed, expected):
     assert staff_views._offered(_stub(status, method), set(), closed) == expected
 
 
@@ -219,19 +219,18 @@ def test_review_the_next_action_names_the_right_owner_for_each_status_and_method
 
 
 def test_review_after_a_close_the_address_is_released_from_the_screen(cl, monkeypatch):
-    app, request = approved(cl, monkeypatch)
-    FakeMailHost.faults.append("create_rejected")
-    run_worker()  # a definite rejection: nothing exists, so the request goes to staff
+    app, request = approved(cl, monkeypatch)  # approved; the create has not run
     assert client_for(cl.closer).post(act(app), {"action": "close", "outcome": "withdrawn",
                                                  "note": "Applicant asked by phone to withdraw"}).status_code == 302
     run_worker()
     request = ProvisioningRequest.objects.select_related("reservation").get(pk=request.pk)
-    if request.reservation.released_at is None:
-        body = client_for(cl.op1).get(page(app)).content.decode()
-        assert "Release the address" in body and "Supersede this request" not in body
-        assert client_for(cl.op1).post(act(app), {"action": "release_address", "request": str(request.public_id),
-                                                   "note": "Applicant withdrew; address no longer needed"}
-                                       ).status_code == 302
+    assert request.status == "stopped" and request.reservation.released_at is None  # the address is still held
+    body = client_for(cl.op1).get(page(app)).content.decode()
+    assert "Release the address" in body and "Supersede this request" not in body
+    assert "(owner: staff)" in body  # an unreleased address is still something to settle
+    assert client_for(cl.op1).post(act(app), {"action": "release_address", "request": str(request.public_id),
+                                               "note": "Applicant withdrew; address no longer needed"}
+                                   ).status_code == 302
     assert ProvisioningRequest.objects.get(pk=request.pk).reservation.released_at is not None
 
 
