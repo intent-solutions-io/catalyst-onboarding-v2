@@ -146,13 +146,57 @@ minutes on a named runner, with sustained runs over 10 minutes investigated. Rec
 timeout, queue time, setup time (cold and warm) and test time separately. An overrun prompts
 profiling, never removed assertions, weakened thresholds, skipped legal gates or unlimited retries.
 
-**Current repository, measured:** one CI job, documentation-only; the last six runs on GitHub-hosted
+**As of 2026-10-09, measured:** one CI job, documentation-only; the last six runs on GitHub-hosted
 `ubuntu-latest` took 6 to 9 seconds from creation to completion (`gh run list` created and updated
 timestamps, 2026-10-09; queue and setup not separated). Earlier pipeline problems in the
 first-generation repository are lessons for later lanes, not a description of this repository.
-**No lane is enforced in CI today**: the single job runs every step on every PR (markdown, index,
-agent definitions, secret scan), so the lane table is a design for when code arrives. CI run times
-after this change are recorded in `010` section 2.
+
+**Runtime lane, profiled 2026-10-18** (bead `catalyst-v2-egz`; `scripts/test.sh` with
+`--durations=0 --durations-min=0.5` on the development host, pinned Python 3.14.8 and PostgreSQL 16.15):
+
+| Measure | Before (main `2e48d9e`) | After |
+|---|---|---|
+| Tests | 919 passed; 0 failed, skipped or xfailed (the run fails on any skip) | the same |
+| pytest time | 1019 s | 759 s |
+| Wall time, including container start and dependency install | 1052 s | 790 s |
+| Setup phases of 0.5 s or more, summed | 15 s | 13 s |
+| Call phases of 0.5 s or more, summed | 472 s | 467 s |
+| Teardown phases of 0.5 s or more, summed | 309 s (about 1.4 s each) | none at 0.5 s or more |
+
+**Cause.** The fixture servers (SMTP, IMAP, evidence HTTPS, fake Documenso) ran `serve_forever` with its default
+0.5 s shutdown poll. `stop()` waits for that poll, so each test with two or three servers spent about 1.4 s in
+teardown. The privileged database reset itself costs about 0.12 s per test: 40 resets took 4.8 s in total. Summed over
+those 40 resets, the timed parts were:
+
+- the owner connection, 0.47 s;
+- waiting for other sessions to close, 0.20 s;
+- the truncate, 2.9 s;
+- the protection re-check, 1.1 s;
+- releasing the test's own connections and threads, 0.10 s.
+
+These sum to 4.77 s.
+
+**Change.** A 0.02 s poll interval in the four fixture servers. Every assertion and every database and role check
+is unchanged.
+
+**Remaining cost.** It is in the tests themselves, kept on purpose:
+
+- migration reverse-and-reapply, 25 s and 16 s;
+- the acceptance-gate self-test, 16 s;
+- killed-worker and killed-collector subprocess recovery, 6 to 9 s each;
+- start-up refusal subprocesses, 47 s in total.
+
+The table counts only phases of 0.5 s or more. Its rows do not sum to the 260 s drop in pytest time.
+
+CI on the last measured head took 15 min 51 s for the runtime job (run 39068959123, before this change). The CI
+figure after this change is recorded on its pull request (#40). The 5-minute target remains unmet.
+
+**Lanes in CI today:** two jobs run on every pull request:
+
+- the runtime job, the full suite in the pinned containers;
+- the documentation job, Markdown and index.
+
+No smaller lane is selected by change type yet. The lane table above is the design for that.
 
 ### 5.5 GitHub Actions rules
 
