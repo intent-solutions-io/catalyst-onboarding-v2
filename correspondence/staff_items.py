@@ -40,6 +40,12 @@ def event(application, kind, data, actor_type=ApplicationEvent.ActorType.SYSTEM,
                                         actor_ref=actor_ref, data=data)
 
 
+def hard_bounce_open(application) -> bool:
+    """9kg.3: an unresolved hard bounce blocks every send to the applicant (P2 mail, staff messages, resends and
+    Documenso distribution) until a decision-maker resolves it."""
+    return StaffItem.objects.filter(application=application, reason_code="hard_bounce", status=StaffItem.Status.OPEN).exists()
+
+
 def open_item(reason_code: str, dedupe_key: str, *, application=None, approved_message=None, pending_action_id=None,
               question_id=None, audit: bool = True) -> StaffItem:
     existing = StaffItem.objects.filter(reason_code=reason_code, dedupe_key=dedupe_key, status=StaffItem.Status.OPEN).first()

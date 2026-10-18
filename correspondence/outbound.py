@@ -48,7 +48,7 @@ from .messages import build_email, enqueue_file_copy, message_id, verified_addre
 from .rendering import TemplateRefused, canonical_digest, check_version, render
 from .questions import sent_text
 from .scheduling import schedule_after_acceptance
-from .staff_items import event, open_item, resolve_item
+from .staff_items import event, hard_bounce_open, open_item, resolve_item
 
 logger = logging.getLogger(__name__)
 Status = PendingAction.Status
@@ -312,7 +312,9 @@ class SendMessage:
                 approved_message=message, attempt_series=series, status__in=(Attempt.SENDING, Attempt.UNKNOWN))
                 .values_list("pk", flat=True))
             if pending:
-                return Reconcile(tuple(pending))
+                return Reconcile(tuple(pending))  # an exchange already happened: reconciling sends nothing
+            if hard_bounce_open(application):  # every kind, staff messages and resends included (9kg.3)
+                return Stop(Status.QUEUED, "hard_bounce_open", settings.CATALYST_HARD_BOUNCE_RECHECK_SECONDS)
             subject, body = message.frozen_subject, message.frozen_body
             digest = canonical_digest(subject, body)
             if digest != message.content_sha256:

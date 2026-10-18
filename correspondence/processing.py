@@ -46,7 +46,11 @@ OUTCOMES = {"satisfied": "satisfied", "partial": "partial", "not_addressed": "no
 QUOTE_STRIP_VERSION = 1
 
 # 016 F, reason-to-permission table (as amended in 2B.2 and 2B.3).
+HARD_BOUNCE_REASON_MIN = 10
 RESOLUTIONS = {
+    # 9kg.3: a hard bounce blocks every send until a decision-maker records, with a reason, that the address may be
+    # used again. It is never a routine acknowledgement. The automation pause it set is cleared separately (9kg.2).
+    "hard_bounce": {"address_usable_again": "decide_uncertain_send"},
     "unmatched": {"dismiss": "resolve_exception", "associate": "resolve_identity_exception"},
     "reply_unverified": {"associate": "resolve_identity_exception", "dismiss": "resolve_identity_exception",
                          "mark_spoof": "resolve_identity_exception"},
@@ -59,7 +63,7 @@ RESOLUTIONS = {
 }
 ACKNOWLEDGE_ONLY = {"processing_error", "message_id_conflict", "mailbox_uidvalidity_changed", "collector_stale",
                     "filed_copy_failed", "inbound_oversize", "application_closed", "collector_pass_failed",
-                    "mailbox_history_out_of_scope", "hard_bounce", "loop_threshold",
+                    "mailbox_history_out_of_scope", "loop_threshold",
                     "escalate_unanswered", "reminder_refused", "reminder_failed",  # 2B.4 (escalation may also end by withdrawal)
                     # P3 3B.1: acknowledged after staff act (a new submission with claims, or a re-fetch on /staff/p3/)
                     "claims_missing", "adoption_changed", "evidence_collection_failed",
@@ -646,6 +650,22 @@ def resolve_exception(item_id: int, code: str, user, note: str = "", target_appl
         effects = {"reason": item.reason_code}
         if code == "associate":
             effects.update(_associate_by_staff(message, item, target_application_id, actor))
+        elif code == "address_usable_again":
+            if len(clean_note(note)) < HARD_BOUNCE_REASON_MIN:
+                raise Refused("reason_needed")
+            note = clean_note(note)
+            if item.application_id is not None and not StaffItem.objects.filter(
+                    application_id=item.application_id, reason_code="hard_bounce",
+                    status=StaffItem.Status.OPEN).exclude(pk=item.pk).exists():
+                # The last open hard bounce: held sends look again now (each re-checks everything under lock).
+                from applications.services import SEND_VERIFICATION
+
+                from .outbound import SEND_KINDS
+
+                effects["released_sends"] = PendingAction.objects.filter(
+                    kind__in=(*SEND_KINDS, SEND_VERIFICATION), subject_id=item.application.public_ref,
+                    status=PendingAction.Status.QUEUED, last_error__in=("hard_bounce_open", "hard bounce open")).update(
+                    due_at=Now(), updated_at=Now())
         elif code in ("dismiss", "mark_spoof") and message is not None and message.status == Inbound.EXCEPTION:
             fields = {"status": Inbound.PROCESSED, "processed_at": Now()}
             if code == "mark_spoof":

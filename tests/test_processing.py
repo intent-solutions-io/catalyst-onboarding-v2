@@ -536,3 +536,87 @@ def test_c4_association_refuses_a_closed_target_or_an_automatic_message(mailbox)
     InboundMessage.objects.filter(pk=InboundMessage.objects.get().pk).update(classification="automatic")
     with pytest.raises(Refused, match="only_a_persons_message"):
         processing.resolve_exception(item.pk, "associate", mailbox.decider, target_application_id=mailbox.app.pk)
+
+
+# --- 9kg.3: an unresolved hard bounce blocks every send; only a decision-maker reopens the address -------------
+
+def test_9kg_3_an_open_hard_bounce_holds_every_send_and_refuses_staff_bypasses(mailbox):
+    from correspondence import outbound, staff_actions
+
+    mailbox.imap.deliver(bounce(sent_question(mailbox)[1]))
+    collect()
+    processed()
+    [item] = StaffItem.objects.filter(reason_code="hard_bounce", status="open")
+    sent = len(mailbox.server.messages)
+    # A staff message (not automated, so the pause alone would not stop it) is refused before it is queued.
+    draft = staff_actions.preview_staff_message(mailbox.app.pk, mailbox.operator, "Synthetic subject", "Synthetic body.")
+    with pytest.raises(Refused, match="hard_bounce_open"):
+        staff_actions.confirm_staff_message(draft.pk, draft.content_sha256, mailbox.operator)
+    # A question approved meanwhile is frozen, but its send is held, refunded, and looks again later.
+    question = Question.objects.create(application=mailbox.app, text="A second synthetic question?")
+    message = outbound.approve_question(question.pk, mailbox.operator)
+    AutomationPause.objects.filter(subject_id=mailbox.app.public_ref).delete()  # isolate the bounce rule from the pause
+    run_worker()
+    [held] = PendingAction.objects.filter(kind="send_message", input_ref=str(message.send_ref))
+    assert (held.status, held.last_error, held.attempts) == ("queued", "hard_bounce_open", 0)
+    assert len(mailbox.server.messages) == sent
+    # Recovery is an explicit, audited decision: never an acknowledgement, never an operator, always a reason.
+    with pytest.raises(Refused, match="resolution_not_allowed"):
+        processing.resolve_exception(item.pk, "acknowledge", mailbox.operator)
+    with pytest.raises(PermissionDenied):
+        processing.resolve_exception(item.pk, "address_usable_again", mailbox.operator, note="Applicant confirmed by phone")
+    with pytest.raises(Refused, match="reason_needed"):
+        processing.resolve_exception(item.pk, "address_usable_again", mailbox.decider, note="ok")
+    processing.resolve_exception(item.pk, "address_usable_again", mailbox.decider, note="Applicant confirmed by phone")
+    resolution = StaffItemResolution.objects.get(item=item)
+    assert resolution.resolved_by == f"user:{mailbox.decider.pk}" and resolution.effects["released_sends"] == 1
+    run_worker()
+    assert len(mailbox.server.messages) == sent + 1  # released at once, after every check ran again
+
+
+
+def test_9kg_3_an_exchange_in_flight_still_reconciles_and_the_verification_send_is_held(mailbox, monkeypatch):
+    from datetime import timedelta
+    from urllib.parse import urlencode
+
+    from django.core import mail
+    from django.db.models.functions import Now
+    from django.test import Client
+
+    from correspondence import outbound
+    from tests.test_outbound import FORM, VALID, ask, attempts, no_blind_retry, sends
+
+    no_blind_retry(monkeypatch)
+    crashed = []
+
+    def crash_once(claim, result):
+        if not crashed:
+            crashed.append(result.outcome)
+            raise RuntimeError("synthetic: the worker stopped before recording")
+    monkeypatch.setattr(outbound, "_after_send", crash_once)
+    _, message = ask(mailbox)
+    run_worker()
+    [action] = sends(message)
+    assert action.status == "running" and attempts(message) == [(1, 0, "sending")]
+    # The bounce arrives while the exchange's outcome is unrecorded: reconciliation still runs first (it sends nothing).
+    StaffItem.objects.create(application=mailbox.app, reason_code="hard_bounce", dedupe_key=f"inbound:{uuid.uuid4()}")
+    PendingAction.objects.filter(pk=action.pk).update(lease_expires_at=Now() - timedelta(seconds=1))
+    run_worker()
+    action.refresh_from_db()
+    assert action.status == "uncertain" and attempts(message) == [(1, 0, "unknown")]
+    assert len(mailbox.server.messages) == 1
+    # The S1 verification send is held as well, refunded, for an application with an open hard bounce.
+    outbox = len(mail.outbox)
+    assert Client().post(FORM, urlencode({**VALID, "email": "grace@example.test"}),
+                         content_type="application/x-www-form-urlencoded").status_code == 302
+    other = Application.objects.get(email_key="grace@example.test")
+    StaffItem.objects.create(application=other, reason_code="hard_bounce", dedupe_key=f"inbound:{uuid.uuid4()}")
+    run_worker()
+    [held] = PendingAction.objects.filter(kind="send_verification", subject_id=other.public_ref)
+    assert (held.status, held.last_error, held.attempts) == ("queued", "hard bounce open", 0)
+    assert len(mail.outbox) == outbox
+    item = StaffItem.objects.get(application=other, reason_code="hard_bounce")
+    processing.resolve_exception(item.pk, "address_usable_again", mailbox.decider, note="Address confirmed by phone")
+    assert StaffItemResolution.objects.get(item=item).effects["released_sends"] == 1
+    run_worker()
+    assert len(mail.outbox) == outbox + 1 and mail.outbox[-1].to == ["grace@example.test"]
