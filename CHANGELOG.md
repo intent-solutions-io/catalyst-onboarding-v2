@@ -13,9 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Phases P1 to P4 are implemented and accepted for synthetic work: GATE-S1 (2026-10-11, D-26), GATE-P2 (2026-10-13,
+Phases P1 to P5 are implemented and accepted for synthetic work: GATE-S1 (2026-10-11, D-26), GATE-P2 (2026-10-13,
 D-33), GATE-P3 (2026-10-17, D-36) and GATE-P4 (2026-10-18, D-45), each recorded in `000-docs/011` section 4. P5 is
-specified (`000-docs/023`, proposed) and not built. Nothing is deployed and only synthetic data is used. No release
+built against a local fake of the documented MXroute operations (PRs #53 to #56). GATE-P5 was signed off for synthetic
+work on 2026-10-18 (D-48), with the after-action report `000-docs/000-aars/025`. Nothing is deployed and only synthetic data is used. No release
 has been cut since `v0.1.0`, which the templated workflow tagged automatically on the first push to `main`; it was
 not a planned release. The release workflow was corrected in PR #41: it is manual, dry-run by default, and publishes
 only an already-merged, CI-green commit of `main` without committing or pushing to it.

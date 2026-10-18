@@ -22,9 +22,14 @@
 </table>
 {% if row.items %}<h3>Open items</h3><ul>{% for i in row.items %}<li class="refused">{{ i.text|default:i.item.reason_code }} ({{ i.item.reason_code }}; opened {{ i.item.opened_at|date:"c" }}, {{ i.item.opened_at|timesince }} ago)</li>{% endfor %}</ul>{% endif %}
 
-<h3>Creation and verification</h3>
-{% if row.attempts %}<ul>{% for at in row.attempts %}<li>{{ at.step }} {{ at.series }}: {{ at.outcome }}{% if at.code %} ({{ at.code }}){% endif %}{% if at.absent_before %}; absent before the create{% endif %}, {{ at.started_at|date:"c" }}</li>{% endfor %}</ul>{% else %}<p>No attempts yet.</p>{% endif %}
-{% if row.evidence %}<h4>Evidence</h4><ul>{% for e in row.evidence %}<li>{{ e.kind }} by {{ e.actor_ref }} at {{ e.created_at|date:"c" }}{% if e.note %}: {{ e.note|visible }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+<h3>Creation</h3>
+{% if row.creation %}<ul>{% for at in row.creation %}<li>create {{ at.series }}: {{ at.outcome }}{% if at.code %} ({{ at.code }}){% endif %}{% if at.absent_before %}; absent before the create{% endif %}, {{ at.started_at|date:"c" }}</li>{% endfor %}</ul>{% else %}<p>No create yet.</p>{% endif %}
+{% if row.creation_evidence %}<ul>{% for e in row.creation_evidence %}<li>{{ e.kind }} by {{ e.actor_ref }} at {{ e.created_at|date:"c" }}{% if e.note %}: {{ e.note|visible }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+
+<h3>Verification</h3>
+<p>{% if row.verified %}Verified.{% else %}Not verified.{% endif %} An accepted email is never proof of a mailbox.</p>
+{% if row.verification %}<ul>{% for at in row.verification %}<li>read {{ at.series }}: {{ at.outcome }}{% if at.code %} ({{ at.code }}){% endif %}, {{ at.started_at|date:"c" }}</li>{% endfor %}</ul>{% endif %}
+{% if row.verification_evidence %}<ul>{% for e in row.verification_evidence %}<li>{{ e.kind }} by {{ e.actor_ref }} at {{ e.created_at|date:"c" }}{% if e.note %}: {{ e.note|visible }}{% endif %}</li>{% endfor %}</ul>{% endif %}
 
 <h3>Credential setup</h3>
 {% if row.setups %}<ul>{% for s in row.setups %}<li>series {{ s.setup.series }}: {{ s.state }}{% if s.setup.expires_at %}, link expires {{ s.setup.expires_at|date:"c" }}{% endif %}</li>{% endfor %}</ul>{% else %}<p>None yet.</p>{% endif %}

@@ -412,6 +412,8 @@ acceptance.P3_CASES = {}
 acceptance.P3_SUPPORTING = {}
 acceptance.P4_CASES = {}
 acceptance.P4_SUPPORTING = {}
+acceptance.P5_CASES = {}
+acceptance.P5_SUPPORTING = {}
 """
 
 
@@ -477,10 +479,29 @@ def test_the_p4_acceptance_map_names_exactly_the_cases_in_021():
     assert planned == sorted(acceptance.P4_CASES) and len(planned) == 32
 
 
+def test_the_p5_acceptance_map_names_exactly_the_cases_in_023():
+    spec = (ROOT / "000-docs/023-AT-DSGN-p5-provisioning-specification.md").read_text()
+    planned = sorted(set(re.findall(r"^\| (TEST-P5-\d\d) \|", spec, flags=re.M)))
+    assert planned == sorted(acceptance.P5_CASES) and len(planned) == 24
+
+
+def test_every_p5_test_is_mapped():
+    """Nothing in the P5 files sits outside the gate: each test is a case or a named P5 design rule."""
+    mapped = {name.split("[", 1)[0] for names in {**acceptance.P5_CASES, **acceptance.P5_SUPPORTING}.values()
+              for name in names}
+    found = set()
+    for module in ("test_provisioning", "test_credentials", "test_closure", "test_provisioning_screen",
+                   "test_p5_journey"):
+        found |= {f"{module}::{n}" for n in re.findall(r"^def (test_\w+)", (ROOT / f"tests/{module}.py").read_text(),
+                                                       flags=re.M)}
+    assert sorted(found - mapped) == [] and sorted(mapped - found) == []
+
+
 def test_every_mapped_test_exists():
     missing = []
     for names in {**acceptance.CASES, **acceptance.SUPPORTING, **acceptance.P2_CASES, **acceptance.P3_CASES,
-                  **acceptance.P3_SUPPORTING, **acceptance.P4_CASES, **acceptance.P4_SUPPORTING}.values():
+                  **acceptance.P3_SUPPORTING, **acceptance.P4_CASES, **acceptance.P4_SUPPORTING, **acceptance.P5_CASES,
+                  **acceptance.P5_SUPPORTING}.values():
         assert names
         for name in names:
             module, function = name.split("::")

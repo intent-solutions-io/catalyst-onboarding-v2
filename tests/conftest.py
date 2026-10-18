@@ -105,7 +105,7 @@ def pytest_collectreport(report):
 
 # The acceptance report (005 S1.7 and 016 section 7, tests/acceptance.py): every case's status at the end of
 # the run. A full run (no file, -k or -m selection, nothing deselected) fails unless every case is PASS: that
-# is GATE-S1's, GATE-P2's, GATE-P3's and GATE-P4's "every case PASS at one head", enforced wherever the whole suite runs (CI and
+# is GATE-S1's, GATE-P2's, GATE-P3's, GATE-P4's and GATE-P5's "every case PASS at one head", enforced wherever the whole suite runs (CI and
 # scripts/test.sh).
 _acceptance = {"outcomes": {}, "deselected": False, "statuses": {}, "full": False}
 
@@ -127,7 +127,8 @@ def pytest_sessionfinish(session, exitstatus):
     config = session.config
     outcomes = _acceptance["outcomes"]
     groups = {**acceptance.CASES, **acceptance.SUPPORTING, **acceptance.P2_CASES, **acceptance.P3_CASES,
-              **acceptance.P3_SUPPORTING, **acceptance.P4_CASES, **acceptance.P4_SUPPORTING}
+              **acceptance.P3_SUPPORTING, **acceptance.P4_CASES, **acceptance.P4_SUPPORTING, **acceptance.P5_CASES,
+              **acceptance.P5_SUPPORTING}
     _acceptance["statuses"] = {case: case_status(names, outcomes) for case, names in groups.items()}
     mapped = {name for names in groups.values() for name in names}
     _acceptance["full"] = (
@@ -152,7 +153,9 @@ def pytest_terminal_summary(terminalreporter):
             ("P2 correspondence acceptance (016 section 7)", "GATE-P2", acceptance.P2_CASES),
             ("P3 evidence and assessment acceptance (018 section 9)", "GATE-P3",
              {**acceptance.P3_CASES, **acceptance.P3_SUPPORTING}),
-            ("P4 agreements acceptance (021 section 12)", "GATE-P4", {**acceptance.P4_CASES, **acceptance.P4_SUPPORTING})):
+            ("P4 agreements acceptance (021 section 12)", "GATE-P4", {**acceptance.P4_CASES, **acceptance.P4_SUPPORTING}),
+            ("P5 provisioning acceptance (023 section 9)", "GATE-P5",
+             {**acceptance.P5_CASES, **acceptance.P5_SUPPORTING})):
         terminalreporter.section(title)
         part = {case: statuses[case] for case in groups}
         for case, status in part.items():

@@ -1,6 +1,7 @@
 """The first-slice acceptance plan (005 S1.7, GATE-S1), the P2 correspondence plan (016 section 7, GATE-P2), the
-P3 evidence and assessment plan (018 section 9, GATE-P3) and the P4 agreements plan (021 section 12,
-GATE-P4), each mapped to the tests that prove each case (S1-T8; P2 task 2C; P3 task 3C; P4 task 4C).
+P3 evidence and assessment plan (018 section 9, GATE-P3), the P4 agreements plan (021 section 12, GATE-P4) and the
+P5 provisioning plan (023 section 9, GATE-P5), each mapped to the tests that prove each case (S1-T8; P2 task 2C; P3
+task 3C; P4 task 4C; P5 task 5C).
 
 Each case names test functions as "module::function", where every parametrized instance counts, or
 one instance as "module::function[id]" where a case depends on that instance specifically. tests/conftest.py reports every case at the end of a run as PASS (all its tests ran and passed),
@@ -1035,6 +1036,188 @@ P4_SUPPORTING = {
     ],
 }
 
+
+
+# P5 provisioning plan (023 section 9; GATE-P5, unsigned): each case names the tests that prove it (P5 task 5C).
+# P5_SUPPORTING holds the P5 design rules that are not a numbered case; every test in the P5 files is mapped.
+P5_CASES = {
+    "TEST-P5-01": [
+        "test_provisioning::test_p5_01_release_reads_afresh_and_creates_one_request_awaiting_the_approver",
+        "test_provisioning::test_review_a_paused_application_is_refused_at_release_with_a_staff_item",
+        "test_provisioning::test_review_without_an_adapter_nothing_is_committed_and_staff_are_told",
+        "test_p5_journey::test_p5_01_only_the_owners_versioned_command_releases_and_nothing_starts_without_it",
+    ],
+    "TEST-P5-02": [
+        "test_provisioning::test_p5_02_a_changed_agreement_at_the_provider_refuses_release_and_holds_reliance",
+        "test_provisioning::test_p5_02_a_changed_prerequisite_after_approval_blocks_the_create_at_the_effect_boundary",
+        "test_provisioning::test_review_pause_is_part_of_every_effect_boundary_and_a_dry_run_writes_nothing",
+        "test_provisioning::test_review_a_changed_prerequisite_since_the_handoff_is_recorded_and_bound_into_the_new_approval",
+        "test_provisioning::test_review_a_prerequisite_broken_in_the_database_then_repaired_releases_again_on_a_fresh_address",
+        "test_p5_journey::test_p5_02_a_broken_prerequisite_refuses_at_approval_at_the_password_set_and_at_activation",
+    ],
+    "TEST-P5-03": [
+        "test_credentials::test_p5_13_14_03_04_invite_set_activate_and_welcome",
+        "test_credentials::test_p5_03_activation_waits_for_an_approved_welcome_and_never_on_a_sent_link_alone",
+        "test_credentials::test_review_activation_needs_verified_provisioning_and_a_completed_setup",
+        "test_credentials::test_review_a_refused_activation_can_be_retried_once_its_cause_is_fixed",
+    ],
+    "TEST-P5-04": [
+        "test_credentials::test_p5_13_14_03_04_invite_set_activate_and_welcome",
+        "test_p5_journey::test_p5_04_a_bounced_welcome_opens_a_staff_item",
+    ],
+    "TEST-P5-05": [
+        "test_closure::test_p5_05_18_closing_an_active_member_revokes_access_and_deletes_nothing",
+        "test_closure::test_review_closing_mid_flow_cancels_queued_work_and_settles_cleanly",
+        "test_closure::test_p5_revocations_and_withdrawals_are_fixed_for_every_role",
+    ],
+    "TEST-P5-06": [
+        "test_provisioning::test_p5_06_the_naming_rule_is_deterministic_and_refuses_role_and_unsafe_addresses",
+        "test_provisioning::test_p5_06_a_collision_takes_the_next_suffix_and_an_exception_needs_review",
+        "test_provisioning::test_p5_06_a_name_the_rule_cannot_form_waits_for_a_reviewed_exception",
+        "test_provisioning::test_review_two_applicants_with_the_same_name_never_share_an_address",
+    ],
+    "TEST-P5-07": [
+        "test_provisioning::test_p5_07_approval_binds_the_exact_address_limits_method_and_prerequisites",
+        "test_provisioning_screen::test_p5_19_approving_through_the_screen_needs_csrf_and_the_digest_shown",
+        "test_p5_journey::test_p5_07_every_approved_component_changes_what_the_approver_confirms",
+    ],
+    "TEST-P5-08": [
+        "test_provisioning::test_p5_08_12_the_attempt_is_committed_then_an_absent_read_then_one_create_then_an_authoritative_read",
+        "test_provisioning::test_p5_08_a_crash_after_the_exchange_is_reconciled_never_resent",
+        "test_provisioning::test_review_a_failed_absent_read_sends_nothing_and_retries",
+    ],
+    "TEST-P5-09": [
+        "test_provisioning::test_p5_09_an_unknown_create_is_reconciled_by_reading_and_staff_confirm_it_is_ours",
+        "test_provisioning::test_p5_09_an_unknown_create_that_never_landed_runs_a_new_series_after_the_bounded_checks",
+        "test_provisioning::test_p5_09_a_500_on_the_reconcile_read_is_unknown_never_absent",
+        "test_provisioning::test_p5_09_a_mailbox_present_before_our_create_is_a_conflict_and_never_adopted",
+        "test_provisioning::test_review_a_429_after_the_create_landed_is_unknown_never_a_rejection",
+        "test_provisioning::test_review_a_conflict_after_our_own_unknown_create_is_reconciled_and_new_series_are_bounded",
+    ],
+    "TEST-P5-10": [
+        "test_provisioning::test_p5_10_a_mailbox_created_by_someone_else_inside_the_window_is_a_conflict",
+        "test_provisioning::test_p5_10_a_duplicate_create_action_never_creates_a_second_mailbox",
+        "test_provisioning::test_review_serialization_one_open_create_per_request_in_the_database",
+    ],
+    "TEST-P5-11": [
+        "test_provisioning::test_p5_11_the_checklist_verifier_must_differ_from_the_creator_for_every_role",
+    ],
+    "TEST-P5-12": [
+        "test_provisioning::test_p5_08_12_the_attempt_is_committed_then_an_absent_read_then_one_create_then_an_authoritative_read",
+        "test_provisioning::test_p5_12_verification_needs_the_exact_mailbox_and_never_passes_on_anything_else",
+    ],
+    "TEST-P5-13": [
+        "test_credentials::test_p5_13_14_03_04_invite_set_activate_and_welcome",
+        "test_credentials::test_p5_13_used_expired_and_superseded_links_get_the_same_answer",
+        "test_credentials::test_p5_13_mismatched_entries_change_nothing",
+        "test_credentials::test_p5_13_a_definite_rejection_lets_the_applicant_choose_again_within_the_bound",
+        "test_credentials::test_review_an_unused_link_expires_visibly_and_a_new_one_follows_then_staff_reissue",
+        "test_credentials::test_review_a_completed_series_is_final_for_every_role",
+    ],
+    "TEST-P5-14": [
+        "test_credentials::test_p5_13_14_03_04_invite_set_activate_and_welcome",
+        "test_credentials::test_p5_14_an_uncertain_invitation_supersedes_and_is_bounded",
+        "test_credentials::test_p5_14_a_recipient_changed_before_sending_cancels_the_invitation",
+        "test_credentials::test_review_a_changed_contact_closes_a_link_already_sent",
+        "test_credentials::test_review_an_invitation_is_never_sent_into_the_company_domain",
+    ],
+    "TEST-P5-15": [
+        "test_credentials::test_p5_13_14_03_04_invite_set_activate_and_welcome",
+        "test_credentials::test_p5_15_an_error_during_the_set_leaks_no_password_to_logs_or_the_page",
+        "test_credentials::test_review_an_error_inside_the_recording_transaction_leaks_no_password",
+        "test_credentials::test_review_the_setup_token_is_redacted_from_django_request_logs",
+        "test_provisioning::test_review_the_generated_password_reaches_no_log_or_error",
+    ],
+    "TEST-P5-16": [
+        "test_credentials::test_p5_16_an_unknown_password_outcome_blocks_activation_and_a_new_link_is_sent",
+        "test_credentials::test_p5_16_a_set_that_never_returns_is_swept_to_uncertain",
+    ],
+    "TEST-P5-17": [
+        "test_closure::test_p5_17_a_withdrawal_during_an_uncertain_create_recovers_the_late_mailbox_without_a_welcome",
+        "test_closure::test_p5_17_rotation_waits_for_a_password_set_in_flight",
+        "test_closure::test_review_a_late_mailbox_found_by_the_watch_is_recorded_honestly_never_as_not_applicable",
+        "test_closure::test_review_a_stop_at_the_create_result_recovers_the_new_mailbox_and_revokes_it",
+        "test_closure::test_review_a_stop_settles_when_the_create_fails_or_was_never_sent",
+    ],
+    "TEST-P5-18": [
+        "test_closure::test_p5_05_18_closing_an_active_member_revokes_access_and_deletes_nothing",
+        "test_closure::test_p5_18_unsupported_obligations_end_only_by_an_owner_accepted_exception",
+        "test_closure::test_review_exceptions_cannot_waive_a_rotation_and_complete_the_rollup_only_when_settled",
+        "test_closure::test_review_a_mailbox_present_before_our_create_is_never_touched_by_revocation",
+        "test_closure::test_review_a_create_that_never_landed_settles_as_nothing_of_ours_only_after_its_watch",
+        "test_closure::test_review_a_shared_forwarder_fixed_in_the_panel_is_verified_only_by_a_new_read",
+        "test_p5_journey::test_p5_18_the_mail_host_adapter_has_no_delete_or_suspend_operation",
+    ],
+    "TEST-P5-19": [
+        "test_provisioning_screen::test_p5_19_only_holders_of_a_provisioning_permission_open_the_screen_and_a_superuser_is_refused",
+        "test_provisioning_screen::test_the_dossier_link_and_the_provisioning_screen_use_the_same_permissions",
+        "test_provisioning_screen::test_p5_19_the_screen_shows_each_phase_the_next_action_and_its_owner",
+        "test_provisioning_screen::test_p5_19_approving_through_the_screen_needs_csrf_and_the_digest_shown",
+        "test_provisioning_screen::test_p5_19_a_refusal_keeps_what_was_typed_and_an_unknown_action_is_not_found",
+        "test_provisioning_screen::test_p5_19_closing_through_the_screen_shows_revocation_and_the_owner_accepts_an_exception",
+        "test_provisioning_screen::test_review_the_offer_table_per_status_and_method_matches_the_service_guards_as_written",
+        "test_provisioning_screen::test_review_confirm_found_is_offered_exactly_when_the_service_accepts_it",
+        "test_provisioning_screen::test_review_the_next_action_names_the_right_owner_for_each_status_and_method",
+        "test_provisioning_screen::test_review_after_a_close_the_address_is_released_from_the_screen",
+        "test_provisioning_screen::test_review_a_late_mailbox_on_a_superseded_request_is_decided_from_the_screen",
+        "test_provisioning_screen::test_review_a_checklist_request_shows_its_operator_steps",
+        "test_provisioning_screen::test_review_another_applications_records_are_never_acted_on",
+        "test_provisioning_screen::test_review_every_refusal_is_logged_without_typed_values_and_the_gate_covers_posts",
+        "test_provisioning_screen::test_review_a_refused_exception_keeps_its_note",
+    ],
+    "TEST-P5-20": [
+        "test_provisioning_screen::test_p5_20_provisioning_permissions_grant_no_mail_or_document_access",
+    ],
+    "TEST-P5-21": [
+        "test_closure::test_p5_21_get_shows_post_commits_and_the_link_works_once",
+        "test_closure::test_p5_21_a_new_link_supersedes_the_old_one_and_a_changed_contact_closes_it",
+        "test_closure::test_review_a_new_withdrawal_link_supersedes_one_still_sending",
+        "test_p5_journey::test_p5_21_an_emailed_withdraw_only_creates_a_review_item",
+    ],
+    "TEST-P5-22": [
+        "test_closure::test_p5_22_a_closed_application_is_never_closed_again_or_reopened",
+        "test_closure::test_p5_22_closing_during_agreements_stops_unfinished_agreements",
+        "test_closure::test_review_closing_during_agreements_cancels_the_unfinished_envelope",
+        "test_p5_journey::test_p5_22_nothing_closes_an_application_for_want_of_a_response",
+        "test_p5_journey::test_p5_22_a_new_application_after_a_withdrawal_inherits_nothing",
+    ],
+    "TEST-P5-23": [
+        "test_provisioning::test_p5_23_a_real_adapter_domain_or_environment_value_is_refused",
+        "test_provisioning::test_review_credential_like_notes_and_mail_host_keys_in_the_environment_are_refused",
+        "test_provisioning::test_review_the_p2_mail_host_setting_in_the_environment_is_still_accepted",
+    ],
+    "TEST-P5-24": [
+        "test_p5_journey::test_p5_24_the_journey_from_intake_to_activation_and_from_withdrawal_to_revocation_over_http",
+    ],
+}
+
+P5_SUPPORTING = {
+    "P5 records are append-only for every role": [
+        "test_provisioning::test_p5_records_are_fixed_for_every_role",
+        "test_credentials::test_p5_setups_are_fixed_for_every_role",
+    ],
+    "023 11.11 supersession and the bounded watch": [
+        "test_provisioning::test_p5_superseding_a_request_without_a_mailbox_releases_the_address_and_awaits_a_new_approval",
+        "test_provisioning::test_p5_superseding_after_a_mailbox_may_exist_keeps_the_address_and_watches_for_a_late_mailbox",
+        "test_provisioning::test_review_a_clean_watch_end_releases_the_address_and_returns_the_stage",
+        "test_provisioning::test_review_after_a_late_mailbox_the_stage_waits_for_the_watch_and_staff_release_the_address",
+        "test_provisioning::test_review_supersede_waits_for_work_in_flight",
+        "test_provisioning::test_review_a_definite_rejection_goes_to_staff_and_frees_the_address_without_a_watch",
+        "test_provisioning::test_review_creates_that_keep_coming_back_not_created_stop_at_the_bound",
+    ],
+    "023 11.5 bounded credential recovery": [
+        "test_credentials::test_review_definite_rejections_are_bounded",
+        "test_credentials::test_review_a_change_can_be_superseded_while_a_link_is_outstanding",
+        "test_credentials::test_review_staff_reissue_recovers_a_request_whose_contact_was_not_usable_at_first",
+    ],
+    "P5-D-6 the checklist credential is a separate contingency": [
+        "test_credentials::test_review_the_checklist_path_never_calls_the_api_for_the_credential",
+    ],
+    "Removed gates fail (P5 negative controls)": [
+        "test_p5_journey::test_p5_removed_gate_without_the_proof_of_ownership_revocation_would_rotate_someone_elses_mailbox",
+        "test_p5_journey::test_p5_removed_gate_without_the_screen_gate_each_service_still_refuses",
+    ],
+}
 
 def key(nodeid: str) -> str:
     """'tests/test_x.py::test_name[param]' -> 'test_x::test_name' (the function: every instance)."""

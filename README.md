@@ -6,9 +6,10 @@
 Intent Solutions is a Claude Partner Network Select Services Partner.
 <!-- intent-select-partner:end -->
 
-> **Status (2026-10-18):** phases P1 to P4 are built and their acceptance gates are signed off **for synthetic work
-> only**: GATE-S1, GATE-P2, GATE-P3 and GATE-P4. P5 (mailbox provisioning, activation and withdrawal) is specified
-> but not built. Nothing is deployed. No real applicant data, live model, live Documenso or real mailbox is used.
+> **Status (2026-10-18):** phases P1 to P5 are built and their acceptance gates are signed off **for synthetic work
+> only**: GATE-S1, GATE-P2, GATE-P3, GATE-P4 and GATE-P5 (D-48). P5 (mailbox provisioning, activation and
+> withdrawal) runs against a local fake mail host. Nothing is deployed. No real applicant data, live model, live
+> Documenso or real mailbox is used.
 
 A documentation-first, Django-native Solution Catalyst onboarding platform for Intent Solutions.
 
@@ -23,7 +24,7 @@ from first contact, in one progressive dossier in PostgreSQL.
 | P2 | Applicant correspondence: approved questions and reminders, mail collection, reply association and trust, staff confirmation, pause and resume, hard-bounce blocking | GATE-P2 (D-33; `000-docs/016`) |
 | P3 | Applicant claims, fixture-backed evidence, a bounded advisory assessment on PydanticAI **test models**, clarification, and a qualification decision that only an authorized person records | GATE-P3 (D-36; `000-docs/018`) |
 | P4 | NDA, then User Agreement, through a **local fake of Documenso**: no duplicate envelopes, signing verified only by a fresh provider read, Catalyst's own verified copy kept separately, audited retrieval, a staff agreement screen, and one held provisioning hand-off | GATE-P4 (D-45; `000-docs/021`, AAR `000-docs/000-aars/022`) |
-| P5 | Mailbox provisioning, credential setup, activation and withdrawal | specified only (`000-docs/023`, proposed) |
+| P5 | Mailbox provisioning, credential setup, activation and withdrawal | built and accepted for synthetic work: GATE-P5 signed off 2026-10-18 (D-48, `000-docs/000-aars/025`) |
 | P6, PL | Staging, deployment, backup and restore, monitoring; legacy cutover | planned (`000-docs/024`, proposed) |
 
 **Not built or not authorized:** real email delivery, live model calls, live Documenso, real agreement templates,

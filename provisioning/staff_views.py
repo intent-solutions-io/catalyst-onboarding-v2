@@ -79,12 +79,18 @@ ITEM_TEXT = {
 }
 
 
+def admitted(user) -> bool:
+    """The screen gate: staff holding any provisioning permission (a superuser is refused by `services.can`). It is
+    only the first check; every action's service checks its own permission again."""
+    return user.is_staff and any(services.can(user, p) for p in SCREEN)
+
+
 def screen(view):
     @never_cache
     @login_required(login_url="admin:login")
     @wraps(view)
     def wrapper(request, *args, **kwargs):
-        if not request.user.is_staff or not any(services.can(request.user, p) for p in SCREEN):
+        if not admitted(request.user):
             logger.warning("provisioning staff screen refused: user=%s path=%s", request.user.pk, request.path)
             raise PermissionDenied
         return view(request, *args, **kwargs)
@@ -179,6 +185,7 @@ def _context(request, application, *, error="", form=None):
     rows = []
     for r in requests:
         mine = [i for i in open_items if i.dedupe_key == f"provisioning:{r.public_id}"]
+        attempts, evidence = list(r.attempts.order_by("id")), list(r.evidence.order_by("id"))
         offered = _offered(r, {i.reason_code for i in mine}, closed)
         live = r.status not in CLOSED_REQUEST and not closed
         rows.append({
@@ -186,8 +193,11 @@ def _context(request, application, *, error="", form=None):
             "operate": bool(offered - {"confirm_found"}),
             "blocker": core.database_problem(application, r) if live else "",
             "items": [{"item": i, "text": ITEM_TEXT.get(i.reason_code, "")} for i in mine],
-            "attempts": list(r.attempts.order_by("id")),
-            "evidence": list(r.evidence.order_by("id")),
+            "creation": [a for a in attempts if a.step == "create"],
+            "creation_evidence": [e for e in evidence if e.kind in ("checklist_created", "staff_confirmed")],
+            "verification": [a for a in attempts if a.step == "read"],
+            "verification_evidence": [e for e in evidence if e.kind in ("adapter_read", "checklist_attested")],
+            "verified": r.status in ("verified", "setup_pending", "setup_complete", "active"),
             "setups": [{"setup": s, "state": LABELS.get(s.state, s.state)} for s in r.setups.order_by("series")],
             "revocations": [{"row": v, "state": LABELS.get(v.state, v.state),
                              "exceptionable": v.kind in closure.EXCEPTIONABLE and v.state in ("unsupported", "pending")}
