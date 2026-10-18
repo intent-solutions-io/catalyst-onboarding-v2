@@ -13,20 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-The first working slice (phase P1) is implemented and accepted: GATE-S1 was signed off by the owner on
-2026-10-11 (`000-docs/011` D-26). The correspondence loop (P2) passed GATE-P2 on 2026-10-13 (D-33). P3 is in
-progress: evidence collection (PR #30) and the bounded assessment on test models only (PR #32) are merged, and a
-candidate selection-quality contract is approved (`000-docs/019`, D-35). Nothing is deployed and only synthetic data is
-used. No release has been cut since `v0.1.0`, which was tagged
-automatically by the templated release workflow on the first push to `main`; it was not a planned
-release, and the workflow now runs only when started by hand. A release-blocking defect in that
-workflow (it pushes its version-bump commit straight to `main`) is open.
+Phases P1 to P4 are implemented and accepted for synthetic work: GATE-S1 (2026-10-11, D-26), GATE-P2 (2026-10-13,
+D-33), GATE-P3 (2026-10-17, D-36) and GATE-P4 (2026-10-18, D-45), each recorded in `000-docs/011` section 4. P5 is
+specified (`000-docs/023`, proposed) and not built. Nothing is deployed and only synthetic data is used. No release
+has been cut since `v0.1.0`, which the templated workflow tagged automatically on the first push to `main`; it was
+not a planned release. The release workflow was corrected in PR #41: it is manual, dry-run by default, and publishes
+only an already-merged, CI-green commit of `main` without committing or pushing to it.
 
 ### Added
 
 - Initial project setup with full governance
 - README, LICENSE, CODE_OF_CONDUCT, CONTRIBUTING, SECURITY, SUPPORT
-- Docs CI (Markdown lint, index completeness) and an inert release workflow (no release exists)
+- Docs CI (Markdown lint, index completeness) and a release workflow, inert at the time (since replaced; see above)
 - Six-document planning set under `000-docs/` with `000-INDEX.md`, each marked preliminary
 - Beads task tracking (prefix `catalyst-v2`) with one planning epic
 - GitHub issue templates and PR template
@@ -52,6 +50,26 @@ workflow (it pushes its version-bump commit straight to `main`) is open.
   all PASS; acceptance evidence `013` and after-action report `014` (#16)
 - Owner's GATE-S1 sign-off (D-26) and POL-01 confirmation for the slice (D-25) recorded (#17)
 - Operator-grade system analysis `015` (#19)
+- P2, the correspondence loop: handoff 2A specification (#20); outbound foundations (#21); inbound collection
+  (#22); reply processing (#23); reminders and staff intervention (#24); GATE-P2 evidence, closeout and
+  after-action report `017` (#25, #27)
+- P3, evidence and assessment: handoff 3A specification (#28); claims and fixture-backed evidence (#30); bounded
+  assessment on test models (#32); the selection-quality contract `019` (#33); clarification (#34); the authorized
+  qualification decision (#35); GATE-P3 map and after-action report `020` (#36)
+- P4, agreements: handoff 4A specification (#37); create and distribute against a fake Documenso (#38);
+  verification by fresh read and sequencing (#39); recovery corrections and D-41 to D-44 (#42); custody,
+  retrieval, required details and the staff screen (#43); GATE-P4 map, HTTP journey and after-action report `022`
+  (#47)
+- Hardening: correspondence evidence append-only (#44); hard bounces block every send (#45); system pauses need a
+  decision-maker (#46); a quarter-faster test suite (#40)
+- Preparation: P5 specification, P6 readiness matrix and PL cutover plan, `023` and `024` (#48)
+
+### Changed
+
+- Dependabot no longer proposes Django major-version bumps (#29)
+- The release workflow publishes only an already-merged, CI-green commit of `main` and never commits or pushes to it
+  (#41)
+- The Intent Solutions Select partner badge is shown (#31)
 
 ### Fixed
 

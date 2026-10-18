@@ -205,7 +205,7 @@ exists).
 
 ## 9. Next steps
 
-**Proposed GATE-P4 sign-off statement for the owner:**
+**GATE-P4 sign-off statement (proposed here; accepted by the owner on 2026-10-18, D-45):**
 
 > "I accept GATE-P4 for synthetic P4 at the final head of PR #47, on its CI run (run 39101605672 at `ced9d16` showed
 > 1000 passed with GATE-S1 25/25, GATE-P2 54/54, GATE-P3 60/60 and GATE-P4 40/40; the final head is linked on the
