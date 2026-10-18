@@ -72,9 +72,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Re-check the tag on the server: if it appeared since the first check, gh would reuse it and ignore --target.
-          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null; then
-            echo "::error::tag $VERSION already exists on the server"; exit 1
-          fi
+          # --exit-code returns 2 only when the tag is absent; 0 means it exists and anything else is an error.
+          rc=0; git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null || rc=$?
+          [ "$rc" = 2 ] || { echo "::error::tag $VERSION exists on the server, or the check failed (exit $rc)"; exit 1; }
           gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "catalyst-onboarding-v2 $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
 

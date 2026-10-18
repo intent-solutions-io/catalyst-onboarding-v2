@@ -121,6 +121,7 @@ def test_the_dispatcher_text_never_reaches_a_script_and_only_main_may_release():
     assert "if: github.ref == 'refs/heads/main'" in text
     assert release_steps()[0] == "Validate the version input"
     assert "git ls-remote --exit-code --tags origin" in text  # the tag is re-checked on the server before publishing
+    assert '[ "$rc" = 2 ] ||' in text  # only "tag absent" proceeds: an error fails closed
 
 
 def test_no_test_command_in_the_release_workflow_can_swallow_a_failure():
