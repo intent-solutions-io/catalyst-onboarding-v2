@@ -87,9 +87,11 @@ def backup(source_db, storage, target, during=None):
 
 def restore(backup_dir, restore_db):
     admin = login("admin", "postgres")
-    admin.execute(sql.SQL("CREATE DATABASE {} OWNER {}").format(sql.Identifier(restore_db),
-                                                                 sql.Identifier(settings.CATALYST_DB_ROLES["owner"])))
-    admin.close()
+    try:
+        admin.execute(sql.SQL("CREATE DATABASE {} OWNER {}").format(sql.Identifier(restore_db),
+                                                                     sql.Identifier(settings.CATALYST_DB_ROLES["owner"])))
+    finally:
+        admin.close()
     result = support.run([sys.executable, "manage.py", "migrate", "--verbosity", "0"], timeout=300,
                          CATALYST_DB_NAME=restore_db, CATALYST_DB_USER=settings.CATALYST_DB_ROLES["owner"],
                          CATALYST_DB_PASSWORD=os.environ["CATALYST_DB_OWNER_PASSWORD"])
