@@ -1,0 +1,87 @@
+{% extends "correspondence/staff/base.html" %}{% load correspondence_display %}
+{% block content %}
+<h1>Agreements: <bdi>{{ application.display_name|visible }}</bdi></h1>
+<p>Stage: {{ application.stage }}. <strong>Next:</strong> {{ next_action }} (owner: {{ owner }}).</p>
+{% if error %}<p class="refused" role="alert">{{ error }}</p>{% endif %}
+{% if handoff %}<p>Provisioning hand-off: {{ handoff.status }} (held for P5; nothing runs it).</p>{% endif %}
+
+{% for row in rows %}
+<section aria-labelledby="ag-{{ row.instance.public_id }}">
+<h2 id="ag-{{ row.instance.public_id }}">{{ row.type.key }} &middot; instance {{ row.instance.public_id }}</h2>
+<table>
+<tr><th scope="row">Issue</th><td>{{ row.issue }}</td></tr>
+<tr><th scope="row">Signing</th><td>{{ row.signing }}</td></tr>
+<tr><th scope="row">Custody</th><td>{{ row.custody }}</td></tr>
+{% if row.instance.replaced_at %}<tr><th scope="row">Eligibility</th><td>replaced by a new generation ({{ row.instance.replacement_reason }})</td></tr>{% endif %}
+{% if row.hold %}<tr><th scope="row">Integrity</th><td class="refused">held: the provider's view no longer matches what was verified</td></tr>{% endif %}
+</table>
+<h3>Recipients</h3>
+<ul>{% for r in row.instance.recipients.all %}<li>{{ r.role }} {{ r.signing_order }} ({{ r.who }}): <bdi>{{ r.email|visible }}</bdi>{% if r.required %}, required{% endif %}</li>{% endfor %}</ul>
+<h3>Latest observations</h3>
+{% if row.observations %}<ul>{% for o in row.observations %}<li>{{ o.observed_at|date:"c" }} {{ o.source }}{% if o.event %} {{ o.event }}{% endif %}: {{ o.envelope_status }}; ours {{ o.identity_match|yesno:"yes,no" }}; recipients match {{ o.recipients_match|yesno:"yes,no" }}; all required signed {{ o.all_required_signed|yesno:"yes,no" }}</li>{% endfor %}</ul>{% else %}<p>None yet.</p>{% endif %}
+{% if row.instance.documents.all %}<h3>Stored documents</h3>
+<ul>{% for doc in row.instance.documents.all %}<li>{{ doc.public_id }} ({{ doc.size }} bytes, SHA-256 {{ doc.sha256|truncatechars:17 }})
+{% if may.retrieve_agreement_document %}<form method="post" action="{% url 'agreements_staff:retrieve' doc.public_id %}" class="inline">{% csrf_token %}
+<label>Why you need it <input name="note" maxlength="300" required></label> <button>Download (audited)</button></form>{% endif %}</li>{% endfor %}</ul>{% endif %}
+
+<form method="post" action="{% url 'agreements_staff:act' application.public_ref %}" class="inline">{% csrf_token %}
+<input type="hidden" name="instance" value="{{ row.instance.public_id }}">
+{% if may.manage_agreements %}<button name="action" value="cancel">Cancel at the provider</button>
+<button name="action" value="reissue">Reissue as a new agreement</button>{% endif %}
+{% if may.operate_agreements and row.instance.custody_status == "failed_needs_staff" %}<button name="action" value="retry_custody">Retry custody</button>{% endif %}
+</form>
+
+{% if row.hold and may.resolve_agreement_integrity %}
+<h3>Resolve the integrity hold</h3>
+<p>The earlier verified read stays in the record. Continuing needs a fresh read, recorded after the hold, that matches fully{% if row.integrity.fresh %}: the latest read is {% if row.integrity.matching %}a full match{% else %}<strong>not</strong> a match{% endif %}{% else %}: no fresh read yet{% endif %}. Replacing creates a new agreement and keeps this one as history. Nothing here voids an agreement legally.</p>
+<form method="post" action="{% url 'agreements_staff:act' application.public_ref %}">{% csrf_token %}
+<input type="hidden" name="instance" value="{{ row.instance.public_id }}">
+<button name="action" value="recheck">Read again now</button></form>
+<form method="post" action="{% url 'agreements_staff:act' application.public_ref %}">{% csrf_token %}
+<input type="hidden" name="action" value="resolve"><input type="hidden" name="instance" value="{{ row.instance.public_id }}">
+<input type="hidden" name="digest" value="{{ row.integrity.digest }}">
+<fieldset><legend>Disposition</legend>{% for value, label in dispositions.items %}
+<label><input type="radio" name="disposition" value="{{ value }}" required{% if form.disposition == value and form.instance == row.instance.public_id|stringformat:"s" %} checked{% endif %}> {{ label }}</label>{% endfor %}</fieldset>
+<label>Reason (do not include personal details) <input name="note" maxlength="500" required value="{% if form.instance == row.instance.public_id|stringformat:"s" %}{{ form.note }}{% endif %}"></label>
+<button>Record the disposition</button></form>
+{% endif %}
+
+{% for attempt in row.watch_ended %}{% if may.manage_agreements %}
+<form method="post" action="{% url 'agreements_staff:act' application.public_ref %}">{% csrf_token %}
+<input type="hidden" name="action" value="rearm"><input type="hidden" name="attempt" value="{{ attempt.public_id }}">
+<p>Automatic checking for a late envelope under an earlier key ended unresolved.</p><button>Look again (bounded)</button></form>
+{% endif %}{% endfor %}
+</section>
+{% empty %}<p>No agreements yet.</p>
+{% endfor %}
+
+{% for d in details %}
+<section><h2>Details the {{ d.type.key }} needs</h2>
+<p>{% if d.confirmed %}Confirmed.{% else %}Not confirmed yet: the {{ d.type.key }} waits.{% endif %} Record only what the applicant provided; nothing is taken from an email automatically.</p>
+{% if may.confirm_required_details %}
+<form method="post" action="{% url 'agreements_staff:act' application.public_ref %}">{% csrf_token %}
+<input type="hidden" name="action" value="record_details"><input type="hidden" name="type" value="{{ d.type.key }}">
+{% for f in d.fields %}<label>{{ f }} <input name="field-{{ f }}" maxlength="200" required></label>{% endfor %}
+<button>Record as a draft</button></form>
+{% if d.draft %}<form method="post" action="{% url 'agreements_staff:act' application.public_ref %}">{% csrf_token %}
+<input type="hidden" name="action" value="confirm_details"><input type="hidden" name="details" value="{{ d.draft.public_id }}">
+<input type="hidden" name="digest" value="{{ d.draft.values_sha256 }}">
+<p>Draft version {{ d.draft.version }}: {% for k, v in d.draft.values.items %}{{ k }} = <bdi>{{ v|visible }}</bdi>; {% endfor %}</p>
+<button>Confirm exactly these values</button></form>{% endif %}
+{% endif %}</section>
+{% endfor %}
+
+<h2>Open agreement items</h2>
+{% if items %}<ul>{% for item in items %}<li>{{ item.reason_code }} (opened {{ item.opened_at|date:"c" }})</li>{% endfor %}</ul>{% else %}<p>None.</p>{% endif %}
+
+{% if may.manage_agreements %}
+<h2>Stop or resume</h2>
+<form method="post" action="{% url 'agreements_staff:act' application.public_ref %}">{% csrf_token %}
+<input type="hidden" name="action" value="stop">
+<fieldset><legend>Stop every unfinished agreement</legend>{% for value, label in stop_reasons.items %}
+<label><input type="radio" name="reason" value="{{ value }}" required{% if form.reason == value %} checked{% endif %}> {{ label }}</label>{% endfor %}</fieldset>
+<button>Stop and cancel unfinished envelopes</button></form>
+<form method="post" action="{% url 'agreements_staff:act' application.public_ref %}">{% csrf_token %}
+<button name="action" value="resume">Resume after a hold</button></form>
+{% endif %}
+{% endblock %}

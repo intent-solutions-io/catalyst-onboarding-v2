@@ -88,6 +88,7 @@ class Envelope:
     type: str
     recipients: tuple
     created_at: str = ""
+    items: tuple = ()  # the envelope's item ids (validated), for custody
 
 
 @dataclass(frozen=True)
@@ -274,7 +275,9 @@ def envelope(raw) -> Envelope:
                     status=_enum(raw.get("status"), STATUSES),
                     template_number=number if isinstance(number, int) and not isinstance(number, bool) else None,
                     type=_enum(raw.get("type"), ("DOCUMENT", "TEMPLATE")), recipients=tuple(_recipient(r) for r in raw.get("recipients", [])),
-                    created_at=_text(raw.get("createdAt"), 40))
+                    created_at=_text(raw.get("createdAt"), 40),
+                    items=tuple(_envelope_id(i.get("id")) for i in raw.get("envelopeItems", [])
+                                if isinstance(i, dict))[:20] if isinstance(raw.get("envelopeItems", []), list) else ())
 
 
 def _multipart(payload: dict) -> tuple[bytes, str]:

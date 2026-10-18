@@ -165,6 +165,7 @@ CATALYST_ACTION_HANDLERS = {
     "read_agreement": "agreements.completion.ReadAgreement",
     "advance_agreements": "agreements.completion.AdvanceAgreements",
     "cancel_agreement": "agreements.completion.CancelAgreement",
+    "store_agreement": "agreements.custody.StoreAgreement",  # 4B.3 (021 section 7)
 }
 # The one seam through which the applications app opens a staff item for a `needs_staff_attention` event
 # (016 3.8; 2B.3). Like the handler mapping, a fixed dotted path in code, so `applications` never imports
@@ -294,6 +295,12 @@ CATALYST_AGREEMENT_PROVIDER_TOKEN = ""
 # `X-Documenso-Secret`. Two may be valid during a rotation. Fixed in code and empty outside `test`; the webhook route
 # is mounted only in `test` and `development` until the P6 exposure decision.
 CATALYST_AGREEMENT_WEBHOOK_SECRETS: list = []
+# Custody (021 section 7; 4B.3; POL-09 open): an absolute directory outside the repository and any web root, test only
+# in synthetic P4. Fixed in code, empty everywhere else.
+CATALYST_AGREEMENT_STORAGE_DIR = ""
+# Required details per agreement type (POL-18 open: no production field list). Synthetic field names only, set by
+# tests; fixed in code and empty everywhere else.
+CATALYST_AGREEMENT_REQUIRED_DETAILS: dict = {}
 CATALYST_AGREEMENT_DEADLINE_SECONDS = number("CATALYST_AGREEMENT_DEADLINE_SECONDS",
                                              str(max(1, min(10, CATALYST_WORKER_LEASE_SECONDS // 2))))
 CATALYST_AGREEMENT_MAX_BYTES = number("CATALYST_AGREEMENT_MAX_BYTES", "1048576")
@@ -308,6 +315,7 @@ CATALYST_AGREEMENT_RETRY_AFTER_MAX_SECONDS = number("CATALYST_AGREEMENT_RETRY_AF
 CATALYST_AGREEMENT_READ_INTERVAL_SECONDS = number("CATALYST_AGREEMENT_READ_INTERVAL_SECONDS", "3600", minimum=0)  # the sweep
 CATALYST_AGREEMENT_READ_MIN_INTERVAL_SECONDS = number("CATALYST_AGREEMENT_READ_MIN_INTERVAL_SECONDS", "60", minimum=0)
 CATALYST_AGREEMENT_WEBHOOK_MAX_BYTES = number("CATALYST_AGREEMENT_WEBHOOK_MAX_BYTES", "65536")
+CATALYST_AGREEMENT_MAX_ITEMS = number("CATALYST_AGREEMENT_MAX_ITEMS", "5")  # envelope items stored per agreement
 if CATALYST_AGREEMENT_DEADLINE_SECONDS * 2 > CATALYST_WORKER_LEASE_SECONDS:
     raise ImproperlyConfigured("CATALYST_AGREEMENT_DEADLINE_SECONDS must be at most half of CATALYST_WORKER_LEASE_SECONDS")
 if CATALYST_AGREEMENT_LIST_PAGE_SIZE > 100:

@@ -19,7 +19,7 @@ from django.db.models.functions import Now
 from applications.models import Application, ApplicationEvent, Stage
 from correspondence.models import StaffItem
 from correspondence.common import Refused as NoteRefused
-from correspondence.staff_items import clean_note as _clean_note, event, resolve_item
+from correspondence.staff_items import clean_note as _clean_note, event, open_item, resolve_item
 from workflow.models import PendingAction
 
 from . import handlers
@@ -476,3 +476,126 @@ def rearm_orphan_watch(attempt_id: int, user) -> None:
               actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
         resolve_item(item, code="watch_rearmed", actor_ref=actor, effects={"attempt": str(attempt.public_id)})
         handlers.enqueue_reconcile(attempt, watches + 1, watch=True, grace=0)
+
+
+# --- 4B.3: custody retry, retrieval and required details (021 sections 7 and 8) --------------------------------------
+
+RETRIEVE_REASON_MAX = 300
+
+
+def retry_custody(instance_id: int, user) -> None:
+    """An operator retries custody after a failure: signing stays verified and nothing is re-signed or reissued."""
+    from .custody import enqueue_store
+
+    require(user, "operate_agreements")
+    with transaction.atomic():
+        application, instance = _lock(instance_id)
+        if instance.signing_status != "signing_complete_verified" or instance.custody_status != "failed_needs_staff":
+            raise Refused("custody_not_failed")
+        AgreementInstance.objects.filter(pk=instance.pk).update(custody_status="pending", updated_at=Now())
+        enqueue_store(instance)
+        event(application, "agreement_custody_retry", {"instance": str(instance.public_id)},
+              actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=f"user:{user.pk}")
+
+
+def retrieve_document(document_ref: str, user, reason: str):
+    """021 section 7. Returns (filename, bytes) or raises. The access record is committed before any byte is read for
+    release; a failed audit write releases nothing. A caller without the permission, or a reference that does not
+    exist, gets the same `Refused("not_available")` and leaves a `denied` record that names only the reference asked
+    for. The bytes are read once, verified against the recorded size and SHA-256, and exactly those bytes are
+    returned; a mismatch refuses, is recorded, and opens a staff item."""
+    from . import storage
+    from .custody import CUSTODY_CORRUPTED
+    from .models import DocumentAccess, StoredDocument
+
+    actor = f"user:{getattr(user, 'pk', None) or 'anonymous'}"
+    ref = str(document_ref)[:64]
+    raw = (reason or "").strip()
+    document = StoredDocument.objects.select_related("instance", "application").filter(public_id=ref).first() \
+        if len(ref) == 36 else None
+    if not can(user, "retrieve_agreement_document") or document is None:
+        DocumentAccess.objects.create(requested_ref=ref, actor_ref=actor, outcome=DocumentAccess.Outcome.DENIED)
+        raise Refused("not_available")
+    if len(raw) > RETRIEVE_REASON_MAX:
+        raise Refused("reason_too_long")
+    note = clean_note(raw)
+    if len(note) < REASON_MIN:
+        raise Refused("reason_needed")
+    with transaction.atomic():  # committed before any byte is read for release
+        DocumentAccess.objects.create(document=document, requested_ref=ref, actor_ref=actor, reason=note,
+                                      outcome=DocumentAccess.Outcome.GRANTED)
+    try:
+        data = storage.read(document.storage_key, document.sha256, document.size)
+    except storage.StorageError as exc:
+        with transaction.atomic():
+            DocumentAccess.objects.create(document=document, requested_ref=ref, actor_ref=actor,
+                                          outcome=DocumentAccess.Outcome.REFUSED_INTEGRITY)
+            AgreementInstance.objects.filter(pk=document.instance_id).update(custody_status="failed_needs_staff",
+                                                                             updated_at=Now())
+            open_item(CUSTODY_CORRUPTED, f"document:{document.public_id}", application=document.application)
+            event(document.application, "agreement_document_refused", {"document": str(document.public_id),
+                                                                        "code": str(exc)})
+        raise Refused("document_integrity_failed") from None
+    return f"agreement-{document.public_id}.pdf", data
+
+
+def _details_digest(values: dict) -> str:
+    import json
+
+    return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
+
+
+def record_required_details(application_id: int, type_key: str, values: dict, user):
+    """Staff record the details an agreement needs from what the applicant provided, as a new draft version. Only the
+    configured synthetic fields are accepted; nothing is taken from a received email automatically."""
+    from .completion import required_details
+    from .models import AgreementDetailsVersion, AgreementType
+
+    require(user, "confirm_required_details")
+    agreement_type = AgreementType.objects.get(key=type_key)
+    fields = required_details(agreement_type)
+    if not fields:
+        raise Refused("no_details_required")
+    if set(values) != set(fields):
+        raise Refused("fields_mismatch")
+    cleaned = {}
+    for name in fields:
+        text = clean_note(str(values[name])).strip()
+        if not text or len(text) > 200:
+            raise Refused("field_invalid")
+        cleaned[name] = text
+    with transaction.atomic():
+        application = Application.objects.select_for_update(of=("self",)).get(pk=application_id)
+        if application.stage != Stage.AGREEMENTS:
+            raise Refused("not_in_agreements")
+        version = (AgreementDetailsVersion.objects.filter(application=application, agreement_type=agreement_type)
+                   .count() + 1)
+        row = AgreementDetailsVersion.objects.create(
+            application=application, agreement_type=agreement_type, version=version, values=cleaned,
+            values_sha256=_details_digest(cleaned), recorded_by=f"user:{user.pk}")
+        event(application, "agreement_details_recorded", {"type": type_key, "version": version},
+              actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=f"user:{user.pk}")
+    return row
+
+
+def confirm_required_details(details_id: int, user, expected_sha256: str):
+    """The explicit confirmation of exactly the values shown (D-40, POL-18); the sequence then continues."""
+    from .completion import enqueue_advance
+    from .models import AgreementDetailsVersion
+
+    require(user, "confirm_required_details")
+    with transaction.atomic():
+        row = AgreementDetailsVersion.objects.get(pk=details_id)
+        application = Application.objects.select_for_update(of=("self",)).get(pk=row.application_id)
+        row = AgreementDetailsVersion.objects.select_for_update(of=("self",)).get(pk=details_id)
+        if row.status != AgreementDetailsVersion.Status.DRAFT:
+            raise Refused("not_draft")
+        if expected_sha256 != row.values_sha256:
+            raise Refused("changed_since_shown")
+        AgreementDetailsVersion.objects.filter(pk=row.pk).update(
+            status=AgreementDetailsVersion.Status.CONFIRMED, confirmed_by=f"user:{user.pk}", confirmed_at=Now())
+        event(application, "agreement_details_confirmed", {"type": row.agreement_type.key, "version": row.version},
+              actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=f"user:{user.pk}")
+        enqueue_advance(application)
+    row.refresh_from_db()
+    return row

@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document | `021-AT-DSGN-p4-agreements-specification` |
-| Version | 0.5.0 (0.2.0 approved, D-37; section 15: the installed-version check and 4B.1, D-38; section 16: 4B.2, D-39; section 17: the recovery corrections and the owner decisions D-40 to D-44) |
+| Version | 0.6.0 (0.2.0 approved, D-37; section 15: the installed-version check and 4B.1, D-38; section 16: 4B.2, D-39; section 17: the recovery corrections and the owner decisions D-40 to D-44; section 18: 4B.3) |
 | Status | **APPROVED by the owner 2026-10-17 (version 0.2.0; D-37 in `011` section 4), with the recommended defaults `P4-D-1` to `P4-D-20` for synthetic P4.** 4B.1 to 4C each need their own release; the read-only Documenso version check (P4-D-2) needs its own authorization. No real envelope, agreement text, real data or deployment is authorized. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-17 |
@@ -619,3 +619,102 @@ an envelope is distributed:
 **Database:** migrations `agreements` 0005 and 0006 add the new columns, which are set once for every role. A
 replacement needs its reason. The live-instance index and the D-15 backstop ignore a replaced NDA. Tests bypass
 the services to prove each.
+
+## 18. The 4B.3 record: custody, retrieval, required details, the staff screen and the hand-off (D-40)
+
+Bead `catalyst-v2-hdg.4`; tests in `tests/test_agreement_custody.py`.
+
+**Download contract, INSPECTED from public source at `v2.20.0`:**
+
+- `packages/trpc/server/envelope-router/download-envelope-item.ts` is a stub (`NOT_IMPLEMENTED`). The API v2
+  download is implemented in `apps/remix/server/api/download/download.ts`: `GET
+  /api/v2/envelope/item/{id}/download?version=…`. It authenticates with the API key, limits access to the token's
+  team, and serves through `apps/remix/server/api/files/files.helpers.ts`.
+- `version=signed` serves the item's current stored data; `original` serves the uploaded data. The signed branch
+  does not check that signing finished.
+- The response is the PDF bytes, with `Content-Disposition` and `no-store` headers. Its ETag is a SHA-256 of the
+  storage reference, not of the bytes.
+- **What Catalyst does with this:**
+  - Before any download, it checks completion, identity and every required recipient on a fresh read.
+  - It downloads only the item ids that read lists, always with `version=signed`.
+  - It hashes the bytes itself.
+  - Neither the header nor the ETag counts as evidence.
+
+**Custody** (`agreements/custody.py`, `agreements/storage.py`):
+
+- **Trigger.** Custody runs after `signing_complete_verified`. It only reads from the provider, so, like
+  reconciliation, a pause does not hold it (D-44).
+- **Storage.** Each item is downloaded through the hardened adapter (bounded size and time, no redirect, `%PDF`
+  check). It is written under a new system-generated key with an exclusive, no-follow, mode 0600 create, flushed to
+  disk, re-opened, checked as a regular file owned by this user with no group or other access, and re-hashed. Only
+  then does one transaction record a `StoredDocument` (insert-only, append-only; one per instance and item) and
+  move custody to `stored_verified`. The sequence then advances.
+- **Location.** `CATALYST_AGREEMENT_STORAGE_DIR` is fixed in code and test-only. It must be absolute and outside the
+  repository, and its directory must be private to this user. Production location and encryption are POL-09.
+- **Failure.** A provider or storage failure retries within the attempt bound (`failed_retry_pending`), then
+  becomes `failed_needs_staff` with an item. An operator may retry. Signing stays verified, and nothing is
+  re-signed, reissued or advanced.
+- **Changed provider view.** If the fresh read no longer matches, an integrity hold opens (D-43) and nothing is
+  stored.
+- **Interruption.** If the run stops between the file and the record, the file is left unreferenced and is never
+  served. The retry writes a new key, and the unique record allows only one authoritative copy.
+
+**Retrieval** (`services.retrieve_document`; `POST /staff/p4/documents/<id>/retrieve/`):
+
+- **Who.** Only the `retrieve_agreement_document` permission, assigned to no group (P4-D-16), with a stated reason.
+- **Audit first.** The `DocumentAccess` row (append-only) is committed before any byte is read for release. If the
+  audit write fails, nothing is released.
+- **Denials.** A missing permission and a missing document both return the same 404, and both leave a `denied` row
+  that names only the reference asked for.
+- **Integrity.** The bytes are read once with no link following, checked against the recorded size and SHA-256, and
+  exactly those bytes are served. A mismatch, a link, the wrong owner or loose permissions refuses. Each refusal is
+  recorded as `refused_integrity`, opens a corruption item and sets custody back to `failed_needs_staff`.
+- **Response.** Served as an attachment: `application/pdf`, `nosniff`, `private, no-store`.
+
+**Required details** (POL-18; synthetic fields only):
+
+- `CATALYST_AGREEMENT_REQUIRED_DETAILS` is fixed in code and empty. Tests set synthetic field names; the production
+  field list is undecided.
+- With the `confirm_required_details` permission, staff record what the applicant provided as a new draft version,
+  then confirm exactly the values shown (a digest). A received email is never adopted as an answer, and the adopted
+  application is never overwritten.
+- A confirmed version is final for every role (a trigger).
+- An agreement type with required details is not issued until a confirmed version holds every field. Until then a
+  staff item explains the wait.
+
+**The staff screen** (`/staff/p4/applications/<ref>/agreements/`, linked from the dossier):
+
+- **What it shows.** For each instance: issue, signing and custody separately, in plain words; the recipients; the
+  latest observations; any integrity hold, with the evidence and the allowed remedies. Also the required details,
+  the open agreement items, the next action and who owns it.
+- **Actions.**
+  - Each action is a CSRF-protected POST to one service, shown only to its permission.
+  - A refusal re-renders the page with the refusal code and what was typed.
+  - Choices are never preselected.
+  - Superusers are refused.
+  - Untrusted text is escaped.
+- **Permissions.**
+  - Readers have `view_agreementinstance`.
+  - Operators have `operate_agreements`.
+  - Decision-makers hold the `manage`, `decide`, `resolve`, `retrieve` and `confirm` permissions.
+  - None is assigned to a group.
+
+**The P5 hand-off** (021 step 8):
+
+- **Prerequisites.** When every required type has a live, unreplaced instance that passes its gate (signing and
+  custody by default, with no integrity hold), and every required detail is confirmed, the advance re-checks all of
+  it under the application lock.
+- **The move.** It then moves the stage `agreements → agreements_complete` with a compare-and-set, and creates one
+  held `provision:<application>` action.
+- **What it records.** The action's input is a digest of the exact prerequisites (instances, stored documents,
+  details versions), which the stage event lists.
+- **Duplicates.** A duplicate or stale advance creates nothing more.
+- **Nothing runs it.** No `provision` handler exists.
+
+**Deviations and limits:**
+
+- Unreferenced files from interrupted runs are not swept. Deleting them is a retention act (POL-10).
+- The stored PDF is not encrypted (POL-09).
+- The download's binary behaviour comes from the public source and the fake. It is NOT VERIFIED on the installation
+  until a credentialed check is authorized.
+- One item per synthetic template. Up to `CATALYST_AGREEMENT_MAX_ITEMS` per envelope are stored.

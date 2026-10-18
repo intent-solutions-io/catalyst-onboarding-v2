@@ -257,6 +257,10 @@ class IssueAgreement(_AgreementAction):
         version = approved_version("nda")
         if version is None:
             return held("no_approved_template")
+        from .completion import details_confirmed  # completion builds on this module
+
+        if not details_confirmed(application, version.agreement_type):
+            return held("details_needed")
         if verified_address(application) is None:
             return held("contact_not_verified")
 

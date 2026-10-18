@@ -276,6 +276,8 @@ DATABASE_CONSTRAINTS = {
     "agreement_recipient_one_per_slot", "agreement_recipient_who_valid", "envelope_attempt_step_valid",
     "envelope_attempt_outcome_valid", "observation_source_valid", "observation_webhook_once",  # 4B.2
     "agreement_replacement_consistent",  # D-43
+    "stored_document_one_per_item", "stored_document_signed_only", "document_access_outcome_valid",  # 4B.3
+    "details_one_per_version", "details_status_valid", "details_confirmed_has_actor",
 }
 
 

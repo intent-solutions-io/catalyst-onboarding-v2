@@ -27,6 +27,7 @@ from django.db.models import Value
 from django.db.models.functions import Greatest, Least, Now
 
 from applications.models import Application, Stage
+from applications.stages import StageConflict, transition
 from correspondence.models import StaffItem
 from correspondence.staff_items import event, open_item
 from workflow import ledger
@@ -60,6 +61,8 @@ ADVANCE_FAILED = "agreement_advance_failed"
 INTEGRITY_HOLD = "agreement_integrity_hold"  # D-43: blocks progression and P5 until a permissioned resolution
 REISSUE_NEEDS_DECISION = "agreement_reissue_needs_decision"  # D-42: never reissued without a decision-maker
 CLOSED_WATCH_ENDED = "agreement_closed_watch_ended"  # D-44: bounded follow-up of a closed instance ended unresolved
+DETAILS_NEEDED = "agreement_details_needed"  # POL-18: the next agreement waits for confirmed required details
+HANDOFF = "provision"  # the held P5 action (021 step 8); no handler exists, so it never runs
 STOPPED_EVENT = "agreements_stopped"
 RESUMED_EVENT = "agreements_resumed"
 
@@ -296,6 +299,9 @@ def apply_read(claim, instance_id: int, env: provider.Envelope) -> None:
         if data["all_required_signed"]:
             status(signing_status="signing_complete_verified", custody_status="pending")
             event(application, "agreement_signing_verified", {"instance": ref}, actor_ref=actor)
+            from .custody import enqueue_store
+
+            enqueue_store(instance)  # 4B.3: custody next; the advance follows custody where the gate needs it
             enqueue_advance(application)
             return
         status(signing_status="signing_complete_observed")
@@ -331,6 +337,32 @@ def apply_read(claim, instance_id: int, env: provider.Envelope) -> None:
 
 
 # --- the D-15 sequence -----------------------------------------------------------------------------------------------
+
+def required_details(agreement_type) -> list:
+    return list(settings.CATALYST_AGREEMENT_REQUIRED_DETAILS.get(agreement_type.key, []))
+
+
+def details_confirmed(application, agreement_type) -> bool:
+    """POL-18: a type with required details waits for a confirmed version holding every field."""
+    from .models import AgreementDetailsVersion
+
+    fields = required_details(agreement_type)
+    if not fields:
+        return True
+    confirmed = (AgreementDetailsVersion.objects.filter(application=application, agreement_type=agreement_type,
+                                                        status=AgreementDetailsVersion.Status.CONFIRMED)
+                 .order_by("-version").first())
+    return confirmed is not None and all(str((confirmed.values or {}).get(f, "")).strip() for f in fields)
+
+
+def latest_details_ref(application, agreement_type) -> str:
+    from .models import AgreementDetailsVersion
+
+    row = (AgreementDetailsVersion.objects.filter(application=application, agreement_type=agreement_type,
+                                                  status=AgreementDetailsVersion.Status.CONFIRMED)
+           .order_by("-version").first())
+    return str(row.public_id) if row else ""
+
 
 def gate_passed(instance) -> bool:
     if instance.signing_status != "signing_complete_verified" or instance.replaced_at or integrity_hold_open(instance):
@@ -380,9 +412,13 @@ class AdvanceAgreements:
         previous, next_type, reason = next_step(application)
         env = None
         if next_type is None:
-            ledger.finish(claim, self, status=Status.DONE, error=reason, write=lambda: event(
-                application, "agreements_all_passed", {}, actor_ref=f"pending_action:{claim.id}")
-                if reason == "all_passed" else None)  # the P5 hand-off is 4B.3
+            ledger.finish(claim, self, status=Status.DONE, error=reason,
+                          write=(lambda: self.hand_off(claim, application)) if reason == "all_passed" else None)
+            return
+        if not details_confirmed(application, next_type):
+            ledger.finish(claim, self, status=Status.DONE, error="details_needed", write=lambda: open_item(
+                DETAILS_NEEDED, f"details:{application.public_ref}:{next_type.key}", application=application,
+                pending_action_id=claim.id))
             return
         late = StaffItem.objects.filter(application=application, reason_code=COMPLETED_AFTER_CANCEL,
                                         status=StaffItem.Status.OPEN).exists()
@@ -406,6 +442,34 @@ class AdvanceAgreements:
                 return
         ledger.finish(claim, self, status=Status.DONE,
                       write=lambda: self.issue(claim, application, previous, next_type, env))
+
+    def hand_off(self, claim, application) -> None:
+        """021 step 8: every required agreement has passed its gate (signing and custody by default) and every required
+        detail is confirmed. Re-checked here under the application lock; the compare-and-set stage move and the unique
+        action key mean a duplicate or stale advance creates nothing more."""
+        application = Application.objects.get(pk=application.pk)
+        if application.stage != Stage.AGREEMENTS or stopped(application):
+            return
+        _, next_type, reason = next_step(application)
+        types = list(AgreementType.objects.filter(required=True).order_by("order"))
+        if next_type is not None or reason != "all_passed" or any(not details_confirmed(application, t) for t in types):
+            return
+        refs = {}
+        for t in types:
+            live = (AgreementInstance.objects.filter(application=application, agreement_type=t, replaced_at__isnull=True)
+                    .exclude(issue_status__in=("superseded", "cancelled")).get())
+            refs[t.key] = {"instance": str(live.public_id),
+                           "documents": sorted(str(d) for d in live.documents.values_list("public_id", flat=True)),
+                           "details": latest_details_ref(application, t)}
+        digest = hashlib.sha256(json.dumps(refs, sort_keys=True).encode()).hexdigest()
+        try:
+            transition(application.pk, (Stage.AGREEMENTS,), Stage.AGREEMENTS_COMPLETE, event_kind="agreements_complete",
+                       data={"prerequisites": refs, "digest": digest}, actor_ref=f"pending_action:{claim.id}")
+        except StageConflict:
+            return
+        PendingAction.objects.create(kind=HANDOFF, subject_type="application", subject_id=application.public_ref,
+                                     input_ref=f"agreements:{digest}", idempotency_key=f"{HANDOFF}:{application.public_ref}",
+                                     status=Status.HELD)
 
     def issue(self, claim, application, previous, next_type, env) -> None:
         actor = f"pending_action:{claim.id}"
