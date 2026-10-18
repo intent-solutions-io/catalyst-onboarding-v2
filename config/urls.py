@@ -14,6 +14,7 @@ urlpatterns = [
     path("staff/p4/", include("agreements.staff_urls")),
     path("staff/", admin.site.urls),
     path("setup/", include("provisioning.urls")),  # applications.links.SETUP_PATH (P5 5B.2)
+    path("withdraw/", include("provisioning.withdraw_urls")),  # applications.links.WITHDRAW_PATH (P5 5B.3)
     path("", include("applications.urls")),
 ]
 # The Documenso webhook (P4 4B.2, 021 section 6): mounted only in test and development until the P6 exposure

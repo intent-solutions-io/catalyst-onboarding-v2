@@ -272,17 +272,25 @@ def stop_agreements(application_id: int, user, reason: str) -> list:
         application = Application.objects.select_for_update(of=("self",)).get(pk=application_id)
         if application.stage != Stage.AGREEMENTS:
             raise Refused("not_in_agreements")
-        if _final_stop(application) is not None:
-            raise Refused("stopped_for_good")  # a withdrawal or closure is never turned into a resumable hold
-        results = []
-        live = list(AgreementInstance.objects.select_for_update(of=("self",))
-                    .filter(application=application, issue_status__in=LIVE).order_by("id"))
-        for instance in live:  # an exchange in flight gets a recorded cancel request instead of a refusal (D-42)
-            if instance.signing_status == "signing_complete_verified":
-                continue  # signed agreements stay signed
-            results.append(_close(instance, actor))
-        event(application, "agreements_stopped", {"reason": reason, "closed": len(results)},
-              actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
+        return stop_locked(application, reason, actor, actor_type=ApplicationEvent.ActorType.STAFF)
+
+
+def stop_locked(application, reason: str, actor: str, actor_type=ApplicationEvent.ActorType.STAFF) -> list:
+    """The stop itself, inside the caller's transaction with the application locked: also the POL-12 withdrawal and
+    closure service's path (P5 5B.3), which has already authorized the act."""
+    if reason not in STOP_REASONS:
+        raise Refused("unknown_reason")
+    if _final_stop(application) is not None:
+        raise Refused("stopped_for_good")  # a withdrawal or closure is never turned into a resumable hold
+    results = []
+    live = list(AgreementInstance.objects.select_for_update(of=("self",))
+                .filter(application=application, issue_status__in=LIVE).order_by("id"))
+    for instance in live:  # an exchange in flight gets a recorded cancel request instead of a refusal (D-42)
+        if instance.signing_status == "signing_complete_verified":
+            continue  # signed agreements stay signed
+        results.append(_close(instance, actor))
+    event(application, "agreements_stopped", {"reason": reason, "closed": len(results)},
+          actor_type=actor_type, actor_ref=actor)
     return results
 
 

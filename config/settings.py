@@ -175,6 +175,9 @@ CATALYST_ACTION_HANDLERS = {
     "provision_invite": "provisioning.credentials.SendSetupInvitation",
     "provision_setup_sweep": "provisioning.credentials.SweepSetup",
     "provision_activate": "provisioning.credentials.Activate",
+    # P5 5B.3 (023 sections 6 and 11.6)
+    "provision_revoke": "provisioning.closure.RevokeAccess",
+    "provision_withdraw_send": "provisioning.closure.SendWithdrawalLink",
 }
 # P5 provisioning (023; D-47). Synthetic only: the adapter is a local fake set by tests, the domain a `.test` domain
 # (P5-D-1), and the limits labelled synthetic defaults (P5-D-2), never unlimited. A live adapter, a provider key and

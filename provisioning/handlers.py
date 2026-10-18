@@ -188,6 +188,9 @@ class CreateMailbox(_Action):
             if request.stop_requested_at is not None:
                 core.set_status(request, "recovered_after_stop")
                 core.item(core.ITEM_LATE_MAILBOX, request, claim_id=claim.id)
+                from .closure import ensure_revocations
+
+                ensure_revocations(request, f"pending_action:{claim.id}")  # no welcome, no reactivation (023 11.5)
                 return
             core.set_status(request, "created")
             core.enqueue(core.VERIFY, request, f"{core.VERIFY}:{request.public_id}:0", due_in=_grace())
@@ -284,6 +287,10 @@ class ReconcileMailbox(_Action):
                 core.set_status(request, "recovered_after_stop" if request.stop_requested_at else "found_by_evidence")
                 core.item(core.ITEM_LATE_MAILBOX if request.stop_requested_at else core.ITEM_CONFIRM_FOUND, request,
                           claim_id=claim.id)
+                if request.stop_requested_at:
+                    from .closure import ensure_revocations
+
+                    ensure_revocations(request, f"pending_action:{claim.id}")
             else:
                 ProvisioningAttempt.objects.filter(pk=attempt.pk).update(outcome=Outcome.CONFLICT,
                                                                          code="present_but_not_provably_ours",

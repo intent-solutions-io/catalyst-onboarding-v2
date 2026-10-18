@@ -642,3 +642,51 @@ uncertain send supersedes, and an unused link expires into a new series or a sta
 - the production link lifetime;
 - the set of company domains the invitation must avoid;
 - whether to accept, until P6, that `/setup/` has no rate limit.
+
+## 14. The 5B.3a record: withdrawal, closure and access revocation (D-47)
+
+5B.3 is split into two pull requests: 5B.3a (this record) builds the service and revocation, and 5B.3b builds the
+applicant-centred staff screen (TEST-P5-19, 20).
+
+**Built** (migrations `0005` and `0006`; `provisioning/closure.py`):
+
+- **`close_locked`: the one POL-12 move to `withdrawn` or `closed`.** In one transaction it:
+  - stops unfinished agreements (P4 `stop_locked`, factored out of `stop_agreements`);
+  - records the stop intent on every live or active provisioning request: a create in flight becomes `stopping`, and
+    everything else `stopped`;
+  - cancels queued creates, invitations, activations and the held hand-off;
+  - cancels live setups;
+  - records the revocation obligations wherever a mailbox may exist.
+
+  It never deletes mailbox data, never suspends a whole hosting user or domain, and never reopens or closes twice
+  (P5-D-10).
+- **Staff `close_application`:** needs the `close_application` permission (assigned to no group) and a reason. It
+  covers a closure, and a withdrawal the applicant asked for through staff (the staff-mediated path of P5-D-8).
+- **The applicant's withdrawal** (`request_withdrawal_link`, `/withdraw/<token>/`):
+  - Staff send a one-time link on the applicant's request.
+  - The worker mints the token at send time and stores only its hash.
+  - GET shows what withdrawing means, and POST commits.
+  - The recipient is re-checked, a new link supersedes the old one, and every refusal is the same page.
+  - Private, no-referrer responses and log redaction. Inbound redaction version 3 removes a quoted withdrawal link.
+  - An emailed "withdraw" is only ever a review item.
+- **`AccessRevocation` and `RevokeAccess`.** The obligations are:
+  - **Setup links:** cancelled, so verified.
+  - **Password rotation:** to an unknown value; `applied_unverified`, because it cannot be read back. It never runs
+    while a set is pending, and repeats once after a settle delay.
+  - **Owned forwarders:** removed, and verified by listing again.
+  - **Forwarders that name the address among other destinations, and a catch-all naming it:** `pending` with a staff
+    item, never deleted automatically.
+  - **Sessions and app credentials:** `unsupported`, ending only by `accept_revocation_exception` (the approver, with a
+    reason).
+
+  A late mailbox found under stop (`recovered_after_stop`) gets the same obligations, with no welcome and no
+  reactivation. Revocation is complete only when every obligation is verified, applied with its stated limit, not
+  applicable, or an accepted exception.
+- **The adapter** gains the documented forwarder list and delete, and the catch-all read. The fake supports them.
+
+**Evidence:** `tests/test_closure.py` (9 tests): TEST-P5-05, 17, 18, 21, 22 and the protections.
+
+**Not yet (5B.3b):** the staff screen through which staff do all of this (TEST-P5-19, 20), and a staff action for
+shared forwarders and the catch-all.
+
+**No automatic no-response closure exists** (P5-D-11). Closure is always an explicit act.

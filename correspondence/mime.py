@@ -18,10 +18,10 @@ from email.utils import getaddresses
 from html.parser import HTMLParser
 from urllib.parse import unquote
 
-from applications.links import CONFIRM_PATH, SETUP_PATH
+from applications.links import CONFIRM_PATH, SETUP_PATH, WITHDRAW_PATH
 
 DERIVATION_VERSION = 1
-REDACTION_VERSION = 2  # 2: P5 set-your-own-password links are removed too (5B.2)
+REDACTION_VERSION = 3  # 2: P5 set-your-own-password links (5B.2); 3: withdrawal confirmation links (5B.3)
 MAX_DEPTH = 5
 MAX_PARTS = 50
 MAX_HEADERS = 200
@@ -30,7 +30,7 @@ REDACTED = "[confirmation link removed]"
 FILED_COPY_HEADER = "X-Catalyst-Filed-Copy"
 # The confirmation path is CONFIRM_PATH and the P5 setup path SETUP_PATH, shared with config/redaction.py. A token may be wrapped across lines,
 # including quoted continuations ("\n> "), so line breaks inside the token are part of the match.
-_CONFIRM = re.compile(r"(?i)(?:" + re.escape(CONFIRM_PATH) + "|" + re.escape(SETUP_PATH) + ")"
+_CONFIRM = re.compile(r"(?i)(?:" + "|".join(re.escape(p) for p in (CONFIRM_PATH, SETUP_PATH, WITHDRAW_PATH)) + ")"
                       + r"(?:[^\s\"'<>)\]]|\r?\n[> \t]*(?=[A-Za-z0-9_\-:.=%/]+[ \t]*(?:\r?\n|$)))+")
 _MSGID = re.compile(r"<[^<>\s]+>")
 

@@ -44,3 +44,19 @@ def setup(request, token):
             "error": "That password was not accepted. Choose another one (8 to 72 characters)."}, status=400)
     response = render(request, "provisioning/setup_done.html")
     return response if isinstance(response, HttpResponse) else HttpResponse(status=200)
+
+
+@never_cache
+@require_http_methods(["GET", "POST"])
+def withdraw(request, token):
+    """P5-D-8: GET shows what withdrawing means; POST commits. One uniform page for any link that cannot be used."""
+    from . import closure
+
+    if request.method == "GET":
+        if closure.live_withdrawal(token) is None:
+            return render(request, "provisioning/link_closed.html", status=404)
+        return render(request, "provisioning/withdraw.html")
+    if not closure.confirm_withdrawal(token):
+        return render(request, "provisioning/link_closed.html", status=404)
+    return render(request, "provisioning/withdrawn.html")
+

@@ -1,0 +1,10 @@
+{% extends "applications/base.html" %}
+{% block title %}Withdraw your application{% endblock %}
+{% block content %}
+<h1>Withdraw your application</h1>
+<p>Withdrawing stops everything still in progress: unfinished agreements are cancelled and any mailbox access we set up for you is removed. Your records are kept as our retention rules require; nothing is reopened later. A new application would start afresh.</p>
+<form method="post">
+  {% csrf_token %}
+  <button type="submit">Yes, withdraw my application</button>
+</form>
+{% endblock %}
