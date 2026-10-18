@@ -150,6 +150,40 @@ profiling, never removed assertions, weakened thresholds, skipped legal gates or
 `ubuntu-latest` took 6 to 9 seconds from creation to completion (`gh run list` created and updated
 timestamps, 2026-10-09; queue and setup not separated). Earlier pipeline problems in the
 first-generation repository are lessons for later lanes, not a description of this repository.
+
+**Runtime lane, profiled 2026-10-18** (bead `catalyst-v2-egz`; `scripts/test.sh` with
+`--durations=0 --durations-min=0.5` on the development host, pinned Python 3.14.8 and PostgreSQL 16.15):
+
+| Measure | Before (main `2e48d9e`) | After |
+|---|---|---|
+| Tests | 919 passed | 919 passed |
+| pytest time | 1019 s | 759 s |
+| Wall time, including container start and dependency install | 1052 s | 790 s |
+| Setup phases of 0.5 s or more, summed | 15 s | 13 s |
+| Call phases of 0.5 s or more, summed | 472 s | 467 s |
+| Teardown phases of 0.5 s or more, summed | 309 s (about 1.4 s each) | none at 0.5 s or more |
+
+**Cause.** The fixture servers (SMTP, IMAP, evidence HTTPS, fake Documenso) ran `serve_forever` with its default
+0.5 s shutdown poll. `stop()` waits for that poll, so each test with two or three servers spent about 1.4 s in
+teardown. The privileged database reset itself costs about 0.12 s per test (measured: 40 resets took 4.8 s):
+
+- the owner connection, 0.47 s;
+- waiting for other sessions to close, 0.20 s;
+- the truncate, 2.9 s;
+- the protection re-check, 1.1 s.
+
+**Change.** A 0.02 s poll interval in the four fixture servers. Every assertion and every database and role check
+is unchanged.
+
+**Remaining cost.** It is in the tests themselves, kept on purpose:
+
+- migration reverse-and-reapply, 25 s and 16 s;
+- the acceptance-gate self-test, 16 s;
+- killed-worker and killed-collector subprocess recovery, 6 to 9 s each;
+- start-up refusal subprocesses, 47 s in total.
+
+CI on the last measured head took 15 min 51 s for the runtime job (run 39068959123, before this change). The CI
+figure after this change is recorded on its pull request. The 5-minute target remains unmet.
 **No lane is enforced in CI today**: the single job runs every step on every PR (markdown, index,
 agent definitions, secret scan), so the lane table is a design for when code arrives. CI run times
 after this change are recorded in `010` section 2.
