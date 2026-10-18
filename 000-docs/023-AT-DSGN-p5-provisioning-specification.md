@@ -391,7 +391,8 @@ delivery block, no stop, and never an address in the company domain.
 
 **The adapter:**
 
-- it has no delete method at all;
+- it has no way to delete a mailbox, suspend an account or change a domain; its only delete removes a forwarder the
+  mailbox owns (5B.3), and its public operations are pinned by a test;
 - it refuses any path outside the configured domain's mailbox, forwarder, catch-all and pointer endpoints, and every
   reseller endpoint;
 - it uses the P4 error taxonomy, where only a 4xx other than 429 is definite;
@@ -772,7 +773,8 @@ permissions grant neither. The tests check this on the correspondence screen and
 - send a withdrawal link;
 - close or withdraw.
 
-**After the reviews of PR #56:**
+**After the reviews of PR #56** (QA: three HIGH; security: three MEDIUM; no blocker; both re-checked MERGEABLE, on
+the pull request):
 
 - The offered controls mirror the service guards, and a status-by-method table test pins them.
   - After a close, the address can still be released and a found mailbox still decided.
@@ -792,3 +794,38 @@ permissions grant neither. The tests check this on the correspondence screen and
 
 **Limits:** the screen has no throttle or MFA of its own (POL-13 at the staging gate), and it is not an accessibility
 audit.
+
+## 16. The 5C record: the GATE-P5 case map, journey and report (draft; GATE-P5 unsigned)
+
+- **The map.** `tests/acceptance.py` maps TEST-P5-01 to 24 (`P5_CASES`) and five supporting groups
+  (`P5_SUPPORTING`):
+  - the append-only records;
+  - 11.11 supersession and the bounded watch;
+  - 11.5 bounded credential recovery;
+  - P5-D-6, the checklist credential as a separate contingency;
+  - the removed-gate controls.
+
+  `tests/conftest.py` reports and gates GATE-P5 in a full run. `tests/test_acceptance.py` requires the map to match
+  section 9 and every test in the five P5 files to be mapped.
+- **The journey** (`tests/test_p5_journey.py`, TEST-P5-24) runs over Django HTTP with CSRF enforced, from intake to
+  activation and from withdrawal to revocation, with an unknown create reconciled on the way.
+- **Two cases gained a dedicated test:**
+  - TEST-P5-04: a bounced welcome opens a hard-bounce item;
+  - TEST-P5-21: an emailed "withdraw" is a person's message awaiting review, and it changes nothing.
+- **Removed gates:**
+  - without the proof of ownership, revocation rotates a foreign mailbox;
+  - with the screen gate widened, every service still refuses.
+- **After the independent traceability review,** new tests close these gaps:
+  - TEST-P5-01: the activation command's refusals, and nothing starting without it;
+  - TEST-P5-02: approval, the password set and activation each refuse a pause or a hard bounce, and continue once
+    the cause is repaired;
+  - TEST-P5-07: each approved component changes the digest;
+  - TEST-P5-16: an unknown set is never replayed (call count);
+  - TEST-P5-18: the adapter's public operations are pinned;
+  - TEST-P5-19: creation and verification are shown as separate sections;
+  - TEST-P5-22: nothing closes for want of a response, and a new application after a withdrawal inherits nothing.
+
+  The screen-gate control now removes only that gate and tries all 13 actions. What stays partial is listed in
+  `025` section 4.
+- **Report:** `000-aars/025-AA-AACR-p5-provisioning.md`, with the proposed GATE-P5 statement. The owner decides;
+  nothing here signs it.

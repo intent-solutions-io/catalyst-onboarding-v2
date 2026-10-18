@@ -23,6 +23,7 @@ Every document in this directory is **preliminary and subject to review** until 
 | [000-aars/017-AA-AACR-p2-correspondence.md](000-aars/017-AA-AACR-p2-correspondence.md) | After-action report for P2, the correspondence loop (epic `catalyst-v2-7hu`), full lane | Filed 2026-10-13; GATE-P2 signed off (D-33) |
 | [000-aars/020-AA-AACR-p3-evidence-assessment.md](000-aars/020-AA-AACR-p3-evidence-assessment.md) | After-action report for P3, evidence, assessment and qualification decision (epic `catalyst-v2-oc4`), full lane | Filed 2026-10-17; GATE-P3 signed off (D-36) |
 | [000-aars/022-AA-AACR-p4-agreements.md](000-aars/022-AA-AACR-p4-agreements.md) | After-action report for P4, agreements (epic `catalyst-v2-hdg`), full lane, with the proposed GATE-P4 sign-off statement | Filed 2026-10-18; GATE-P4 signed off (D-45) |
+| [000-aars/025-AA-AACR-p5-provisioning.md](000-aars/025-AA-AACR-p5-provisioning.md) | After-action report for P5, provisioning, credential setup, activation, withdrawal and revocation (epic `catalyst-v2-tuc`), full lane, with the proposed GATE-P5 sign-off statement | Draft 2026-10-18; GATE-P5 not signed |
 | [015-AA-AUDT-appaudit-devops-playbook.md](015-AA-AUDT-appaudit-devops-playbook.md) | Operator-grade system analysis after GATE-S1: architecture, tradeoffs, operations, sharp edges, security, current state, roadmap; unscored health judgement 68/100 | Audit 2026-10-11 at `ef17aa6`; errata 2026-10-11 |
 | [016-AT-DSGN-p2-correspondence-specification.md](016-AT-DSGN-p2-correspondence-specification.md) | Handoff 2A: P2 correspondence specification (outbound, IMAP collection, association and trust, reply processing, reminders, staff intervention, monitoring), GATE-P2 acceptance plan `TEST-P2-01`-`54`, owner decision brief by blocker, bead map | Approved for synthetic P2, version 0.3.2 (D-27 to D-32, 2026-10-12), with implementation notes in section 10; 2B.1 to 2C merged; GATE-P2 signed off 2026-10-13 (D-33) |
 | [018-AT-DSGN-p3-evidence-assessment-specification.md](018-AT-DSGN-p3-evidence-assessment-specification.md) | Handoff 3A: P3 specification (applicant claims, deterministic evidence observations with SSRF controls, bounded MiniMax assessment through PydanticAI test models, clarification and reply interpretation on the existing interface, the authorized qualification decision), acceptance plan `TEST-P3-01`-`57`, owner decision brief, 3B task graph | Approved for synthetic P3, version 0.2.1 (D-34, 2026-10-14); now 0.2.5 with implementation notes; 3B.1 to 3C done, GATE-P3 signed off (D-36) |
@@ -34,7 +35,7 @@ Every document in this directory is **preliminary and subject to review** until 
 Next free number: `025`.
 
 **After-action reports** go in `000-aars/` inside this directory (filing standard v4.5 §3.1.3): global
-`NNN`, `NNN-AA-AACR-<slug>.md`, from the template above. Filed: `014` (first slice), `017` (P2), `020` (P3), `022` (P4). Cadence: `009` section 10.
+`NNN`, `NNN-AA-AACR-<slug>.md`, from the template above. Filed: `014` (first slice), `017` (P2), `020` (P3), `022` (P4), `025` (P5, draft). Cadence: `009` section 10.
 
 **Renamed 2026-10-09** to valid codes (doc-filing audit): `001` BCASE to PLAN, `002` PRD to PROD,
 `004` PP-UJRN to UC-USER, `005` SPEC to DSGN, `006` OD-STAT to LS-STAT.

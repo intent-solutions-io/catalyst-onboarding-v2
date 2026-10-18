@@ -139,6 +139,7 @@ def test_p5_16_an_unknown_password_outcome_blocks_activation_and_a_new_link_is_s
     run_worker()
     assert len(mail.outbox) == sent + 1 and Application.objects.get(pk=app.pk).stage == "provisioning"
     assert post(path).status_code == 404  # the old link is dead
+    assert sum(c[0] == "set_password" for c in FakeMailHost.calls) == 1  # the unknown set was never replayed
     new_path = LINK.search(mail.outbox[-1].body).group(1)
     assert new_path != path and post(new_path).status_code == 200  # never replayed: the applicant chooses again
     run_worker()

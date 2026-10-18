@@ -74,8 +74,10 @@ def test_p5_19_the_screen_shows_each_phase_the_next_action_and_its_owner(cl, rel
     assert " checked" not in body  # nothing consequential is preselected
     operator_view = client_for(cl.op1).get(page(app)).content.decode()
     assert "Approve exactly this" not in operator_view  # each control only for its permission holder
-    for heading in ("Creation and verification", "Credential setup", "Activation", "Revocation"):
-        assert heading in body
+    assert '<th scope="row">Approval</th><td>not approved</td>' in body
+    for heading in ("Creation", "Verification", "Credential setup", "Activation", "Revocation"):
+        assert f"<h3>{heading}</h3>" in body  # one section per phase
+    assert "Not verified." in body and "No create yet." in body  # each phase states its own fact
 
 
 def test_p5_19_approving_through_the_screen_needs_csrf_and_the_digest_shown(cl, released):
