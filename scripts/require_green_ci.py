@@ -44,7 +44,8 @@ def check_runs(sha: str) -> list[dict]:
 def problems(runs: list[dict], sha: str) -> list[str]:
     found = []
     for name in REQUIRED:
-        matching = [r for r in runs if r.get("name") == name]
+        # Only GitHub Actions' own runs count: a same-named check posted by another app proves nothing.
+        matching = [r for r in runs if r.get("name") == name and (r.get("app") or {}).get("slug") == "github-actions"]
         if not matching:
             found.append(f"required check '{name}' did not run on {sha}")
             continue

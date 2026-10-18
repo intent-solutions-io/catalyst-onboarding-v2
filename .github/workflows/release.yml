@@ -29,8 +29,17 @@ concurrency:
 jobs:
   release:
     name: Release
+    # Only main's own workflow file and scripts may release (an older ref could carry an older workflow).
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    env:
+      # The dispatcher's text reaches steps only through this variable, never interpolated into a script.
+      VERSION: ${{ inputs.version }}
     steps:
+      - name: Validate the version input
+        run: |
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::version must look like v1.2.3"; exit 1; }
+
       - name: Checkout the release commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -38,7 +47,7 @@ jobs:
           persist-credentials: false
 
       - name: Check the version, changelog and merged commit
-        run: python3 scripts/release_check.py "${{ inputs.version }}" "${{ github.sha }}"
+        run: python3 scripts/release_check.py "$VERSION" "$GITHUB_SHA"
 
       # Bead catalyst-v2-2xy. Tests are not re-run here: CI is the one source of test truth. The gate fails closed
       # (missing, running, failed, cancelled or skipped checks all refuse), and a failed step stops the job.
@@ -46,11 +55,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-        run: python3 scripts/require_green_ci.py "${{ github.sha }}"
+        run: python3 scripts/require_green_ci.py "$GITHUB_SHA"
 
       - name: Extract the changelog entry
         run: |
-          python3 - "${{ inputs.version }}" > "$RUNNER_TEMP/notes.md" <<'PY'
+          python3 - "$VERSION" > "$RUNNER_TEMP/notes.md" <<'PY'
           import re, sys
           text = open("CHANGELOG.md").read()
           match = re.search(rf"^## \[{re.escape(sys.argv[1])}\][^\n]*\n(.*?)(?=^## \[|\Z)", text, flags=re.M | re.S)
@@ -62,12 +71,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ inputs.version }}" --repo "${{ github.repository }}" --target "${{ github.sha }}" \
-            --title "catalyst-onboarding-v2 ${{ inputs.version }}" --notes-file "$RUNNER_TEMP/notes.md"
+          # Re-check the tag on the server: if it appeared since the first check, gh would reuse it and ignore --target.
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null; then
+            echo "::error::tag $VERSION already exists on the server"; exit 1
+          fi
+          gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "catalyst-onboarding-v2 $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
 
       - name: Dry run summary
         if: inputs.dry_run == true
         run: |
-          echo "::notice::Dry run: ${{ inputs.version }} may be released from ${{ github.sha }}"
-          echo "- **Version:** ${{ inputs.version }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Commit:** ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::Dry run: $VERSION may be released from $GITHUB_SHA"
+          echo "- **Version:** $VERSION" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Commit:** $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"

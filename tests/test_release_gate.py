@@ -20,8 +20,8 @@ RUNTIME = "Runtime checks (Python 3.14.8, PostgreSQL 16.15)"
 DOCS = "Markdown lint and doc index check"
 
 
-def run(name, status="completed", conclusion="success", completed_at="2026-10-11T00:00:00Z"):
-    return {"name": name, "status": status, "conclusion": conclusion,
+def run(name, status="completed", conclusion="success", completed_at="2026-10-11T00:00:00Z", app="github-actions"):
+    return {"name": name, "status": status, "conclusion": conclusion, "app": {"slug": app},
             "completed_at": completed_at if status == "completed" else None}
 
 
@@ -50,7 +50,10 @@ def test_a_commit_whose_required_checks_all_succeeded_may_be_released(tmp_path):
     ([run(RUNTIME, completed_at="2026-10-11T00:00:00Z"), run(RUNTIME, conclusion="failure", completed_at="2026-10-11T01:00:00Z"),
       run(DOCS)], "is completed/failure"),
     ([run(RUNTIME), run(RUNTIME, status="in_progress", conclusion=None), run(DOCS)], "is in_progress/None"),
-], ids=["failed", "cancelled", "skipped", "timed-out", "running", "missing", "no-checks", "rerun-failed", "rerun-running"])
+    # A same-named check posted by another app proves nothing (PR #41 review).
+    ([run(RUNTIME, app="some-other-app"), run(DOCS)], f"'{RUNTIME}' did not run"),
+], ids=["failed", "cancelled", "skipped", "timed-out", "running", "missing", "no-checks", "rerun-failed", "rerun-running",
+        "other-app"])
 def test_a_commit_without_every_required_check_green_is_refused(tmp_path, runs, reason):
     result = gate(tmp_path, runs)
     assert result.returncode == 1, result.stdout
@@ -91,8 +94,8 @@ def test_the_release_workflow_runs_both_gates_before_anything_is_published():
         assert steps.index(gate_step) < publish, gate_step
         body = text.split(f"- name: {gate_step}", 1)[1].split("\n      - name: ", 1)[0]
         assert "continue-on-error" not in body and "|| true" not in body  # a failed gate stops the job
-    assert 'python3 scripts/require_green_ci.py "${{ github.sha }}"' in text
-    assert 'python3 scripts/release_check.py "${{ inputs.version }}" "${{ github.sha }}"' in text
+    assert 'python3 scripts/require_green_ci.py "$GITHUB_SHA"' in text
+    assert 'python3 scripts/release_check.py "$VERSION" "$GITHUB_SHA"' in text
     assert re.search(r"^  checks: read\b", text, flags=re.M)  # the gate can read check runs
 
 
@@ -101,12 +104,23 @@ def test_the_release_workflow_writes_nothing_to_the_repository_history():
     text = RELEASE.read_text()
     for forbidden in ("git commit", "git push", "git tag", "git add", "issues: write", "discussions: write"):
         assert forbidden not in text, forbidden
-    assert '--target "${{ github.sha }}"' in text
+    assert '--target "$GITHUB_SHA"' in text
     assert "persist-credentials: false" in text
     dry = re.search(r"dry_run:\n(?:        .+\n)+", text)[0]
     assert "default: true" in dry  # a run publishes only when asked to
     for use in re.findall(r"uses: (\S+)", text):
         assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", use), use  # actions pinned to a commit
+
+
+def test_the_dispatcher_text_never_reaches_a_script_and_only_main_may_release():
+    """PR #41 review: `${{ inputs.* }}` interpolated into `run:` is command injection. The input reaches steps only
+    through the job's environment, and it is validated before any other step."""
+    text = RELEASE.read_text()
+    uses = [line.strip() for line in text.splitlines() if "${{ inputs." in line]
+    assert uses == ["VERSION: ${{ inputs.version }}"], uses
+    assert "if: github.ref == 'refs/heads/main'" in text
+    assert release_steps()[0] == "Validate the version input"
+    assert "git ls-remote --exit-code --tags origin" in text  # the tag is re-checked on the server before publishing
 
 
 def test_no_test_command_in_the_release_workflow_can_swallow_a_failure():
@@ -137,10 +151,10 @@ def fake_git(monkeypatch, module, *, head=SHA, on_main=True, tagged=False):
             self.returncode, self.stdout = code, out
 
     def git(*args):
-        if args[:1] == ("rev-parse",) and args[1] == "HEAD":
+        if args == ("rev-parse", "HEAD"):
             return Result(0, head + "\n")
-        if args[:2] == ("merge-base", "--is-ancestor"):
-            return Result(0 if on_main else 1)
+        if args == ("rev-parse", "origin/main"):
+            return Result(0, (SHA if on_main else "c" * 40) + "\n")
         if args[:1] == ("rev-parse",):
             return Result(0 if tagged else 1)
         raise AssertionError(args)
@@ -156,7 +170,7 @@ def test_a_merged_tested_commit_with_its_version_and_changelog_may_be_released(t
 @pytest.mark.parametrize(("kwargs", "tree", "reason"), [
     ({}, {"version": "0.3.9"}, "version.txt says '0.3.9'"),
     ({}, {"changelog": "## [v0.3.9] - 2026-10-01\n"}, "no '## [v0.4.0]' entry"),
-    ({"on_main": False}, {}, "is not on origin/main"),
+    ({"on_main": False}, {}, "is not the head of origin/main"),
     ({"tagged": True}, {}, "already exists"),
     ({"head": "b" * 40}, {}, "the checkout is not"),
 ], ids=["version-mismatch", "no-changelog-entry", "not-merged", "already-tagged", "other-checkout"])
@@ -191,3 +205,12 @@ def test_prepare_release_writes_the_change_for_a_pull_request_and_nothing_else(t
     changelog = (tmp_path / "CHANGELOG.md").read_text()
     assert changelog.index("## [v0.4.0]") < changelog.index("## [v0.3.9]") and "- feat: new thing" in changelog
     assert all(c[:2] in (["git", "describe"], ["git", "log"]) for c in calls)  # reads history; never commits or pushes
+
+
+def test_a_pyproject_without_a_version_is_refused(tmp_path, monkeypatch):
+    check = load("release_check")
+    fake_git(monkeypatch, check)
+    tree = release_tree(tmp_path)
+    (tree / "pyproject.toml").write_text('[project]\nname = "x"\n')
+    assert "pyproject.toml declares no version" in check.problems("v0.4.0", SHA, tree)
+

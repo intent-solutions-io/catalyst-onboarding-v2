@@ -6,7 +6,7 @@ writes it locally). The release workflow then calls this script on the commit it
 
 - carry the requested version in `version.txt` and in `pyproject.toml`'s `version`;
 - have a `## [vX.Y.Z]` entry in CHANGELOG.md;
-- be reachable from `origin/main` (merged, not a branch head);
+- be the current head of `origin/main` (merged and tested; never an older commit or a branch);
 - not already be tagged with that version.
 
 Only after this and `scripts/require_green_ci.py` pass does the workflow ask GitHub to create the release, with the
@@ -38,13 +38,15 @@ def problems(version: str, sha: str, root: Path) -> list[str]:
         found.append(f"version.txt says {text!r}, not {number!r}")
     pyproject = (root / "pyproject.toml").read_text() if (root / "pyproject.toml").exists() else ""
     declared = re.search(r'^version = "([^"]*)"', pyproject, flags=re.M)
-    if declared and declared[1] != number:
+    if declared is None:
+        found.append("pyproject.toml declares no version")
+    elif declared[1] != number:
         found.append(f"pyproject.toml says {declared[1]!r}, not {number!r}")
     changelog = (root / "CHANGELOG.md").read_text() if (root / "CHANGELOG.md").exists() else ""
     if not re.search(rf"^## \[{re.escape(version)}\]", changelog, flags=re.M):
         found.append(f"CHANGELOG.md has no '## [{version}]' entry")
-    if git("merge-base", "--is-ancestor", sha, "origin/main").returncode != 0:
-        found.append(f"{sha} is not on origin/main: release only a merged, tested commit")
+    if git("rev-parse", "origin/main").stdout.strip() != sha:
+        found.append(f"{sha} is not the head of origin/main: release only main's current, merged, tested commit")
     if git("rev-parse", "--verify", "--quiet", f"refs/tags/{version}").returncode == 0:
         found.append(f"tag {version} already exists")
     return found
