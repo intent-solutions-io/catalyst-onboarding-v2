@@ -188,10 +188,6 @@ class SendVerification:
                 return refuse("idempotency key does not match the challenge")
             if AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists():
                 return Stop(Status.QUEUED, "automation paused")
-            from .staff_items import hard_bounce_open
-
-            if hard_bounce_open(application):  # every send path, S1 verification included (9kg.3)
-                return Stop(Status.QUEUED, "hard bounce open", settings.CATALYST_HARD_BOUNCE_RECHECK_SECONDS)
             if challenge.used_at is not None:
                 return skip("challenge already used")
             if challenge.superseded_at is not None:
@@ -200,6 +196,10 @@ class SendVerification:
                 return skip("challenge expired")
             if application.contact_verified_at is not None or application.stage not in OPEN_STAGES:
                 return skip("contact already verified or application closed")
+            from .staff_items import hard_bounce_open
+
+            if hard_bounce_open(application):  # every send path, S1 verification included (9kg.3)
+                return Stop(Status.QUEUED, "hard bounce open", settings.CATALYST_HARD_BOUNCE_RECHECK_SECONDS)
             return Proceed(application.pk, challenge.email_at_issue, challenge.public_id)
 
     def _stop(self, claim, decision: Stop) -> None:

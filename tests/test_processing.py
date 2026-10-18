@@ -599,7 +599,7 @@ def test_9kg_3_an_exchange_in_flight_still_reconciles_and_the_verification_send_
     [action] = sends(message)
     assert action.status == "running" and attempts(message) == [(1, 0, "sending")]
     # The bounce arrives while the exchange's outcome is unrecorded: reconciliation still runs first (it sends nothing).
-    StaffItem.objects.create(application=mailbox.app, reason_code="hard_bounce", dedupe_key="inbound:synthetic")
+    StaffItem.objects.create(application=mailbox.app, reason_code="hard_bounce", dedupe_key=f"inbound:{uuid.uuid4()}")
     PendingAction.objects.filter(pk=action.pk).update(lease_expires_at=Now() - timedelta(seconds=1))
     run_worker()
     action.refresh_from_db()
@@ -610,8 +610,13 @@ def test_9kg_3_an_exchange_in_flight_still_reconciles_and_the_verification_send_
     assert Client().post(FORM, urlencode({**VALID, "email": "grace@example.test"}),
                          content_type="application/x-www-form-urlencoded").status_code == 302
     other = Application.objects.get(email_key="grace@example.test")
-    StaffItem.objects.create(application=other, reason_code="hard_bounce", dedupe_key="inbound:synthetic-2")
+    StaffItem.objects.create(application=other, reason_code="hard_bounce", dedupe_key=f"inbound:{uuid.uuid4()}")
     run_worker()
     [held] = PendingAction.objects.filter(kind="send_verification", subject_id=other.public_ref)
     assert (held.status, held.last_error, held.attempts) == ("queued", "hard bounce open", 0)
     assert len(mail.outbox) == outbox
+    item = StaffItem.objects.get(application=other, reason_code="hard_bounce")
+    processing.resolve_exception(item.pk, "address_usable_again", mailbox.decider, note="Address confirmed by phone")
+    assert StaffItemResolution.objects.get(item=item).effects["released_sends"] == 1
+    run_worker()
+    assert len(mail.outbox) == outbox + 1 and mail.outbox[-1].to == ["grace@example.test"]
