@@ -28,7 +28,7 @@ the "Today" column, "proven" means a test passes in CI; it does not mean deploye
 | 9 | Verified restore | none | a restore drill into a disposable database and directory, then a checker that every `StoredDocument` row's file exists and hashes equal and no file is unreferenced (proposal: `scripts/verify_custody_restore.py`) | GATE-STAGING |
 | 10 | Rollback | migrations reverse where safe; 0005 and 0006 refuse once used (proven) | a documented rollback for each release; a pre-deploy backup | GATE-STAGING |
 | 11 | Reversible LMS routing | `003` records today's routing, checked read-only on 2026-10-09; v2 routing proposed | a staged, reversible proxy change (owner decision); no proxy change authorized | GATE-CUTOVER |
-| 12 | Release from a tested commit | the release workflow publishes only main's CI-green head, writes no history and defaults to a dry run (PR #41) | the owner proposals in `009` section 5.5: a `main` ruleset and a protected release environment (today `main` is unprotected) | any real release |
+| 12 | Release from a tested commit | (INSPECTED from `009` section 5.5, not re-checked against GitHub here) the release workflow publishes only main's CI-green head, writes no history and defaults to a dry run (PR #41) | the owner proposals in `009` section 5.5: a `main` ruleset and a protected release environment (today `main` is unprotected) | any real release |
 | 13 | Secrets | none configured; guards refuse provider settings outside test | SOPS-managed production secrets (Documenso key, webhook secrets, database passwords); rotation procedure | GATE-STAGING |
 | 14 | Custody at rest | plaintext PDFs and details; no erasure path | encryption and location (POL-09); retention and erasure (POL-10) | GATE-PILOT |
 
@@ -52,7 +52,7 @@ None of these touches a real host.
 
 ## 3. PL: legacy compatibility and cutover plan
 
-### 3.1 Principles
+### 3.1 Principles (proposed)
 
 - **Sanitized and plan-only.** No real record leaves the first-generation system in this batch.
 - **One execution owner at a time.** For each applicant, either v1 or v2 runs automated work, never both. A
