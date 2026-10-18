@@ -425,4 +425,3 @@ None of these blocks synthetic work:
 - the welcome recipient (11.9);
 - the key type our account allows, and the server's password rules. These are pre-live checks that need a separately
   authorized live look.
-
