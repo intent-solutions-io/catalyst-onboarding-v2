@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document | `021-AT-DSGN-p4-agreements-specification` |
-| Version | 0.6.0 (0.2.0 approved, D-37; section 15: the installed-version check and 4B.1, D-38; section 16: 4B.2, D-39; section 17: the recovery corrections and the owner decisions D-40 to D-44; section 18: 4B.3) |
+| Version | 0.7.0 (0.2.0 approved, D-37; section 15: the installed-version check and 4B.1, D-38; section 16: 4B.2, D-39; section 17: the recovery corrections and the owner decisions D-40 to D-44; section 18: 4B.3; section 19: 4C, the GATE-P4 run, awaiting the owner) |
 | Status | **APPROVED by the owner 2026-10-17 (version 0.2.0; D-37 in `011` section 4), with the recommended defaults `P4-D-1` to `P4-D-20` for synthetic P4.** 4B.1 to 4C each need their own release; the read-only Documenso version check (P4-D-2) needs its own authorization. No real envelope, agreement text, real data or deployment is authorized. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-17 |
@@ -751,3 +751,36 @@ Bead `catalyst-v2-hdg.4`; tests in `tests/test_agreement_custody.py`.
 - The download's binary behaviour comes from the public source and the fake. It is NOT VERIFIED on the installation
   until a credentialed check is authorized.
 - One item per synthetic template. Up to `CATALYST_AGREEMENT_MAX_ITEMS` per envelope are stored.
+
+## 19. The 4C record: the GATE-P4 run and the local demonstration (D-40)
+
+**The gate.** `tests/acceptance.py` `P4_CASES` maps TEST-P4-01 to 32. `P4_SUPPORTING` maps D-41 to D-44, the
+hardening 9kg.1 to 9kg.3 and three removed-gate controls. A full run gates GATE-P4 with GATE-S1 to GATE-P3: every
+case must PASS at one head. The after-action report and the proposed sign-off are in `000-aars/022`. **GATE-P4 is
+not signed off until the owner records it.**
+
+**The journey** (`tests/test_p4_journey.py`):
+
+- intake over HTTP, then the P3 decision;
+- the owner's activation command;
+- staff log in through the admin form, and every staff POST carries a CSRF token;
+- signing at the fake provider, with the webhook posted over HTTP;
+- the fresh read; custody; then the User Agreement; then custody;
+- the stage `agreements_complete`, with one held `provision` action;
+- audited retrieval over HTTP.
+
+The default gate is used for both agreements, with no signing-only override.
+
+**Run it locally** (synthetic only; Docker, no credentials, nothing external is contacted):
+
+```bash
+scripts/test.sh                                              # the whole suite: the gate report for GATE-S1 to GATE-P4
+PYTEST_ARGS="-v tests/test_p4_journey.py" scripts/test.sh    # the P4 journey and the removed-gate controls only
+```
+
+A selected run prints the gate report marked "selected subset: not gated". Only the full run gates. Each run
+starts its own pinned PostgreSQL 16.15 and Python 3.14.8 containers and removes them afterwards. The fake Documenso
+server, its TLS certificates and the custody directory are created per test in temporary storage.
+
+**What a browser harness would add:** none exists in this repository. The journey uses Django's test client, which
+runs the full middleware stack (sessions, CSRF, authentication) in-process, with no socket, proxy or real host.
