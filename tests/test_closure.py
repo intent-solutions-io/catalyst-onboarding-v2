@@ -110,6 +110,11 @@ def test_p5_17_a_withdrawal_during_an_uncertain_create_recovers_the_late_mailbox
     request.refresh_from_db()
     assert request.status == "recovered_after_stop" and Application.objects.get(pk=app.pk).stage == "withdrawn"
     assert not CredentialSetup.objects.filter(request=request).exists()  # no invitation, no welcome
+    # A mailbox found after an unknown create is never acted on until staff confirm it is ours (023 11.3).
+    assert states(request)["password_rotation"] == "requested"
+    assert not closure.revocation_complete(request)
+    services.confirm_found_mailbox(request.pk, cl.op1, "ours", "Limits and timing match our request")
+    run_worker()
     assert states(request)["password_rotation"] == "applied_unverified"
 
 
@@ -204,3 +209,104 @@ def test_p5_revocations_and_withdrawals_are_fixed_for_every_role(cl, monkeypatch
                 conn.execute(sql, [row.pk])
         with pytest.raises((errors.InsufficientPrivilege, errors.RaiseException)):
             conn.execute("TRUNCATE provisioning_withdrawalconfirmation")
+
+
+# --- PR #55 review regressions --------------------------------------------------------------------------------------
+
+def test_review_a_create_that_never_landed_settles_as_nothing_of_ours_only_after_its_watch(cl, monkeypatch):
+    welcome_template(cl)
+    app, request = approved(cl, monkeypatch)
+    FakeMailHost.faults.append("create_lost")
+    from provisioning import handlers
+
+    real = handlers.ReconcileMailbox.run
+
+    def withdraw_first(self, claim):
+        if Application.objects.get(pk=app.pk).stage != "withdrawn":
+            closure.close_application(app.pk, cl.closer, "withdrawn", "Applicant asked by phone to withdraw")
+        return real(self, claim)
+    monkeypatch.setattr(handlers.ReconcileMailbox, "run", withdraw_first)
+    run_worker()
+    request.refresh_from_db()
+    assert request.status == "stopped"
+    assert app.events.filter(kind="provisioning_watch_ended").exists()  # the watch ran before anything settled
+    got = states(request)
+    assert got["password_rotation"] == got["sessions"] == got["catch_all"] == "not_applicable"
+    assert closure.revocation_complete(request)
+    assert not any(c[0] == "set_password" for c in FakeMailHost.calls)  # nothing rotated: nothing of ours exists
+
+
+def test_review_a_mailbox_present_before_our_create_is_never_touched_by_revocation(cl, monkeypatch):
+    from provisioning.adapter import Mailbox
+
+    welcome_template(cl)
+    app, request = approved(cl, monkeypatch)
+    FakeMailHost.mailboxes[("team.example.test", "ada.example")] = Mailbox("ada.example", "team.example.test", 50, 5, False)
+    FakeMailHost.current_passwords[("team.example.test", "ada.example")] = "someone-elses"
+    run_worker()  # conflict: someone else's mailbox
+    closure.close_application(app.pk, cl.closer, "closed", "Programme ended for this applicant")
+    run_worker()
+    assert FakeMailHost.current_passwords[("team.example.test", "ada.example")] == "someone-elses"
+    assert not AccessRevocation.objects.filter(request=request).exists()  # nothing of ours: nothing to revoke
+
+
+def test_review_exceptions_cannot_waive_a_rotation_and_complete_the_rollup_only_when_settled(cl, monkeypatch):
+    app, request = active_member(cl, monkeypatch)
+    closure.close_application(app.pk, cl.closer, "closed", "Programme ended for this applicant")
+    rotation = AccessRevocation.objects.get(request=request, kind="password_rotation")
+    with pytest.raises(services.Refused, match="not_exceptionable"):
+        closure.accept_revocation_exception(rotation.pk, cl.approver, "Trying to waive the rotation")
+    run_worker()
+    for kind in ("sessions", "app_credentials"):
+        closure.accept_revocation_exception(AccessRevocation.objects.get(request=request, kind=kind).pk, cl.approver,
+                                            "No documented session revocation exists")
+    request.refresh_from_db()
+    assert closure.revocation_complete(request)
+    from django.db.models.functions import Now
+    PendingAction.objects.filter(kind=closure.REVOKE, status="queued").update(due_at=Now())  # the settle delay passes
+    run_worker()
+    assert not StaffItem.objects.filter(application=app, reason_code=closure.ITEM_REVOCATION, status="open").exists()
+    rounds = PendingAction.objects.filter(kind=closure.REVOKE, input_ref=str(request.public_id)).count()
+    assert rounds >= 2 and app.events.filter(kind="provisioning_revocation_run", data__round=1).exists()  # the repeat ran
+
+
+def test_review_closing_mid_flow_cancels_queued_work_and_settles_cleanly(cl, monkeypatch):
+    app, request, path = invited(cl, monkeypatch)
+    closure.close_application(app.pk, cl.closer, "withdrawn", "Applicant asked by phone to withdraw")
+    request.refresh_from_db()
+    assert request.status == "stopped" and CredentialSetup.objects.get(request=request).state == "cancelled"
+    assert post(path).status_code == 404
+    assert not StaffItem.objects.filter(application=app, reason_code="provisioning_setup_needs_staff", status="open").exists()
+
+
+def test_review_a_shared_forwarder_fixed_in_the_panel_is_verified_only_by_a_new_read(cl, monkeypatch):
+    app, request = active_member(cl, monkeypatch)
+    FakeMailHost.forwarders[("team.example.test", "team")] = ("lead@example.test", ADDRESS)
+    closure.close_application(app.pk, cl.closer, "closed", "Programme ended for this applicant")
+    run_worker()
+    assert states(request)["inbound_forwarders"] == "pending"
+    FakeMailHost.forwarders[("team.example.test", "team")] = ("lead@example.test",)  # staff edited it in the panel
+    closure.recheck_revocation(request.pk, cl.op1, "Removed the address from the team forwarder")
+    run_worker()
+    assert states(request)["inbound_forwarders"] == "verified"
+    assert app.events.filter(kind="provisioning_forwarder_removed").exists() is False  # none owned by the mailbox
+
+
+def test_review_a_new_withdrawal_link_supersedes_one_still_sending(cl, monkeypatch):
+    app = complete(cl, monkeypatch)
+    closure.request_withdrawal_link(app.pk, cl.closer, "Applicant asked to withdraw by email")
+    WithdrawalConfirmation.objects.filter(application=app).update(state="uncertain")  # a send whose result is unknown
+    closure.request_withdrawal_link(app.pk, cl.closer, "Applicant asked again for a new link")
+    assert list(WithdrawalConfirmation.objects.filter(application=app).order_by("id").values_list("state", flat=True)) \
+        == ["superseded", "pending"]
+    assert app.events.filter(kind="provisioning_withdrawal_link_requested").count() == 2
+
+
+def test_review_closing_during_agreements_cancels_the_unfinished_envelope(cl, monkeypatch):
+    from agreements.models import AgreementInstance
+
+    app = issued(cl, monkeypatch)
+    closure.close_application(app.pk, cl.closer, "withdrawn", "Applicant asked by phone to withdraw")
+    run_worker()
+    assert AgreementInstance.objects.get(application=app).issue_status == "cancelled"
+

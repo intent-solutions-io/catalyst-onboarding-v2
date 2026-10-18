@@ -196,6 +196,11 @@ class CreateMailbox(_Action):
             core.enqueue(core.VERIFY, request, f"{core.VERIFY}:{request.public_id}:0", due_in=_grace())
             core.record(request.application, "provisioning_created", {"request": str(request.public_id)},
                         f"pending_action:{claim.id}")
+        elif request.stop_requested_at is not None and not result.unknown:
+            # Stopped meanwhile and nothing was made (a rejection or a foreign conflict): the stop settles here.
+            ProvisioningAttempt.objects.filter(pk=attempt.pk).update(
+                outcome=Outcome.CONFLICT if result.conflict else Outcome.REJECTED, code=result.code, finished_at=Now())
+            core.set_status(request, "stopped")
         elif result.conflict and request.attempts.filter(step="create", outcome=Outcome.NOT_CREATED).exclude(
                 code__startswith="absent_read_").exists():  # an earlier create that was really sent
             # 023 11.11: a conflict after our own earlier unknown create may be that create landing late: reconcile
@@ -225,6 +230,8 @@ class CreateMailbox(_Action):
         current = ProvisioningRequest.objects.get(pk=request.pk)
         if current.status == "create_pending":
             core.set_status(current, "approved")
+        elif current.status == "stopping":
+            core.set_status(current, "stopped")  # no create was sent: the stop settles
 
     def _conflict(self, request, attempt, code, claim_id) -> None:
         ProvisioningAttempt.objects.filter(pk=attempt.pk).update(outcome=Outcome.CONFLICT, code=code, finished_at=Now())
@@ -240,6 +247,8 @@ class CreateMailbox(_Action):
             current = ProvisioningRequest.objects.get(pk=request.pk)
             if current.status in ("approved", "create_pending"):
                 core.set_status(current, "failed_needs_staff")
+            elif current.status == "stopping":
+                core.set_status(current, "stopped")
             core.item(core.ITEM_BLOCKED, current, claim_id=claim.id)
             core.record(current.application, "provisioning_blocked", {"request": str(current.public_id),
                                                                       "reason": problem}, f"pending_action:{claim.id}")
@@ -304,6 +313,8 @@ class ReconcileMailbox(_Action):
         ProvisioningAttempt.objects.filter(pk=attempt.pk).update(outcome=Outcome.NOT_CREATED, finished_at=Now())
         if request.stop_requested_at is not None:
             core.set_status(request, "stopped")
+            # A create judged "not made" could still land: a bounded watch keeps revocation unsettled until it ends.
+            core.enqueue(core.RECONCILE, request, f"{core.RECONCILE}:{request.public_id}:watch:0", due_in=_grace())
             return
         series = request.attempts.filter(step="create").count()
         if series >= settings.CATALYST_PROVISIONING_ATTEMPTS:  # bounded: never an endless create loop
@@ -327,9 +338,13 @@ class ReconcileMailbox(_Action):
         def write():
             current = ProvisioningRequest.objects.select_related("application", "reservation").get(pk=request.pk)
             if found is not None:
-                core.item(core.ITEM_LATE_MAILBOX, current, claim_id=claim.id)  # rotate and revoke, never delete (5B.3)
+                core.item(core.ITEM_LATE_MAILBOX, current, claim_id=claim.id)  # staff confirm; then rotate and revoke
                 core.record(current.application, "provisioning_late_mailbox", {"request": str(current.public_id)},
                             f"pending_action:{claim.id}")
+                if current.stop_requested_at is not None:
+                    from .closure import ensure_revocations
+
+                    ensure_revocations(current, f"pending_action:{claim.id}")  # it waits for proof it is ours
             elif n + 1 < settings.CATALYST_PROVISIONING_WATCH_CHECKS:
                 core.enqueue(core.RECONCILE, current, f"{core.RECONCILE}:{current.public_id}:watch:{n + 1}",
                              due_in=_grace())

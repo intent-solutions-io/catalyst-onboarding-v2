@@ -690,3 +690,40 @@ applicant-centred staff screen (TEST-P5-19, 20).
 shared forwarders and the catch-all.
 
 **No automatic no-response closure exists** (P5-D-11). Closure is always an explicit act.
+
+**After the reviews of PR #55** (QA: one BLOCKER and four HIGH; security: one HIGH; all fixed):
+
+- **Revocation acts only on a mailbox proven ours, and only once the request is settled.**
+  - "Proven ours" means our create succeeded, the checklist creator recorded it, or staff confirmed a found mailbox
+    (`confirm_found_mailbox`, now also for a mailbox found under a stop or by a watch).
+  - "Settled" means no create or reconcile is still open.
+  - A mailbox present at the address but not proven ours waits for staff; a refusal settles it as foreign. A
+    foreign mailbox is never rotated or touched.
+  - "Not applicable" is written only for a settled request that never produced a mailbox of ours. So it is never
+    written early and then frozen.
+  - Under a stop, a create judged "not made" starts a bounded watch, and revocation stays unsettled until the watch
+    ends.
+- **The stop covers every request of the application.** Superseded, failed and conflicted requests record stop intent
+  too. A request never sticks at `stopping` (a not-sent create, a block, or a rejected or foreign result settles it).
+- **Sessions and app credentials are `unsupported` only for a mailbox of ours.** For a request that never had one they
+  are not applicable.
+- **Exceptions:** only sessions, app credentials, shared forwarders and the catch-all can be accepted as exceptions. A
+  rotation or an owned forwarder never can. The rollup resolves the staff item.
+- **Each removed forwarder is recorded** (its alias and a digest of its destinations).
+- **A shared forwarder or catch-all fixed in the panel is verified only by a new read** (`recheck_revocation`).
+- **The rotation's random value** is confined to a helper, and any failure is reduced to a code.
+- **The withdrawal link:**
+  - a refused withdrawal gives the same closed page and a staff item, never a server error;
+  - a new link supersedes one still sending;
+  - a lost send opens a staff item;
+  - a pause never holds the applicant's own request;
+  - the request and the confirmation are recorded with identifiers.
+- **Items are tidied on close.** Open checklist, setup, activation, failed and blocked items are resolved; a confirm
+  item stays until staff decide.
+
+**Limits:**
+
+- A verified shared-forwarder or catch-all check is a point-in-time read.
+- MXroute's behaviour when a forwarder and a mailbox share a name is NOT VERIFIED.
+- Forwarder listing completeness (pagination) is a live-adapter gate.
+- **OWNER:** the withdrawal link's production lifetime, and whether a notice follows a withdrawal.
