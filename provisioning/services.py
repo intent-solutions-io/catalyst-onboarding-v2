@@ -274,7 +274,10 @@ def confirm_found_mailbox(request_id: int, user, decision: str, reason: str) -> 
     with transaction.atomic():
         application, request = core.lock(request.application_id, request.pk)
         late = StaffItem.objects.filter(dedupe_key=f"provisioning:{request.public_id}", status=StaffItem.Status.OPEN,
-                                        reason_code__in=(core.ITEM_LATE_MAILBOX, core.ITEM_CONFIRM_FOUND)).exists()
+                                        reason_code__in=(core.ITEM_LATE_MAILBOX, core.ITEM_CONFIRM_FOUND)).exists() or (
+            request.attempts.filter(step="create", outcome="conflict",
+                                    code__in=("present_but_not_provably_ours", "conflict_after_ours")).exists()
+            and request.stop_requested_at is not None)
         if request.status != "found_by_evidence" and not late:
             raise Refused("not_found_by_evidence")
         ProvisioningEvidence.objects.create(request=request, kind=ProvisioningEvidence.Kind.STAFF_CONFIRMED,
@@ -290,7 +293,7 @@ def confirm_found_mailbox(request_id: int, user, decision: str, reason: str) -> 
             from .closure import ensure_revocations
 
             ensure_revocations(request, actor(user))  # proven ours: revoke; refused: settles as nothing of ours
-        for code in (core.ITEM_CONFIRM_FOUND, core.ITEM_LATE_MAILBOX):
+        for code in (core.ITEM_CONFIRM_FOUND, core.ITEM_LATE_MAILBOX, core.ITEM_CONFLICT):
             _resolve(request, code, decision, actor(user), note)
         core.record(application, "provisioning_found_decided", {"request": str(request.public_id), "decision": decision},
                     actor(user), actor_type="staff")

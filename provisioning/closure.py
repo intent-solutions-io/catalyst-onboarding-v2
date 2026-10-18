@@ -184,7 +184,10 @@ def revocation_complete(request) -> bool:
     """Complete only for a settled request whose every obligation is verified, applied with its stated limit, not
     applicable, or an owner-accepted exception (023 11.6 and 11.11)."""
     rows = list(request.revocations.values_list("state", flat=True))
-    return bool(rows) and not _open_outcome(request) and all(s in FINAL for s in rows)
+    queued_round = PendingAction.objects.filter(kind=REVOKE, input_ref=str(request.public_id),
+                                                status__in=(Status.QUEUED, Status.RUNNING)).exists()
+    return (bool(rows) and not _open_outcome(request) and not _reconciling(request) and not queued_round
+            and all(s in FINAL for s in rows))
 
 
 EXCEPTIONABLE = ("sessions", "app_credentials", "inbound_forwarders", "catch_all")
@@ -254,8 +257,8 @@ class RevokeAccess(_Action):
             ledger.finish(claim, self, status=Status.QUEUED, error="set_pending", refund_attempt=True,
                           due_in=timedelta(seconds=settings.CATALYST_SETUP_SET_TIMEOUT_SECONDS + 1))
             return
-        if _open_outcome(request):
-            if _reconciling(request):  # reconciliation will settle it: look again then
+        if _open_outcome(request) or _reconciling(request):  # a create, reconcile or watch is still open
+            if _reconciling(request):  # reconciliation or the watch will settle it: look again then
                 ledger.finish(claim, self, status=Status.QUEUED, error="not_settled", refund_attempt=True, due_in=grace)
             else:
                 ledger.finish(claim, self, status=Status.DONE, error="not_settled",
@@ -308,11 +311,11 @@ class RevokeAccess(_Action):
                             {"request": str(current.public_id), **forwarder}, f"pending_action:{claim.id}")
             if any(s in ("pending", "unsupported") for s in outcomes.values()):
                 core.item(ITEM_REVOCATION, current, claim_id=claim.id)
-            if outcomes.get("password_rotation") == "applied_unverified" and n == 0:
+            if outcomes.get("password_rotation") == "applied_unverified" and ":repeat:" not in key:
                 # one repeat after a settle delay, so no late password write outlives the revocation (023 11.5)
-                core.enqueue(REVOKE, current, f"revoke:{current.public_id}:{n + 1}",
+                core.enqueue(REVOKE, current, f"revoke:{current.public_id}:repeat:{claim.id}",
                              due_in=timedelta(seconds=settings.CATALYST_SETUP_SET_TIMEOUT_SECONDS + 1))
-            if revocation_complete(current):
+            if revocation_complete(current):  # the ledger has already marked this round done, so it does not count
                 services._resolve(current, ITEM_REVOCATION, "revocation_complete", f"pending_action:{claim.id}")
             core.record(current.application, "provisioning_revocation_run", {"request": str(current.public_id),
                                                                              "round": n}, f"pending_action:{claim.id}")

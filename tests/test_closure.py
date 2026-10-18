@@ -86,6 +86,10 @@ def test_p5_18_unsupported_obligations_end_only_by_an_owner_accepted_exception(c
             closure.accept_revocation_exception(row.pk, cl.op1, "No documented session revocation")
         closure.accept_revocation_exception(row.pk, cl.approver, "No documented session revocation exists")
     request.refresh_from_db()
+    assert not closure.revocation_complete(request)  # the repeat rotation is still due
+    from django.db.models.functions import Now
+    PendingAction.objects.filter(kind=closure.REVOKE, status="queued").update(due_at=Now())
+    run_worker()
     assert closure.revocation_complete(request)
     row = AccessRevocation.objects.get(request=request, kind="sessions")
     assert row.state == "exception" and row.decided_by == f"user:{cl.approver.pk}"
@@ -261,13 +265,15 @@ def test_review_exceptions_cannot_waive_a_rotation_and_complete_the_rollup_only_
         closure.accept_revocation_exception(AccessRevocation.objects.get(request=request, kind=kind).pk, cl.approver,
                                             "No documented session revocation exists")
     request.refresh_from_db()
-    assert closure.revocation_complete(request)
+    assert not closure.revocation_complete(request)  # the repeat rotation is still due
     from django.db.models.functions import Now
     PendingAction.objects.filter(kind=closure.REVOKE, status="queued").update(due_at=Now())  # the settle delay passes
     run_worker()
+    assert closure.revocation_complete(request)
     assert not StaffItem.objects.filter(application=app, reason_code=closure.ITEM_REVOCATION, status="open").exists()
     rounds = PendingAction.objects.filter(kind=closure.REVOKE, input_ref=str(request.public_id)).count()
-    assert rounds >= 2 and app.events.filter(kind="provisioning_revocation_run", data__round=1).exists()  # the repeat ran
+    assert rounds >= 2 and PendingAction.objects.filter(kind=closure.REVOKE, idempotency_key__contains=":repeat:",
+                                                        status="done").exists()  # the repeat ran
 
 
 def test_review_closing_mid_flow_cancels_queued_work_and_settles_cleanly(cl, monkeypatch):
@@ -309,4 +315,70 @@ def test_review_closing_during_agreements_cancels_the_unfinished_envelope(cl, mo
     closure.close_application(app.pk, cl.closer, "withdrawn", "Applicant asked by phone to withdraw")
     run_worker()
     assert AgreementInstance.objects.get(application=app).issue_status == "cancelled"
+
+
+def test_review_a_late_mailbox_found_by_the_watch_is_recorded_honestly_never_as_not_applicable(cl, monkeypatch):
+    from provisioning import handlers
+    from provisioning.adapter import Mailbox
+
+    welcome_template(cl)
+    app, request = approved(cl, monkeypatch)
+    FakeMailHost.faults.append("create_lost")
+    real_reconcile, real_watch = handlers.ReconcileMailbox.run, handlers.ReconcileMailbox._watch
+
+    def withdraw_first(self, claim):
+        if Application.objects.get(pk=app.pk).stage != "withdrawn":
+            closure.close_application(app.pk, cl.closer, "withdrawn", "Applicant asked by phone to withdraw")
+        return real_reconcile(self, claim)
+
+    def late_landing(self, claim, req, key):  # our lost create lands late, just before the watch looks
+        FakeMailHost.mailboxes[("team.example.test", "ada.example")] = Mailbox("ada.example", "team.example.test",
+                                                                               1024, 100, False)
+        return real_watch(self, claim, req, key)
+    monkeypatch.setattr(handlers.ReconcileMailbox, "run", withdraw_first)
+    monkeypatch.setattr(handlers.ReconcileMailbox, "_watch", late_landing)
+    run_worker()
+    request.refresh_from_db()
+    got = states(request)
+    assert "not_applicable" not in (got["password_rotation"], got["owned_forwarders"])  # never frozen early
+    assert not closure.revocation_complete(request)
+    services.confirm_found_mailbox(request.pk, cl.op1, "ours", "The late mailbox matches our request")
+    run_worker()
+    assert states(request)["password_rotation"] == "applied_unverified"
+
+
+@pytest.mark.parametrize("fault", ["create_rejected", "read_500"])
+def test_review_a_stop_settles_when_the_create_fails_or_was_never_sent(cl, monkeypatch, fault):
+    from provisioning import handlers
+
+    welcome_template(cl)
+    app, request = approved(cl, monkeypatch)
+    FakeMailHost.faults.append(fault)
+    real = handlers.CreateMailbox.run
+
+    def close_mid_create(self, claim):  # the withdrawal lands while the create runs
+        if Application.objects.get(pk=app.pk).stage != "withdrawn":
+            closure.close_application(app.pk, cl.closer, "withdrawn", "Applicant asked by phone to withdraw")
+        return real(self, claim)
+    monkeypatch.setattr(handlers.CreateMailbox, "run", close_mid_create)
+    run_worker()
+    request.refresh_from_db()
+    assert request.status == "stopped" and not FakeMailHost.mailboxes
+    assert all(s in ("verified", "not_applicable") for s in states(request).values())
+
+
+def test_review_a_stop_at_the_create_result_recovers_the_new_mailbox_and_revokes_it(cl, monkeypatch):
+    from provisioning import handlers
+
+    welcome_template(cl)
+    app, request = approved(cl, monkeypatch)
+
+    def close_after_call(self, claim):  # the create succeeded at the host; the withdrawal commits before it is recorded
+        if Application.objects.get(pk=app.pk).stage != "withdrawn":
+            closure.close_application(app.pk, cl.closer, "withdrawn", "Applicant asked by phone to withdraw")
+    monkeypatch.setattr(handlers.CreateMailbox, "after_call", close_after_call)
+    run_worker()
+    request.refresh_from_db()
+    assert request.status == "recovered_after_stop" and not CredentialSetup.objects.filter(request=request).exists()
+    assert states(request)["password_rotation"] == "applied_unverified"  # proven ours: our create succeeded
 

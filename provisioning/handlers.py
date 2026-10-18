@@ -196,18 +196,18 @@ class CreateMailbox(_Action):
             core.enqueue(core.VERIFY, request, f"{core.VERIFY}:{request.public_id}:0", due_in=_grace())
             core.record(request.application, "provisioning_created", {"request": str(request.public_id)},
                         f"pending_action:{claim.id}")
-        elif request.stop_requested_at is not None and not result.unknown:
-            # Stopped meanwhile and nothing was made (a rejection or a foreign conflict): the stop settles here.
-            ProvisioningAttempt.objects.filter(pk=attempt.pk).update(
-                outcome=Outcome.CONFLICT if result.conflict else Outcome.REJECTED, code=result.code, finished_at=Now())
-            core.set_status(request, "stopped")
         elif result.conflict and request.attempts.filter(step="create", outcome=Outcome.NOT_CREATED).exclude(
                 code__startswith="absent_read_").exists():  # an earlier create that was really sent
             # 023 11.11: a conflict after our own earlier unknown create may be that create landing late: reconcile
             # by reading, and staff confirm, never adopt.
             ProvisioningAttempt.objects.filter(pk=attempt.pk).update(outcome=Outcome.UNKNOWN, code="conflict_after_ours")
-            core.set_status(request, "create_uncertain")
+            core.set_status(request, "stopping" if request.stop_requested_at else "create_uncertain")
             self._enqueue_reconcile(request, attempt)
+        elif request.stop_requested_at is not None and not result.unknown:
+            # Stopped meanwhile and nothing was made (a rejection or a foreign conflict): the stop settles here.
+            ProvisioningAttempt.objects.filter(pk=attempt.pk).update(
+                outcome=Outcome.CONFLICT if result.conflict else Outcome.REJECTED, code=result.code, finished_at=Now())
+            core.set_status(request, "stopped")
         elif result.conflict:  # absent a moment ago, and no earlier unknown create of ours: foreign
             self._conflict(request, attempt, "conflict_on_create", claim.id)
         elif result.unknown:
@@ -354,6 +354,10 @@ class ReconcileMailbox(_Action):
                 core.record(current.application, "provisioning_watch_ended", {"request": str(current.public_id)},
                             f"pending_action:{claim.id}")
                 core.return_stage_if_idle(current.application, f"pending_action:{claim.id}")
+                if current.stop_requested_at is not None and current.revocations.exists():
+                    from .closure import _queue_round
+
+                    _queue_round(current)  # the watch ended clean: revocation can settle now
         ledger.finish(claim, self, status=Status.DONE, write=write)
 
 
