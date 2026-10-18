@@ -58,7 +58,7 @@ from .inbound import enqueue_pass, refresh_question_status
 from .models import MailboxCursor
 from .rendering import TemplateRefused, canonical_digest
 from .scheduling import reschedule_on_resume
-from .staff_items import clean_note, event, resolve_item
+from .staff_items import clean_note, event, hard_bounce_open, resolve_item
 
 Disposition = ApprovedMessage.Disposition
 Status = PendingAction.Status
@@ -101,6 +101,9 @@ def decide_uncertain_send(message_id: int, user, decision: str, note: str = "") 
             ApprovedMessage.objects.filter(pk=message.pk).update(
                 disposition=Disposition.OPERATOR_ABANDONED, disposition_at=Now(), disposition_by=actor)
             result = message
+
+        elif hard_bounce_open(application):
+            raise Refused("hard_bounce_open")  # a resend or a revision is no bypass (9kg.3)
 
         elif decision == "authorize_resend":
             if message.disposition == Disposition.REJECTED_PERMANENT:
@@ -333,6 +336,8 @@ def confirm_staff_message(draft_id: int, digest: str, user) -> ApprovedMessage:
             raise Refused("application_closed")
         if verified_address(application) != draft.recipient:
             raise Refused("recipient_no_longer_verified")
+        if hard_bounce_open(application):
+            raise Refused("hard_bounce_open")  # 9kg.3
         if ApprovedMessage.objects.filter(staff_draft=draft).exists():
             raise Refused("draft_already_confirmed")
         _check_staff_content(draft.subject, draft.body)

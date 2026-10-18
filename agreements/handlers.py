@@ -34,7 +34,7 @@ from applications.stages import transition
 from assessments.models import QualificationDecision
 from correspondence.messages import verified_address
 from correspondence.models import StaffItem
-from correspondence.staff_items import event, open_item, resolve_item
+from correspondence.staff_items import event, hard_bounce_open, open_item, resolve_item  # one bounce rule (9kg.3)
 from workflow import ledger
 from workflow.models import AutomationPause, PendingAction
 
@@ -107,10 +107,6 @@ def new_key() -> str:
 
 def paused(application) -> bool:
     return AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists()
-
-
-def hard_bounce_open(application) -> bool:
-    return StaffItem.objects.filter(application=application, reason_code="hard_bounce", status=StaffItem.Status.OPEN).exists()
 
 
 def approved_version(type_key: str) -> AgreementTemplateVersion | None:

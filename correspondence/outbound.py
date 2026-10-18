@@ -48,7 +48,7 @@ from .messages import build_email, enqueue_file_copy, message_id, verified_addre
 from .rendering import TemplateRefused, canonical_digest, check_version, render
 from .questions import sent_text
 from .scheduling import schedule_after_acceptance
-from .staff_items import event, open_item, resolve_item
+from .staff_items import event, hard_bounce_open, open_item, resolve_item
 
 logger = logging.getLogger(__name__)
 Status = PendingAction.Status
@@ -293,6 +293,8 @@ class SendMessage:
             if self.automated and AutomationPause.objects.filter(
                     subject_type="application", subject_id=application.public_ref).exists():
                 return Stop(Status.QUEUED, "automation_paused")  # a staff message is not automated (J-09)
+            if hard_bounce_open(application):  # every kind, staff messages and resends included (9kg.3)
+                return Stop(Status.QUEUED, "hard_bounce_open", settings.CATALYST_HARD_BOUNCE_RECHECK_SECONDS)
             if message.disposition != Disposition.ACTIVE:
                 return skip("message_not_active")
             if application.stage in TERMINAL_STAGES:
