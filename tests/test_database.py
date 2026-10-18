@@ -46,6 +46,7 @@ APPROVED_MIGRATIONS = {
     ("assessments", "0008_decision_protection"),
     ("agreements", "0001_initial"), ("agreements", "0002_protection_and_types"),  # P4 4B.1
     ("agreements", "0003_provider_observations"), ("agreements", "0004_observation_protection_and_verification"),  # 4B.2
+    ("agreements", "0005_stop_intent_and_replacement"), ("agreements", "0006_stop_intent_and_replacement_protection"),  # D-42, D-43
 }
 
 

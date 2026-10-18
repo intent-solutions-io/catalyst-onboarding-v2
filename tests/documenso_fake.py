@@ -26,6 +26,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 TOKEN = "synthetic-documenso-api-key"
+DEFAULT_EMAIL = {k: True for k in ("recipientSigningRequest", "recipientRemoved", "recipientSigned", "documentPending",
+                                   "documentCompleted", "documentDeleted", "ownerDocumentCompleted",
+                                   "ownerRecipientExpired", "ownerDocumentCreated")}
 BASE = "/api/v2"
 
 
@@ -34,6 +37,9 @@ class FakeDocumenso:
         self.templates = {}  # template envelope id -> {"number": int, "slots": {recipient id: role}}
         self.envelopes = {}  # id -> envelope dict (newest last)
         self.requests, self.faults, self.download = [], {}, (200, "application/pdf", b"%PDF-1.7 synthetic placeholder")
+        # Provider-sent email (D-41), modelled on the installed version's handlers: the signing request on distribute,
+        # the cancellation email on cancel unless `documentDeleted` is off, the completed copy on completion.
+        self.emails = []
         self._lock, self._n, self.clock = threading.Lock(), 0, 0
         outer = self
 
@@ -82,6 +88,11 @@ class FakeDocumenso:
             env["recipients"][index]["signingStatus"] = "SIGNED"
             if complete and all(r["signingStatus"] == "SIGNED" for r in env["recipients"]):
                 env["status"] = "COMPLETED"
+                self._mail(env, "documentCompleted", "completed_copy", lambda r: True)
+
+    def _mail(self, env, setting, kind, who):
+        if env["_email"].get(setting, True):
+            self.emails += [{"kind": kind, "to": r["email"], "envelope": env["id"]} for r in env["recipients"] if who(r)]
 
     def reject(self, envelope_id, index=0):
         with self._lock:
@@ -110,7 +121,7 @@ class FakeDocumenso:
 
     # --- the API ------------------------------------------------------------------------------------------------
 
-    def _create(self, template_ref, external_id, recipients, status="DRAFT"):
+    def _create(self, template_ref, external_id, recipients, status="DRAFT", email=None):
         self._n += 1
         self.clock += 1
         envelope_id = f"envelope_{self._n:04d}"
@@ -126,6 +137,7 @@ class FakeDocumenso:
                             "token": f"secret-signing-token-{self._n}-{i}",
                             "signingUrl": f"https://documenso.example.test/sign/secret-signing-token-{self._n}-{i}"}
                            for i, r in enumerate(recipients)],
+            "_email": dict(DEFAULT_EMAIL, **(email or {})),
         }
         return self.envelopes[envelope_id]
 
@@ -191,7 +203,8 @@ class FakeDocumenso:
             payload = json.loads(part.get_content())
             if payload["envelopeId"] not in self.templates or payload.get("distributeDocument") is not False:
                 return 400, {"message": "Bad request"}, json_
-            env = self._create(payload["envelopeId"], payload.get("externalId"), payload["recipients"])
+            env = self._create(payload["envelopeId"], payload.get("externalId"), payload["recipients"],
+                               email=(payload.get("override") or {}).get("emailSettings"))
             return 200, {"id": env["id"], "recipients": [{k: r[k] for k in ("id", "name", "email", "token", "role",
                                                                               "signingOrder", "signingUrl")}
                                                          for r in env["recipients"]]}, json_
@@ -201,14 +214,22 @@ class FakeDocumenso:
             if env is None or env["status"] != "DRAFT":
                 return 400, {"message": "Bad request"}, json_
             env["status"] = "PENDING"
+            meta = payload.get("meta") or {}
+            # A distribute whose meta omits emailSettings falls back to the all-on default, as the schema does.
+            env["_email"] = dict(DEFAULT_EMAIL, **(meta.get("emailSettings") or {})) if meta else env["_email"]
             for r in env["recipients"]:
                 r["sendStatus"] = "SENT"
+            self._mail(env, "recipientSigningRequest", "signing_request", lambda r: True)
             return 200, {"success": True, "id": env["id"], "recipients": env["recipients"]}, json_
         if method == "POST" and route == BASE + "/envelope/cancel":
-            env = self.envelopes.get(json.loads(body).get("envelopeId"))
+            request = json.loads(body)
+            env = self.envelopes.get(request.get("envelopeId"))
             if env is None or env["status"] != "PENDING":
                 return 400, {"message": "Bad request"}, json_
             env["status"] = "CANCELLED"
+            env["_cancel_reason"] = request.get("reason", "")
+            self._mail(env, "documentDeleted", "cancellation",
+                       lambda r: r["sendStatus"] == "SENT" and r["signingStatus"] != "REJECTED" and r["role"] != "CC")
             return 200, {"success": True}, json_
         if method == "GET" and route == BASE + "/envelope":
             query = {k: v[0] for k, v in parse_qs(urlsplit(path).query).items()}

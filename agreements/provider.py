@@ -38,6 +38,14 @@ ENVELOPE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 STATUSES = ("DRAFT", "PENDING", "COMPLETED", "REJECTED", "CANCELLED")  # anything else reads as UNKNOWN
 SIGNING = ("NOT_SIGNED", "SIGNED", "REJECTED")
 ROLES = ("CC", "SIGNER", "VIEWER", "APPROVER", "ASSISTANT")
+# D-41: the provider's own email, per envelope (`emailSettings`, installed v2.20.0). Every setting keeps the
+# provider's default except `documentDeleted`, which is suppressed, so a protective cancel never mails the applicant.
+# The signing request and the completed copy (P4-D-14) stay on. Sent whole on create and distribute, so a later call can never fall back to the
+# all-true default. Whether the installation honours it is NOT VERIFIED until an authorized canary (D-41).
+EMAIL_SETTINGS = {"recipientSigningRequest": True, "recipientRemoved": True, "recipientSigned": True,
+                  "documentPending": True, "documentCompleted": True, "documentDeleted": False,
+                  "ownerDocumentCompleted": True, "ownerRecipientExpired": True, "ownerDocumentCreated": True}
+CANCEL_REASON = "This agreement request was withdrawn."  # fixed and generic: never staff notes (D-41)
 UNKNOWN_STATUSES = (408,)  # a timeout reply: the provider may still act
 
 
@@ -280,7 +288,8 @@ def _multipart(payload: dict) -> tuple[bytes, str]:
 def create_from_template(template_ref: str, external_key: str, recipients: list[dict]) -> str:
     """`POST /envelope/use` as a draft (`distributeDocument: false`, P4-D-4). Returns the new envelope id only."""
     body, content_type = _multipart({"envelopeId": template_ref, "externalId": external_key,
-                                     "recipients": recipients, "distributeDocument": False})
+                                     "recipients": recipients, "distributeDocument": False,
+                                     "override": {"emailSettings": EMAIL_SETTINGS}})
     data = _json(exchange("POST", "/envelope/use", body=body, content_type=content_type))
     if not isinstance(data, dict):
         raise ProviderError("response_unreadable", sent=True, status=200)
@@ -289,7 +298,8 @@ def create_from_template(template_ref: str, external_key: str, recipients: list[
 
 def distribute(envelope_id: str) -> None:
     """`POST /envelope/distribute`: Documenso emails the recipients. No subject or message is sent (021 section 10)."""
-    body = json.dumps({"envelopeId": envelope_id, "meta": {"distributionMethod": "EMAIL"}}).encode()
+    body = json.dumps({"envelopeId": envelope_id,
+                       "meta": {"distributionMethod": "EMAIL", "emailSettings": EMAIL_SETTINGS}}).encode()
     _json(exchange("POST", "/envelope/distribute", body=body, content_type="application/json"))
 
 
@@ -310,7 +320,7 @@ def find(template_number: int, page: int) -> tuple[list[Envelope], int]:
 
 
 def cancel(envelope_id: str) -> None:
-    body = json.dumps({"envelopeId": envelope_id}).encode()
+    body = json.dumps({"envelopeId": envelope_id, "reason": CANCEL_REASON}).encode()
     exchange("POST", "/envelope/cancel", body=body, content_type="application/json")
 
 

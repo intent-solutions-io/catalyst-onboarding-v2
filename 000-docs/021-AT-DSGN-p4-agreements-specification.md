@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document | `021-AT-DSGN-p4-agreements-specification` |
-| Version | 0.4.0 (0.2.0 approved, D-37; section 15: the installed-version check and the 4B.1 record, D-38; section 16: the 4B.2 record, D-39) |
+| Version | 0.5.0 (0.2.0 approved, D-37; section 15: the installed-version check and 4B.1, D-38; section 16: 4B.2, D-39; section 17: the recovery corrections and the owner decisions D-40 to D-44) |
 | Status | **APPROVED by the owner 2026-10-17 (version 0.2.0; D-37 in `011` section 4), with the recommended defaults `P4-D-1` to `P4-D-20` for synthetic P4.** 4B.1 to 4C each need their own release; the read-only Documenso version check (P4-D-2) needs its own authorization. No real envelope, agreement text, real data or deployment is authorized. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-17 |
@@ -500,3 +500,99 @@ no request was made to the installation:
   - Reminders and expiry settings (P4-D-10) are provider defaults in the fake; none are configured.
   - Whether the real read and webhook carry exactly our recipient roles is NOT VERIFIED. A false refusal is possible
     until a credentialed check is authorized.
+
+## 17. Recovery corrections and the owner decisions of 2026-10-18 (D-40 to D-44)
+
+Bead `catalyst-v2-hdg.6`; tests in `tests/test_agreement_recovery.py` and the updated 4B.1 and 4B.2 files.
+
+**D-41: provider email, INSPECTED from public source at `v2.20.0`:**
+
+- `packages/trpc/server/envelope-router/cancel-envelope.ts` calls `cancelDocument`.
+- `packages/lib/server-only/document/cancel-document.ts` cancels only pending envelopes, writes an audit log entry,
+  queues the job `send.document.cancelled.emails`, and triggers the `DOCUMENT_CANCELLED` webhook.
+- `packages/lib/jobs/definitions/emails/send-document-cancelled-emails.handler.ts` sends nothing when any of these
+  holds:
+  - the organization has email disabled, or the owner is disabled;
+  - the recipient limit is exceeded;
+  - the derived `documentDeleted` setting is off.
+
+  Otherwise it mails each non-CC recipient who was sent or opened the document and did not reject it, within the
+  organization's email quota.
+- Cancellation therefore can send email. The supported per-envelope control is `emailSettings`: `override` on
+  `envelope/use`, and `meta` on `envelope/distribute`.
+
+**Provider-owned email**, inventoried apart from Catalyst's (which P2 governs). P2 does not control any of these once
+an envelope is distributed:
+
+| Provider email | Trigger | Setting | Catalyst's choice |
+|---|---|---|---|
+| Signing request | distribute | `recipientSigningRequest` | on: it is the purpose |
+| Reminders | provider schedule | template and team settings | none configured in synthetic P4 (P4-D-10) |
+| Pending notice, completed copy | signing | `documentPending`, `documentCompleted` | provider default, on (P4-D-14) |
+| Cancellation | cancel | `documentDeleted` | **off** (D-41) |
+| Owner notices | various | `owner*`, `recipientSigned`, `recipientRemoved` | provider default |
+
+- **Applying the suppression.** Catalyst sends the whole `emailSettings` object on both create and distribute. A
+  distribute that left it out would fall back to the all-on default; the fake models that fallback.
+- **The cancel reason** is a fixed generic sentence, never staff notes.
+- **Not yet proven.** That the installation honours the suppression is NOT VERIFIED. Before real use there must be
+  an authorized synthetic-recipient canary, or the owner's narrow written acceptance.
+- **Protective cancellation** runs while automation is paused and while delivery is blocked. A bounce must not
+  leave a signing request live. It never sends a new invitation or a Catalyst message.
+
+**D-42, hold, cancel and resume:**
+
+- A stop or cancel that meets an exchange in flight records `cancel_requested_at` (once) instead of refusing. The
+  exchange records its own result first, because a request already sent may have taken effect:
+  - a created draft is kept and never distributed;
+  - a sent envelope goes to the reconciled cancel;
+  - an unknown outcome is reconciled the same way.
+- An ordinary automation pause cancels nothing.
+- Verified agreements are never cancelled by a stop.
+- `resume_agreements` is refused until every cancel has settled and while an integrity hold is open. Withdrawal
+  and closure are final.
+- An advance may issue a type again (a new instance and key; nothing copied from the old one) only under a
+  decision-maker's resume. Otherwise it opens a staff item.
+
+**D-43, agreement integrity:**
+
+- When a read of a verified agreement, or the gate re-read, no longer shows it complete with our identity and
+  exactly our recipients, an `agreement_integrity_hold` opens. The verified columns stay as they were (they are
+  immutable).
+- The hold fails the gate, so the User Agreement and the P5 hand-off wait. Generic resume does not clear it.
+- `resolve_agreement_integrity`, assigned to no group, offers three things:
+  - a recheck;
+  - **continue**, only on a read recorded after the hold that matches fully;
+  - **replace**: `replaced_at` and its reason are set once, the verified history is kept, and a new generation
+    becomes the eligible instance;
+  - **escalate**: the hold stays for the owner or counsel.
+- Each resolution needs a reason and the digest of the state shown; a stale digest is refused.
+- The expected recipients are never changed, and no disposition claims to void an agreement.
+
+**D-44, carried defaults:**
+
+- A late draft is kept, excluded and left with staff. A late pending one is cancelled. A late completed one is an
+  exception.
+- When the orphan watch ends, an `agreement_orphan_watch_ended` item opens. A decision-maker may re-arm it three
+  times, each re-arm giving the configured number of checks.
+- Closed instances whose provider still shows them open get bounded follow-up reads, then an
+  `agreement_closed_watch_ended` item. A completion found that way is an exception, never verified.
+- Reads are now protective: they run while paused or stopped. What a read may lead to (the next agreement) is
+  automated and waits for the pause to end. **This replaces the 4B.2 behaviour, in which a pause held reads.**
+- A follow-up read queued during a running read keeps the minimum interval after that read.
+
+**`hdg.6` corrections**, each with a test:
+
+- the `cancel_uncertain` remedy;
+- a superseded reissue refused, and an unverified contact reported as a refusal;
+- deeply nested webhook bodies get the uniform answer;
+- an advance that keeps failing opens a staff item;
+- a false completion hint is reset by the read;
+- a hint never moves an instance that was not issued;
+- a stop interleaved with a running distribute, tested from a separate thread and connection;
+- a lost completion of a closed instance is caught;
+- follow-up reads keep the minimum interval.
+
+**Database:** migrations `agreements` 0005 and 0006 add the new columns, which are set once for every role. A
+replacement needs its reason. The live-instance index and the D-15 backstop ignore a replaced NDA. Tests bypass
+the services to prove each.
