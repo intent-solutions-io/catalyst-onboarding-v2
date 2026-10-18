@@ -9,6 +9,10 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+# serve_forever checks for shutdown every poll_interval (0.5 s by default), and stop() waits for it: a
+# short interval keeps each test's teardown from waiting up to half a second per server (bead catalyst-v2-egz).
+POLL = 0.02
+
 
 class ScriptedHTTPS:
     def __init__(self, tls_pair):
@@ -45,7 +49,7 @@ class ScriptedHTTPS:
         self.port = self.server.server_address[1]
 
     def start(self):
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": POLL}, daemon=True).start()
         return self
 
     def stop(self):

@@ -22,6 +22,10 @@ from email.policy import default as DEFAULT_POLICY
 from correspondence.outbound import Evidence
 from correspondence.rendering import canonical_digest
 
+# serve_forever checks for shutdown every poll_interval (0.5 s by default), and stop() waits for it: a
+# short interval keeps each test's teardown from waiting up to half a second per server (bead catalyst-v2-egz).
+POLL = 0.02
+
 DEFAULTS = {"greeting": 220, "ehlo": 250, "starttls": 220, "auth": 235, "mail": 250, "rcpt": 250, "data": 354, "end": 250}
 
 
@@ -132,7 +136,7 @@ class ScriptedSMTP:
 
         self._server = Server(("127.0.0.1", 0), Handler)
         self.port = self._server.server_address[1]
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread = threading.Thread(target=self._server.serve_forever, kwargs={"poll_interval": POLL}, daemon=True)
 
     def next_value(self, phase):
         with self._lock:

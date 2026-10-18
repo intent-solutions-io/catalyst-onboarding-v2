@@ -15,6 +15,10 @@ import socketserver
 import ssl
 import threading
 
+# serve_forever checks for shutdown every poll_interval (0.5 s by default), and stop() waits for it: a
+# short interval keeps each test's teardown from waiting up to half a second per server (bead catalyst-v2-egz).
+POLL = 0.02
+
 
 class Folder:
     def __init__(self, uidvalidity=1):
@@ -163,7 +167,7 @@ class ScriptedIMAP:
 
         self._server = Server(("127.0.0.1", 0), Handler)
         self.port = self._server.server_address[1]
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread = threading.Thread(target=self._server.serve_forever, kwargs={"poll_interval": POLL}, daemon=True)
 
     def start(self):
         self._thread.start()
