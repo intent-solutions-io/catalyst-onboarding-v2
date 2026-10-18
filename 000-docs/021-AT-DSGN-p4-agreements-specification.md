@@ -596,16 +596,18 @@ an envelope is distributed:
 
 **After the reviews of PR #42** (independent QA and security; one HIGH each, the same finding):
 
-- **Replace issues only into open work.** It issues a new signing request, so it is refused unless agreements are
+- **Replace issues only into open work, after earlier agreements pass.** It issues a new signing request, so it is refused unless agreements are
   open: stage `agreements`, not stopped, not paused. It also needs `manage_agreements` as well as
-  `resolve_agreement_integrity`. The create and distribute checks close a pending instance of a stopped application
-  without calling the provider.
+  `resolve_agreement_integrity`, and every earlier agreement must pass its gate. The create and distribute checks close
+  a pending instance of a stopped application without calling the provider.
 - **Withdrawal and closure stay final.** They can never be turned into a resumable hold.
 - **Two more refusals.** A resume or reissue never issues over an open completion-after-cancel item. A User
   Agreement is never reissued while an earlier agreement fails its gate (D-15, D-43).
 - **"Continue" resumes the sequence.**
 - **Every left draft is watched.** Closed on request, created after a stop, or found by evidence after a stop, each
-  gets the bounded follow-up reads.
+  gets the bounded follow-up reads. A cancel the provider confirmed (`CANCELLED`) is terminal there (the installed
+  version cancels pending envelopes only, and a cancelled one cannot be signed), so it gets no follow-up read; a
+  webhook about it still triggers one.
 - **Replaced history is not a closed agreement.** A read of replaced verified history is not treated as one.
 - **The staff-written integrity reason is stored once.** It goes in the resolution note, or, for an escalation, in
   its event. The retention of these notes is an owner decision under POL-10.

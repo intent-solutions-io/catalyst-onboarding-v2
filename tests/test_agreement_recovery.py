@@ -370,7 +370,7 @@ def test_d43_the_d15_backstop_ignores_a_replaced_nda(r, monkeypatch):
 
 # --- PR #42 review regressions ---------------------------------------------------------------------------------------
 
-def test_review_replace_never_issues_after_a_stop_and_a_stopped_application_creates_nothing(r, monkeypatch):
+def test_review_replace_never_issues_after_a_stop(r, monkeypatch):
     app, instance = held_nda(r, monkeypatch)
     try:
         assert services.stop_agreements(app.pk, r.agreement_decider, "withdrawn") == []  # the verified NDA stays
@@ -469,4 +469,29 @@ def test_review_an_unknown_create_found_after_a_stop_is_kept_undistributed_and_w
     assert not r.fake.calls("POST", "/envelope/distribute")
     assert r.fake.envelopes[instance.envelope_id]["status"] == "DRAFT"
     assert PendingAction.objects.filter(kind="read_agreement", idempotency_key__contains=":closed:").exists()
+
+
+def test_review_replacing_a_user_agreement_waits_for_a_held_nda(r, monkeypatch):
+    app = issued(r, monkeypatch)
+    signing_gate(r)
+    try:
+        nda_instance = nda(app)
+        r.fake.sign(nda_instance.envelope_id)
+        reads_now()
+        ua = instances(app, "user_agreement").get()
+        r.fake.sign(ua.envelope_id)
+        reads_now()
+        for instance in (nda(app), instances(app, "user_agreement").get()):  # both later change at the provider
+            r.fake.envelopes[instance.envelope_id]["recipients"].append(
+                {"email": "stranger@example.test", "role": "SIGNER", "signingOrder": 2, "signingStatus": "SIGNED"})
+            completion.enqueue_read(instance)
+        reads_now()
+        assert items(app, completion.INTEGRITY_HOLD).count() == 2
+        state = services.integrity_state(ua)
+        with pytest.raises(services.Refused, match="earlier_agreement_not_passed"):
+            services.resolve_integrity(ua.pk, r.agreement_decider, "replace",
+                                       "Replace the User Agreement for the applicant only.", state["digest"])
+        assert instances(app, "user_agreement").count() == 1
+    finally:
+        reset_gate(r)
 

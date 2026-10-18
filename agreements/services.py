@@ -436,6 +436,7 @@ def resolve_integrity(instance_id: int, user, disposition: str, reason: str, exp
             return instance
         _open_for_new_work(application)  # replace issues a new signing request: never after a stop or during a pause
         require(user, "manage_agreements")
+        _earlier_types_passed(application, instance.agreement_type)  # D-15, D-43: never past a held earlier agreement
         version = handlers.approved_version(instance.agreement_type.key)
         if version is None:
             raise Refused("no_approved_template")
