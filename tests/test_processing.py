@@ -620,3 +620,45 @@ def test_9kg_3_an_exchange_in_flight_still_reconciles_and_the_verification_send_
     assert StaffItemResolution.objects.get(item=item).effects["released_sends"] == 1
     run_worker()
     assert len(mail.outbox) == outbox + 1 and mail.outbox[-1].to == ["grace@example.test"]
+
+
+# --- 9kg.2: a system safety pause needs decision-maker review, a reason and its cause addressed ----------------
+
+def test_9kg_2_a_system_pause_resumes_only_by_a_decision_maker_with_a_reason_after_its_cause(mailbox):
+    from applications.models import ApplicationEvent
+    from correspondence import staff_actions
+
+    mailbox.imap.deliver(bounce(sent_question(mailbox)[1]))
+    collect()
+    processed()
+    assert AutomationPause.objects.get(subject_id=mailbox.app.public_ref).actor_ref.startswith("system")
+    with pytest.raises(PermissionDenied):  # an operator may not clear a system safety pause
+        staff_actions.resume(mailbox.app.pk, mailbox.operator, "Looks fine to me now")
+    with pytest.raises(Refused, match="reason_needed"):
+        staff_actions.resume(mailbox.app.pk, mailbox.decider, "ok")
+    with pytest.raises(Refused, match="pause_cause_open"):  # resuming never clears the delivery block itself
+        staff_actions.resume(mailbox.app.pk, mailbox.decider, "Applicant confirmed the address")
+    assert paused(mailbox)
+    item = StaffItem.objects.get(reason_code="hard_bounce", status="open")
+    processing.resolve_exception(item.pk, "address_usable_again", mailbox.decider, note="Applicant confirmed by phone")
+    staff_actions.resume(mailbox.app.pk, mailbox.decider, "Applicant confirmed the address")
+    assert not paused(mailbox)
+    resumed = ApplicationEvent.objects.get(kind="automation_resumed")
+    assert resumed.data["system_pause"] is True and resumed.actor_ref == f"user:{mailbox.decider.pk}"
+    assert resumed.data["note"] == "Applicant confirmed the address"
+
+
+def test_9kg_2_a_staff_pause_cannot_be_resumed_past_a_system_cause_that_arrived_later(mailbox):
+    from correspondence import staff_actions
+    from correspondence.staff_items import open_item, resolve_item
+
+    staff_actions.pause(mailbox.app.pk, mailbox.operator, "Checking the applicant's details")
+    # Agreement reads run while paused (D-44): a decline found meanwhile opens its item, and its own pause is a no-op
+    # because the staff pause row already exists.
+    item = open_item("agreement_declined", f"read:{uuid.uuid4()}", application=mailbox.app)
+    with pytest.raises(Refused, match="pause_cause_open"):
+        staff_actions.resume(mailbox.app.pk, mailbox.operator)
+    assert paused(mailbox)
+    resolve_item(item, code="decided", actor_ref=f"user:{mailbox.decider.pk}")
+    staff_actions.resume(mailbox.app.pk, mailbox.operator)  # a staff pause stays an operator's to resume
+    assert not paused(mailbox)
