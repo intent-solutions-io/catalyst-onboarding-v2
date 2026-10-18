@@ -322,7 +322,13 @@ def test_p5_02_a_broken_prerequisite_refuses_at_approval_at_the_password_set_and
     broken = breaks(app)
     PendingAction.objects.filter(kind="provision_activate", status__in=("queued", "held")).update(due_at=Now())
     run_worker()
-    assert Application.objects.get(pk=app.pk).stage == "provisioning"  # activation refused while broken
+    assert Application.objects.get(pk=app.pk).stage == "provisioning"  # activation did not happen while broken
+    if cause == "hard_bounce":  # an automated action runs and refuses at the boundary, with its reason
+        refused = app.events.get(kind="provisioning_activation_refused")
+        assert refused.data["reason"] == "hard_bounce_open"
+    else:  # a pause holds the automated action: it never ran
+        assert not app.events.filter(kind="provisioning_activation_refused").exists()
+        assert PendingAction.objects.filter(kind="provision_activate", status__in=("queued", "held")).exists()
     repair(app, broken)
     from provisioning import credentials
 
@@ -346,6 +352,10 @@ def test_p5_18_the_mail_host_adapter_has_no_delete_or_suspend_operation():
 
 
 def test_p5_22_nothing_closes_an_application_for_want_of_a_response(cl, monkeypatch, settings):
+    """Scope: the one P5 wait for the applicant, the password link. Expiry after expiry ends in a staff item with an
+    owner, never a closure (P5-D-11). Earlier phases' reminder bounds are P2's (016)."""
+    from datetime import timedelta
+
     from tests.test_credentials import invited
 
     settings.CATALYST_SETUP_INVITE_MAX_SERIES = 2
@@ -354,7 +364,7 @@ def test_p5_22_nothing_closes_an_application_for_want_of_a_response(cl, monkeypa
 
     for _ in range(4):  # the applicant never answers: every link expires, sweep after sweep
         CredentialSetup.objects.filter(request=request, state__in=("invited", "presented")).update(
-            expires_at=Now() - __import__("datetime").timedelta(seconds=1))
+            expires_at=Now() - timedelta(seconds=1))
         PendingAction.objects.filter(status="queued").update(due_at=Now())
         run_worker()
     app = Application.objects.get(pk=app.pk)
@@ -366,7 +376,6 @@ def test_p5_22_nothing_closes_an_application_for_want_of_a_response(cl, monkeypa
 
 def test_p5_22_a_new_application_after_a_withdrawal_inherits_nothing(cl, monkeypatch):
     from provisioning import closure
-    from tests.test_credentials import post
     from tests.test_outbound import verified_application
 
     app, request = active_member(cl, monkeypatch)
@@ -383,6 +392,13 @@ def test_p5_22_a_new_application_after_a_withdrawal_inherits_nothing(cl, monkeyp
     assert not WithdrawalConfirmation.objects.filter(application=again).exists()
     assert Application.objects.get(pk=app.pk).stage == "withdrawn"  # the old case stays closed
     assert CredentialSetup.objects.get(pk=old_setup.pk).state == "completed"  # its history is kept
-    for link in [m.body for m in mail.outbox if "/setup/" in m.body]:
-        path = LINK.search(link).group(1)
-        assert post(path).status_code == 404  # no earlier link works for anyone
+    # The old address stays held for the withdrawn case's revocation: the database refuses it to the new application,
+    # so a new release could only propose a fresh address, approved afresh.
+    from django.db import IntegrityError, transaction
+
+    old = request.reservation
+    assert old.released_at is None
+    with pytest.raises(IntegrityError), transaction.atomic():
+        AddressReservation.objects.create(application=again, local_part=old.local_part, domain=old.domain,
+                                          basis="naming_rule")
+    assert not ProvisioningRequest.objects.filter(application=again, approved_at__isnull=False).exists()

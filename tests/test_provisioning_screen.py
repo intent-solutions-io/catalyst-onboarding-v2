@@ -77,7 +77,7 @@ def test_p5_19_the_screen_shows_each_phase_the_next_action_and_its_owner(cl, rel
     assert '<th scope="row">Approval</th><td>not approved</td>' in body
     for heading in ("Creation", "Verification", "Credential setup", "Activation", "Revocation"):
         assert f"<h3>{heading}</h3>" in body  # one section per phase
-    assert "Not verified." in body and "No create yet." in body  # each phase states its own fact
+    assert "<p>Not verified." in body and "<p>No create yet.</p>" in body  # each phase states its own fact
 
 
 def test_p5_19_approving_through_the_screen_needs_csrf_and_the_digest_shown(cl, released):
