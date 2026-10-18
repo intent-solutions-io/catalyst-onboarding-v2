@@ -134,15 +134,26 @@ The hardening batch closed three correspondence gaps that P4 relies on:
     pinned. All three were fixed, and TEST-P4-05, 06 and 24 gained visibility and rendering evidence.
   - **Final security review:** no blocker for a synthetic sign-off. Four production limits are carried (below).
 
-**What the passing cases still do not show:**
+**What the passing cases still do not show.** The final QA review rated seven cases partial: 04, 05, 06, 09, 22, 24
+and 25. Their dispositions (reconciled after sign-off, in the P4 closeout follow-up):
 
-| Case | Not shown |
-|---|---|
-| TEST-P4-08 | constant time is shown as "every secret is compared with `compare_digest`", not measured |
-| TEST-P4-09 | refusing a non-admitted application, and held actions of other kinds |
-| TEST-P4-20 | only the refusals; no authorized environment exists |
-| TEST-P4-21 | escaping is tested on the display name only |
-| TEST-P4-22 | "no burst" is shown for coalesced reads, not for creates across many paused applications |
+| Case | Partial clause | Disposition |
+|---|---|---|
+| TEST-P4-04 | the checksum re-verified on retrieval | closed in 4C: the tamper test is mapped |
+| TEST-P4-05 | visibility limited to named roles | closed in 4C: `test_p4_details_are_visible_only_to_those_who_confirm_them` |
+| TEST-P4-06 | the User Agreement not shown or linked before the NDA's gate | closed in 4C: the journey asserts it |
+| TEST-P4-09 | a non-admitted application, and held actions of other kinds | closed in the follow-up: `test_p4_09_activation_refuses_a_non_admitted_application_and_never_releases_other_held_kinds` |
+| TEST-P4-22 | "no burst" for creates across many paused applications | **open, a pre-live limit**: only coalesced reads are shown; cross-application create and send rates are not claimed |
+| TEST-P4-24 | tokens and links never rendered on the screen or in the PDF response | closed in 4C: the journey asserts it |
+| TEST-P4-25 | the "application is paused" clause | closed in 4C: the pause test is mapped |
+
+Three cases QA rated proven carry accepted notes:
+
+- **TEST-P4-08:** constant time is shown as "every secret is compared with `compare_digest`". Whole-request timing
+  is not measured or claimed.
+- **TEST-P4-20:** only the refusals are tested, because no authorized live environment exists.
+- **TEST-P4-21:** escaping was first tested on the display name only. The follow-up adds hostile required-details
+  values and a hostile typed reason on a refusal screen.
 
 **Cannot yet be demonstrated:**
 

@@ -859,6 +859,7 @@ P4_CASES = {
         "test_agreements::test_p4_09_activation_releases_only_eligible_held_issue_nda",
         "test_agreements::test_p4_09_the_command_needs_a_real_approval_reference",
         "test_agreements::test_p4_09_a_refusal_returns_issue_nda_to_held_without_using_up_its_attempts",
+        "test_p4_journey::test_p4_09_activation_refuses_a_non_admitted_application_and_never_releases_other_held_kinds",
     ],
     "TEST-P4-10": ["test_agreements::test_p4_10_the_instance_and_its_key_are_committed_before_any_provider_call"],
     "TEST-P4-11": [
@@ -920,6 +921,7 @@ P4_CASES = {
         "test_agreement_custody::test_p4_21_a_refused_integrity_disposition_keeps_the_typed_reason",
         "test_agreement_custody::test_review_malformed_identifiers_are_refused_not_a_server_error",
         "test_agreement_custody::test_review_no_consequential_choice_is_preselected_for_a_decision_maker",
+        "test_p4_journey::test_p4_21_hostile_details_and_typed_reasons_are_escaped_on_the_screen_and_its_refusals",
     ],
     "TEST-P4-22": [
         "test_agreements::test_p4_22_a_pause_stops_create_and_distribute",

@@ -185,3 +185,63 @@ def test_p4_details_are_visible_only_to_those_who_confirm_them(k, monkeypatch, s
         page = client.get(screen)
         assert page.status_code == 200
         assert ("Exampleland-7731" in page.content.decode()) is sees, user.username
+
+
+# --- P4 closeout after D-45: activation eligibility and hostile staff-visible text ------------------------------
+
+def test_p4_09_activation_refuses_a_non_admitted_application_and_never_releases_other_held_kinds(k, monkeypatch):
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    app = admitted(k, monkeypatch)
+    approve(k)
+    other_kinds = [PendingAction.objects.create(
+        kind=kind, subject_type="application", subject_id=app.public_ref, input_ref=f"synthetic:{kind}",
+        idempotency_key=f"synthetic-held-{kind}", status="held", max_attempts=3) for kind in ("provision", "interpret_reply")]
+    activate()
+    assert PendingAction.objects.get(kind="issue_nda").status == "queued"  # the eligible NDA is released
+    for action in other_kinds:  # nothing else held for the same applicant moves
+        assert PendingAction.objects.get(pk=action.pk).status == "held"
+    # The same held NDA for an application that is no longer admitted is refused and stays held.
+    owner = k.committed.connect("owner", autocommit=True)
+    owner.execute("UPDATE workflow_pendingaction SET status = 'held' WHERE kind = 'issue_nda'")
+    owner.execute("UPDATE applications_application SET stage = 'withdrawn' WHERE id = %s", [app.pk])
+    out = StringIO()
+    call_command("activate_agreements", "--activation-version", "1", "--approval-ref", "D-38", stdout=out)
+    assert '"stage_not_admitted": 1' in out.getvalue() and '"released": 0' in out.getvalue()
+    assert PendingAction.objects.get(kind="issue_nda").status == "held"
+
+
+HOSTILE = '<img src=x onerror=alert(1)><script>alert(2)</script>"\''
+
+
+def test_p4_21_hostile_details_and_typed_reasons_are_escaped_on_the_screen_and_its_refusals(k, monkeypatch, settings):
+    from agreements import services
+
+    settings.CATALYST_AGREEMENT_REQUIRED_DETAILS = {"user_agreement": ["mailing_country"]}
+    app = admitted(k, monkeypatch)
+    approve(k)
+    activate()
+    run_worker()
+    sign_over_http(k, app, "nda")
+    services.record_required_details(app.pk, "user_agreement", {"mailing_country": HOSTILE}, k.agreement_decider)
+    client = Client()
+    client.force_login(k.agreement_decider)
+    screen = reverse("agreements_staff:agreements", args=[app.public_ref])
+    html = client.get(screen).content.decode()
+    assert "<script>alert(2)</script>" not in html and "<img src=x" not in html and "&lt;script&gt;" in html
+    # A refused action re-renders what was typed, escaped, in the failure screen: an integrity resolution whose screen
+    # went stale keeps the typed reason.
+    instance = of(app, "nda").get()
+    k.fake.envelopes[instance.envelope_id]["recipients"].append(
+        {"email": "stranger@example.test", "role": "SIGNER", "signingOrder": 2, "signingStatus": "SIGNED"})
+    completion.enqueue_read(AgreementInstance.objects.get(pk=instance.pk))
+    reads_now()
+    refused = client.post(reverse("agreements_staff:act", args=[app.public_ref]), {
+        "action": "resolve", "instance": str(instance.public_id), "disposition": "continue", "note": HOSTILE,
+        "digest": "stale"})
+    body = refused.content.decode()
+    assert refused.status_code == 409 and "changed_since_shown" in body
+    assert "<script>alert(2)</script>" not in body and "<img src=x" not in body
+    assert "&lt;img src=x onerror=alert(1)&gt;&lt;script&gt;alert(2)&lt;/script&gt;" in body  # shown, escaped

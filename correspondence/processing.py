@@ -53,8 +53,8 @@ RESOLUTIONS = {
     "hard_bounce": {"address_usable_again": "decide_uncertain_send"},
     # 9kg.2: an agreement declined, expired or cancelled at the provider set a system pause. Once the agreement side
     # is settled (reissue, cancel or stop on the agreements screen), the correspondence decision-maker records, with a
-    # reason, that the cause is addressed; only then can the pause be resumed. Proposed default: the same role that
-    # resumes a system pause (owner may assign another).
+    # reason, that the cause is addressed; only then can the pause be resumed. The designated correspondence
+    # decision-maker, decided by the owner (D-46); legal disputes escalate to the owner and counsel.
     "agreement_declined": {"agreement_decided": "decide_uncertain_send"},
     "agreement_expired": {"agreement_decided": "decide_uncertain_send"},
     "agreement_cancelled_at_provider": {"agreement_decided": "decide_uncertain_send"},
