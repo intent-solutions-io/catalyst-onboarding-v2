@@ -333,9 +333,9 @@ outlive revocation.
 - existing sessions, client connections, and app or delegated credentials. These are `unsupported` until a
   documented mechanism exists.
 
-**Rollup:** revocation is complete only when every row is `verified`, `applied_unverified` (with the accepted
-limitation shown) or `not_applicable`. An `unsupported` or `exception` row keeps a staff item open, with its age
-shown.
+**Rollup:** revocation is complete only when the request is settled and every row is `verified`,
+`applied_unverified` (with the accepted limitation shown), `not_applicable`, or an owner-accepted `exception` (11.11).
+An `unsupported` or `pending` row keeps a staff item open, with its age shown.
 
 ### 11.7 States, keys and the stage (reliability HIGH 5 and 6, MEDIUM 12; LOW 16)
 
@@ -684,7 +684,8 @@ applicant-centred staff screen (TEST-P5-19, 20).
   applicable, or an accepted exception.
 - **The adapter** gains the documented forwarder list and delete, and the catch-all read. The fake supports them.
 
-**Evidence:** `tests/test_closure.py` (9 tests): TEST-P5-05, 17, 18, 21, 22 and the protections.
+**Evidence:** `tests/test_closure.py` (20 tests, with the review regressions): TEST-P5-05, 17, 18, 21, 22, the
+protections, the settle and proof rules, and the stop paths.
 
 **Not yet (5B.3b):** the staff screen through which staff do all of this (TEST-P5-19, 20), and a staff action for
 shared forwarders and the catch-all.
