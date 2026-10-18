@@ -1,5 +1,5 @@
 # Public intake (S1-T4), contact confirmation (S1-T6), the read-only staff view (S1-T7) and the permissioned
-# correspondence staff screens (P2 2B.4, M9), listed first so the admin's catch-all never shadows them.
+# correspondence, assessment, agreement and provisioning staff screens (P2 to P5), listed first so the admin's catch-all never shadows them.
 from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
@@ -12,6 +12,7 @@ urlpatterns = [
     path("staff/p2/", include("correspondence.staff_urls")),
     path("staff/p3/", include("assessments.staff_urls")),
     path("staff/p4/", include("agreements.staff_urls")),
+    path("staff/p5/", include("provisioning.staff_urls")),
     path("staff/", admin.site.urls),
     path("setup/", include("provisioning.urls")),  # applications.links.SETUP_PATH (P5 5B.2)
     path("withdraw/", include("provisioning.withdraw_urls")),  # applications.links.WITHDRAW_PATH (P5 5B.3)

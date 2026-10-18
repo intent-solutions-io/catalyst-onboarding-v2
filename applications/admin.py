@@ -110,6 +110,9 @@ CORRESPONDENCE_SCREEN_PERMISSIONS = ("approve_question", "withdraw_question", "p
 AGREEMENT_SCREEN_PERMISSIONS = ("view_agreementinstance", "operate_agreements", "manage_agreements",
                                 "decide_uncertain_agreement", "resolve_agreement_integrity",
                                 "retrieve_agreement_document", "confirm_required_details")
+# The P5 provisioning screen's permissions (provisioning.staff_views.SCREEN; tests keep the two in step).
+PROVISIONING_SCREEN_PERMISSIONS = ("view_provisioningrequest", "approve_provisioning", "operate_provisioning",
+                                   "close_application")
 
 
 @admin.register(Application)
@@ -138,9 +141,12 @@ class ApplicationAdmin(ReadOnlyModelAdmin):
             user.has_perm(f"correspondence.{name}") for name in CORRESPONDENCE_SCREEN_PERMISSIONS)
         agreements_allowed = user.is_active and user.is_staff and not user.is_superuser and any(
             user.has_perm(f"agreements.{name}") for name in AGREEMENT_SCREEN_PERMISSIONS)
+        provisioning_allowed = user.is_active and user.is_staff and not user.is_superuser and any(
+            user.has_perm(f"provisioning.{name}") for name in PROVISIONING_SCREEN_PERMISSIONS)
         return super().changeform_view(request, object_id, form_url, {**(extra_context or {}),
                                                                       "correspondence_link": allowed,
-                                                                      "agreements_link": agreements_allowed})
+                                                                      "agreements_link": agreements_allowed,
+                                                                      "provisioning_link": provisioning_allowed})
 
     @admin.display(boolean=True, description="contact verified")
     def contact_verified(self, obj):

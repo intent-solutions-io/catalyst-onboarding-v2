@@ -728,3 +728,67 @@ shared forwarders and the catch-all.
 - MXroute's behaviour when a forwarder and a mailbox share a name is NOT VERIFIED.
 - Forwarder listing completeness (pagination) is a live-adapter gate.
 - **OWNER:** the withdrawal link's production lifetime, and whether a notice follows a withdrawal.
+
+## 15. The 5B.3b record: the provisioning staff screen (D-47)
+
+**What it is.** One page per application at `/staff/p5/applications/<ref>/provisioning/`
+(`provisioning/staff_views.py`), linked from the read-only dossier for holders of the same permissions. The page shows
+each request with these states kept separate:
+
+- approval;
+- creation and verification (attempts and evidence);
+- credential setup;
+- activation;
+- revocation (each obligation, and whether the rollup is complete).
+
+It also shows the open provisioning items with their age, the address reservations, the withdrawal links, and the
+next action with its owner.
+
+**Rules carried from P2 to P4:**
+
+- The gate is any of `view_provisioningrequest`, `approve_provisioning`, `operate_provisioning` or
+  `close_application`. A superuser is refused like everyone else.
+- Every action is a CSRF-protected POST to one service, and that service checks its own permission. The screen only
+  offers a control; it never decides.
+- Approval posts the digest shown, so a change since the page was read is refused (`changed_since_shown`).
+- A refusal re-renders the page with its code and what was typed, escaped. An unknown action is a 404.
+- Nothing consequential is preselected. No page is cached.
+
+**Separation (TEST-P5-20).** The screen has no applicant mail and no signed documents, and the provisioning
+permissions grant neither. The tests check this on the correspondence screen and on document retrieval.
+
+**Actions:**
+
+- approve;
+- reserve a reviewed address;
+- record and attest a checklist creation;
+- confirm or refuse a found mailbox;
+- supersede;
+- release an address;
+- send a new password link;
+- retry activation;
+- read revocation again after a panel fix;
+- accept an exception (owner);
+- send a withdrawal link;
+- close or withdraw.
+
+**After the reviews of PR #56:**
+
+- The offered controls mirror the service guards, and a status-by-method table test pins them.
+  - After a close, the address can still be released and a found mailbox still decided.
+  - A late mailbox on a superseded request is offered for a decision.
+  - The checklist path names its operator steps.
+- `release_address` also accepts `failed_needs_staff`, for example a rejected create left on a closed application.
+- Each request shows its blocker (`core.database_problem`) and its open items in plain words.
+- Every refusal is logged with the user, action, application and code, never a typed value. A record from another
+  application or a malformed id is refused as `invalid_request`, and any other error is a server error with its
+  traceback.
+- The page has no navigation into the mail screens.
+- The approval digest is fixed when the request is created, so `changed_since_shown` catches a forged or stale form
+  value. A real change of prerequisites is refused separately as `prerequisites_changed`, and the page shows it as
+  the blocker.
+
+**Evidence:** `tests/test_provisioning_screen.py` (40 tests with their parameters): TEST-P5-19, 20.
+
+**Limits:** the screen has no throttle or MFA of its own (POL-13 at the staging gate), and it is not an accessibility
+audit.
