@@ -739,7 +739,11 @@ Bead `catalyst-v2-hdg.4`; tests in `tests/test_agreement_custody.py`.
 
 - Required details and PDFs are stored in plaintext. Neither can be erased (insert-only and append-only), and no
   correction path exists beyond a new version. These need POL-09, POL-10 and POL-18 before any real data.
-- Whether the same person may both record and confirm details (POL-18).
+- ~~Whether the same person may both record and confirm details (POL-18).~~ **Decided (D-46, 2026-10-18).** The
+  same qualified person may record and confirm a details version if they hold both permissions. These stay two
+  separate audited actions, and the confirmation names the exact version and its digest. This is staff confirmation
+  of recorded details. It does not replace any required applicant adoption, signature or consent. The production
+  field list stays with POL-18.
 - How a corrupt stored copy is replaced (POL-09, POL-10).
 - **P5 must re-check every prerequisite when it releases the held `provision` action.** A corruption or an
   integrity hold after the hand-off does not change the held action itself.
