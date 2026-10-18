@@ -11,6 +11,7 @@ Consequential choices are never preselected. A refusal re-renders the page with 
 refusal code.
 """
 
+import logging
 from functools import wraps
 
 from django.contrib import messages
@@ -29,6 +30,7 @@ from workflow.models import AutomationPause, PendingAction
 from . import completion, handlers, services
 from .models import AgreementDetailsVersion, AgreementInstance, AgreementType, EnvelopeAttempt, ProviderObservation
 
+logger = logging.getLogger(__name__)
 SCREEN = ("view_agreementinstance", "operate_agreements", "manage_agreements", "decide_uncertain_agreement",
           "resolve_agreement_integrity", "retrieve_agreement_document", "confirm_required_details")
 STOP_REASONS = {"on_hold": "Hold (resumable by a decision-maker)", "withdrawn": "Withdrawn (final)",
@@ -153,6 +155,8 @@ def act(request, public_ref):
     except (services.Refused, PermissionDenied, KeyError, ValueError, ValidationError, ObjectDoesNotExist, Http404) as exc:
         code = str(exc) if isinstance(exc, services.Refused) else "not_permitted" if isinstance(
             exc, PermissionDenied) else "invalid_request"
+        if code == "invalid_request":
+            logger.warning("agreement staff action %s refused as invalid (%s)", action, type(exc).__name__)
         context = _context(request, application, error=f"{action}: refused ({code})", form=request.POST)
         return render(request, "agreements/staff/agreements.html", context, status=409)
     messages.success(request, f"{action}: done")

@@ -657,15 +657,16 @@ Bead `catalyst-v2-hdg.4`; tests in `tests/test_agreement_custody.py`.
 - **Changed provider view.** If the fresh read no longer matches, an integrity hold opens (D-43) and nothing is
   stored.
 - **Interruption.** If the run stops between the file and the record, the file is left unreferenced and is never
-  served. The retry writes a new key, and the unique record allows only one authoritative copy.
+  served. When no record exists yet, the retry writes a new key; the unique record allows only one authoritative
+  copy, and a retry is refused once a copy exists (see below).
 
 **Retrieval** (`services.retrieve_document`; `POST /staff/p4/documents/<id>/retrieve/`):
 
 - **Who.** Only the `retrieve_agreement_document` permission, assigned to no group (P4-D-16), with a stated reason.
 - **Audit first.** The `DocumentAccess` row (append-only) is committed before any byte is read for release. If the
   audit write fails, nothing is released.
-- **Denials.** A missing permission and a missing document both return the same 404, and both leave a `denied` row
-  that names only the reference asked for.
+- **Denials.** A missing permission, a missing document and a non-staff or anonymous caller all return the same 404.
+  Staff refusals leave a `denied` row naming only the reference asked for; outsiders are logged, not recorded.
 - **Integrity.** The bytes are read once with no link following, checked against the recorded size and SHA-256, and
   exactly those bytes are served. A mismatch, a link, the wrong owner or loose permissions refuses. Each refusal is
   recorded as `refused_integrity`, opens a corruption item and sets custody back to `failed_needs_staff`.
@@ -718,9 +719,10 @@ Bead `catalyst-v2-hdg.4`; tests in `tests/test_agreement_custody.py`.
   is replaced is the owner's POL-09 and POL-10 decision. A store run that meets an existing record goes to staff;
   it never sits silently at `pending`.
 - **Details can come before the first agreement.** Required details may be recorded and confirmed while the
-  application is `admitted`. An NDA held for its details opens a staff item, and confirming the details releases
-  it. A confirmation recomputes the digest from the stored values, refuses a superseded draft, and must name who
-  and when. The details table cannot be truncated.
+  application is `admitted`. An NDA held for its details opens a staff item; confirming the details lets it run
+  again only when the owner's activation command runs again (P4-D-13). The confirmation resolves the details
+  item, recomputes the digest from the stored values, checks the stage and stop state, refuses a superseded draft,
+  and must name who and when. The details table cannot be truncated.
 - **Storage is pinned by descriptor.** The storage directory is opened once without following links, checked
   through its descriptor, and every file operation works relative to it. A new file's name is flushed to disk.
 - **"Unavailable" is not "corrupt".** Storage being unavailable refuses retrieval without blaming the document;
@@ -728,7 +730,8 @@ Bead `catalyst-v2-hdg.4`; tests in `tests/test_agreement_custody.py`.
 - **Retrieval refuses inside a transaction**, so the audit always commits first.
 - **Outsiders add nothing to the audit table.** Non-staff and anonymous callers get the same 404 and are logged,
   not recorded, so outsiders cannot grow the append-only table. Staff refusals are recorded.
-- **A second fresh read after the downloads** confirms the envelope did not change while its items were fetched.
+- **A second fresh read after the downloads** confirms the envelope, its items, completion and every required
+  signer (recipients included) did not change while its items were fetched.
 - **Malformed identifiers** on the staff screen are refused (409), never a server error.
 - **The PDF response** also carries `Content-Security-Policy: sandbox`.
 

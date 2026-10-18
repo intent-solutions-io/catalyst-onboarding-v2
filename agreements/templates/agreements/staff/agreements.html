@@ -28,7 +28,7 @@
 <input type="hidden" name="instance" value="{{ row.instance.public_id }}">
 {% if may.manage_agreements %}<button name="action" value="cancel">Cancel at the provider</button>
 <button name="action" value="reissue">Reissue as a new agreement</button>{% endif %}
-{% if may.operate_agreements and row.instance.custody_status == "failed_needs_staff" %}<button name="action" value="retry_custody">Retry custody</button>{% endif %}
+{% if may.operate_agreements and row.instance.custody_status == "failed_needs_staff" and not row.instance.documents.all %}<button name="action" value="retry_custody">Retry custody</button>{% endif %}
 </form>
 
 {% if row.hold and may.resolve_agreement_integrity %}

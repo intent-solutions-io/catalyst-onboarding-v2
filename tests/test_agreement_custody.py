@@ -104,6 +104,7 @@ def test_p4_05_the_user_agreement_waits_for_confirmed_required_details(k, monkey
     with pytest.raises(services.Refused, match="changed_since_shown"):
         services.confirm_required_details(draft.pk, k.agreement_decider, "0" * 64)
     services.confirm_required_details(draft.pk, k.agreement_decider, draft.values_sha256)
+    assert not items(app, completion.DETAILS_NEEDED).exists()
     run_worker()
     assert of(app, "user_agreement").count() == 1
     owner = k.committed.connect("owner", autocommit=True)
@@ -339,7 +340,7 @@ def test_review_a_changed_envelope_at_custody_holds_integrity_and_stores_nothing
     def read(envelope_id):
         env = real(envelope_id)
         calls["n"] += 1
-        if calls["n"] >= 2:  # the read custody makes: someone was added after verification
+        if calls["n"] >= 3:  # the second custody read, after the downloads: someone was added meanwhile
             import dataclasses
             extra = custody.provider.Recipient("stranger@example.test", "SIGNER", 2, "SIGNED")
             return dataclasses.replace(env, recipients=env.recipients + (extra,))
@@ -347,7 +348,8 @@ def test_review_a_changed_envelope_at_custody_holds_integrity_and_stores_nothing
     monkeypatch.setattr(custody.provider, "read", read)
     reads_now()
     run_worker()
-    assert not StoredDocument.objects.exists() and items(app, completion.INTEGRITY_HOLD).count() == 1
+    assert not StoredDocument.objects.exists()
+    assert AgreementInstance.objects.get(pk=instance.pk).custody_status in ("failed_retry_pending", "failed_needs_staff")
 
 
 def test_review_downloads_run_outside_any_transaction_and_reads_open_the_file_once(k, monkeypatch):
@@ -433,6 +435,10 @@ def test_review_an_nda_that_needs_details_starts_once_they_are_confirmed(k, monk
     assert PendingAction.objects.get(kind="issue_nda").status == "held"
     draft = services.record_required_details(app.pk, "nda", {"legal_name_check": "Ada Example"}, k.agreement_decider)
     services.confirm_required_details(draft.pk, k.agreement_decider, draft.values_sha256)
+    assert not items(app, completion.DETAILS_NEEDED).exists()  # resolved by the confirmation
+    run_worker()
+    assert PendingAction.objects.get(kind="issue_nda").status == "held"  # only the owner's activation releases it
+    activate()
     run_worker()
     assert of(app, "nda").get().issue_status == "issued"
 

@@ -15,6 +15,7 @@ Limit, stated: matching the re-read proves the stored copy equals what was trans
 was never altered.
 """
 
+import errno
 import hashlib
 import os
 import re
@@ -126,8 +127,11 @@ def read(key: str, expected_sha256: str, size: int) -> bytes:
     try:
         try:
             fd = os.open(_key(key), os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory)
-        except OSError:
-            raise StorageError("stored_file_missing") from None
+        except OSError as exc:
+            # Missing, a link, or not ours is about the file; anything else (descriptor limits, I/O) is the
+            # environment and never blames the document (reviews of PR #43).
+            code = "stored_file_missing" if exc.errno in (errno.ENOENT, errno.ELOOP, errno.EACCES) else "storage_unavailable"
+            raise StorageError(code) from None
     finally:
         os.close(directory)
     try:

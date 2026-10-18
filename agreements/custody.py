@@ -110,7 +110,9 @@ class StoreAgreement:
                 stored.append((item, key, digest, len(pdf)))
             # A second fresh read: the envelope did not change while its items were downloaded (security review).
             after = provider.read(instance.envelope_id)
-            if (after.id, after.external_id, after.status, after.items) != (env.id, env.external_id, env.status, env.items):
+            again = facts(instance, after.status, after.recipients, identity=read_identity(instance, after))
+            if (after.items != env.items or after.status != "COMPLETED" or not again["identity_match"]
+                    or not again["all_required_signed"]):  # recipients included (QA review)
                 raise provider.ProviderError("envelope_changed_during_download", sent=True, status=200)
         except (provider.ProviderError, storage.StorageError) as exc:
             code = exc.code if isinstance(exc, provider.ProviderError) else str(exc)

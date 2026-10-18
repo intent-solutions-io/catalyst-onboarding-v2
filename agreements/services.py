@@ -611,6 +611,10 @@ def confirm_required_details(details_id: int, user, expected_sha256: str):
         row = AgreementDetailsVersion.objects.get(pk=details_id)
         application = Application.objects.select_for_update(of=("self",)).get(pk=row.application_id)
         row = AgreementDetailsVersion.objects.select_for_update(of=("self",)).get(pk=details_id)
+        from .completion import DETAILS_NEEDED, stopped
+
+        if application.stage not in (Stage.ADMITTED, Stage.AGREEMENTS) or stopped(application):
+            raise Refused("not_in_agreements")
         if row.status != AgreementDetailsVersion.Status.DRAFT:
             raise Refused("not_draft")
         if expected_sha256 != row.values_sha256 or _details_digest(row.values) != row.values_sha256:
@@ -622,11 +626,13 @@ def confirm_required_details(details_id: int, user, expected_sha256: str):
             status=AgreementDetailsVersion.Status.CONFIRMED, confirmed_by=f"user:{user.pk}", confirmed_at=Now())
         event(application, "agreement_details_confirmed", {"type": row.agreement_type.key, "version": row.version},
               actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=f"user:{user.pk}")
+        key = f"details:{application.public_ref}:{row.agreement_type.key}"
+        for item in StaffItem.objects.filter(reason_code=DETAILS_NEEDED, dedupe_key=key, status=StaffItem.Status.OPEN):
+            resolve_item(item, code="details_confirmed", actor_ref=f"user:{user.pk}",
+                         effects={"details": str(row.public_id)})
         if application.stage == Stage.AGREEMENTS:
             enqueue_advance(application)
-        else:  # the NDA was held for these details: release it to run again (QA review)
-            PendingAction.objects.filter(kind=handlers.ISSUE_NDA, subject_id=application.public_ref,
-                                         status=PendingAction.Status.HELD, last_error="details_needed").update(
-                status=PendingAction.Status.QUEUED, due_at=Now(), updated_at=Now())
+        # At `admitted`, the NDA held for these details is released again only by the owner's activation command
+        # (P4-D-13), never by this confirmation (QA review of PR #43).
     row.refresh_from_db()
     return row
