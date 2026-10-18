@@ -514,7 +514,7 @@ def test_review_credential_like_notes_and_mail_host_keys_in_the_environment_are_
     settings.CATALYST_PROVISIONING_METHOD = "checklist"
     app, request = approved(pv, monkeypatch)
     with pytest.raises(services.Refused, match="note_looks_like_a_credential"):
-        services.record_checklist_creation(request.pk, pv.op1, "Created it, password: Hunter2-synthetic")
+        services.record_checklist_creation(request.pk, pv.op1, "Created it, pwd = example")  # gitleaks:allow
     problems = guards.provisioning_problems(settings, {"MXROUTE_API_KEY": "x", "DIRECTADMIN_LOGIN_KEY": "y"})
     assert sum("looks like a mail-host credential" in p for p in problems) == 2
     from provisioning.adapter import AdapterError
