@@ -3,8 +3,8 @@
 | Field | Value |
 |---|---|
 | Document | `023-AT-DSGN-p5-provisioning-specification` |
-| Version | 0.1.0 (draft for owner review) |
-| Status | **PROPOSED.** Prepared under D-40 as preparation only: no P5 code, no mailbox, no MXroute account access, no credential, no policy activation. Nothing here is approved until the owner records a decision in `011` section 4. |
+| Version | 0.2.1 (0.1.0 prepared under D-40; 0.2.0 records the owner's P5 decisions, D-47, and corrects the MXroute research from the public API reference; 0.2.1 and 0.2.2 resolve the pre-build security and reliability reviews and their re-checks, section 11) |
+| Status | **P5 decisions DECIDED by the owner 2026-10-18 (D-47) for synthetic work; 5A amended and 5B.1 to 5B.3 released for synthetic implementation against a local fake MXroute.** Not authorized: live MXroute access, any provider key, real mailboxes or passwords, real applicant data, role grants to real staff, deployment, and GATE-P5 acceptance (5C stays a draft for the owner). |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-18 |
 | Epic | P5, "Provision the approved mailbox, activate the applicant, and support withdrawal and recovery" (`catalyst-v2-tuc`) |
@@ -45,124 +45,419 @@ Nothing runs it.
 **P5 must re-check every prerequisite when it releases the action.** A custody corruption or an integrity hold after
 the hand-off does not change the held action itself.
 
-## 3. MXroute capabilities (research, 2026-10-18, public pages only)
+## 3. MXroute capabilities (research, 2026-10-18, public pages only; amended in 0.2.0)
+
+**Correction (0.2.0).** Version 0.1.0 said the panel API's operations were documented only inside the account. That
+was wrong. The API reference is public: [api.mxroute.com/docs](https://api.mxroute.com/docs) and
+[openapi.yaml](https://api.mxroute.com/openapi.yaml). No key is needed to read it.
+
+The schema was read on 2026-10-18T15:16:40Z. It is OpenAPI 3.0.3, `info.version` 1.0.0, 46,447 bytes, SHA-256
+`25272af35138b6ef4dc79eccd6ea1876fa1b30c97ae56be6dc0ba8a01d6e879d`. No authenticated request was made, and no API
+explorer was used against the service.
+
+Tags used in this section:
+
+- **DOCUMENTED:** stated by an official page or the published schema.
+- **NOT VERIFIED:** documented but not exercised. Our account's entitlement and real behaviour are unknown, and the
+  live path stays blocked.
+- **NOT DOCUMENTED:** no official page or the schema says it. Catalyst must not assume it.
 
 | # | Fact | Tag |
 |---|---|---|
-| 1 | Mailboxes are created, deleted, re-passworded and given quotas in the control panel. Username before the @; password 8 to 72 characters; quota in MB (0 means no separate cap); a daily send limit of 1 to 9600. Bulk CSV import is capped at 200 rows and skips existing accounts. The pages also state a separate 400 per hour maximum. "Deletion removes the mailbox's messages and data." | DOCUMENTED, [email accounts](https://docs.mxroute.com/docs/email-accounts.html) |
-| 2 | Control Panel API keys "grant programmatic hosting-management access". Each request sends `X-Server`, `X-Username` and `X-API-Key`. There is no per-key permission editor and no IP restriction. Request formats and operations are documented only behind a "View API Documentation" link inside the panel. | DOCUMENTED, [API keys](https://docs.mxroute.com/docs/panel/api-keys.html) |
-| 3 | The SMTP API sends mail only and uses mailbox credentials. | DOCUMENTED, [SMTP API](https://docs.mxroute.com/docs/api/smtp-api.html) |
-| 4 | Which mailbox operations the panel API supports, whether our plan includes it, and its idempotency and error behaviour. | **NOT VERIFIED**: the documentation is behind the account login |
-| 4a | Whether the panel offers a way to **disable or suspend** a mailbox. The pages document create, delete, password change and quota only; a quota of 0 means "no separate cap", so it is **not** a way to disable. | **NOT VERIFIED** |
-| 4b | Whether an applicant-facing "set your own password" flow exists. None is documented. | **NOT VERIFIED** |
-| 5 | Community reports of a DirectAdmin-style call failing with "You do not own that domain". | community only, [thread](https://community.mxroute.com/t/api-you-do-not-own-that-domain/1778); not evidence |
+| 1 | **Mailboxes** (`/domains/{domain}/email-accounts`): list (GET); create (POST `username`, `password` 8 to 72 characters, `quota` in MB default 1024, `limit` daily sends default 9600 and maximum 9600) returning 201; read one (GET `/{user}`); update (PATCH `password`, `quota`, `limit`; omitted fields unchanged; the local part is resolved case-insensitively, and an ambiguous lookup refuses); delete (DELETE, 204). Errors: 400 for a rejected password, 404, and 500 for a failed or ambiguous lookup. Raw backend errors are hidden. **A 500 is an unknown outcome, never "absent".** | DOCUMENTED; NOT VERIFIED |
+| 2 | **Quota 0 means unlimited.** It is never a way to disable a mailbox. | DOCUMENTED |
+| 3 | **Authentication** uses three headers: `X-Server`, `X-Username` (or `reseller\|user`) and `X-API-Key`. In the reseller-impersonation section the schema says "the key's DirectAdmin restrictions remain in force". So the panel's lack of a per-key permission editor does not prove a key is unrestricted. A reseller key can impersonate any owned user and reach the reseller endpoints (suspend, delete, packages), so it is far broader than a key for one hosting user. | DOCUMENTED; restriction scope NOT VERIFIED |
+| 4 | **Errors** are `{success, error: {code, message, field}}`. The codes include `CONFLICT` (resource exists), `FORBIDDEN`, `RATE_LIMITED` (with `Retry-After`), `BUSINESS_ERROR` and `SERVER_ERROR`. | DOCUMENTED |
+| 5 | **Rate limits:** 200 reads, 60 writes and 10 bulk requests per minute, with `X-RateLimit-*` headers. Impersonated users share the reseller's bucket. | DOCUMENTED |
+| 6 | **Forwarders** (list, create, delete per domain), **catch-all** and **pointers** exist. | DOCUMENTED |
+| 7 | The mailbox schema includes a `suspended` flag, but **no documented operation sets it for one mailbox.** Suspend exists only for a whole reseller user (`/reseller/users/{u}/suspend`), and mail can be disabled only for a whole domain (`PATCH /domains/{d}/mail-status`). Neither is ever used to remove one person's access. | DOCUMENTED |
+| 8 | Not in the schema: idempotency keys; session revocation; app passwords; a password-setup or reset link; forced change at first login; the semantics of a create that meets an existing mailbox beyond `CONFLICT`. | NOT DOCUMENTED |
+| 9 | From the panel and docs pages: the 200-row CSV import cap, a separate 400 per hour maximum, and "Deletion removes the mailbox's messages and data". | DOCUMENTED ([email accounts](https://docs.mxroute.com/docs/email-accounts.html)) |
+| 10 | The SMTP API sends mail only and uses mailbox credentials. | DOCUMENTED ([SMTP API](https://docs.mxroute.com/docs/api/smtp-api.html)) |
 
-**Consequence.**
+**Consequence (decided, P5-D-4).**
 
-- **Proposed default path.** The fallback in `004` J-14 is the proposed default design: an **operator checklist with recorded
-  evidence**. Staff create the mailbox in the panel and record what they did, and Catalyst then verifies the
-  mailbox exists (section 5).
-- **Automation is a separate later step (proposed).** An automated adapter stays behind an owner decision.
-  - **Reading the API documentation may itself mint the credential.** The page says to open "View API
-    Documentation" after creating a key. So the documentation look must be authorized under the same written owner
-    acceptance as a production key, and that key revoked afterwards.
-  - **The key is all-powerful** (no scopes, no IP limits; fact 2). Encrypting it at rest (SOPS) is necessary but not
-    sufficient. Acceptance should also require:
-    - a dedicated worker kind as the only process that decrypts it;
-    - a narrow adapter exposing only the approved operations;
-    - an audit record for every call;
-    - an alert on any deletion;
-    - a rotation and revocation procedure.
+- **API-first, against a local fake** of the documented mailbox operations, with the recorded operator checklist kept
+  as a fallback. It is one provisioning workflow with one narrow adapter, not two engines.
+- **The live path stays blocked** until the owner separately authorizes three things:
+  - a key and its custody;
+  - a check of our account's entitlement and the key's DirectAdmin restrictions;
+  - the integration tests.
+- **No account-wide key in ordinary settings.** Only the dedicated provisioning worker may ever hold one, through a
+  narrow adapter with every call audited. It never sits in web settings or a routine worker's environment.
+- **Not-documented features are never assumed:** no idempotent create, no reset link, no suspension, no session
+  revocation. The synthetic workflow labels where it relies on Catalyst-side behaviour instead.
 
-## 4. Records (`provisioning` app, ADR-01) — PROPOSED
+## 4. Records (`provisioning` app, ADR-01), amended 0.2.0
 
 | Record | Holds | Protection |
 |---|---|---|
-| `ProvisioningRequest` | the application; the proposed address (local part and domain); how it is provisioned (`operator_checklist` or `api`); the prerequisite digest it was released under; a status; who approved it | approval columns set once; identity insert-only; one live request per application |
-| `ProvisioningEvidence` | for the checklist path, what staff recorded (the panel action done, when, by whom, a free-text note); for the API path, the allowlisted response | append-only |
-| `MailboxVerification` | how existence was checked (a second person's panel-listing attestation or a test message, P5-D-5) and the outcome; never a password | append-only |
-| `CredentialDelivery` | the method (POL-11), when, by whom, an opaque reference, and confirmation of receipt; **never the credential** | append-only |
+| `AddressReservation` | The local part and domain reserved for one application, why (`naming_rule` or `reviewed_exception`), and who reviewed an exception. | One live reservation per address. A reserved or system address cannot be reserved. Released only by an audited act. |
+| `ProvisioningRequest` | The application. The reserved address. The method (`api` or `checklist`). The **prerequisite digest** it was approved under (immutable). Quota and send limit. Who approved it and when, against the digest of what they were shown. A status: `awaiting_approval`, `approved`, `create_pending`, `create_uncertain`, `created`, `verified`, `conflict`, `failed_needs_staff`, `stopped`. | Identity and approval are set once. One live request per application. A changed prerequisite needs a new request and a new approval; it never mutates the old one. |
+| `ProvisioningAttempt` | Each create or update exchange: committed before the call, then its outcome (`succeeded`, `rejected`, `conflict`, `unknown`, `found_by_evidence`). | Insert-only identity; one outcome. |
+| `ProvisioningEvidence` | **API path:** the allowlisted read of the mailbox (name, quota, limit, suspended), with no credential. **Checklist path:** what the creator recorded, and the verifier's separate attestation. | Append-only. The verifier must differ from the creator (a database check). |
+| `CredentialSetup` | The invitation's hashed token, its expiry, the verified external address it was sent to, and its states: `invited` (accepted by mail transport), `presented` (the page was opened), `set_pending`, `set_uncertain`, `completed`, `expired` or `cancelled`. | The token is hash-only and single-use. The password is never stored. |
+| `AccessRevocation` | One row per obligation on withdrawal or closure: setup links, password rotation, forwards, sessions, client connections, app or delegated credentials. Each has its state: `requested`, `pending`, `verified`, `unsupported` or `exception`. | Append-only transitions. `unsupported` never reads as done. |
 
-## 5. The P5 journey — PROPOSED
+## 5. The P5 journey, amended 0.2.0
 
 | # | Step | Records and transaction | Outcomes | Recovery |
 |---|---|---|---|---|
-| 1 | Release | An owner-run, versioned activation re-checks the prerequisites against the digest: every agreement still verified and stored, no integrity hold, details confirmed, not paused or stopped, the applicant's address not delivery-blocked. It then creates the `ProvisioningRequest`. | requested; refused (prerequisite changed) | a refusal leaves the action held, with a staff item |
-| 2 | Address | The proposed address follows the POL-11 naming rule. Before approval, conflicts are checked: a reserved name (deterministic), and an existing mailbox or alias (on the checklist path, a recorded staff attestation from the panel, because the API is NOT VERIFIED). | approved; conflict | conflict goes to staff, who choose an alternative within the naming rule |
-| 3 | Approve | A named decision-maker approves the exact address (POL-11 authority), confirmed against the digest of what they were shown. | approved | — |
-| 4a | Create (checklist) | A staff task with the checklist: create the mailbox in the panel with the approved address, quota and send limit, then record the evidence. | recorded | an unrecorded task stays visible with its owner |
-| 4b | Create (API, later) | The request is committed before the call; an uncertain result is reconciled by checking existence before any retry (ADR-15). | created; uncertain | never retried blindly |
-| 5 | Verify | Existence is checked without using the applicant's credential (P5-D-5): a different named staff member than the creator confirms the panel listing (to be enforced in 5B.1), or a test message to the address is accepted. A failed check goes to staff. | verified; not found | bounded re-checks, then staff |
-| 6 | Credentials | Delivery by the POL-11 method. The credential never enters history, logs, email bodies or this repository. | delivered; failed | staff |
-| 7 | Activate | One transaction: the stage moves `agreements_complete → active`, the welcome message is sent through P2 (an approved template, delivery checks), and remaining actions close. | active | a welcome bounce opens a staff item; the stage stays `active` |
+| 1 | Release | An owner-run, versioned activation releases the held `provision:<application>` action. **The prerequisites are re-checked at every effect boundary, not only at release:** agreement integrity, custody, confirmed details, the verified contact, pause, delivery blocks and withdrawal. | requested; refused | A refusal leaves the action held, with a staff item. |
+| 2 | Address | A reservation under P5-D-1, checked against reserved names, our reservations and (through the adapter, or a checklist attestation) the provider's mailboxes and forwarders. | reserved; conflict | A conflict goes to staff, who choose another address or review an exception. |
+| 3 | Approve | The approver (P5-D-3) confirms the exact address, quota, limit, method and prerequisite digest, against the digest of what they were shown. | approved | A stale screen refuses and needs a fresh confirmation. |
+| 4 | Create | **API:** the attempt is committed first, then one create call with a random password nobody sees (the setup flow replaces it). A `CONFLICT`, or an unknown outcome, is reconciled by reading that specific mailbox. A mailbox that exists is never assumed to be ours. **Checklist:** a staff task with the recorded steps. | created; conflict; uncertain | Never retried blindly. Duplicates are serialized per address. |
+| 5 | Verify | **API:** an authoritative read of that mailbox, tied to the request. **Checklist:** a different named verifier's attestation (P5-D-5). | verified; not found; conflict | Bounded re-checks, then staff. |
+| 6 | Credential setup | An invitation to the **previously verified external address**, not to the new mailbox. It goes through a secret-bearing message kind that 5B.2 builds (P2 refuses secret-bearing templates today; section 11.2). The page shows on GET and sets the password on POST. The password is handed over only transiently to the privileged operation (section 7). An unknown outcome blocks activation and opens a safe recovery path. | invited; presented; completed; expired; uncertain | A new invitation cancels the old one. A credential operation is never replayed blindly. |
+| 7 | Activate | One transaction: the prerequisites are current, provisioning is verified **and** setup is completed. The stage moves `agreements_complete → active` and the approved welcome is queued; the worker sends it later, outside the transaction. Protective jobs stay. | active | A welcome bounce opens a staff item; the stage stays `active`. |
 
-## 6. Withdrawal, closure and recovery (J-16) — PROPOSED, needs POL-12
+"Invitation accepted by the mail server", "link presented", "credential set" and "access ready" are four
+different facts, and only the last allows activation.
 
-- **Withdrawal.** The applicant asks through an explicit confirmation page reached from a link. An emailed
-  "withdraw" goes to staff, never to a model or an automatic action.
-- **Closure.** A decision-maker closes the application, with a reason.
-- **Disabling access (interim, until a disable mechanism is verified, fact 4a):** rotate the mailbox password to an
-  unknown value nobody records, remove forwards, and record the evidence. Never edit the quota to "disable" it.
-  Deletion is irreversible (fact 1), so it waits for POL-10. A deletion checklist would need a second person and an
-  export decision first.
-- **What happens to live work:**
-  - agreements: P4 `stop_agreements` (D-42);
-  - provisioned access: per POL-11 and POL-12. The proposed default is a staff task to disable the mailbox by the
-    interim below,
-    **never automatic deletion**: MXroute deletion removes the mailbox's data (fact 1), and POL-10 governs
-    retention.
-- **Reopening.** Never a generic button. Whether a new application is created follows POL-01 and POL-12.
-- **System recovery.** Unchanged: the pending-action ledger plus audited retry, reconcile or abandon.
+## 6. Withdrawal, closure and recovery (J-16), amended 0.2.0
 
-## 7. Security and privacy
+- **Withdrawal** (P5-D-8): an explicit, verified confirmation page, where GET displays and POST commits. An emailed
+  "withdraw" becomes a review item. A staff-mediated path covers an unavailable contact channel.
+- **Closure:** a decision-maker closes the application, with a reason. There is no automatic no-response closure
+  (P5-D-11).
+- **Stop intent is durable,** even while provisioning or a credential operation is in flight. A late-created mailbox
+  is recovered without a welcome, without reactivation and without deletion.
+- **Revocation** (P5-D-9) records each obligation in `AccessRevocation`:
+  - cancel outstanding setup links;
+  - rotate the password to an unknown value;
+  - remove forwards;
+  - mark sessions, client connections and app or delegated credentials `unsupported` until a documented provider
+    mechanism exists.
+
+  A terminal application does not mean remote access is revoked. The staff screen shows what is still open.
+- **Never:** suspend a whole hosting user or domain for one person, or delete mailbox data. POL-10 governs deletion.
+- **Reopening:** a new application inherits nothing (P5-D-10).
+- **System recovery:** the pending-action ledger, with audited retry, reconcile or abandon.
+
+## 7. Security and privacy, amended 0.2.0
 
 | Control | Status |
 |---|---|
-| No credential ever stored, logged, emailed in a body or shown on a screen after delivery. On the checklist path the creating operator necessarily sees an initial password (P5-D-6) | PROPOSED |
-| A one-time password link, if built: the token is stored only as a hash, single-use, bound to the verified address, short-lived, resistant to enumeration, and kept out of access logs (the confirmation token's URL-path issue, `024` row 5, must not repeat). Anyone who controls the applicant's external inbox can use it, so its lifetime is short and use is audited | PROPOSED |
-| The panel API key, if ever authorized, held in SOPS on the server, never in settings or the repository; its full scope accepted in writing by the owner | PROPOSED; needs the owner (fact 2) |
-| Address rules enforced deterministically, never from free text | PROPOSED |
-| Existence verification independent of the creation call | PROPOSED |
-| Mailbox deletion never automatic | PROPOSED |
-| A delivery block or a pause stops the welcome message and credential email (`9kg.3`) | PROPOSED |
+| The applicant's chosen password never enters the ledger payload, the database, an event, a log, an exception, a model, browser storage or a test artifact. It travels only in the POST request and the in-process call to the privileged operation. | PROPOSED; tested in 5B.2 |
+| The setup token: CSPRNG, stored only as a hash, single-use, bound to the request and the verified address, short expiry (a synthetic fixture value is not policy), rate-limited, never in logs or analytics. No third-party assets, link-preview consumption or Host-derived links. | PROPOSED; tested in 5B.2 |
+| No account-wide key in web settings or routine worker environments. Only one dedicated provisioning worker would ever hold it, through a narrow adapter with every call audited and an alert on any deletion. Rotation and revocation are procedures, not assumptions. | PROPOSED; live use blocked |
+| The fake adapter and the live adapter share one interface. The live adapter refuses to start outside an authorized environment (the agreements guard pattern). | PROPOSED; tested in 5B.1 |
+| Address rules are enforced deterministically, never from free text. Reserved and role addresses are refused. | PROPOSED; tested in 5B.1 |
+| Permission to manage access is separate from reading applicant mail or signed documents. | PROPOSED; tested in 5B.3 |
+| A delivery block or a pause stops the invitation and the welcome (9kg.3). | Applies through the P2 send path |
+| Mailbox deletion is never automatic. | PROPOSED |
 
-## 8. POL-11 and POL-12 decision brief
+## 8. Owner decisions P5-D-1 to P5-D-11 (decided 2026-10-18, D-47)
 
-| # | Decision | Recommended default | Alternatives | Blocks |
-|---|---|---|---|---|
-| P5-D-1 | POL-11 naming: the mailbox domain and the local-part rule | one domain chosen by the owner; local part `firstname.lastname`, with a numeric suffix on conflict | initials; an applicant-chosen name within rules | step 2 |
-| P5-D-2 | POL-11 quota and daily send limit | conservative synthetic values; production values by the owner | provider defaults (1024 MB) | step 4 |
-| P5-D-3 | POL-11 approval authority | a named decision-maker (the POL-05 pattern), explicit grant | any operator | step 3 |
-| P5-D-4 | Provisioning method | operator checklist with recorded evidence, plus independent verification | the panel API, after the owner accepts the full-scope key in writing (reading its documentation may itself mint that key; section 3) | steps 4a and 4b |
-| P5-D-5 | Existence verification method | a check that never uses the applicant's credential: a second person's panel-listing attestation on the checklist path, or an accepted test message | an IMAP or SMTP login probe (rejected as the default: Catalyst or staff would authenticate as the applicant, coupling verification to credential delivery and risking lockouts) | step 5 |
-| P5-D-6 | Credential delivery | **open; needs a decision.** On the checklist path, the operator who creates the mailbox necessarily sets an initial password. Options: (a) the operator sets a random password nobody records, then a Catalyst-built one-time "set your password" link changes it (this needs the panel API, so the API decision P5-D-4 comes first); (b) the operator gives the initial password to the applicant through a channel the owner approves, and the applicant must change it at first login | email the password (refused: J-14 forbids it) | step 6 |
-| P5-D-7 | Other access at activation (LMS, Slack, and so on) | none in P5; each is a separate later decision | — | step 7 |
-| P5-D-8 | POL-12 withdrawal path | an explicit confirmation page from a link; an email goes to staff | email keyword | J-16 |
-| P5-D-9 | POL-12 effect on provisioned access | a staff task: rotate the password to an unknown value, remove forwards, record evidence; no automatic deletion; retention by POL-10 | delete at withdrawal (irreversible) | J-16 |
-| P5-D-10 | POL-12 reopening | a new application under POL-01; no reopening of a closed one | reopen in place | J-16 |
-| P5-D-11 | POL-12 no-response timeout | none until decided; staff close manually | close after N days | J-16 |
+The owner decided these on 2026-10-18 (D-47 in `011`). They replace the 0.1.0 recommendations. Each one is for
+synthetic work only. Every live value and every live operation stays a separate activation decision.
 
-## 9. Acceptance plan (proposed, built in 5B)
-
-TEST-P5-01 to TEST-P5-05 keep their meaning from `004`. New cases:
-
-- the prerequisite re-check at release refuses a changed digest;
-- naming conflicts;
-- the approval digest;
-- checklist evidence without verification never activates;
-- an uncertain API create is reconciled by existence;
-- credentials are absent from every record and log;
-- a delivery block stops the welcome message;
-- withdrawal stops P4 work and opens the mailbox-disable task without deleting anything;
-- the disable task never uses a quota change, and records the password rotation and removed forwards;
-- the verification attestation is by a different staff member than the creator;
-- reopening follows POL-01.
-
-## 10. Build slices (proposed)
-
-| Key | Scope |
+| # | Decision |
 |---|---|
-| 5B.1 | records, release and re-check, address rules and approval, the checklist path, verification |
-| 5B.2 | credential delivery (POL-11), activation and the welcome message |
-| 5B.3 | withdrawal and closure (POL-12), the staff screen |
-| 5C | the GATE-P5 run and the after-action report |
+| P5-D-1 Naming | **The address.** One configured domain, with a staff-confirmed `firstname.lastname`-style local part and a numeric suffix on collision. Only `example.test` is used now. **Exceptions:** a reviewed exception for one-part, non-Latin or preferred professional names. **Conflict checks:** system and role addresses are reserved, and mailboxes, aliases (forwarders) and pending reservations are all checked. Someone else's address is never silently reused. The production domain is a separate activation decision. |
+| P5-D-2 Quota and sending | 1024 MB and 100 messages per day as configurable, labelled synthetic test defaults. They are not permission to change the real plan and not a capacity estimate. No unlimited quota, and no quota-0 "disable". Live limits need the account's capacity verified. |
+| P5-D-3 Approver | The owner is the initial approval authority. Delegates need explicit named grants. The approval covers the exact address, quota, prerequisite snapshot and method shown. No model or generic operator may approve access. Only synthetic identities and grants are created here. |
+| P5-D-4 Method | API-first against a local fake of the documented operations, with a recorded operator-checklist fallback. One workflow, one narrow adapter. No account-wide key is stored in web settings or routine worker environments (section 3). |
+| P5-D-5 Verification | **Preferred:** an authoritative read of that specific mailbox, tied to the controlled request. **Checklist fallback:** a panel-listing attestation by a different named verifier from the creator. **Not proof:** an accepted SMTP test message is supplementary delivery evidence only; it does not prove a particular mailbox, its ownership or the applicant's access. **Conflicts:** an existing account Catalyst did not create is a conflict, never adopted or reset automatically. |
+| P5-D-6 Credentials | **Target: option (a), a one-time "set your own password" flow.** No initial password is emailed. The application behaviour is built against the fake. **Pre-live gates:** the account's real capability and secure privilege separation. No forced first-login change is implemented or described unless provider enforcement is established. Option (b) is a separately approved contingency, never a silent fallback. |
+| P5-D-7 Other access | The company mailbox only. No LMS, GitHub, Slack or other grants in this batch. Those future dependencies are recorded without calling the applicant "active" in every external system. |
+| P5-D-8 Withdrawal path | An explicit, authenticated and verified withdrawal confirmation: GET displays, POST commits. Email text creates a review item and never withdraws anyone automatically. A staff-mediated path is available if the original contact channel is unavailable. |
+| P5-D-9 Effect on access | **Goal:** revoke access without deleting mailbox data, preferring verified provider suspension or session revocation where supported (neither is documented today, section 3 fact 8). **Steps, not proof:** password rotation and removing forwards. Revocation outcomes are tracked separately as requested, pending, verified and exception. **On withdrawal:** outstanding setup links are cancelled, and old credentials, existing sessions, client connections, delegated and app credentials, and forwarding and filter paths are checked where applicable. A check that cannot be supported stays unresolved; it is never assumed successful. **Never:** disabling a whole hosting account or domain to remove one person's access. POL-10 controls any later deletion. |
+| P5-D-10 Reopening | No generic reopening of terminal cases. A new application never inherits earlier permissions, mailbox control or valid links. Existing policy exceptions and identity conflicts need review. |
+| P5-D-11 No response | No automatic closure when there is no response. Staff close explicitly. Aging work is shown with its owner, without endless reminders or silent abandonment. |
+
+**Carried from P4 (D-46):** the correspondence decision-maker resolves routine agreement causes, and one qualified
+person may record and confirm required details as two audited actions.
+
+## 9. Acceptance plan (GATE-P5), amended 0.2.0
+
+TEST-P5-01 to TEST-P5-05 keep their meaning from `004`. The numbered cases below are mapped in `tests/acceptance.py`
+in 5C.
+
+| Case | Must show |
+|---|---|
+| TEST-P5-01 | Provisioning starts only through the owner's activation, on an application at `agreements_complete` whose prerequisites still hold. |
+| TEST-P5-02 | A changed prerequisite (an integrity hold, custody, details, contact, pause, delivery block, withdrawal) refuses at every effect boundary, not only at release. |
+| TEST-P5-03 | Activation needs verified provisioning **and** completed credential setup. A sent invitation is not enough. |
+| TEST-P5-04 | The welcome is queued in the activation transaction and sent later; a welcome bounce opens a staff item. |
+| TEST-P5-05 | Withdrawal and closure stop provisioning and record every revocation obligation, without deleting anything. |
+| TEST-P5-06 | Naming: reserved and role addresses are refused; a collision gets the next suffix; an exception needs review; someone else's address is never reused. |
+| TEST-P5-07 | Approval binds the exact address, quota, limit, method and prerequisite digest; a stale screen refuses. |
+| TEST-P5-08 | A request and its attempt are committed before any adapter call. |
+| TEST-P5-09 | An uncertain create is reconciled by reading that mailbox. An existing mailbox Catalyst did not create is a conflict, never adopted. |
+| TEST-P5-10 | Duplicate or concurrent requests never create a second mailbox or overwrite another. |
+| TEST-P5-11 | On the checklist path, the verifier must differ from the creator. |
+| TEST-P5-12 | An SMTP acceptance alone never verifies a mailbox. |
+| TEST-P5-13 | The setup token is hash-only, single-use and expiring. A repeated or expired link refuses. A new invitation cancels the old one. |
+| TEST-P5-14 | The invitation goes to the verified external address, re-checked at send time and at redemption, never to the new mailbox or any company-domain address; the token is minted at send time and only its hash is stored. |
+| TEST-P5-15 | The chosen password appears in no record, event, log, exception or payload. |
+| TEST-P5-16 | An unknown password-set outcome blocks activation and is never replayed blindly. |
+| TEST-P5-17 | Stop intent survives an in-flight create or credential operation. A late mailbox is recovered without a welcome or reactivation. |
+| TEST-P5-18 | Revocation outcomes are tracked separately. An unsupported check stays unresolved. No whole-account suspend is ever called. |
+| TEST-P5-19 | The staff screen shows approval, creation, verification, setup, activation and revocation separately; actions need their permissions and CSRF; typed values are kept on a refusal. |
+| TEST-P5-20 | Managing access never grants reading applicant mail or signed documents. |
+| TEST-P5-21 | Withdrawal confirmation: GET displays and POST commits; an emailed "withdraw" only creates a review item. |
+| TEST-P5-22 | No automatic no-response closure; reopening inherits nothing. |
+| TEST-P5-23 | The live adapter and any provider key are refused outside an authorized environment. |
+| TEST-P5-24 | The synthetic journey from intake to agreements to mailbox to activation, and from withdrawal to revocation, over Django HTTP. |
+
+## 10. Build slices, amended 0.2.0
+
+| Key | Scope | Bead |
+|---|---|---|
+| 5B.1 | records, release and effect-boundary rechecks, naming reservations, approval, the fake adapter, the checklist with an independent verifier, uncertain-create reconciliation, collision serialization | `catalyst-v2-tuc.3` |
+| 5B.2 | the setup invitation and token, the set-password page, transient credential transfer, unknown-outcome recovery, activation and the queued welcome | `catalyst-v2-tuc.4` |
+| 5B.3 | withdrawal and closure, durable stop intent, revocation obligations, late-mailbox recovery, the provisioning staff screen, separated permissions | `catalyst-v2-tuc.5` |
+| 5C | the GATE-P5 map, the journey, the after-action report; a draft for the owner | `catalyst-v2-tuc.6` |
+
+Each slice gets a focused security and reliability review before it is built where it is sensitive (5B.2 and
+5B.3), then a QA review before its merge.
+
+## 11. Design resolutions after the pre-build reviews (0.2.1)
+
+A focused security review and a reliability review read 0.2.0 before any 5B code. Their blockers and highs are
+resolved below.
+
+- **Engineering defaults** (no tag) are design choices inside the owner's decisions. The owner may change them.
+- **OWNER** marks a question only the owner can settle. None of them blocks synthetic work.
+- Where a resolution changes an earlier section, this section governs.
+
+### 11.1 Where the privileged operation runs (security BLOCKER 1)
+
+- **Live design: a separate credential service.**
+  - It runs as its own process and OS user, holding the provider key as a service credential rather than an
+    environment variable.
+  - It uses a key for one hosting user, never a reseller key.
+  - It exposes one narrow local call per operation: create mailbox, set password for a setup, rotate, list and
+    remove forwarders, read the catch-all.
+  - It validates the setup token's hash and state itself, so the web process cannot pick an arbitrary target.
+  - The password exists only in the web request and in the service's memory. It never enters the database or a
+    queue.
+- **Synthetic build.** The same interface is implemented by the local fake, in process. 5B builds against the
+  interface and never against a key.
+- **Before live:** running the real service, its key custody and its OS isolation are the pre-live privilege
+  separation that P5-D-6 already names.
+- **OWNER, at pre-live:** this design (P1) or the sealed-box fallback (P2, a short-lived ciphertext in a job row).
+
+### 11.2 The setup invitation (security BLOCKER 2; reliability BLOCKER 1)
+
+The invitation is a new secret-bearing kind built in 5B.2. It is a deliberate, recorded exception to the `016`
+re-render pattern.
+
+- **Minting.** The worker mints a CSPRNG token at send time and stores only its hash on `CredentialSetup`. The frozen
+  message holds identifiers only (the setup and its series). The body with the link exists only in memory during
+  the send.
+- **No Sent copy** is filed (as for every secret-bearing kind).
+- **Uncertain send.** An uncertain or unknown send is never reconciled by evidence. It **supersedes**: the old token
+  is cancelled and a new series mints a new token. After `CATALYST_SETUP_INVITE_MAX_SERIES` series (a synthetic
+  default of 3), staff decide. **OWNER:** the production bound.
+- **Base URL.** The link uses the configured public base URL only, never the Host header.
+
+### 11.3 When a mailbox is "ours" (reliability BLOCKER 2)
+
+A mailbox counts as ours only by **evidence within a window**:
+
+1. In the same claim, immediately before the create call, an authoritative read of that exact normalized address
+   returns "absent". The read and its result are recorded on the attempt.
+2. After an unknown or `CONFLICT` outcome, a later read finds the mailbox.
+
+Anything else is a `conflict` for staff, never adoption: an existing mailbox with no recorded "absent" read, a read
+answering 500, or a found mailbox whose quota or limit differ from the request. The residual risk is a person
+creating the same address in the panel inside the window. Staff therefore confirm every `found_by_evidence`
+outcome with a one-step item before verification.
+
+**OWNER, at pre-live:** whether a login probe with a create password derived in the service may strengthen this.
+
+### 11.4 Fresh reads and effect boundaries (reliability HIGH 3)
+
+The prerequisite function factored out of the P4 hand-off is evaluated at each boundary, with a fresh Documenso
+read outside any transaction where noted. It covers agreement integrity, custody, details, the verified contact,
+pause, delivery blocks and stop intent.
+
+| # | Boundary | Fresh provider read |
+|---|---|---|
+| B1 | release | yes |
+| B2 | the create's check transaction | yes |
+| B3 | the create's result transaction | no (stop flag only) |
+| B4 | before an invitation is sent | no (P2 send checks plus the request state) |
+| B5 | the password-set compare-and-set | no (stop flag and token) |
+| B6 | activation | yes |
+| B7 | the welcome send | no (P2 checks) |
+
+### 11.5 Password set, stop and revocation ordering (reliability HIGH 4 and 5)
+
+**The set-password protocol** is a web request with compare-and-set; it is not a ledger action, so the password never
+enters a payload.
+
+1. Under a row lock, check the state is `invited` or `presented`, the token hash, the expiry, a non-terminal
+   application and no stop intent. Then move to `set_pending` and stamp the start time. Commit.
+2. The service call runs outside any lock.
+3. A second transaction records `completed`, or `set_uncertain` on an unknown outcome.
+4. A sweep moves any `set_pending` older than the provider timeout to `set_uncertain`.
+
+`set_uncertain` cannot be resolved by reading. The recovery is a new invitation; the old setup is superseded.
+
+**Stop intent** is a `stop_requested_at` column on `ProvisioningRequest`, not a status. It is written in the
+withdrawal or closure transaction together with:
+
+- the stage change;
+- cancelling queued invitations and welcome sends;
+- cancelling the setup;
+- the revocation obligations;
+- the event.
+
+Every result transaction takes the application lock first, so it serializes with the stop. A mailbox found under
+stop is `recovered_after_stop`: no welcome, no reactivation, and its revocation obligations are added.
+
+**Rotation never runs while any setup is `set_pending`.** It then repeats once after a settle delay longer than the
+provider timeout. This is safe because the new value is random and unknown. It means a late password write cannot
+outlive revocation.
+
+### 11.6 Revocation states (security HIGH 4; reliability MEDIUM 11)
+
+**States for each obligation:**
+
+- `requested`
+- `applied_unverified`: a write was accepted but cannot be read back, as with a password rotation
+- `verified`: only for state that can be read back, such as a forwarder list or the catch-all
+- `not_applicable`
+- `unsupported`
+- `exception`
+
+**Obligations**, unique per request and kind:
+
+- cancel setup links;
+- rotate the password;
+- remove forwarders owned by the mailbox, and forwarders whose destinations name the address;
+- the domain catch-all and pointers naming the address;
+- existing sessions, client connections, and app or delegated credentials. These are `unsupported` until a
+  documented mechanism exists.
+
+**Rollup:** revocation is complete only when every row is `verified`, `applied_unverified` (with the accepted
+limitation shown) or `not_applicable`. An `unsupported` or `exception` row keeps a staff item open, with its age
+shown.
+
+### 11.7 States, keys and the stage (reliability HIGH 5 and 6, MEDIUM 12; LOW 16)
+
+**`ProvisioningRequest`:**
+
+```text
+awaiting_approval -> approved -> create_pending -> created | create_uncertain | conflict | failed_needs_staff
+create_uncertain -> found_by_evidence (staff confirm) -> created | conflict | failed_needs_staff
+created -> verified | verify_uncertain -> verified | failed_needs_staff
+verified -> setup_pending -> setup_complete -> active
+with stop_requested_at: create_* -> stopping -> stopped | recovered_after_stop; created and later -> stopped
+```
+
+**`CredentialSetup`:**
+
+```text
+invitation_pending -> invited | invitation_uncertain | invitation_failed
+invitation_uncertain -> superseded (bounded) | staff
+invited -> presented -> set_pending -> completed | set_uncertain
+set_uncertain -> superseded
+invited | presented -> expired | cancelled | superseded
+```
+
+**Keys.** `provision:<application>` stays the release gate only. The request's own actions carry their own keys:
+
+- `provision_create:<request>:<series>`
+- `provision_reconcile:<attempt>:<n>`
+- `provision_verify:<request>:<n>`
+- `setup_invite:<setup>:<series>`
+- `setup_sweep:<setup>`
+- `activate:<request>`
+- `revoke_<kind>:<request>`
+
+The welcome uses the P2 send key.
+
+**Stage.** The existing `provisioning` stage marks provisioning in flight. Release moves `agreements_complete ->
+provisioning` by compare-and-set, and activation moves it to `active`.
+
+### 11.8 Smaller rules (security MEDIUM 6 to 10; reliability MEDIUM 9, 10, 13 and LOW 14, 15, 17)
+
+**The set-password view:**
+
+- `sensitive_post_parameters`; the password field is never re-rendered, and the page keeps no typed values;
+- a test with a deliberate exception;
+- `Referrer-Policy: no-referrer` and `Cache-Control: no-store`;
+- GET never consumes the token, so link previews are harmless;
+- identical failure pages for an unknown, used, expired and cancelled token.
+
+Access-log redaction of the setup path is a P6 item (`024` row 5).
+
+**The invitation recipient** is re-checked at send time and at redemption: still the current verified contact, no
+delivery block, no stop, and never an address in the company domain.
+
+**The adapter:**
+
+- it has no delete method at all;
+- it refuses any path outside the configured domain's mailbox, forwarder, catch-all and pointer endpoints, and every
+  reseller endpoint;
+- it uses the P4 error taxonomy, where only a 4xx other than 429 is definite;
+- its audit uses an allowlisted schema, so a password is never logged and request bodies and HTTP-client exceptions
+  are never captured;
+- a create password is generated inside the call, never in a plan object.
+
+**The database:**
+
+- reservations are unique on the normalized `lower(local)@domain`;
+- one live request per application;
+- quota of at least 1, and a limit between 1 and 9600.
+
+**Leases.** A fence between sub-steps, and a settle grace before the first reconcile read.
+
+**Provider password rules beyond 8 to 72 characters are unknown.** A 400 with `field: password` is definite and safe
+to retry with a new choice, with a generic message to the applicant.
+
+### 11.9 Welcome recipient (reliability HIGH 8)
+
+The welcome goes to the verified external address and names the new mailbox. The applicant may not yet read the new
+mailbox. **OWNER:** confirm.
+
+### 11.10 Owner questions left open
+
+None of these blocks synthetic work:
+
+- P1 or P2 for the live credential service (11.1);
+- a login probe to strengthen "ours" (11.3);
+- the production bound on invitation series (11.2);
+- the welcome recipient (11.9);
+- the key type our account allows, and the server's password rules. These are pre-live checks that need a separately
+  authorized live look.
+
+### 11.11 Re-check amendments (0.2.2)
+
+- **Retiring a live request.**
+  - A `ProvisioningRequest` can end `superseded`. Staff open a replacement when a prerequisite changed after release,
+    and that needs a new approval.
+  - The stage stays `provisioning` while any request is live. It returns to `agreements_complete` by compare-and-set
+    only when the last request ends without a mailbox (`superseded`, `conflict` or `failed_needs_staff`) and no watch
+    is open.
+- **Watching an abandoned create.**
+  - A create that ended `conflict` or `failed_needs_staff` after an unknown outcome gets a bounded watch, in the D-44
+    pattern, with keys `provision_reconcile:<attempt>:watch:<n>` and a re-arm limit.
+  - The reservation stays held while any watch is open.
+  - A late match is treated like `recovered_after_stop`: rotate and revoke, never delete, and open a staff item.
+- **B2 ordering.** The fresh Documenso read runs outside any transaction. The check transaction then re-checks the
+  database facts and the read's digest, and commits the attempt as `sending`. The mailbox "absent" read and the
+  create call run after that commit.
+- **`CONFLICT` provenance.** A `CONFLICT` on a first create, with no earlier unknown attempt of ours, is a foreign
+  mailbox: straight to `conflict`. Only an unknown outcome, or a `CONFLICT` after our own earlier unknown attempt,
+  reaches the `found_by_evidence` confirmation.
+- **Repeating keys.** Every revocation kind that can repeat carries a sequence number, for example
+  `revoke_rotate:<request>:<n>`.
+- **The invitation kind.** It has its own handler, and its uncertain outcome never enqueues the P2 `reconcile_send`
+  or opens `send_outcome_unknown`; it supersedes instead (11.2). The P2 `_freeze` refusal of secret-bearing
+  templates stays for every other kind.
+- **A definite password rejection.** A 400 on `field: password` moves `set_pending` back to `presented` for another
+  choice, up to `CATALYST_SETUP_SET_ATTEMPTS` (a synthetic default of 3), then `superseded`.
+- **Shared forwarders.** Only forwarders owned by the mailbox are deleted automatically. A forwarder that names the
+  address among other destinations, a catch-all or a pointer naming it becomes an `exception` for staff. The API
+  cannot edit a forwarder, and deleting a shared one would cut off its other recipients. The service gains a
+  pointer read.
+- **"No delete method"** means no mailbox, domain or reseller deletion. The adapter still deletes forwarders owned by
+  the mailbox.
+- **Open revocation items can end.** `unsupported` rows (sessions, app credentials) end only by an explicit,
+  owner-accepted `exception` with a recorded reason. That acceptance is shown on the screen and is never automatic.
+- **Setup-path log redaction** stays a blocking pre-live gate (`024` row 5).
