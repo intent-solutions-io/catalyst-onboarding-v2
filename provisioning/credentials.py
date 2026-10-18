@@ -339,6 +339,8 @@ def reissue(request_id: int, user, reason: str) -> CredentialSetup:
             raise services.Refused(problem)
         if request.setups.filter(state="set_pending").exists():
             raise services.Refused("set_in_progress")
+        if request.setups.filter(state="invitation_sending").exists():
+            raise services.Refused("invitation_in_flight")
         request.setups.filter(state__in=("invitation_pending", "invited", "presented")).update(
             state="superseded", updated_at=Now())
         setup = open_setup(request, services.actor(user))
