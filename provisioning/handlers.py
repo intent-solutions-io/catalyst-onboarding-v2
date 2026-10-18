@@ -193,7 +193,8 @@ class CreateMailbox(_Action):
             core.enqueue(core.VERIFY, request, f"{core.VERIFY}:{request.public_id}:0", due_in=_grace())
             core.record(request.application, "provisioning_created", {"request": str(request.public_id)},
                         f"pending_action:{claim.id}")
-        elif result.conflict and request.attempts.filter(step="create", outcome=Outcome.NOT_CREATED).exists():
+        elif result.conflict and request.attempts.filter(step="create", outcome=Outcome.NOT_CREATED).exclude(
+                code__startswith="absent_read_").exists():  # an earlier create that was really sent
             # 023 11.11: a conflict after our own earlier unknown create may be that create landing late: reconcile
             # by reading, and staff confirm, never adopt.
             ProvisioningAttempt.objects.filter(pk=attempt.pk).update(outcome=Outcome.UNKNOWN, code="conflict_after_ours")

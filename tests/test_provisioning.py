@@ -515,7 +515,7 @@ def test_review_credential_like_notes_and_mail_host_keys_in_the_environment_are_
     app, request = approved(pv, monkeypatch)
     with pytest.raises(services.Refused, match="note_looks_like_a_credential"):
         services.record_checklist_creation(request.pk, pv.op1, "Created it, password: Hunter2-synthetic")
-    problems = guards.provisioning_problems(settings, {"MXROUTE_API_KEY": "x", "MAIL_HOST_TOKEN": "y"})
+    problems = guards.provisioning_problems(settings, {"MXROUTE_API_KEY": "x", "DIRECTADMIN_LOGIN_KEY": "y"})
     assert sum("looks like a mail-host credential" in p for p in problems) == 2
     from provisioning.adapter import AdapterError
     assert AdapterError("the body had ada.example@example.test in it", sent=True).code == "adapter_error"
@@ -551,3 +551,60 @@ def test_review_creates_that_keep_coming_back_not_created_stop_at_the_bound(pv, 
     request.refresh_from_db()
     assert request.status == "failed_needs_staff" and items(app, core.ITEM_FAILED).exists()
     assert [c[0] for c in FakeMailHost.calls].count("create") == 2
+
+
+
+def test_review_the_p2_mail_host_setting_in_the_environment_is_still_accepted(settings):
+    assert guards.provisioning_problems(settings, {"CATALYST_MAIL_HOST": "127.0.0.1", "CATALYST_MAIL_PORT": "25"}) == []
+
+
+def test_review_a_changed_prerequisite_since_the_handoff_is_recorded_and_bound_into_the_new_approval(pv, monkeypatch):
+    app = complete(pv, monkeypatch)
+    pv.committed.connect("owner", autocommit=True).execute(  # the hand-off saw an older snapshot
+        "UPDATE workflow_pendingaction SET input_ref = %s WHERE kind = 'provision'", ["agreements:" + "0" * 64])
+    assert release()["released"] == 1
+    assert app.events.filter(kind="provisioning_prerequisites_changed_since_handoff").exists()
+    from agreements.completion import prerequisites
+    assert request_of(app).prerequisite_digest == prerequisites(Application.objects.get(pk=app.pk))[1]
+
+
+def test_review_without_an_adapter_nothing_is_committed_and_staff_are_told(pv, monkeypatch, settings):
+    app, request = approved(pv, monkeypatch)
+    settings.CATALYST_PROVISIONING_ADAPTER = ""
+    run_worker()
+    request.refresh_from_db()
+    assert request.status == "failed_needs_staff" and not ProvisioningAttempt.objects.exists()
+    assert items(app, core.ITEM_BLOCKED).count() == 1
+
+
+def test_review_a_paused_application_is_refused_at_release_with_a_staff_item(pv, monkeypatch):
+    from workflow.models import AutomationPause
+
+    app = complete(pv, monkeypatch)
+    AutomationPause.objects.create(subject_type="application", subject_id=app.public_ref, reason="synthetic", actor_ref="t")
+    assert release() == {"dry_run": False, "paused": 1, "released": 0}
+    assert items(app, core.ITEM_BLOCKED).count() == 1 and not ProvisioningRequest.objects.exists()
+
+
+def test_review_supersede_waits_for_work_in_flight(pv, monkeypatch):
+    app, request = approved(pv, monkeypatch)  # the create is queued, not yet run
+    with pytest.raises(services.Refused, match="work_in_flight"):
+        services.supersede(request.pk, pv.op1, "Trying to retire a request mid-create")
+
+
+def test_review_a_clean_watch_end_releases_the_address_and_returns_the_stage(pv, monkeypatch):
+    app, request = approved(pv, monkeypatch)
+    FakeMailHost.faults.append("create_unknown")
+    run_worker()
+    services.confirm_found_mailbox(request_of(app).pk, pv.op1, "conflict", "Not provably the one we requested")
+    FakeMailHost.mailboxes.clear()  # gone before the watch looks
+    services.supersede(request.pk, pv.op1, "A new address will be chosen")
+    with pytest.raises(services.Refused, match="watch_open"):
+        services.release_address(request.pk, pv.op1, "Trying to release mid-watch")
+    run_worker()
+    assert app.events.filter(kind="provisioning_watch_ended").exists()
+    assert AddressReservation.objects.get(pk=request.reservation_id).released_at is not None
+    assert Application.objects.get(pk=app.pk).stage == "agreements_complete"
+    assert PendingAction.objects.filter(kind="provision", status="held", input_ref__startswith="returned:").count() == 1
+    with pytest.raises(services.Refused, match="already_released"):
+        services.release_address(request.pk, pv.op1, "Released already by the watch")

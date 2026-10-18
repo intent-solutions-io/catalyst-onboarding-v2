@@ -117,10 +117,12 @@ def release(action_id: int, activation_version: int, approval_ref: str, dry_run:
         if problem:
             return _refused(application, problem, dry_run)
         _, digest, _ = prerequisites(application)
-        # The P4 hand-off is bound to the agreements it saw; a returned hand-off (after a superseded request) is
-        # re-checked against today's prerequisites and always needs a new approval.
-        if action.input_ref.startswith("agreements:") and action.input_ref != f"agreements:{digest}":
-            return _refused(application, "prerequisites_changed", dry_run)
+        # The prerequisites must hold today (checked above). If they changed since the P4 hand-off (for example a D-43
+        # replacement), that is recorded, and the approver confirms the new snapshot: the approval digest binds
+        # today's prerequisite digest, never the hand-off's (QA review of PR #53).
+        if action.input_ref.startswith("agreements:") and action.input_ref != f"agreements:{digest}" and not dry_run:
+            core.record(application, "provisioning_prerequisites_changed_since_handoff",
+                        {"handoff": action.input_ref.split(":", 1)[1], "now": digest}, "owner_command")
         # Reuse only a reviewed exception not yet used by any request; otherwise propose a fresh address.
         reservation = AddressReservation.objects.filter(application=application, released_at__isnull=True,
                                                         requests__isnull=True).first()

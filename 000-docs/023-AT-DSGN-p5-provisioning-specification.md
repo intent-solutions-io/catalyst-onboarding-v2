@@ -524,7 +524,8 @@ intent is honoured where 5B.1 records an outcome (`recovered_after_stop`); writi
 
 - **A 429 after the create was sent is unknown.** It is reconciled by reading, so an address is never freed while a
   mailbox may exist.
-- **Release** reuses only an unused reviewed exception. Otherwise it proposes a fresh address that is not live for
+- **Release** records a prerequisite change since the P4 hand-off and binds today's snapshot into the new approval
+  (the approver always confirms the current state). It reuses only an unused reviewed exception. Otherwise it proposes a fresh address that is not live for
   anyone and was never tried at the host by this application. A returned hand-off is checked against today's
   prerequisites. Every refusal leaves a staff item. A dry run writes nothing.
 - **The stage returns only when no live request and no watch remain** (`return_stage_if_idle`). A watch never
@@ -546,8 +547,9 @@ intent is honoured where 5B.1 records an outcome (`recovered_after_stop`); writi
 
 - The provider-side check of a proposed address (existing mailboxes and forwarders) happens only at the create's
   absent read: the adapter has no list or forwarder operation yet.
-- No two-worker race test exists. Serialization rests on the one-open-create and one-live-request unique indexes,
-  which are tested directly.
+- No two-worker race test exists (NOT RUN). Serialization rests on the one-open-create and one-live-request unique
+  indexes, which are tested directly. A lost lease between the absent read and the create is handled by the fence
+  but is not exercised by a test.
 - After an attempt settles, its `code` and `finished_at` stay writable; the outcome itself is final.
 - **OWNER:** one `approve_provisioning` holder may both reserve a reviewed exception and approve it, which is a
   one-person control. This matches D-47's owner-as-approver; confirm it is accepted.

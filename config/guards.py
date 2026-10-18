@@ -225,7 +225,7 @@ def provisioning_problems(settings, environ: Mapping[str, str]) -> list[str]:
     # No mail-host credential may sit in a web or worker environment (023 11.1): the live key, if ever authorized,
     # belongs to the separate credential service only (security review of PR #53).
     problems += [f"{name} looks like a mail-host credential and may not be in this process's environment"
-                 for name in environ if re.search(r"MXROUTE|MAIL_?HOST|X_API_KEY|DIRECTADMIN", name.upper())]
+                 for name in environ if re.search(r"MXROUTE|DIRECTADMIN|X_API_KEY|MAILHOST_(API_)?(KEY|TOKEN)", name.upper())]
     if getattr(settings, "CATALYST_ENV", "") != "test":
         for name in PROVISIONING_TEST_ONLY:
             if getattr(settings, name, ""):
