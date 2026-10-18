@@ -212,6 +212,7 @@ def test_p4_09_activation_refuses_a_non_admitted_application_and_never_releases_
     assert '"stage_not_admitted": 1' in out.getvalue() and '"released": 0' in out.getvalue()
     assert PendingAction.objects.get(kind="issue_nda").status == "held"
 
+
 HOSTILE = '<img src=x onerror=alert(1)><script>alert(2)</script>"\''
 
 
@@ -230,7 +231,17 @@ def test_p4_21_hostile_details_and_typed_reasons_are_escaped_on_the_screen_and_i
     screen = reverse("agreements_staff:agreements", args=[app.public_ref])
     html = client.get(screen).content.decode()
     assert "<script>alert(2)</script>" not in html and "<img src=x" not in html and "&lt;script&gt;" in html
-    # A refused action re-renders what was typed, escaped, in the failure screen.
-    refused = client.post(reverse("agreements_staff:act", args=[app.public_ref]), {"action": "stop", "reason": HOSTILE})
+    # A refused action re-renders what was typed, escaped, in the failure screen: an integrity resolution whose screen
+    # went stale keeps the typed reason.
+    instance = of(app, "nda").get()
+    k.fake.envelopes[instance.envelope_id]["recipients"].append(
+        {"email": "stranger@example.test", "role": "SIGNER", "signingOrder": 2, "signingStatus": "SIGNED"})
+    completion.enqueue_read(AgreementInstance.objects.get(pk=instance.pk))
+    reads_now()
+    refused = client.post(reverse("agreements_staff:act", args=[app.public_ref]), {
+        "action": "resolve", "instance": str(instance.public_id), "disposition": "continue", "note": HOSTILE,
+        "digest": "stale"})
     body = refused.content.decode()
-    assert refused.status_code == 409 and "<script>alert(2)</script>" not in body and "<img src=x" not in body
+    assert refused.status_code == 409 and "changed_since_shown" in body
+    assert "<script>alert(2)</script>" not in body and "<img src=x" not in body
+    assert "&lt;img src=x onerror=alert(1)&gt;&lt;script&gt;alert(2)&lt;/script&gt;" in body  # shown, escaped
