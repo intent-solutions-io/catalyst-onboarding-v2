@@ -134,7 +134,7 @@ def test_hdg6_a_lost_webhook_cannot_hide_a_late_completion_of_a_closed_instance(
     run_worker()  # the draft is never distributed; bounded follow-up reads watch it
     # No webhook arrives; the provider later shows the draft completed (a provider-side act Catalyst never made).
     r.fake.envelopes[instance.envelope_id]["status"] = "COMPLETED"
-    completion.enqueue_read(instance, closed=True)
+    assert PendingAction.objects.filter(kind="read_agreement", idempotency_key__contains=":closed:").exists()  # armed
     reads_now()
     assert items(app, completion.COMPLETED_AFTER_CANCEL).count() == 1
     assert AgreementInstance.objects.get(pk=instance.pk).signing_status == "cancelled"  # never verified
@@ -281,6 +281,8 @@ def test_d43_a_changed_recipient_after_verification_holds_reliance_until_a_reaso
         services.resolve_integrity(instance.pk, r.agreement_decider, "continue", "Provider view corrected.",
                                    fresh["digest"])
         assert not items(app, completion.INTEGRITY_HOLD).exists() and completion.gate_passed(nda(app))
+        run_worker()  # the sequence continues where the hold stopped it
+        assert instances(app, "user_agreement").count() == 1
     finally:
         reset_gate(r)
 
@@ -328,10 +330,13 @@ def test_d42_d43_the_new_columns_are_set_once_for_every_role(r, monkeypatch):
     app = issued(r, monkeypatch)
     instance = nda(app)
     roles = {role: r.committed.connect(role, autocommit=True) for role in ("app", "owner")}
+    with pytest.raises(errors.CheckViolation):  # one known reason code, set together with the timestamp
+        roles["owner"].execute("UPDATE agreements_agreementinstance SET replaced_at = now(), replacement_reason = 'other'"
+                               " WHERE id = %s", [instance.pk])
     roles["app"].execute("UPDATE agreements_agreementinstance SET cancel_requested_at = now() WHERE id = %s", [instance.pk])
     with pytest.raises(errors.InsufficientPrivilege, match="needs its reason"):
         roles["app"].execute("UPDATE agreements_agreementinstance SET replaced_at = now() WHERE id = %s", [instance.pk])
-    roles["app"].execute("UPDATE agreements_agreementinstance SET replaced_at = now(), replacement_reason = 'x' WHERE id = %s",
+    roles["app"].execute("UPDATE agreements_agreementinstance SET replaced_at = now(), replacement_reason = 'integrity_replaced' WHERE id = %s",
                          [instance.pk])
     for conn in roles.values():
         for sql in ("UPDATE agreements_agreementinstance SET cancel_requested_at = now() + interval '1 day' WHERE id = %s",
@@ -353,7 +358,7 @@ def test_d43_the_d15_backstop_ignores_a_replaced_nda(r, monkeypatch):
                      [instance.pk])
         conn.commit()
     app_conn = r.committed.connect("app", autocommit=True)
-    app_conn.execute("UPDATE agreements_agreementinstance SET replaced_at = now(), replacement_reason = 'x' WHERE id = %s",
+    app_conn.execute("UPDATE agreements_agreementinstance SET replaced_at = now(), replacement_reason = 'integrity_replaced' WHERE id = %s",
                      [instance.pk])
     with pytest.raises(errors.InsufficientPrivilege, match="D-15"):
         app_conn.execute("INSERT INTO agreements_agreementinstance (public_id, application_id, agreement_type_id,"
@@ -361,3 +366,107 @@ def test_d43_the_d15_backstop_ignores_a_replaced_nda(r, monkeypatch):
                          " created_at, updated_at) SELECT gen_random_uuid(), %s, t.id, %s, 'ag_ua_x', '', 'create_pending',"
                          " 'not_started', 'not_due', now(), now() FROM agreements_agreementtype t WHERE t.key = 'user_agreement'",
                          [app.pk, ua.pk])
+
+
+# --- PR #42 review regressions ---------------------------------------------------------------------------------------
+
+def test_review_replace_never_issues_after_a_stop_and_a_stopped_application_creates_nothing(r, monkeypatch):
+    app, instance = held_nda(r, monkeypatch)
+    try:
+        assert services.stop_agreements(app.pk, r.agreement_decider, "withdrawn") == []  # the verified NDA stays
+        state = services.integrity_state(instance)
+        with pytest.raises(services.Refused, match="agreements_not_open"):
+            services.resolve_integrity(instance.pk, r.agreement_decider, "replace",
+                                       "Replace with a fresh NDA for the applicant.", state["digest"])
+        assert instances(app).count() == 1 and len(r.fake.calls("POST", "/envelope/use")) == 1
+    finally:
+        reset_gate(r)
+
+
+def test_review_a_withdrawal_cannot_be_downgraded_to_a_resumable_hold(r, monkeypatch):
+    app = issued(r, monkeypatch)
+    services.stop_agreements(app.pk, r.agreement_decider, "withdrawn")
+    with pytest.raises(services.Refused, match="stopped_for_good"):
+        services.stop_agreements(app.pk, r.agreement_decider, "on_hold")
+    with pytest.raises(services.Refused, match="stopped_for_good"):
+        services.resume_agreements(app.pk, r.agreement_decider)
+
+
+def test_review_resume_never_reissues_over_a_completion_after_cancel(r, monkeypatch):
+    app = issued(r, monkeypatch)
+    old = nda(app)
+    services.stop_agreements(app.pk, r.agreement_decider, "on_hold")
+    run_worker()
+    r.fake.envelopes[old.envelope_id]["status"] = "COMPLETED"  # the provider later shows the cancelled one completed
+    post(r.fake.webhook(old.envelope_id))
+    reads_now()
+    assert items(app, completion.COMPLETED_AFTER_CANCEL).count() == 1
+    services.resume_agreements(app.pk, r.agreement_decider)
+    run_worker()
+    assert instances(app).count() == 1 and items(app, completion.REISSUE_NEEDS_DECISION).count() == 1
+
+
+def test_review_a_user_agreement_is_not_reissued_while_the_nda_is_held(r, monkeypatch):
+    app = issued(r, monkeypatch)
+    signing_gate(r)
+    try:
+        instance = nda(app)
+        r.fake.sign(instance.envelope_id)
+        reads_now()
+        ua = instances(app, "user_agreement").get()
+        r.fake.reject(ua.envelope_id)
+        reads_now()
+        assert AgreementInstance.objects.get(pk=ua.pk).signing_status == "declined"
+        r.fake.envelopes[instance.envelope_id]["recipients"].append(
+            {"email": "stranger@example.test", "role": "SIGNER", "signingOrder": 2, "signingStatus": "SIGNED"})
+        completion.enqueue_read(nda(app))
+        reads_now()
+        assert items(app, completion.INTEGRITY_HOLD).count() == 1
+        with pytest.raises(services.Refused, match="earlier_agreement_not_passed"):
+            services.reissue_agreement(ua.pk, r.agreement_decider)
+    finally:
+        reset_gate(r)
+
+
+def test_review_protective_cancel_runs_while_paused_and_while_a_hard_bounce_is_open(r, monkeypatch):
+    from workflow.models import AutomationPause
+
+    app = issued(r, monkeypatch)
+    instance = nda(app)
+    AutomationPause.objects.create(subject_type="application", subject_id=app.public_ref, reason="synthetic", actor_ref="t")
+    StaffItem.objects.create(application=Application.objects.get(pk=app.pk), reason_code="hard_bounce",
+                             dedupe_key="inbound:synthetic")
+    services.cancel_agreement(instance.pk, r.agreement_decider)
+    run_worker()
+    assert AgreementInstance.objects.get(pk=instance.pk).issue_status == "cancelled"
+    assert r.fake.envelopes[instance.envelope_id]["status"] == "CANCELLED"
+    assert [m["kind"] for m in r.fake.emails] == ["signing_request"]  # no cancellation email, nothing new sent
+
+
+def test_review_a_requested_cancel_closes_a_pending_create_without_calling_the_provider(r, monkeypatch):
+    app = admitted(r, monkeypatch)
+    approve(r)
+    activate()
+    assert ledger.run_one()  # step 1: the instance, its create queued
+    instance = nda(Application.objects.get(pk=app.pk))
+    r.committed.connect("app", autocommit=True).execute(
+        "UPDATE agreements_agreementinstance SET cancel_requested_at = now() WHERE id = %s", [instance.pk])
+    run_worker()
+    assert AgreementInstance.objects.get(pk=instance.pk).issue_status == "cancelled"
+    assert not r.fake.calls("POST", "/envelope/use") and app.events.filter(kind="agreement_closed_on_request").exists()
+
+
+def test_review_an_unknown_create_found_after_a_stop_is_kept_undistributed_and_watched(r, monkeypatch):
+    app = admitted(r, monkeypatch)
+    approve(r)
+    activate()
+    r.fake.fault("POST /envelope/use", ("drop_after",))  # created at the provider, the answer lost
+    monkeypatch.setattr(handlers.CreateAgreement, "after_call",
+                        lambda self, claim, result: services.stop_agreements(app.pk, r.agreement_decider, "on_hold"))
+    run_worker()
+    instance = AgreementInstance.objects.get(application=app)
+    assert instance.issue_status == "cancelled" and instance.envelope_id  # found by evidence, recorded, closed
+    assert not r.fake.calls("POST", "/envelope/distribute")
+    assert r.fake.envelopes[instance.envelope_id]["status"] == "DRAFT"
+    assert PendingAction.objects.filter(kind="read_agreement", idempotency_key__contains=":closed:").exists()
+

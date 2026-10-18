@@ -29,6 +29,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
+from types import MappingProxyType
 from urllib.parse import quote, urlencode, urlsplit
 
 from django.conf import settings
@@ -42,9 +43,9 @@ ROLES = ("CC", "SIGNER", "VIEWER", "APPROVER", "ASSISTANT")
 # provider's default except `documentDeleted`, which is suppressed, so a protective cancel never mails the applicant.
 # The signing request and the completed copy (P4-D-14) stay on. Sent whole on create and distribute, so a later call can never fall back to the
 # all-true default. Whether the installation honours it is NOT VERIFIED until an authorized canary (D-41).
-EMAIL_SETTINGS = {"recipientSigningRequest": True, "recipientRemoved": True, "recipientSigned": True,
+EMAIL_SETTINGS = MappingProxyType({"recipientSigningRequest": True, "recipientRemoved": True, "recipientSigned": True,
                   "documentPending": True, "documentCompleted": True, "documentDeleted": False,
-                  "ownerDocumentCompleted": True, "ownerRecipientExpired": True, "ownerDocumentCreated": True}
+                  "ownerDocumentCompleted": True, "ownerRecipientExpired": True, "ownerDocumentCreated": True})
 CANCEL_REASON = "This agreement request was withdrawn."  # fixed and generic: never staff notes (D-41)
 UNKNOWN_STATUSES = (408,)  # a timeout reply: the provider may still act
 
@@ -289,7 +290,7 @@ def create_from_template(template_ref: str, external_key: str, recipients: list[
     """`POST /envelope/use` as a draft (`distributeDocument: false`, P4-D-4). Returns the new envelope id only."""
     body, content_type = _multipart({"envelopeId": template_ref, "externalId": external_key,
                                      "recipients": recipients, "distributeDocument": False,
-                                     "override": {"emailSettings": EMAIL_SETTINGS}})
+                                     "override": {"emailSettings": dict(EMAIL_SETTINGS)}})
     data = _json(exchange("POST", "/envelope/use", body=body, content_type=content_type))
     if not isinstance(data, dict):
         raise ProviderError("response_unreadable", sent=True, status=200)
@@ -299,7 +300,7 @@ def create_from_template(template_ref: str, external_key: str, recipients: list[
 def distribute(envelope_id: str) -> None:
     """`POST /envelope/distribute`: Documenso emails the recipients. No subject or message is sent (021 section 10)."""
     body = json.dumps({"envelopeId": envelope_id,
-                       "meta": {"distributionMethod": "EMAIL", "emailSettings": EMAIL_SETTINGS}}).encode()
+                       "meta": {"distributionMethod": "EMAIL", "emailSettings": dict(EMAIL_SETTINGS)}}).encode()
     _json(exchange("POST", "/envelope/distribute", body=body, content_type="application/json"))
 
 

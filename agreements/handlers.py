@@ -76,6 +76,15 @@ def watch_limit(attempt) -> int:
     return settings.CATALYST_AGREEMENT_ORPHAN_CHECKS * (1 + rearms)
 
 
+def _watch_left_draft(instance) -> None:
+    """D-44: a draft left at the provider (never distributed) gets bounded follow-up reads, then a staff item, so a
+    draft someone sends in the provider's interface is noticed."""
+    from .completion import enqueue_read
+
+    enqueue_read(AgreementInstance.objects.get(pk=instance.pk),
+                 due_in=timedelta(seconds=settings.CATALYST_AGREEMENT_READ_INTERVAL_SECONDS), closed=True)
+
+
 def _cancel_after_send(instance) -> None:
     from .completion import enqueue_cancel_instance  # completion builds on this module
 
@@ -323,7 +332,10 @@ class _ProviderStep(_AgreementAction):
         pending = self._pending(instance, key)
         if pending:
             return application, instance, self._to_reconcile(claim, instance, pending)
-        if instance.cancel_requested_at and instance.issue_status in ("create_pending", "distribute_pending"):
+        from .completion import stopped  # completion builds on this module
+
+        if (instance.cancel_requested_at or stopped(application)) and instance.issue_status in (
+                "create_pending", "distribute_pending"):
             # D-42: a stop arrived while an earlier exchange ran; nothing more is created or sent. A draft that
             # exists stays at the provider, never distributed.
             def close():
@@ -332,6 +344,8 @@ class _ProviderStep(_AgreementAction):
                 event(application, "agreement_closed_on_request", {"instance": str(instance.public_id),
                                                                    "draft_left": bool(instance.envelope_id)},
                       actor_ref=f"pending_action:{claim.id}")
+                if instance.envelope_id:
+                    _watch_left_draft(instance)
             return application, instance, Decision(Status.DONE, "cancel_requested", write=close)
         if paused(application):
             return application, instance, Decision(Status.QUEUED, "automation_paused", refund=True, due_in=_poll())
@@ -464,6 +478,7 @@ class CreateAgreement(_ProviderStep):
                     issue_status="cancelled", signing_status="cancelled", updated_at=Now())
                 event(instance.application, "agreement_created_after_stop", {"instance": str(instance.public_id)},
                       actor_ref=f"pending_action:{claim.id}")
+                _watch_left_draft(instance)
                 return
             AgreementInstance.objects.filter(pk=instance.pk).update(envelope_id=result, issue_status="distribute_pending",
                                                                     updated_at=Now())
@@ -676,6 +691,7 @@ class ReconcileAgreement:
                     status=Status.DONE, last_error="found_by_evidence", completed_at=Now(), updated_at=Now())
                 event(instance.application, "agreement_created_after_stop", {"instance": str(instance.public_id)},
                       actor_ref=actor)
+                _watch_left_draft(instance)
                 return
             AgreementInstance.objects.filter(pk=instance.pk).update(envelope_id=envelope_id, issue_status="distribute_pending",
                                                                     updated_at=Now())

@@ -269,7 +269,9 @@ def apply_read(claim, instance_id: int, env: provider.Envelope) -> None:
             open_integrity_hold(instance, "recipients_changed" if not data["recipients_match"] else "provider_state_changed",
                                 claim.id, actor)
         return
-    if instance.issue_status in ("superseded", "cancelled") or instance.replaced_at:
+    if instance.replaced_at:
+        return  # verified history replaced by a new generation (D-43): not a closed agreement, not a new exception
+    if instance.issue_status in ("superseded", "cancelled"):
         if env.status == "COMPLETED":  # TEST-P4-29: never verified, never dropped
             open_item(COMPLETED_AFTER_CANCEL, f"read:{ref}", application=application, pending_action_id=claim.id)
             event(application, "agreement_completed_after_cancel", {"instance": ref}, actor_ref=actor)
@@ -382,7 +384,11 @@ class AdvanceAgreements:
                 application, "agreements_all_passed", {}, actor_ref=f"pending_action:{claim.id}")
                 if reason == "all_passed" else None)  # the P5 hand-off is 4B.3
             return
-        if reason == "reissue" and not claim.input_ref.startswith("resume:"):
+        late = StaffItem.objects.filter(application=application, reason_code=COMPLETED_AFTER_CANCEL,
+                                        status=StaffItem.Status.OPEN).exists()
+        if reason == "reissue" and (late or not claim.input_ref.startswith("resume:")):
+            # D-42: never reissued without a decision-maker, and never while the provider shows an earlier one
+            # completed after its cancel (QA review)
             ledger.finish(claim, self, status=Status.DONE, error="reissue_needs_decision", write=lambda: open_item(
                 REISSUE_NEEDS_DECISION, f"advance:{application.public_ref}:{next_type.key}", application=application,
                 pending_action_id=claim.id))
@@ -486,8 +492,9 @@ class CancelAgreement(_ProviderStep):
                 AgreementInstance.objects.filter(pk=instance.pk, issue_status="cancel_pending").update(
                     issue_status="cancelled", signing_status="cancelled", updated_at=Now())
                 if result == "left_draft":  # D-44: a draft left at the provider gets bounded follow-up reads
-                    enqueue_read(AgreementInstance.objects.get(pk=instance.pk),
-                                 due_in=timedelta(seconds=settings.CATALYST_AGREEMENT_READ_INTERVAL_SECONDS), closed=True)
+                    from .handlers import _watch_left_draft
+
+                    _watch_left_draft(instance)
             else:
                 reason = COMPLETED_AFTER_CANCEL if result == "completed" else ENVELOPE_MISMATCH
                 AgreementInstance.objects.filter(pk=instance.pk, issue_status="cancel_pending").update(

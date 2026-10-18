@@ -18,7 +18,8 @@ from django.db.models.functions import Now
 
 from applications.models import Application, ApplicationEvent, Stage
 from correspondence.models import StaffItem
-from correspondence.staff_items import clean_note, event, resolve_item
+from correspondence.common import Refused as NoteRefused
+from correspondence.staff_items import clean_note as _clean_note, event, resolve_item
 from workflow.models import PendingAction
 
 from . import handlers
@@ -29,6 +30,48 @@ CHOICES = ("not_sent", "abandon")
 
 class Refused(Exception):
     """A service refused; the message is a reason code."""
+
+
+def clean_note(text: str) -> str:
+    try:
+        return _clean_note(text)
+    except NoteRefused as exc:
+        raise Refused(str(exc)) from None
+
+
+def _final_stop(application):
+    """The latest withdrawal or closure not followed by a resume, if any: those are final here (POL-12, P5)."""
+    from .completion import RESUMED_EVENT, STOPPED_EVENT
+
+    for row in application.events.filter(kind__in=(STOPPED_EVENT, RESUMED_EVENT)).order_by("-id"):
+        if row.kind == RESUMED_EVENT:
+            return None
+        if (row.data or {}).get("reason") != "on_hold":
+            return row
+    return None
+
+
+def _open_for_new_work(application) -> None:
+    """Refused unless a new agreement may be issued now: the stage is agreements, nothing is stopped, automation is
+    not paused (PR #42 reviews)."""
+    from .completion import stopped
+
+    if application.stage != Stage.AGREEMENTS or stopped(application):
+        raise Refused("agreements_not_open")
+    if handlers.paused(application):
+        raise Refused("automation_paused")
+
+
+def _earlier_types_passed(application, agreement_type) -> None:
+    """D-15 and D-43: a later agreement is issued only while every earlier one passes its gate (no integrity hold)."""
+    from .completion import gate_passed
+    from .models import AgreementType
+
+    for earlier in AgreementType.objects.filter(required=True, order__lt=agreement_type.order):
+        live = (AgreementInstance.objects.filter(application=application, agreement_type=earlier, replaced_at__isnull=True)
+                .exclude(issue_status__in=("superseded", "cancelled")).first())
+        if live is None or not gate_passed(live):
+            raise Refused("earlier_agreement_not_passed")
 
 
 def can(user, permission: str) -> bool:
@@ -204,6 +247,7 @@ def reissue_agreement(instance_id: int, user) -> AgreementInstance:
                                     reason_code="agreement_completed_after_cancel",
                                     dedupe_key__endswith=str(old.public_id)).exists():
             raise Refused("completion_after_cancel_open")  # the provider shows it signed: staff decide first
+        _earlier_types_passed(application, old.agreement_type)
         version = handlers.approved_version(old.agreement_type.key)
         if version is None:
             raise Refused("no_approved_template")
@@ -228,6 +272,8 @@ def stop_agreements(application_id: int, user, reason: str) -> list:
         application = Application.objects.select_for_update(of=("self",)).get(pk=application_id)
         if application.stage != Stage.AGREEMENTS:
             raise Refused("not_in_agreements")
+        if _final_stop(application) is not None:
+            raise Refused("stopped_for_good")  # a withdrawal or closure is never turned into a resumable hold
         results = []
         live = list(AgreementInstance.objects.select_for_update(of=("self",))
                     .filter(application=application, issue_status__in=LIVE).order_by("id"))
@@ -296,15 +342,14 @@ def resume_agreements(application_id: int, user) -> None:
         application = Application.objects.select_for_update(of=("self",)).get(pk=application_id)
         if application.stage != Stage.AGREEMENTS:
             raise Refused("not_in_agreements")
+        if _final_stop(application) is not None:
+            raise Refused("stopped_for_good")
         instances = list(AgreementInstance.objects.filter(application=application))
         if any(i.issue_status in ("cancel_pending", "cancel_uncertain") or _in_flight(i)
                or (i.cancel_requested_at and i.issue_status not in ("cancelled", "superseded")) for i in instances):
             raise Refused("cancellation_not_reconciled")  # resume only after every cancel has settled
         if any(integrity_hold_open(i) for i in instances):
             raise Refused("integrity_hold_open")  # resolved only through the integrity path (D-43)
-        last = application.events.filter(kind__in=(STOPPED_EVENT, RESUMED_EVENT)).order_by("-id").first()
-        if last is not None and last.kind == STOPPED_EVENT and (last.data or {}).get("reason") != "on_hold":
-            raise Refused("stopped_for_good")
         resumed = ApplicationEvent.objects.create(application=application, kind=RESUMED_EVENT, data={},
                                                   actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
         enqueue_advance(application, authorization=f"resume:{resumed.pk}")
@@ -370,10 +415,12 @@ def resolve_integrity(instance_id: int, user, disposition: str, reason: str, exp
             raise Refused("no_integrity_hold")
         if expected_digest != state["digest"]:
             raise Refused("changed_since_shown")
-        data = {"instance": str(instance.public_id), "disposition": disposition, "reason": note}
+        # The staff-written reason is kept once (security review): in the resolution note, or, for an escalation that
+        # resolves nothing, in its event. Other events carry codes only.
+        data = {"instance": str(instance.public_id), "disposition": disposition}
         if disposition == "escalate":
-            event(application, "agreement_integrity_escalated", data, actor_type=ApplicationEvent.ActorType.STAFF,
-                  actor_ref=actor)
+            event(application, "agreement_integrity_escalated", {**data, "reason": note},
+                  actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
             return instance  # still held: a legal question is the owner's and counsel's
         if disposition == "continue":
             if not state["matching"]:
@@ -382,8 +429,13 @@ def resolve_integrity(instance_id: int, user, disposition: str, reason: str, exp
                          effects={"instance": str(instance.public_id), "observation": state["latest"].pk})
             event(application, "agreement_integrity_resolved", data, actor_type=ApplicationEvent.ActorType.STAFF,
                   actor_ref=actor)
+            from .completion import enqueue_advance
+
+            enqueue_advance(application)  # the sequence continues where the hold stopped it (QA review)
             instance.refresh_from_db()
             return instance
+        _open_for_new_work(application)  # replace issues a new signing request: never after a stop or during a pause
+        require(user, "manage_agreements")
         version = handlers.approved_version(instance.agreement_type.key)
         if version is None:
             raise Refused("no_approved_template")
@@ -407,6 +459,7 @@ def rearm_orphan_watch(attempt_id: int, user) -> None:
     attempt = EnvelopeAttempt.objects.select_related("instance__application").get(pk=attempt_id)
     with transaction.atomic():
         application, _ = _lock(attempt.instance_id)
+        attempt.refresh_from_db()
         if attempt.outcome not in (EnvelopeAttempt.Outcome.DECIDED_NOT_SENT, EnvelopeAttempt.Outcome.ABANDONED):
             raise Refused("not_watched")
         item = StaffItem.objects.filter(reason_code=handlers.ORPHAN_WATCH_ENDED, dedupe_key=f"watch:{attempt.public_id}",

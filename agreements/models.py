@@ -115,6 +115,10 @@ class AgreementInstance(models.Model):
                                     condition=~Q(issue_status__in=NOT_LIVE) & Q(replaced_at__isnull=True),
                                     name="agreement_one_live_per_type"),
             models.UniqueConstraint(fields=["external_key"], name="agreement_external_key_unique"),
+            models.CheckConstraint(  # D-43: set together, with the one known reason code
+                condition=(Q(replaced_at__isnull=True, replacement_reason="")
+                           | Q(replaced_at__isnull=False, replacement_reason="integrity_replaced")),
+                name="agreement_replacement_consistent"),
             models.UniqueConstraint(fields=["envelope_id"], condition=~Q(envelope_id=""), name="agreement_envelope_unique"),
         ]
 

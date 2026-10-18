@@ -434,7 +434,8 @@ no request was made to the installation:
     envelope and recipients are ours; addresses and tokens are not.
   - A pending envelope schedules the next read at the sweep interval: the sweep is per instance, not one global
     job.
-  - Reads are automated: a pause holds them, and resuming runs the one coalesced read.
+  - Reads are automated: a pause holds them, and resuming runs the one coalesced read. **Superseded by D-44 (section
+    17):** reads now run while paused.
 - **Verification is database-visible**, deciding the limit stated in section 15.
   - `signing_complete_verified` is accepted only while the instance is issued, and only with a read observation in
     the same transaction showing completion, our identity, exactly our recipients and every required signature.
@@ -592,6 +593,26 @@ an envelope is distributed:
 - a stop interleaved with a running distribute, tested from a separate thread and connection;
 - a lost completion of a closed instance is caught;
 - follow-up reads keep the minimum interval.
+
+**After the reviews of PR #42** (independent QA and security; one HIGH each, the same finding):
+
+- **Replace issues only into open work.** It issues a new signing request, so it is refused unless agreements are
+  open: stage `agreements`, not stopped, not paused. It also needs `manage_agreements` as well as
+  `resolve_agreement_integrity`. The create and distribute checks close a pending instance of a stopped application
+  without calling the provider.
+- **Withdrawal and closure stay final.** They can never be turned into a resumable hold.
+- **Two more refusals.** A resume or reissue never issues over an open completion-after-cancel item. A User
+  Agreement is never reissued while an earlier agreement fails its gate (D-15, D-43).
+- **"Continue" resumes the sequence.**
+- **Every left draft is watched.** Closed on request, created after a stop, or found by evidence after a stop, each
+  gets the bounded follow-up reads.
+- **Replaced history is not a closed agreement.** A read of replaced verified history is not treated as one.
+- **The staff-written integrity reason is stored once.** It goes in the resolution note, or, for an escalation, in
+  its event. The retention of these notes is an owner decision under POL-10.
+- **The replacement fields are tied together.** A check constraint requires `replaced_at` and its one reason code
+  to be set together.
+- **No rollback once used.** Migrations 0005 and 0006 refuse to roll back once a stop request or a replacement is
+  recorded.
 
 **Database:** migrations `agreements` 0005 and 0006 add the new columns, which are set once for every role. A
 replacement needs its reason. The live-instance index and the D-15 backstop ignore a replaced NDA. Tests bypass

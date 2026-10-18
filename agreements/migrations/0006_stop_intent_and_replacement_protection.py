@@ -9,8 +9,6 @@
 from django.contrib.auth.management import create_permissions
 from django.db import migrations
 
-from config.db_roles import apply_grants
-
 INSTANCE = "agreements_agreementinstance"
 COLUMNS = ("external_key, envelope_id, issue_status, signing_status, custody_status, updated_at, cancel_requested_at, "
            "replaced_at, replacement_reason")
@@ -132,6 +130,9 @@ def forward(apps, schema_editor):
 
 
 def reverse(apps, schema_editor):
+    Instance = apps.get_model("agreements", "AgreementInstance")
+    if Instance.objects.exclude(replaced_at=None).exists() or Instance.objects.exclude(cancel_requested_at=None).exists():
+        raise RuntimeError("agreements 0006 cannot be reversed: stop requests or replacements are recorded")
     _replace(schema_editor, "catalyst_agreement_instance_fixed", OLD_FIXED)
     _replace(schema_editor, "catalyst_agreement_instance_insert", OLD_INSERT)
     _grant(schema_editor, OLD_COLUMNS)

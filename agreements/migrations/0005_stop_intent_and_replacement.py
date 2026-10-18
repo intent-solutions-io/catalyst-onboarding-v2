@@ -3,6 +3,13 @@
 from django.db import migrations, models
 
 
+def refuse_if_used(apps, schema_editor):
+    """Rolling back would erase a recorded stop request or replacement (security review of PR #42): refused."""
+    Instance = apps.get_model("agreements", "AgreementInstance")
+    if Instance.objects.filter(models.Q(replaced_at__isnull=False) | models.Q(cancel_requested_at__isnull=False)).exists():
+        raise RuntimeError("agreements 0005 cannot be reversed: stop requests or replacements are recorded")
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -38,4 +45,9 @@ class Migration(migrations.Migration):
             model_name='agreementinstance',
             constraint=models.UniqueConstraint(condition=models.Q(models.Q(('issue_status__in', ['superseded', 'cancelled']), _negated=True), ('replaced_at__isnull', True)), fields=('application', 'agreement_type'), name='agreement_one_live_per_type'),
         ),
+        migrations.AddConstraint(
+            model_name='agreementinstance',
+            constraint=models.CheckConstraint(condition=models.Q(models.Q(('replaced_at__isnull', True), ('replacement_reason', '')), models.Q(('replaced_at__isnull', False), ('replacement_reason', 'integrity_replaced')), _connector='OR'), name='agreement_replacement_consistent'),
+        ),
+        migrations.RunPython(migrations.RunPython.noop, refuse_if_used),  # runs first on a rollback
     ]
