@@ -1,6 +1,6 @@
-"""The first-slice acceptance plan (005 S1.7, GATE-S1), the P2 correspondence plan (016 section 7, GATE-P2) and the
-P3 evidence and assessment plan (018 section 9, GATE-P3), each mapped to the tests that prove each case (S1-T8;
-P2 task 2C; P3 task 3C).
+"""The first-slice acceptance plan (005 S1.7, GATE-S1), the P2 correspondence plan (016 section 7, GATE-P2), the
+P3 evidence and assessment plan (018 section 9, GATE-P3) and the P4 agreements plan (021 section 12,
+GATE-P4), each mapped to the tests that prove each case (S1-T8; P2 task 2C; P3 task 3C; P4 task 4C).
 
 Each case names test functions as "module::function", where every parametrized instance counts, or
 one instance as "module::function[id]" where a case depends on that instance specifically. tests/conftest.py reports every case at the end of a run as PASS (all its tests ran and passed),
@@ -805,6 +805,228 @@ P3_SUPPORTING = {
         "test_decision::test_recheck_human_only_after_the_run_cap_in_assessing",
     ],
 }
+
+
+# P4 acceptance plan (021 section 12; GATE-P4, task 4C): each case names the tests that prove it, by the case
+# numbers in their names plus the review tests that prove the same case. Reported and gated like S1, P2 and P3.
+# GATE-P4 proves the synthetic agreement workflow against the Documenso fake; it is not a live-provider proof and
+# does not approve real templates, real signing or custody of real documents (021 sections 15 to 18).
+P4_CASES = {
+    "TEST-P4-01": [
+        "test_agreement_completion::test_p4_01_06_the_user_agreement_waits_for_the_ndas_gate",
+        "test_p4_journey::test_p4_journey_the_default_gate_journey_over_http",
+    ],
+    "TEST-P4-02": [
+        "test_agreement_completion::test_p4_13_02_a_webhook_never_verifies_and_duplicates_and_late_events_are_harmless",
+        "test_agreement_completion::test_p4_31_a_stale_verification_or_changed_recipients_never_advance",
+        "test_p4_journey::test_p4_removed_gate_a_status_write_without_a_fresh_read_is_refused",
+    ],
+    "TEST-P4-03": [
+        "test_agreements::test_p4_03_a_duplicate_create_is_never_sent_one_envelope_per_instance",
+        "test_agreements::test_p4_03_12_a_crash_after_the_exchange_reconciles_and_never_sends_again",
+    ],
+    "TEST-P4-04": [
+        "test_agreement_custody::test_p4_04_19_the_default_gate_journey_ends_in_exactly_one_held_hand_off",
+        "test_agreement_custody::test_p4_04_storage_refuses_an_unsafe_directory_and_a_repository_location",
+        "test_agreement_custody::test_review_downloads_run_outside_any_transaction_and_reads_open_the_file_once",
+    ],
+    "TEST-P4-05": [
+        "test_agreement_custody::test_p4_05_the_user_agreement_waits_for_confirmed_required_details",
+        "test_agreement_custody::test_review_an_nda_that_needs_details_starts_once_they_are_confirmed",
+    ],
+    "TEST-P4-06": [
+        "test_agreement_completion::test_p4_01_06_the_user_agreement_waits_for_the_ndas_gate",
+        "test_agreement_completion::test_p4_06_an_advance_that_cannot_issue_opens_a_staff_item",
+        "test_agreement_recovery::test_d43_the_d15_backstop_ignores_a_replaced_nda",
+    ],
+    "TEST-P4-07": [
+        "test_agreement_custody::test_p4_07_a_custody_outage_leaves_signing_verified_and_blocks_only_progression",
+        "test_agreement_custody::test_p4_07_a_non_pdf_is_never_stored",
+        "test_agreement_custody::test_p4_07_an_interruption_between_the_file_and_the_record_leaves_one_authoritative_copy",
+        "test_agreement_custody::test_review_a_stored_copy_is_never_replaced_by_a_retry_and_a_collision_goes_to_staff",
+        "test_agreement_custody::test_review_a_changed_envelope_during_custody_fails_custody_and_stores_nothing",
+    ],
+    "TEST-P4-08": [
+        "test_agreement_completion::test_p4_08_webhook_authentication_and_uniform_answers",
+        "test_agreement_completion::test_p4_08_the_route_is_mounted_only_in_test_and_development",
+        "test_agreement_completion::test_p4_08_every_secret_is_compared_and_csrf_does_not_block_the_provider",
+    ],
+    "TEST-P4-09": [
+        "test_agreements::test_p4_09_activation_releases_only_eligible_held_issue_nda",
+        "test_agreements::test_p4_09_the_command_needs_a_real_approval_reference",
+        "test_agreements::test_p4_09_a_refusal_returns_issue_nda_to_held_without_using_up_its_attempts",
+    ],
+    "TEST-P4-10": ["test_agreements::test_p4_10_the_instance_and_its_key_are_committed_before_any_provider_call"],
+    "TEST-P4-11": [
+        "test_agreements::test_p4_11_an_unknown_create_reconciles_on_admissible_evidence",
+        "test_agreements::test_p4_11_with_no_evidence_a_decision_maker_decides_and_p4_30_a_late_orphan_is_cancelled",
+        "test_agreements::test_p4_11_abandon_cancels_the_instance_and_keeps_watching_the_key",
+        "test_agreements::test_p4_11_duplicate_envelopes_for_one_key_go_to_staff_and_block_a_new_create",
+        "test_agreements::test_p4_11_only_our_key_template_document_and_recipients_are_evidence",
+        "test_agreements::test_p4_11_a_defect_during_the_exchange_is_an_unknown_outcome",
+        "test_agreements::test_p4_11_a_reconciliation_that_cannot_finish_opens_a_staff_item",
+    ],
+    "TEST-P4-12": [
+        "test_agreements::test_p4_12_distribute_rereads_first_and_never_distributes_twice",
+        "test_agreements::test_p4_12_an_unknown_distribute_reconciles_without_a_second_send",
+        "test_agreements::test_p4_12_a_distribute_still_unknown_after_the_settle_window_goes_to_a_decision_maker",
+        "test_agreements::test_p4_12_a_pending_distribute_is_reconciled_before_a_later_refusal",
+        "test_agreement_completion::test_p4_12_an_unknown_distribute_can_be_decided_and_redistributed",
+    ],
+    "TEST-P4-13": [
+        "test_agreement_completion::test_p4_13_02_a_webhook_never_verifies_and_duplicates_and_late_events_are_harmless",
+        "test_agreement_completion::test_p4_13_a_webhook_brings_the_read_forward_without_waiting_for_the_sweep",
+        "test_agreement_completion::test_p4_13_a_completed_hint_never_moves_a_declined_or_unissued_instance",
+        "test_agreement_recovery::test_hdg6_a_false_completion_hint_is_reset_by_the_read",
+        "test_agreement_recovery::test_hdg6_a_hint_never_moves_an_instance_that_was_not_issued",
+    ],
+    "TEST-P4-14": [
+        "test_agreement_completion::test_p4_14_a_lost_webhook_is_caught_by_the_sweep",
+        "test_agreement_recovery::test_hdg6_a_lost_webhook_cannot_hide_a_late_completion_of_a_closed_instance",
+    ],
+    "TEST-P4-15": [
+        "test_agreement_completion::test_p4_15_partial_rejection_expiry_and_cancellation",
+        "test_agreement_completion::test_p4_15_a_declined_agreement_is_reissued_only_by_a_decision_maker",
+    ],
+    "TEST-P4-16": ["test_agreement_completion::test_p4_16_a_read_showing_another_envelope_key_or_template_never_verifies"],
+    "TEST-P4-17": [
+        "test_agreement_custody::test_p4_17_27_retrieval_is_audited_before_any_byte_and_served_as_an_attachment",
+        "test_agreement_custody::test_review_outsiders_get_the_same_404_and_add_no_audit_rows",
+    ],
+    "TEST-P4-18": [
+        "test_agreements::test_p4_18_a_429_is_honoured_and_a_down_provider_goes_to_staff",
+        "test_agreements::test_p4_18_a_definite_rejection_goes_to_staff_without_a_retry",
+        "test_agreements::test_p4_18_distribute_honours_a_429_and_reconciles_a_5xx",
+        "test_agreement_completion::test_p4_18_reads_honour_a_429_and_a_down_provider_goes_to_staff",
+        "test_agreement_completion::test_p4_18_the_sweep_survives_a_provider_outage",
+    ],
+    "TEST-P4-19": [
+        "test_agreement_custody::test_p4_04_19_the_default_gate_journey_ends_in_exactly_one_held_hand_off",
+        "test_p4_journey::test_p4_journey_the_default_gate_journey_over_http",
+    ],
+    "TEST-P4-20": [
+        "test_agreements::test_p4_20_a_real_documenso_host_and_credentials_are_refused_outside_an_authorized_environment",
+        "test_agreements::test_p4_20_the_agreement_guard_requires_a_test_host",
+        "test_agreements::test_p4_20_all_problems_reports_agreement_settings_from_the_environment",
+        "test_agreement_completion::test_p4_20_webhook_secrets_are_test_only_and_at_most_two",
+    ],
+    "TEST-P4-21": [
+        "test_agreement_custody::test_p4_21_the_screen_shows_three_statuses_and_enforces_permissions",
+        "test_agreement_custody::test_p4_21_actions_need_csrf_their_permission_and_keep_what_was_typed",
+        "test_agreement_custody::test_p4_21_a_refused_integrity_disposition_keeps_the_typed_reason",
+        "test_agreement_custody::test_review_malformed_identifiers_are_refused_not_a_server_error",
+        "test_agreement_custody::test_review_no_consequential_choice_is_preselected_for_a_decision_maker",
+    ],
+    "TEST-P4-22": [
+        "test_agreements::test_p4_22_a_pause_stops_create_and_distribute",
+        "test_agreements::test_p4_22_a_pause_after_create_holds_the_distribute",
+        "test_agreements::test_p4_22_reconciliation_runs_while_automation_is_paused",
+        "test_agreement_completion::test_p4_22_reads_run_while_paused_but_the_sequence_waits_and_resume_does_not_burst",
+    ],
+    "TEST-P4-23": [
+        "test_agreement_completion::test_p4_23_24_a_webhook_flood_makes_one_read_and_keeps_no_body_or_token",
+        "test_agreement_completion::test_p4_23_hints_for_an_old_key_are_rate_limited",
+        "test_agreement_recovery::test_hdg6_a_deeply_nested_webhook_body_gets_the_uniform_answer",
+    ],
+    "TEST-P4-24": [
+        "test_agreements::test_p4_24_signing_tokens_and_links_are_never_stored_or_logged",
+        "test_agreement_completion::test_p4_23_24_a_webhook_flood_makes_one_read_and_keeps_no_body_or_token",
+    ],
+    "TEST-P4-25": [
+        "test_agreements::test_p4_25_distribute_refuses_when_a_p2_send_check_fails",
+        "test_agreements::test_p4_25_create_refuses_when_the_recipient_is_no_longer_the_verified_address",
+        "test_agreements::test_p4_25_distribute_refuses_when_the_provider_recipients_differ",
+    ],
+    "TEST-P4-26": [
+        "test_agreements::test_p4_26_protections_hold_for_every_role",
+        "test_agreement_recovery::test_d42_d43_the_new_columns_are_set_once_for_every_role",
+    ],
+    "TEST-P4-27": [
+        "test_agreement_custody::test_p4_17_27_retrieval_is_audited_before_any_byte_and_served_as_an_attachment",
+        "test_agreement_custody::test_p4_27_denied_and_missing_look_the_same_and_are_both_recorded",
+        "test_agreement_custody::test_p4_27_an_audit_failure_releases_nothing",
+        "test_agreement_custody::test_p4_27_corruption_or_an_unsafe_file_refuses_and_opens_a_staff_item",
+        "test_agreement_custody::test_review_unavailable_storage_refuses_without_blaming_the_document",
+        "test_agreement_custody::test_review_retrieval_refuses_inside_a_transaction",
+    ],
+    "TEST-P4-28": [
+        "test_agreements::test_p4_28_the_client_refuses_redirects_oversize_bad_tls_and_non_pdf",
+        "test_agreements::test_p4_28_the_client_bounds_time_encoding_truncation_and_its_own_configuration",
+    ],
+    "TEST-P4-29": [
+        "test_agreement_completion::test_p4_29_cancel_is_reconciled_at_the_provider_and_a_later_completion_goes_to_staff",
+        "test_agreement_completion::test_p4_29_a_valid_completion_on_a_closed_instance_is_never_verified",
+    ],
+    "TEST-P4-30": [
+        "test_agreements::test_p4_11_with_no_evidence_a_decision_maker_decides_and_p4_30_a_late_orphan_is_cancelled",
+        "test_agreements::test_p4_30_a_late_draft_orphan_is_recorded_left_and_kept_open_for_staff",
+        "test_agreements::test_p4_30_an_orphan_cancel_without_a_provider_goes_to_staff",
+    ],
+    "TEST-P4-31": [
+        "test_agreement_completion::test_p4_31_a_stale_verification_or_changed_recipients_never_advance",
+        "test_agreement_completion::test_p4_31_completion_with_changed_recipients_is_never_verified",
+    ],
+    "TEST-P4-32": [
+        "test_agreement_completion::test_p4_32_withdrawal_during_agreements_cancels_every_live_envelope_and_issues_nothing_more",
+        "test_agreement_completion::test_p4_32_stopping_before_the_envelope_exists_watches_an_unknown_create",
+        "test_agreement_completion::test_p4_32_a_stop_during_a_running_distribute_is_recorded_and_the_sent_envelope_is_cancelled",
+        "test_agreement_completion::test_p4_32_a_hold_is_resumable_and_a_withdrawal_is_final",
+    ],
+}
+
+# D-41 to D-44 (011 section 4.1, 021 sections 15 to 17) and the hardening decisions taken during P4 (9kg.1 to 9kg.3,
+# D-40 item D): not numbered cases; reported and gated with GATE-P4 like the S1 supporting evidence.
+P4_SUPPORTING = {
+    "D-41 provider email and the cancellation message": [
+        "test_agreement_recovery::test_d41_provider_email_is_inventoried_and_the_cancellation_email_suppressed",
+        "test_agreement_recovery::test_d41_the_suppression_is_sent_on_create_and_distribute",
+    ],
+    "D-42 hold, cancel and resume": [
+        "test_agreement_recovery::test_d42_a_hold_cancels_a_partly_signed_envelope_and_resume_issues_a_new_instance",
+        "test_agreement_recovery::test_d42_a_cancelled_agreement_is_never_reissued_without_a_decision_maker",
+        "test_agreement_recovery::test_d42_withdrawal_is_not_resumable_and_a_verified_agreement_is_never_cancelled",
+        "test_agreement_recovery::test_review_replace_never_issues_after_a_stop",
+        "test_agreement_recovery::test_review_a_withdrawal_cannot_be_downgraded_to_a_resumable_hold",
+        "test_agreement_recovery::test_review_resume_never_reissues_over_a_completion_after_cancel",
+        "test_agreement_recovery::test_review_a_requested_cancel_closes_a_pending_create_without_calling_the_provider",
+        "test_agreement_recovery::test_review_an_unknown_create_found_after_a_stop_is_kept_undistributed_and_watched",
+        "test_agreement_recovery::test_review_protective_cancel_runs_while_paused_and_while_a_hard_bounce_is_open",
+        "test_agreement_recovery::test_hdg6_cancel_uncertain_is_remedied_by_a_new_reconciled_cancel",
+    ],
+    "D-43 agreement integrity after verification": [
+        "test_agreement_recovery::test_d43_a_changed_recipient_after_verification_holds_reliance_until_a_reasoned_resolution",
+        "test_agreement_recovery::test_d43_replacement_makes_a_new_generation_eligible_and_keeps_the_verified_history",
+        "test_agreement_recovery::test_review_a_user_agreement_is_not_reissued_while_the_nda_is_held",
+        "test_agreement_recovery::test_review_replacing_a_user_agreement_waits_for_a_held_nda",
+    ],
+    "D-44 reconciliation while paused and bounded watches": [
+        "test_agreement_recovery::test_d44_the_orphan_watch_ends_visibly_and_is_re_armed_a_bounded_number_of_times",
+        "test_agreement_recovery::test_hdg6_the_closed_follow_up_ends_visibly",
+        "test_agreement_recovery::test_hdg6_a_follow_up_read_keeps_the_minimum_interval_after_a_running_read",
+        "test_agreement_recovery::test_hdg6_an_advance_that_keeps_failing_ends_with_a_staff_item",
+        "test_agreement_recovery::test_hdg6_reissue_refuses_a_superseded_instance_and_reports_an_unverified_contact",
+    ],
+    "9kg.1 correspondence evidence is append-only": [
+        "test_outbound::test_9kg_1_an_approved_message_keeps_its_authorization_and_only_its_disposition_changes",
+        "test_outbound::test_9kg_1_an_approved_template_version_is_final_and_may_only_retire_while_drafts_stay_free",
+        "test_outbound::test_9kg_1_a_staff_item_resolution_is_append_only_for_every_role",
+        "test_inbound::test_9kg_1_inbound_locations_are_append_only_for_every_role",
+    ],
+    "9kg.2 a system pause needs decision-maker review": [
+        "test_processing::test_9kg_2_a_system_pause_resumes_only_by_a_decision_maker_with_a_reason_after_its_cause",
+        "test_processing::test_9kg_2_a_staff_pause_cannot_be_resumed_past_a_system_cause_that_arrived_later",
+    ],
+    "9kg.3 a hard bounce blocks every send": [
+        "test_processing::test_9kg_3_an_open_hard_bounce_holds_every_send_and_refuses_staff_bypasses",
+        "test_processing::test_9kg_3_an_exchange_in_flight_still_reconciles_and_the_verification_send_is_held",
+    ],
+    "Removed gates fail (negative controls)": [
+        "test_p4_journey::test_p4_removed_gate_a_status_write_without_a_fresh_read_is_refused",
+        "test_p4_journey::test_p4_removed_gate_the_user_agreement_backstop_refuses_an_early_instance",
+        "test_p4_journey::test_p4_removed_gate_the_hand_off_refuses_without_custody",
+    ],
+}
+
 
 def key(nodeid: str) -> str:
     """'tests/test_x.py::test_name[param]' -> 'test_x::test_name' (the function: every instance)."""

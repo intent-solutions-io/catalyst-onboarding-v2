@@ -387,6 +387,8 @@ acceptance.SUPPORTING = {}
 acceptance.P2_CASES = {}
 acceptance.P3_CASES = {}
 acceptance.P3_SUPPORTING = {}
+acceptance.P4_CASES = {}
+acceptance.P4_SUPPORTING = {}
 """
 
 
@@ -446,10 +448,16 @@ def test_the_p3_acceptance_map_names_exactly_the_cases_in_018():
     assert planned == sorted(acceptance.P3_CASES) and len(planned) == 57
 
 
+def test_the_p4_acceptance_map_names_exactly_the_cases_in_021():
+    spec = (ROOT / "000-docs/021-AT-DSGN-p4-agreements-specification.md").read_text()
+    planned = sorted(set(re.findall(r"^\| (TEST-P4-\d\d) \|", spec, flags=re.M)))
+    assert planned == sorted(acceptance.P4_CASES) and len(planned) == 32
+
+
 def test_every_mapped_test_exists():
     missing = []
     for names in {**acceptance.CASES, **acceptance.SUPPORTING, **acceptance.P2_CASES, **acceptance.P3_CASES,
-                  **acceptance.P3_SUPPORTING}.values():
+                  **acceptance.P3_SUPPORTING, **acceptance.P4_CASES, **acceptance.P4_SUPPORTING}.values():
         assert names
         for name in names:
             module, function = name.split("::")

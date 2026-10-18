@@ -330,7 +330,7 @@ def test_p4_21_a_refused_integrity_disposition_keeps_the_typed_reason(k, monkeyp
 
 # --- PR #43 review regressions --------------------------------------------------------------------------------------
 
-def test_review_a_changed_envelope_at_custody_holds_integrity_and_stores_nothing(k, monkeypatch):
+def test_review_a_changed_envelope_during_custody_fails_custody_and_stores_nothing(k, monkeypatch):
     app = issued(k, monkeypatch)
     instance = of(app, "nda").get()
     k.fake.sign(instance.envelope_id)
