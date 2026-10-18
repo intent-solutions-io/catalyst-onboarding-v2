@@ -107,6 +107,8 @@ def _supersede_and_reopen(setup, request, actor_ref: str, code: str) -> None:
         state="superseded", updated_at=Now())
     core.record(request.application, "provisioning_setup_superseded", {"request": str(request.public_id),
                                                                        "series": setup.series, "code": code}, actor_ref)
+    if request.status != "setup_pending":
+        return  # superseded, stopped or otherwise moved on: a late sweep never reopens it
     if request.setups.count() >= settings.CATALYST_SETUP_INVITE_MAX_SERIES or request.stop_requested_at is not None:
         core.item(ITEM_SETUP, request)
         return
@@ -313,6 +315,8 @@ class SweepSetup(_Action):
 
 def _reopen_after(setup, request, actor_ref: str) -> None:
     """After an expired (terminal) series: open a new one within the bound, else staff."""
+    if request.status != "setup_pending":
+        return  # superseded, stopped or otherwise moved on: a late expiry never reopens it
     if request.setups.count() >= settings.CATALYST_SETUP_INVITE_MAX_SERIES or request.stop_requested_at is not None:
         core.item(ITEM_SETUP, request)
         return
@@ -332,8 +336,10 @@ def reissue(request_id: int, user, reason: str) -> CredentialSetup:
     request = ProvisioningRequest.objects.get(pk=request_id)
     with transaction.atomic():
         application, request = core.lock(request.application_id, request.pk)
-        if request.status != "setup_pending":
+        if request.status not in ("setup_pending", "verified"):  # verified: no usable recipient when it was opened
             raise services.Refused("not_awaiting_setup")
+        if request.method != ProvisioningRequest.Method.API:
+            raise services.Refused("checklist_credential_is_a_separate_contingency")  # P5-D-6 option (b)
         problem = core.database_problem(application, request)
         if problem:
             raise services.Refused(problem)

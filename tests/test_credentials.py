@@ -153,7 +153,14 @@ def test_p5_16_a_set_that_never_returns_is_swept_to_uncertain(pv, monkeypatch, s
     from provisioning import core
 
     request = ProvisioningRequest.objects.get(pk=request.pk)
-    core.enqueue(credentials.SWEEP, request, f"setup_sweep:{setup.public_id}:7")  # another attempt's sweep: ignored
+    core.enqueue(credentials.SWEEP, request, f"setup_sweep:{setup.public_id}:7")  # another attempt's sweep
+    run_worker()
+    assert setup_of(request).state == "set_pending"  # ignored
+    settings.CATALYST_SETUP_SET_TIMEOUT_SECONDS = 3600
+    core.enqueue(credentials.SWEEP, request, f"setup_sweep:{setup.public_id}:1:young")
+    run_worker()
+    assert setup_of(request).state == "set_pending"  # this attempt, but not yet past its timeout: ignored
+    settings.CATALYST_SETUP_SET_TIMEOUT_SECONDS = 0
     core.enqueue(credentials.SWEEP, request, f"setup_sweep:{setup.public_id}:1")
     run_worker()
     states = list(CredentialSetup.objects.filter(request=request).order_by("series").values_list("state", flat=True))
@@ -346,4 +353,29 @@ def test_review_the_checklist_path_never_calls_the_api_for_the_credential(pv, mo
     services.attest_checklist_verification(request.pk, pv.op2, "Listed in the panel with the limits")
     assert not CredentialSetup.objects.exists() and not FakeMailHost.calls
     assert StaffItem.objects.filter(application=app, reason_code=credentials.ITEM_SETUP, status="open").exists()
+
+
+def test_review_a_change_can_be_superseded_while_a_link_is_outstanding(pv, monkeypatch):
+    from provisioning import services
+
+    app, request, path = invited(pv, monkeypatch)
+    assert PendingAction.objects.filter(idempotency_key__startswith="setup_expire:", status="queued").exists()
+    services.supersede(request.pk, pv.op1, "A prerequisite changed while the link was out")
+    request.refresh_from_db()
+    assert request.status == "superseded"
+    assert post(path).status_code == 404  # the outstanding link no longer works
+
+
+def test_review_staff_reissue_recovers_a_request_whose_contact_was_not_usable_at_first(pv, monkeypatch):
+    welcome_template(pv)
+    real = credentials.verified_address
+    monkeypatch.setattr(credentials, "verified_address", lambda application: "someone@team.example.test")
+    app, request = approved(pv, monkeypatch)
+    run_worker()
+    request.refresh_from_db()
+    assert request.status == "verified" and not CredentialSetup.objects.exists()
+    monkeypatch.setattr(credentials, "verified_address", real)  # the contact is fixed
+    credentials.reissue(request.pk, pv.op1, "Contact corrected to the applicant's own address")
+    run_worker()
+    assert post(LINK.search(mail.outbox[-1].body).group(1)).status_code == 200
 
