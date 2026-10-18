@@ -252,6 +252,8 @@ EXPECTED_TRIGGERS = {
     ("correspondence_staffitemresolution", "catalyst_no_truncate"),
     ("correspondence_inboundmessagelocation", "catalyst_append_only"),
     ("correspondence_inboundmessagelocation", "catalyst_no_truncate"),
+    ("correspondence_approvedmessagequestion", "catalyst_append_only"),
+    ("correspondence_approvedmessagequestion", "catalyst_no_truncate"),
     ("correspondence_approvedmessage", "catalyst_approved_message_frozen"),
     ("correspondence_approvedmessage", "catalyst_no_truncate"),
     ("correspondence_messagetemplateversion", "catalyst_template_version_frozen"),

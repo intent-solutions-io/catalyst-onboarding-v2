@@ -1015,7 +1015,15 @@ def test_9kg_1_an_approved_message_keeps_its_authorization_and_only_its_disposit
         owner.execute("DELETE FROM correspondence_approvedmessage WHERE id = %s", [message.pk])
     with pytest.raises(REFUSED):
         owner.execute("TRUNCATE correspondence_approvedmessage CASCADE")
+    for column, value in (("supersedes_id", message.pk), ("template_version_id", None)):  # nullable columns too
+        with pytest.raises(REFUSED, match="approved message"):
+            owner.execute(f"UPDATE correspondence_approvedmessage SET {column} = %s WHERE id = %s", [value, message.pk])
+    link = ApprovedMessageQuestion.objects.get(approved_message=message)
+    for conn in (owner, ready.committed.connect("retention", autocommit=True)):
+        with pytest.raises(REFUSED):
+            conn.execute("DELETE FROM correspondence_approvedmessagequestion WHERE id = %s", [link.pk])
     # Delivery state is not evidence: the disposition stays updatable.
+
     owner.execute("UPDATE correspondence_approvedmessage SET disposition = 'operator_abandoned', disposition_at = now(),"
                   " disposition_by = 'user:1' WHERE id = %s", [message.pk])
 
@@ -1029,6 +1037,11 @@ def test_9kg_1_an_approved_template_version_is_final_and_may_only_retire_while_d
                 "DELETE FROM correspondence_messagetemplateversion WHERE id = %s"):
         with pytest.raises(REFUSED, match="message template version"):
             owner.execute(sql, [approved.pk])
+    with pytest.raises(REFUSED, match="inserted as a draft"):  # an approval exists only through the owner's step
+        owner.execute("INSERT INTO correspondence_messagetemplateversion (template_id, version, subject, body_text,"
+                      " variables, secret_bearing, status, approved_by, approved_at, content_sha256, synthetic, created_at)"
+                      " SELECT template_id, 9, subject, body_text, variables, secret_bearing, 'approved', 'user:0', now(),"
+                      " content_sha256, true, now() FROM correspondence_messagetemplateversion WHERE id = %s", [approved.pk])
     draft = question_template(version=2)
     owner.execute("UPDATE correspondence_messagetemplateversion SET body_text = body_text || ' ' WHERE id = %s", [draft.pk])
     owner.execute("UPDATE correspondence_messagetemplateversion SET status = 'retired' WHERE id = %s", [approved.pk])

@@ -29,9 +29,9 @@ SECRETS = [*PASSWORDS.values(), os.environ["CATALYST_DB_ADMIN_PASSWORD"]]
 # Trigger inventory (003 ADR-14): append-only on versions and events (2), no-truncate on versions, events,
 # audit and adoptions (4), audit immutability (1), adoption immutability (1).
 TRIGGERS = ("catalyst_append_only", "catalyst_no_truncate", "catalyst_audit_immutable", "catalyst_adoption_immutable")
-TRIGGER_COUNT = 27  # 8 from S1, 2 on evidence captures (P3 3B.1), 2 on qualification decisions (P3 3B.4),
+TRIGGER_COUNT = 29  # 8 from S1, 2 on evidence captures (P3 3B.1), 2 on qualification decisions (P3 3B.4),
 # 2 on agreement recipients (P4 4B.1), 2 on provider observations (P4 4B.2), 5 on custody and details (4B.3),
-# 6 on correspondence evidence (9kg.1)
+# 8 on correspondence evidence (9kg.1)
 SLICE_TABLES = [
     "applications_application", "applications_submissionversion", "applications_contactchallenge",
     "applications_versionadoption", "applications_applicationevent", "applications_retentionaudit",
@@ -393,11 +393,11 @@ def test_history_protection_migrations_reverse_and_reapply_and_keep_data(connect
     manage_as_owner("migrate", "applications", "0003", "--verbosity", "0")
     # assessments (P3: captures and decisions) and agreements (P4: recipients) depend on applications 0003, so they
     # stayed reversed
-    assert count() == TRIGGER_COUNT - 19  # correspondence evidence (9kg.1) stayed reversed
+    assert count() == TRIGGER_COUNT - 21  # correspondence evidence (9kg.1) stayed reversed
     manage_as_owner("migrate", "assessments", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 15
+    assert count() == TRIGGER_COUNT - 17
     manage_as_owner("migrate", "agreements", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 6
+    assert count() == TRIGGER_COUNT - 8
     manage_as_owner("migrate", "correspondence", "--verbosity", "0")
     assert count() == TRIGGER_COUNT
     assert {state for _, _, state in trigger_states(owner)} == {"O"}
