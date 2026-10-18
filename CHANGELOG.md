@@ -13,14 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-The first working slice (phase P1) is implemented and accepted: GATE-S1 was signed off by the owner on
-2026-10-11 (`000-docs/011` D-26). The correspondence loop (P2) passed GATE-P2 on 2026-10-13 (D-33). P3 is in
-progress: evidence collection (PR #30) and the bounded assessment on test models only (PR #32) are merged, and a
-candidate selection-quality contract is approved (`000-docs/019`, D-35). Nothing is deployed and only synthetic data is
-used. No release has been cut since `v0.1.0`, which was tagged
-automatically by the templated release workflow on the first push to `main`; it was not a planned
-release, and the workflow now runs only when started by hand. A release-blocking defect in that
-workflow (it pushes its version-bump commit straight to `main`) is open.
+Phases P1 to P4 are implemented and accepted for synthetic work: GATE-S1 (2026-10-11, D-26), GATE-P2 (2026-10-13,
+D-33), GATE-P3 (2026-10-17, D-36) and GATE-P4 (2026-10-18, D-45), each recorded in `000-docs/011` section 4. P5 is
+specified (`000-docs/023`, proposed) and not built. Nothing is deployed and only synthetic data is used. No release
+has been cut since `v0.1.0`, which the templated workflow tagged automatically on the first push to `main`; it was
+not a planned release. The release workflow was corrected in PR #41: it is manual, dry-run by default, and publishes
+only an already-merged, CI-green commit of `main` without committing or pushing to it.
 
 ### Added
 
