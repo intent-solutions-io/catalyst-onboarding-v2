@@ -10,25 +10,35 @@ Errors follow the P4 taxonomy: only a 4xx other than 429 is definite; a 5xx (inc
 ambiguous lookup), a timeout after sending, or anything else is an unknown outcome.
 """
 
+import re
 from dataclasses import dataclass
 
 from django.conf import settings
 from django.utils.module_loading import import_string
 
 
+CODE = re.compile(r"[a-z0-9_]{1,40}")
+
+
 class AdapterError(Exception):
     """`code` is a reason code; `sent` says whether the request may have reached the host."""
 
     def __init__(self, code: str, *, sent: bool, status: int | None = None, retry_after: float | None = None):
+        # A reason code only: anything else (a response body, an address) is replaced, so it can never reach a
+        # record, an event or a log (security review of PR #53).
+        code = str(code or "").lower()
+        code = code if CODE.fullmatch(code) else "adapter_error"
         super().__init__(code)
         self.code, self.sent, self.status, self.retry_after = code, sent, status, retry_after
 
     @property
     def unknown(self) -> bool:
+        """For a write: the host may have acted. A 429 after sending is unknown too: a gateway can throttle after the
+        create landed, so only a read decides (never a rejection that frees the address)."""
         if not self.sent:
             return False
         if self.status is None or self.status == 429:
-            return self.status is None
+            return True
         return not (400 <= self.status < 500)
 
     @property

@@ -497,8 +497,9 @@ None of these blocks synthetic work:
   4. one create with a random password nobody sees;
   5. the fenced result.
 
-  A `CONFLICT` is foreign, and a mailbox present before the create is never adopted. An unknown outcome goes to
-  `ReconcileMailbox`, never to a blind repeat.
+  A mailbox present before the create, or a `CONFLICT` with no earlier unknown create of ours, is foreign and never
+  adopted. A `CONFLICT` after our own earlier unknown create, and every unknown outcome (a 429 after sending included),
+  goes to `ReconcileMailbox`, never to a blind repeat.
 - **`ReconcileMailbox`:**
   - a present mailbox, absent before our create and with matching limits, is `found_by_evidence` for staff to
     confirm;
@@ -518,3 +519,36 @@ the protections), with the fake in `tests/mxroute_fake.py`.
 
 **Not yet:** the credential setup and activation (5B.2); withdrawal, revocation and the staff screen (5B.3). Stop
 intent is honoured where 5B.1 records an outcome (`recovered_after_stop`); writing it is 5B.3.
+
+**After the reviews of PR #53** (QA: three HIGH; security: one HIGH; no blocker):
+
+- **A 429 after the create was sent is unknown.** It is reconciled by reading, so an address is never freed while a
+  mailbox may exist.
+- **Release** reuses only an unused reviewed exception. Otherwise it proposes a fresh address that is not live for
+  anyone and was never tried at the host by this application. A returned hand-off is checked against today's
+  prerequisites. Every refusal leaves a staff item. A dry run writes nothing.
+- **The stage returns only when no live request and no watch remain** (`return_stage_if_idle`). A watch never
+  releases a reservation that a live request uses. `release_address` lets staff release a held address after a watch,
+  with a reason, so the application can move to another address.
+- **A request can be superseded once no work is in flight**, including after a stuck reconcile.
+- **Every effect boundary includes the pause.**
+- **Ordering:**
+  - an earlier open attempt is reconciled before any other check;
+  - the adapter and domain are checked before an attempt is committed;
+  - the absent read is recorded under the fence.
+- **New series after "not created" are bounded.**
+- **The adapter's error codes are sanitized**, so no body or address can reach a record. No exception traceback
+  outlives the create call.
+- **Notes that look like credentials are refused.** Mail-host credential names in the environment are refused.
+- **The database refuses `..` in a local part.**
+
+**Residual limits:**
+
+- The provider-side check of a proposed address (existing mailboxes and forwarders) happens only at the create's
+  absent read: the adapter has no list or forwarder operation yet.
+- No two-worker race test exists. Serialization rests on the one-open-create and one-live-request unique indexes,
+  which are tested directly.
+- After an attempt settles, its `code` and `finished_at` stay writable; the outcome itself is final.
+- **OWNER:** one `approve_provisioning` holder may both reserve a reviewed exception and approve it, which is a
+  one-person control. This matches D-47's owner-as-approver; confirm it is accepted.
+- **OWNER (POL-10):** free-text notes in append-only evidence have no purge path.

@@ -47,8 +47,8 @@ class AddressReservation(models.Model):
                                    name="reservation_basis_valid"),
             models.CheckConstraint(condition=Q(basis="naming_rule") | ~Q(reviewed_by=""),
                                    name="reservation_exception_reviewed"),
-            models.CheckConstraint(condition=Q(local_part__regex=r"^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"),
-                                   name="reservation_local_part_safe"),
+            models.CheckConstraint(condition=Q(local_part__regex=r"^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$")
+                                   & ~Q(local_part__contains=".."), name="reservation_local_part_safe"),
         ]
 
     @property

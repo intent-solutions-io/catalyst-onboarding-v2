@@ -96,7 +96,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='addressreservation',
-            constraint=models.CheckConstraint(condition=models.Q(('local_part__regex', '^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$')), name='reservation_local_part_safe'),
+            constraint=models.CheckConstraint(condition=models.Q(('local_part__regex', '^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$'), models.Q(('local_part__contains', '..'), _negated=True)), name='reservation_local_part_safe'),
         ),
         migrations.AddConstraint(
             model_name='provisioningrequest',

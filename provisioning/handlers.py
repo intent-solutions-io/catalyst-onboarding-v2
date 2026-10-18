@@ -33,7 +33,7 @@ from workflow import ledger
 from workflow.models import PendingAction
 
 from . import adapter, core
-from .models import AddressReservation, ProvisioningAttempt, ProvisioningEvidence, ProvisioningRequest
+from .models import LIVE_REQUEST, AddressReservation, ProvisioningAttempt, ProvisioningEvidence, ProvisioningRequest
 
 logger = logging.getLogger(__name__)
 Status = PendingAction.Status
@@ -94,6 +94,28 @@ class CreateMailbox(_Action):
         if request is None or request.status not in ("approved", "create_pending"):
             ledger.finish(claim, self, status=Status.DONE, error="nothing_to_create")
             return
+        # An earlier exchange's outcome is open (a crash after the call): reconcile first, before any other check,
+        # never call again (QA review of PR #53).
+        try:
+            with transaction.atomic():
+                application, request = core.lock(request.application_id, request.pk)
+                ledger.fence(claim)
+                stale = request.attempts.filter(step="create", outcome__in=(Outcome.SENDING, Outcome.UNKNOWN)).first()
+                if stale is not None:
+                    ProvisioningAttempt.objects.filter(pk=stale.pk, outcome=Outcome.SENDING).update(outcome=Outcome.UNKNOWN)
+                    core.set_status(request, "create_uncertain")
+                    self._enqueue_reconcile(request, stale)
+                    ledger.finish(claim, self, status=Status.DONE, error="earlier_create_outcome_unknown")
+                    return
+        except ledger.LeaseLost:
+            return
+        try:  # the adapter and domain exist before any attempt is committed, so a missing one is never an "unknown"
+            host = adapter.host()
+            if not request.reservation.domain:
+                raise adapter.AdapterError("no_domain_configured", sent=False)
+        except adapter.AdapterError as exc:
+            self._block(claim, request, exc.code)
+            return
         problem = fresh_read_problem(request.application)  # B2, outside any transaction
         if problem == "provider_unavailable":
             ledger.finish(claim, self, status=Status.QUEUED, error=problem, refund_attempt=True, due_in=_grace())
@@ -105,15 +127,8 @@ class CreateMailbox(_Action):
             with transaction.atomic():
                 application, request = core.lock(request.application_id, request.pk)
                 ledger.fence(claim)
-                stale = request.attempts.filter(step="create", outcome__in=(Outcome.SENDING, Outcome.UNKNOWN)).first()
-                if stale is not None:
-                    # An earlier exchange's outcome is open (a crash after the call): reconcile, never call again.
-                    ProvisioningAttempt.objects.filter(pk=stale.pk, outcome=Outcome.SENDING).update(outcome=Outcome.UNKNOWN)
-                    core.set_status(request, "create_uncertain")
-                    self._enqueue_reconcile(request, stale)
-                    ledger.finish(claim, self, status=Status.DONE, error="earlier_create_outcome_unknown")
-                    return
-                if request.status != "approved":
+                if request.attempts.filter(step="create", outcome__in=(Outcome.SENDING, Outcome.UNKNOWN)).exists() \
+                        or request.status != "approved":
                     ledger.finish(claim, self, status=Status.DONE, error="nothing_to_create")
                     return
                 problem = core.database_problem(application, request)
@@ -130,7 +145,6 @@ class CreateMailbox(_Action):
             return
         if transaction.get_connection().in_atomic_block:
             raise RuntimeError("refusing to call the mail host inside a transaction")
-        host = adapter.host()
         domain, local = request.reservation.domain, request.reservation.local_part
         try:
             found = host.read(domain, local)
@@ -141,12 +155,19 @@ class CreateMailbox(_Action):
             ledger.finish(claim, self, status=Status.DONE, error="present_before_create",
                           write=lambda: self._conflict(request, attempt, "present_before_create", claim.id))
             return
-        ProvisioningAttempt.objects.filter(pk=attempt.pk).update(absent_before=True)
+        try:  # the absent read is evidence for "ours" (023 11.3): recorded under the fence, before the create
+            with transaction.atomic():
+                ledger.fence(claim)
+                ProvisioningAttempt.objects.filter(pk=attempt.pk).update(absent_before=True)
+        except ledger.LeaseLost:
+            logger.warning("action %s: lease lost after the absent read; no create sent", claim.id)
+            return
         try:
             host.create(domain, local, secrets.token_urlsafe(32), request.quota_mb, request.send_limit)
             result = None  # the password above is never stored, logged or kept (023 11.8)
         except adapter.AdapterError as exc:
-            result = exc
+            result = adapter.AdapterError(exc.code, sent=exc.sent, status=exc.status, retry_after=exc.retry_after)
+            del exc  # no traceback (and so no frame holding the password) outlives the call
         except Exception as exc:  # a defect during the exchange: the request may have left, so the outcome is unknown
             logger.error("action %s: the mail host call raised %s", claim.id, type(exc).__name__)
             result = adapter.AdapterError("handler_error", sent=True)
@@ -172,6 +193,12 @@ class CreateMailbox(_Action):
             core.enqueue(core.VERIFY, request, f"{core.VERIFY}:{request.public_id}:0", due_in=_grace())
             core.record(request.application, "provisioning_created", {"request": str(request.public_id)},
                         f"pending_action:{claim.id}")
+        elif result.conflict and request.attempts.filter(step="create", outcome=Outcome.NOT_CREATED).exists():
+            # 023 11.11: a conflict after our own earlier unknown create may be that create landing late: reconcile
+            # by reading, and staff confirm, never adopt.
+            ProvisioningAttempt.objects.filter(pk=attempt.pk).update(outcome=Outcome.UNKNOWN, code="conflict_after_ours")
+            core.set_status(request, "create_uncertain")
+            self._enqueue_reconcile(request, attempt)
         elif result.conflict:  # absent a moment ago, and no earlier unknown create of ours: foreign
             self._conflict(request, attempt, "conflict_on_create", claim.id)
         elif result.unknown:
@@ -270,8 +297,12 @@ class ReconcileMailbox(_Action):
         if request.stop_requested_at is not None:
             core.set_status(request, "stopped")
             return
-        core.set_status(request, "approved")
         series = request.attempts.filter(step="create").count()
+        if series >= settings.CATALYST_PROVISIONING_ATTEMPTS:  # bounded: never an endless create loop
+            core.set_status(request, "failed_needs_staff")
+            core.item(core.ITEM_FAILED, request, claim_id=claim.id)
+            return
+        core.set_status(request, "approved")
         core.enqueue(core.CREATE, request, f"{core.CREATE}:{request.public_id}:{series}")
         core.record(request.application, "provisioning_create_not_made", {"request": str(request.public_id)}, actor)
 
@@ -295,10 +326,11 @@ class ReconcileMailbox(_Action):
                 core.enqueue(core.RECONCILE, current, f"{core.RECONCILE}:{current.public_id}:watch:{n + 1}",
                              due_in=_grace())
             else:
-                AddressReservation.objects.filter(pk=current.reservation_id, released_at__isnull=True).update(
-                    released_at=Now(), released_by=f"pending_action:{claim.id}")
+                AddressReservation.objects.filter(pk=current.reservation_id, released_at__isnull=True).exclude(
+                    requests__status__in=LIVE_REQUEST).update(released_at=Now(), released_by=f"pending_action:{claim.id}")
                 core.record(current.application, "provisioning_watch_ended", {"request": str(current.public_id)},
                             f"pending_action:{claim.id}")
+                core.return_stage_if_idle(current.application, f"pending_action:{claim.id}")
         ledger.finish(claim, self, status=Status.DONE, write=write)
 
 

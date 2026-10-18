@@ -57,6 +57,8 @@ def database_problem(application, request=None) -> str:
 
     if application.stage in (Stage.WITHDRAWN, Stage.CLOSED, Stage.DECLINED) or stopped(application):
         return "application_stopped"
+    if paused(application):
+        return "paused"
     if request is not None and request.stop_requested_at is not None:
         return "stop_requested"
     if verified_address(application) is None:
@@ -69,6 +71,33 @@ def database_problem(application, request=None) -> str:
     if request is not None and digest != request.prerequisite_digest:
         return "prerequisites_changed"
     return ""
+
+
+def watch_open(application) -> bool:
+    return PendingAction.objects.filter(kind=RECONCILE, subject_id=application.public_ref,
+                                        idempotency_key__contains=":watch:",
+                                        status__in=(PendingAction.Status.QUEUED, PendingAction.Status.RUNNING)).exists()
+
+
+def return_stage_if_idle(application, actor_ref: str) -> bool:
+    """023 11.11: with no live request and no open watch, the stage returns to `agreements_complete` and a new held
+    hand-off awaits release and a new approval. Inside the caller's transaction, with the application locked."""
+    from applications.stages import StageConflict, transition
+
+    from .models import LIVE_REQUEST
+
+    if ProvisioningRequest.objects.filter(application=application, status__in=LIVE_REQUEST).exists() or watch_open(application):
+        return False
+    try:
+        transition(application.pk, (Stage.PROVISIONING,), Stage.AGREEMENTS_COMPLETE, event_kind="provisioning_returned",
+                   actor_ref=actor_ref)
+    except StageConflict:
+        return False  # withdrawn, closed or already back: no new hand-off
+    n = PendingAction.objects.filter(kind=HANDOFF, subject_id=application.public_ref).count()
+    PendingAction.objects.create(kind=HANDOFF, subject_type="application", subject_id=application.public_ref,
+                                 input_ref=f"returned:{n}", idempotency_key=f"{HANDOFF}:{application.public_ref}:{n}",
+                                 status=PendingAction.Status.HELD)
+    return True
 
 
 def enqueue(kind: str, request, key: str, *, due_in: timedelta | None = None, max_attempts: int | None = None):

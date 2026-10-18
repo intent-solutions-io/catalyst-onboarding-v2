@@ -5,8 +5,8 @@ them reports a problem, so every process (web server, management command, future
 start; the same functions back a system check for ``manage.py check`` output.
 """
 
-import re
 import ipaddress
+import re
 from urllib.parse import urlsplit
 from collections.abc import Mapping
 
@@ -222,6 +222,10 @@ def provisioning_problems(settings, environ: Mapping[str, str]) -> list[str]:
     never from the environment, and empty outside `test`. In `test` the adapter must be a test fake and the domain a
     `.test` domain. No live adapter exists; building one is a pre-live gate (D-47)."""
     problems = [f"{name} may not be set from the environment" for name in PROVISIONING_TEST_ONLY if name in environ]
+    # No mail-host credential may sit in a web or worker environment (023 11.1): the live key, if ever authorized,
+    # belongs to the separate credential service only (security review of PR #53).
+    problems += [f"{name} looks like a mail-host credential and may not be in this process's environment"
+                 for name in environ if re.search(r"MXROUTE|MAIL_?HOST|X_API_KEY|DIRECTADMIN", name.upper())]
     if getattr(settings, "CATALYST_ENV", "") != "test":
         for name in PROVISIONING_TEST_ONLY:
             if getattr(settings, name, ""):

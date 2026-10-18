@@ -11,6 +11,7 @@
 - `supersede`: retire a live request after its prerequisites changed (023 11.11).
 """
 
+import re
 from datetime import timedelta
 
 from django.conf import settings
@@ -19,13 +20,13 @@ from django.db import transaction
 from django.db.models.functions import Now
 
 from applications.models import Stage
-from applications.stages import StageConflict, transition
+from applications.stages import transition
 from correspondence.models import StaffItem
 from correspondence.staff_items import clean_note, resolve_item
 from workflow.models import PendingAction
 
 from . import core, naming
-from .models import LIVE_REQUEST, AddressReservation, ProvisioningAttempt, ProvisioningEvidence, ProvisioningRequest
+from .models import AddressReservation, ProvisioningAttempt, ProvisioningEvidence, ProvisioningRequest
 
 REASON_MIN = 10
 
@@ -48,10 +49,17 @@ def actor(user) -> str:
     return f"user:{user.pk}"
 
 
+# A note goes into append-only history: anything that looks like a credential is refused, never stored (security
+# review of PR #53). Staff are told on the screen not to type one.
+CREDENTIAL_LIKE = re.compile(r"(?i)\b(pass(word|wd)?|pwd|secret|token|api[ _-]?key)\b\s*[:=]")
+
+
 def _reason(text: str) -> str:
     note = clean_note(text or "")
     if len(note) < REASON_MIN:
         raise Refused("reason_needed")
+    if CREDENTIAL_LIKE.search(note):
+        raise Refused("note_looks_like_a_credential")
     return note
 
 
@@ -63,13 +71,28 @@ def _resolve(request, reason_code: str, code: str, who: str, note: str = "") -> 
 
 # --- release ----------------------------------------------------------------------------------------------------
 
-def _free(local_part: str, domain: str) -> bool:
-    return not naming.reserved(local_part) and not AddressReservation.objects.filter(
-        local_part__iexact=local_part, domain__iexact=domain, released_at__isnull=True).exists()
+def _free(application, local_part: str, domain: str) -> bool:
+    """Not reserved, not live for anyone (this application's own held addresses included), and never an address this
+    application already tried: a provider conflict or a possible mailbox is never proposed again (QA review)."""
+    if naming.reserved(local_part):
+        return False
+    same = AddressReservation.objects.filter(local_part__iexact=local_part, domain__iexact=domain)
+    tried = same.filter(application=application, requests__attempts__step="create").exists()
+    return not same.filter(released_at__isnull=True).exists() and not tried
+
+
+def _refused(application, reason: str, dry_run: bool) -> str:
+    """023 section 5 step 1: a refusal leaves the hand-off held, with a staff item and an event."""
+    if not dry_run and reason not in ("not_held",):
+        from correspondence.staff_items import open_item
+
+        open_item(core.ITEM_BLOCKED, f"release:{application.public_ref}", application=application)
+        core.record(application, "provisioning_release_refused", {"reason": reason}, "owner_command")
+    return reason
 
 
 def release(action_id: int, activation_version: int, approval_ref: str, dry_run: bool = False) -> str:
-    """One held hand-off. Returns a reason code ("released" or why it stays held)."""
+    """One held hand-off. Returns a reason code ("released" or why it stays held). A dry run writes nothing."""
     from agreements.completion import fresh_read_problem, prerequisites
     from applications.models import Application
 
@@ -77,34 +100,38 @@ def release(action_id: int, activation_version: int, approval_ref: str, dry_run:
     application = Application.objects.filter(public_ref=action.subject_id).first()
     if application is None:
         return "application_not_found"
+    domain = settings.CATALYST_PROVISIONING_DOMAIN
+    if not domain:
+        return "no_domain_configured"
     problem = fresh_read_problem(application)  # B1: outside any transaction (023 11.4)
     if problem:
-        return problem
+        return problem  # an integrity hold has already opened its own staff item
     with transaction.atomic():
         application, _ = core.lock(application.pk)
         action = PendingAction.objects.select_for_update(of=("self",)).get(pk=action_id)
         if action.status != PendingAction.Status.HELD:
             return "not_held"
         if application.stage != Stage.AGREEMENTS_COMPLETE:
-            return "stage_not_agreements_complete"
-        if core.paused(application):
-            return "paused"
+            return _refused(application, "stage_not_agreements_complete", dry_run)
         problem = core.database_problem(application)
         if problem:
-            return problem
+            return _refused(application, problem, dry_run)
         _, digest, _ = prerequisites(application)
-        if action.input_ref != f"agreements:{digest}":
-            core.record(application, "provisioning_release_refused", {"reason": "prerequisites_changed"}, "owner_command")
-            return "prerequisites_changed"
-        domain = settings.CATALYST_PROVISIONING_DOMAIN
-        reservation = AddressReservation.objects.filter(application=application, released_at__isnull=True).first()
+        # The P4 hand-off is bound to the agreements it saw; a returned hand-off (after a superseded request) is
+        # re-checked against today's prerequisites and always needs a new approval.
+        if action.input_ref.startswith("agreements:") and action.input_ref != f"agreements:{digest}":
+            return _refused(application, "prerequisites_changed", dry_run)
+        # Reuse only a reviewed exception not yet used by any request; otherwise propose a fresh address.
+        reservation = AddressReservation.objects.filter(application=application, released_at__isnull=True,
+                                                        requests__isnull=True).first()
         if reservation is None:
             base = naming.proposal(application.display_name)
-            local = next((c for c in naming.candidates(base) if _free(c, domain)), None) if base else None
+            local = next((c for c in naming.candidates(base) if _free(application, c, domain)), None) if base else None
             if local is None:
-                from correspondence.staff_items import open_item
+                if not dry_run:
+                    from correspondence.staff_items import open_item
 
-                open_item(core.ITEM_NAME_REVIEW, f"naming:{application.public_ref}", application=application)
+                    open_item(core.ITEM_NAME_REVIEW, f"naming:{application.public_ref}", application=application)
                 return "name_needs_review"
             if dry_run:
                 return "released"
@@ -123,6 +150,9 @@ def release(action_id: int, activation_version: int, approval_ref: str, dry_run:
                          "approval_ref": approval_ref}, actor_ref="owner_command")
         PendingAction.objects.filter(pk=action.pk).update(status=PendingAction.Status.DONE, completed_at=Now(),
                                                           updated_at=Now(), last_error="released")
+        for open_one in StaffItem.objects.filter(reason_code=core.ITEM_BLOCKED, dedupe_key=f"release:{application.public_ref}",
+                                                 status=StaffItem.Status.OPEN):
+            resolve_item(open_one, code="released", actor_ref="owner_command")
     return "released"
 
 
@@ -141,10 +171,11 @@ def reserve_exception(application_id: int, local_part: str, user, reason: str) -
         application = Application.objects.select_for_update(of=("self",)).get(pk=application_id)
         if application.stage != Stage.AGREEMENTS_COMPLETE:
             raise Refused("stage_not_agreements_complete")
-        if AddressReservation.objects.filter(application=application, released_at__isnull=True).exists():
+        if AddressReservation.objects.filter(application=application, released_at__isnull=True,
+                                             requests__isnull=True).exists():
             raise Refused("already_reserved")
         domain = settings.CATALYST_PROVISIONING_DOMAIN
-        if not _free(local, domain):
+        if not _free(application, local, domain):
             raise Refused("address_taken")
         reservation = AddressReservation.objects.create(application=application, local_part=local, domain=domain,
                                                         basis=AddressReservation.Basis.REVIEWED_EXCEPTION,
@@ -250,17 +281,27 @@ def confirm_found_mailbox(request_id: int, user, decision: str, reason: str) -> 
                     actor(user), actor_type="staff")
 
 
-MAILBOX_MAY_EXIST = (ProvisioningAttempt.Outcome.SUCCEEDED, ProvisioningAttempt.Outcome.UNKNOWN,
-                     ProvisioningAttempt.Outcome.FOUND_BY_EVIDENCE, ProvisioningAttempt.Outcome.SENDING)
+# A create attempt after which a mailbox may exist for the address: anything but a definite rejection, or a conflict
+# found before our create was ever sent (QA review: unknown outcomes resolved to not-created or conflict included).
+FOREIGN_BEFORE_OURS = ("present_before_create",)
+
+
+def _mailbox_may_exist(request) -> bool:
+    attempts = request.attempts.filter(step="create").exclude(outcome=ProvisioningAttempt.Outcome.REJECTED).exclude(
+        outcome=ProvisioningAttempt.Outcome.CONFLICT, code__in=FOREIGN_BEFORE_OURS)
+    return attempts.exists() or request.status in ("found_by_evidence", "created", "verify_uncertain", "verified")
+
+
+def _open_actions(request) -> bool:
+    return PendingAction.objects.filter(input_ref=str(request.public_id), status__in=(
+        PendingAction.Status.QUEUED, PendingAction.Status.RUNNING, PendingAction.Status.HELD)).exclude(
+        idempotency_key__contains=":watch:").exists()
 
 
 def supersede(request_id: int, user, reason: str) -> None:
     """023 11.11: retire a live request (its prerequisites changed, or a conflict needs a new address). The
-    reservation stays held, and a bounded watch runs, while a mailbox may exist for it; otherwise it is released.
-    With no live request left the stage returns to `agreements_complete`, and a new held hand-off awaits release and
-    a new approval."""
-    from agreements.completion import prerequisites
-
+    reservation stays held, and a bounded watch runs, while a mailbox may exist for it; otherwise it is released. The
+    stage returns, with a new held hand-off, only when no live request and no watch remain."""
     require(user, "operate_provisioning")
     note = _reason(reason)
     request = ProvisioningRequest.objects.get(pk=request_id)
@@ -268,10 +309,9 @@ def supersede(request_id: int, user, reason: str) -> None:
         application, request = core.lock(request.application_id, request.pk)
         if request.status in ("active", "superseded", "stopped", "recovered_after_stop"):
             raise Refused("request_closed")
-        if request.status in ("create_pending", "create_uncertain"):
-            raise Refused("create_in_flight")  # reconcile first; never retire under an exchange
-        may_exist = request.attempts.filter(step="create", outcome__in=MAILBOX_MAY_EXIST).exists() or \
-            request.status in ("found_by_evidence", "created", "verify_uncertain", "verified")
+        if _open_actions(request):
+            raise Refused("work_in_flight")  # a create, reconcile or verify is still due: let it settle first
+        may_exist = _mailbox_may_exist(request)
         core.set_status(request, "superseded")
         if may_exist:
             core.enqueue(core.RECONCILE, request, f"{core.RECONCILE}:{request.public_id}:watch:0",
@@ -279,19 +319,31 @@ def supersede(request_id: int, user, reason: str) -> None:
         else:
             AddressReservation.objects.filter(pk=request.reservation_id, released_at__isnull=True).update(
                 released_at=Now(), released_by=actor(user))
-        for code in (core.ITEM_CONFLICT, core.ITEM_FAILED, core.ITEM_BLOCKED, core.ITEM_CHECKLIST):
+        for code in (core.ITEM_CONFLICT, core.ITEM_FAILED, core.ITEM_BLOCKED, core.ITEM_CHECKLIST,
+                     core.ITEM_CONFIRM_FOUND):
             _resolve(request, code, "superseded", actor(user), note)
-        if not ProvisioningRequest.objects.filter(application=application,
-                                                  status__in=LIVE_REQUEST).exists():
-            try:
-                transition(application.pk, (Stage.PROVISIONING,), Stage.AGREEMENTS_COMPLETE,
-                           event_kind="provisioning_superseded", data={"request": str(request.public_id)},
-                           actor_type="staff", actor_ref=actor(user))
-            except StageConflict:
-                pass
-            _, digest, _ = prerequisites(application)
-            n = PendingAction.objects.filter(kind=core.HANDOFF, subject_id=application.public_ref).count()
-            PendingAction.objects.create(kind=core.HANDOFF, subject_type="application", subject_id=application.public_ref,
-                                         input_ref=f"agreements:{digest}",
-                                         idempotency_key=f"{core.HANDOFF}:{application.public_ref}:{n}",
-                                         status=PendingAction.Status.HELD)
+        core.record(application, "provisioning_superseded", {"request": str(request.public_id), "watched": may_exist},
+                    actor(user), actor_type="staff")
+        core.return_stage_if_idle(application, actor(user))
+
+
+def release_address(request_id: int, user, reason: str) -> None:
+    """After a superseded request's watch found a mailbox (or ended), staff release its address, with a reason, so the
+    application can move on to another. Releasing is safe: the next create anywhere reads the address first and never
+    adopts an existing mailbox. A mailbox of ours found late keeps its revocation obligations (5B.3)."""
+    require(user, "operate_provisioning")
+    note = _reason(reason)
+    request = ProvisioningRequest.objects.get(pk=request_id)
+    with transaction.atomic():
+        application, request = core.lock(request.application_id, request.pk)
+        if request.status not in ("superseded", "recovered_after_stop", "stopped", "conflict"):
+            raise Refused("request_still_live")
+        if core.watch_open(application):
+            raise Refused("watch_open")
+        if not AddressReservation.objects.filter(pk=request.reservation_id, released_at__isnull=True).update(
+                released_at=Now(), released_by=actor(user)):
+            raise Refused("already_released")
+        _resolve(request, core.ITEM_LATE_MAILBOX, "address_released", actor(user), note)
+        core.record(application, "provisioning_address_released", {"request": str(request.public_id)}, actor(user),
+                    actor_type="staff")
+        core.return_stage_if_idle(application, actor(user))

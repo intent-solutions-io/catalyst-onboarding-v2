@@ -5,7 +5,7 @@
 next calls:
 
 - "create_unknown": the create lands but the answer is lost; "create_lost": no create, an unknown answer;
-- "create_conflict", "create_rejected";
+- "create_conflict", "create_rejected"; "create_429": the create lands, then a gateway throttles the answer;
 - "read_500": MXroute's failed or ambiguous lookup; "read_500_after_create": the same, only once a create was made;
 - "create_appears_first": someone creates the address in the panel just before our create.
 """
@@ -42,7 +42,7 @@ class FakeMailHost(MailHost):
         key = (domain.lower(), local_part.lower())
         if self._fault("create_appears_first"):
             self.mailboxes[key] = Mailbox(local_part, domain, 512, 50, False)
-        fault = self._fault("create_unknown", "create_lost", "create_conflict", "create_rejected")
+        fault = self._fault("create_unknown", "create_lost", "create_conflict", "create_rejected", "create_429")
         if fault == "create_rejected":
             raise AdapterError("VALIDATION_ERROR", sent=True, status=400)
         if key in self.mailboxes or fault == "create_conflict":
@@ -50,5 +50,6 @@ class FakeMailHost(MailHost):
         if fault == "create_lost":
             raise AdapterError("timeout", sent=True, status=None)
         self.mailboxes[key] = Mailbox(local_part, domain, quota_mb, send_limit, False)
-        if fault == "create_unknown":
-            raise AdapterError("timeout", sent=True, status=None)
+        if fault in ("create_unknown", "create_429"):  # the create landed; the answer was lost or throttled
+            raise AdapterError("RATE_LIMITED" if fault == "create_429" else "timeout", sent=True,
+                               status=429 if fault == "create_429" else None, retry_after=1)

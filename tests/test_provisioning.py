@@ -235,9 +235,10 @@ def test_p5_09_a_500_on_the_reconcile_read_is_unknown_never_absent(pv, monkeypat
     app, request = approved(pv, monkeypatch)
     FakeMailHost.faults.extend(["create_unknown", "read_500_after_create"])
     run_worker()
+    assert "read_500_after_create" not in FakeMailHost.faults  # the 500 fired on the reconcile read
     assert not ProvisioningAttempt.objects.filter(outcome="not_created").exists()
     request.refresh_from_db()
-    assert request.status in ("create_uncertain", "found_by_evidence")
+    assert request.status == "found_by_evidence"  # the retried read decided; the 500 never counted as absent
 
 
 def test_p5_09_a_mailbox_present_before_our_create_is_a_conflict_and_never_adopted(pv, monkeypatch):
@@ -288,7 +289,7 @@ def test_p5_08_a_crash_after_the_exchange_is_reconciled_never_resent(pv, monkeyp
     run_worker()
     assert [c[0] for c in FakeMailHost.calls].count("create") == 1
     request.refresh_from_db()
-    assert request.status in ("found_by_evidence", "verified")
+    assert request.status == "found_by_evidence"  # reconciled; staff confirm before verification
 
 
 # --- TEST-P5-11: the checklist path -----------------------------------------------------------------------------
@@ -383,3 +384,170 @@ def test_p5_23_a_real_adapter_domain_or_environment_value_is_refused(settings):
     with pytest.raises(adapter.AdapterError, match="no_adapter_configured"):
         adapter.host()
     assert not hasattr(adapter.MailHost, "delete")  # no delete, suspend or domain operation exists at all
+
+
+
+# --- PR #53 review regressions --------------------------------------------------------------------------------------
+
+def test_review_a_429_after_the_create_landed_is_unknown_never_a_rejection(pv, monkeypatch):
+    app, request = approved(pv, monkeypatch)
+    FakeMailHost.faults.append("create_429")
+    run_worker()
+    request.refresh_from_db()
+    assert request.status == "found_by_evidence"
+    assert not ProvisioningAttempt.objects.filter(outcome="rejected").exists()
+
+
+def test_review_a_definite_rejection_goes_to_staff_and_frees_the_address_without_a_watch(pv, monkeypatch):
+    app, request = approved(pv, monkeypatch)
+    FakeMailHost.faults.append("create_rejected")
+    run_worker()
+    request.refresh_from_db()
+    assert request.status == "failed_needs_staff" and items(app, core.ITEM_FAILED).count() == 1
+    services.supersede(request.pk, pv.op1, "The host rejected the request definitively")
+    assert AddressReservation.objects.get(pk=request.reservation_id).released_at is not None
+    assert Application.objects.get(pk=app.pk).stage == "agreements_complete"
+    assert PendingAction.objects.filter(kind="provision", status="held", input_ref__startswith="returned:").count() == 1
+
+
+def test_review_a_failed_absent_read_sends_nothing_and_retries(pv, monkeypatch):
+    app, request = approved(pv, monkeypatch)
+    FakeMailHost.faults.append("read_500")
+    run_worker()
+    outcomes = list(ProvisioningAttempt.objects.order_by("id").values_list("outcome", "code"))
+    assert outcomes[0] == ("not_created", "absent_read_server_error") and outcomes[-1][0] == "succeeded"
+    assert [c[0] for c in FakeMailHost.calls].count("create") == 1
+    request.refresh_from_db()
+    assert request.status == "verified"
+
+
+@pytest.mark.parametrize("change", ["absent", "quota", "suspended"])
+def test_p5_12_verification_needs_the_exact_mailbox_and_never_passes_on_anything_else(pv, monkeypatch, change):
+    from provisioning import handlers
+    from provisioning.adapter import Mailbox
+
+    app, request = approved(pv, monkeypatch)
+    real = handlers.CreateMailbox._result
+
+    def tamper(self, claim, req, attempt, result):
+        real(self, claim, req, attempt, result)
+        key = ("example.test", "ada.example")
+        if change == "absent":
+            FakeMailHost.mailboxes.pop(key)
+        else:
+            box = FakeMailHost.mailboxes[key]
+            FakeMailHost.mailboxes[key] = Mailbox(box.local_part, box.domain, 1 if change == "quota" else box.quota_mb,
+                                                  box.send_limit, change == "suspended")
+    monkeypatch.setattr(handlers.CreateMailbox, "_result", tamper)
+    run_worker()
+    request.refresh_from_db()
+    assert request.status == "failed_needs_staff" and not ProvisioningEvidence.objects.filter(request=request).exists()
+
+
+def test_review_a_prerequisite_broken_in_the_database_then_repaired_releases_again_on_a_fresh_address(pv, monkeypatch):
+    app, request = approved(pv, monkeypatch)
+    bounce = StaffItem.objects.create(application=app, reason_code="hard_bounce", dedupe_key=f"inbound:{request.public_id}")
+    run_worker()
+    request.refresh_from_db()
+    assert request.status == "failed_needs_staff" and not FakeMailHost.calls  # blocked at the boundary
+    services.supersede(request.pk, pv.op1, "Delivery block found before the create")
+    assert release() == {"dry_run": False, "hard_bounce_open": 1, "released": 0}
+    assert items(app, core.ITEM_BLOCKED).exists()  # a release refusal leaves a staff item
+    StaffItem.objects.filter(pk=bounce.pk).update(status="resolved")
+    assert release()["released"] == 1  # the returned hand-off is checked against today's prerequisites
+    new = request_of(app)
+    assert new.pk != request.pk and new.status == "awaiting_approval"
+    assert new.reservation.local_part == "ada.example"  # never tried at the host, so the same address is fine
+
+
+def test_review_after_a_late_mailbox_the_stage_waits_for_the_watch_and_staff_release_the_address(pv, monkeypatch):
+    app, request = approved(pv, monkeypatch)
+    FakeMailHost.faults.append("create_unknown")
+    run_worker()
+    services.confirm_found_mailbox(request_of(app).pk, pv.op1, "conflict", "Not provably the one we requested")
+    services.supersede(request.pk, pv.op1, "A new address will be chosen")
+    assert Application.objects.get(pk=app.pk).stage == "provisioning"  # 023 11.11: not while a watch is open
+    run_worker()
+    assert items(app, core.ITEM_LATE_MAILBOX).count() == 1
+    assert AddressReservation.objects.get(pk=request.reservation_id).released_at is None
+    with pytest.raises(services.Refused, match="reason_needed"):
+        services.release_address(request.pk, pv.op1, "ok")
+    services.release_address(request.pk, pv.op1, "Late mailbox recorded for revocation")
+    assert Application.objects.get(pk=app.pk).stage == "agreements_complete"
+    assert release()["released"] == 1
+    assert request_of(app).reservation.local_part == "ada.example2"  # a tried address is never proposed again
+
+
+def test_review_two_applicants_with_the_same_name_never_share_an_address(pv, monkeypatch):
+    from tests.test_outbound import verified_application
+
+    other = verified_application(email="ada.second@example.test")
+    AddressReservation.objects.create(application=other, local_part="ada.example", domain="example.test",
+                                      basis="naming_rule")
+    app = complete(pv, monkeypatch)
+    release()
+    assert request_of(app).reservation.local_part == "ada.example2"
+
+
+def test_review_serialization_one_open_create_per_request_in_the_database(pv, monkeypatch):
+    from django.db import IntegrityError, transaction
+
+    app, request = approved(pv, monkeypatch)
+    ProvisioningAttempt.objects.create(request=request, step="create", series=0)
+    with pytest.raises(IntegrityError, match="provisioning_one_open_create"), transaction.atomic():
+        ProvisioningAttempt.objects.create(request=request, step="create", series=1)
+
+
+def test_review_pause_is_part_of_every_effect_boundary_and_a_dry_run_writes_nothing(pv, monkeypatch):
+    from workflow.models import AutomationPause
+
+    app = complete(pv, monkeypatch)
+    Application.objects.filter(pk=app.pk).update(display_name="Cher")
+    out = StringIO()
+    call_command("activate_provisioning", "--activation-version", "1", "--approval-ref", "D-47", "--dry-run", stdout=out)
+    assert json.loads(out.getvalue())["name_needs_review"] == 1 and not StaffItem.objects.filter(application=app).exists()
+    AutomationPause.objects.create(subject_type="application", subject_id=app.public_ref, reason="synthetic", actor_ref="t")
+    assert core.database_problem(Application.objects.get(pk=app.pk)) == "paused"
+
+
+def test_review_credential_like_notes_and_mail_host_keys_in_the_environment_are_refused(pv, monkeypatch, settings):
+    settings.CATALYST_PROVISIONING_METHOD = "checklist"
+    app, request = approved(pv, monkeypatch)
+    with pytest.raises(services.Refused, match="note_looks_like_a_credential"):
+        services.record_checklist_creation(request.pk, pv.op1, "Created it, password: Hunter2-synthetic")
+    problems = guards.provisioning_problems(settings, {"MXROUTE_API_KEY": "x", "MAIL_HOST_TOKEN": "y"})
+    assert sum("looks like a mail-host credential" in p for p in problems) == 2
+    from provisioning.adapter import AdapterError
+    assert AdapterError("the body had ada.example@example.test in it", sent=True).code == "adapter_error"
+
+
+def test_review_the_generated_password_reaches_no_log_or_error(pv, monkeypatch, caplog):
+    import logging
+
+    caplog.set_level(logging.DEBUG)
+    app, request = approved(pv, monkeypatch)
+    FakeMailHost.faults.append("create_unknown")
+    run_worker()
+    password = FakeMailHost.passwords_seen[0]
+    assert password not in caplog.text
+    assert all(password not in str(e) for e in PendingAction.objects.values_list("last_error", flat=True))
+
+
+def test_review_a_conflict_after_our_own_unknown_create_is_reconciled_and_new_series_are_bounded(pv, monkeypatch, settings):
+    app, request = approved(pv, monkeypatch)
+    FakeMailHost.faults.extend(["create_lost", "create_conflict"])
+    run_worker()
+    codes = list(ProvisioningAttempt.objects.filter(step="create").order_by("id").values_list("outcome", "code"))
+    assert ("not_created", "conflict_after_ours") in codes  # reconciled by reading, never called foreign at once
+    request.refresh_from_db()
+    assert request.status == "verified"
+
+
+def test_review_creates_that_keep_coming_back_not_created_stop_at_the_bound(pv, monkeypatch, settings):
+    settings.CATALYST_PROVISIONING_ATTEMPTS = 2
+    app, request = approved(pv, monkeypatch)
+    FakeMailHost.faults.extend(["create_lost", "create_lost"])
+    run_worker()
+    request.refresh_from_db()
+    assert request.status == "failed_needs_staff" and items(app, core.ITEM_FAILED).exists()
+    assert [c[0] for c in FakeMailHost.calls].count("create") == 2
