@@ -156,7 +156,7 @@ first-generation repository are lessons for later lanes, not a description of th
 
 | Measure | Before (main `2e48d9e`) | After |
 |---|---|---|
-| Tests | 919 passed | 919 passed |
+| Tests | 919 passed; 0 failed, skipped or xfailed (the run fails on any skip) | the same |
 | pytest time | 1019 s | 759 s |
 | Wall time, including container start and dependency install | 1052 s | 790 s |
 | Setup phases of 0.5 s or more, summed | 15 s | 13 s |
@@ -165,12 +165,15 @@ first-generation repository are lessons for later lanes, not a description of th
 
 **Cause.** The fixture servers (SMTP, IMAP, evidence HTTPS, fake Documenso) ran `serve_forever` with its default
 0.5 s shutdown poll. `stop()` waits for that poll, so each test with two or three servers spent about 1.4 s in
-teardown. The privileged database reset itself costs about 0.12 s per test (measured: 40 resets took 4.8 s):
+teardown. The privileged database reset itself costs about 0.12 s per test: 40 resets took 4.8 s in total. Summed over
+those 40 resets, the timed parts were:
 
 - the owner connection, 0.47 s;
 - waiting for other sessions to close, 0.20 s;
 - the truncate, 2.9 s;
 - the protection re-check, 1.1 s.
+
+That leaves 0.13 s untimed: the release of the test's own connections and threads.
 
 **Change.** A 0.02 s poll interval in the four fixture servers. Every assertion and every database and role check
 is unchanged.
@@ -182,11 +185,17 @@ is unchanged.
 - killed-worker and killed-collector subprocess recovery, 6 to 9 s each;
 - start-up refusal subprocesses, 47 s in total.
 
+The table counts only phases of 0.5 s or more. Its rows do not sum to the 260 s drop in pytest time.
+
 CI on the last measured head took 15 min 51 s for the runtime job (run 39068959123, before this change). The CI
-figure after this change is recorded on its pull request. The 5-minute target remains unmet.
-**No lane is enforced in CI today**: the single job runs every step on every PR (markdown, index,
-agent definitions, secret scan), so the lane table is a design for when code arrives. CI run times
-after this change are recorded in `010` section 2.
+figure after this change is recorded on its pull request (#40). The 5-minute target remains unmet.
+
+**Lanes in CI today:** two jobs run on every pull request:
+
+- the runtime job, the full suite in the pinned containers;
+- the documentation job, Markdown and index.
+
+No smaller lane is selected by change type yet. The lane table above is the design for that.
 
 ### 5.5 GitHub Actions rules
 
