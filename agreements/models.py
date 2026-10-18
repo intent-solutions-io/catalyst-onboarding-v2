@@ -90,11 +90,20 @@ class AgreementInstance(models.Model):
     issue_status = models.CharField(max_length=24, default="held")
     signing_status = models.CharField(max_length=32, default="not_started")
     custody_status = models.CharField(max_length=24, default="not_due")
+    # D-42: a stop or cancel requested while a provider exchange was in flight. Set once; the exchange's result then
+    # routes to cancellation instead of continuing.
+    cancel_requested_at = models.DateTimeField(null=True, blank=True)
+    # D-43: a controlled new generation replaced this instance for future progression. The verified history stays as
+    # it was; only eligibility changes. Set once.
+    replaced_at = models.DateTimeField(null=True, blank=True)
+    replacement_reason = models.CharField(max_length=40, blank=True, default="", db_default="")
     created_at = models.DateTimeField(db_default=Now())
     updated_at = models.DateTimeField(db_default=Now())
 
     class Meta:
-        permissions = [("decide_uncertain_agreement",
+        permissions = [("resolve_agreement_integrity",
+                        "Resolve an agreement-integrity hold: recheck, continue on fresh evidence, or replace (D-43)"),
+                       ("decide_uncertain_agreement",
                         "Decide an agreement step whose provider outcome is unknown (decision-maker; P4-D-8)"),
                        ("manage_agreements",
                         "Cancel, reissue or stop an applicant's agreements (decision-maker; P4-D-9, P4-D-18, P4-D-20)")]
@@ -102,9 +111,14 @@ class AgreementInstance(models.Model):
             models.CheckConstraint(condition=Q(issue_status__in=ISSUE), name="agreement_issue_status_valid"),
             models.CheckConstraint(condition=Q(signing_status__in=SIGNING), name="agreement_signing_status_valid"),
             models.CheckConstraint(condition=Q(custody_status__in=CUSTODY), name="agreement_custody_status_valid"),
-            models.UniqueConstraint(fields=["application", "agreement_type"], condition=~Q(issue_status__in=NOT_LIVE),
+            models.UniqueConstraint(fields=["application", "agreement_type"],
+                                    condition=~Q(issue_status__in=NOT_LIVE) & Q(replaced_at__isnull=True),
                                     name="agreement_one_live_per_type"),
             models.UniqueConstraint(fields=["external_key"], name="agreement_external_key_unique"),
+            models.CheckConstraint(  # D-43: set together, with the one known reason code
+                condition=(Q(replaced_at__isnull=True, replacement_reason="")
+                           | Q(replaced_at__isnull=False, replacement_reason="integrity_replaced")),
+                name="agreement_replacement_consistent"),
             models.UniqueConstraint(fields=["envelope_id"], condition=~Q(envelope_id=""), name="agreement_envelope_unique"),
         ]
 

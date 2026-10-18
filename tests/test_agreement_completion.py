@@ -249,7 +249,8 @@ def test_p4_31_a_stale_verification_or_changed_recipients_never_advance(h, monke
         reads_now()
         assert nda(Application.objects.get(pk=app.pk)).signing_status == "signing_complete_verified"
         assert not AgreementInstance.objects.filter(application=app, agreement_type__key="user_agreement").exists()
-        assert items(app, "agreement_recipients_changed").count() == 1
+        assert items(app, "agreement_integrity_hold").count() == 1  # D-43: reliance on the NDA is held
+        assert not completion.gate_passed(nda(Application.objects.get(pk=app.pk)))
     finally:
         reset_gate(h)
 
@@ -374,21 +375,29 @@ def test_p4_18_reads_honour_a_429_and_a_down_provider_goes_to_staff(h, monkeypat
     assert nda(app).signing_status == "not_started" and instance.issue_status == "issued"
 
 
-def test_p4_22_a_pause_holds_reads_and_resume_makes_one_read_not_a_burst(h, monkeypatch):
+def test_p4_22_reads_run_while_paused_but_the_sequence_waits_and_resume_does_not_burst(h, monkeypatch):
+    """D-44: read-only reconciliation is protective and runs while automation is paused; what it may lead to (the
+    next agreement) is automated and waits for the pause to end. Ten hints make one read, not ten."""
     app = issued(h, monkeypatch)
     instance = nda(app)
-    pause = AutomationPause.objects.create(subject_type="application", subject_id=app.public_ref, reason="synthetic",
-                                           actor_ref="t")
-    h.fake.sign(instance.envelope_id)
-    gets = len(h.fake.calls("GET", f"/envelope/{instance.envelope_id}"))
-    for _ in range(10):
-        post(h.fake.webhook(instance.envelope_id))
-    reads_now()
-    assert len(h.fake.calls("GET", f"/envelope/{instance.envelope_id}")) == gets  # nothing read while paused
-    pause.delete()
-    reads_now()
-    assert len(h.fake.calls("GET", f"/envelope/{instance.envelope_id}")) == gets + 1
-    assert nda(Application.objects.get(pk=app.pk)).signing_status == "signing_complete_verified"
+    signing_gate(h)
+    try:
+        pause = AutomationPause.objects.create(subject_type="application", subject_id=app.public_ref, reason="synthetic",
+                                               actor_ref="t")
+        h.fake.sign(instance.envelope_id)
+        gets = len(h.fake.calls("GET", f"/envelope/{instance.envelope_id}"))
+        for _ in range(10):
+            post(h.fake.webhook(instance.envelope_id))
+        run_worker()
+        assert len(h.fake.calls("GET", f"/envelope/{instance.envelope_id}")) == gets + 1  # one read, while paused
+        assert nda(Application.objects.get(pk=app.pk)).signing_status == "signing_complete_verified"
+        assert PendingAction.objects.get(kind="advance_agreements").status == "queued"  # the sequence waits
+        assert not AgreementInstance.objects.filter(application=app, agreement_type__key="user_agreement").exists()
+        pause.delete()
+        run_worker()
+        assert AgreementInstance.objects.filter(application=app, agreement_type__key="user_agreement").count() == 1
+    finally:
+        reset_gate(h)
 
 
 def test_p4_20_webhook_secrets_are_test_only_and_at_most_two():
@@ -426,24 +435,31 @@ def test_p4_18_the_sweep_survives_a_provider_outage(h, monkeypatch, settings):
     assert (nxt.due_at - timezone.now()).total_seconds() > 60
 
 
-def test_p4_32_a_stop_waits_for_a_running_exchange_and_a_late_distribute_is_cancelled_again(h, monkeypatch):
+def test_p4_32_a_stop_during_a_running_distribute_is_recorded_and_the_sent_envelope_is_cancelled(h, monkeypatch):
+    """D-42, with separate connections: while the worker's distribute is in flight, staff stop agreements from another
+    thread (its own database connection). The stop is recorded, not refused; the exchange records that it sent the
+    envelope, then routes it to the reconciled cancel. The provider's cancellation email is suppressed (D-41)."""
     app = admitted(h, monkeypatch)
     approve(h)
     activate()
     seen = {}
 
     def during_distribute(self, claim, result):
-        with pytest.raises(services.Refused, match="provider_step_in_progress"):
-            services.stop_agreements(app.pk, h.agreement_decider, "withdrawn")
-        instance = nda(Application.objects.get(pk=app.pk))
-        AgreementInstance.objects.filter(pk=instance.pk).update(issue_status="cancelled")  # as if a cancel had closed it
-        seen["instance"] = instance
+        def stop():
+            seen["stop"] = services.stop_agreements(app.pk, h.agreement_decider, "on_hold")
+        h.committed.thread(stop).join(30)
     from agreements import handlers
     monkeypatch.setattr(handlers.DistributeAgreement, "after_call", during_distribute)
     run_worker()
-    instance = AgreementInstance.objects.get(pk=seen["instance"].pk)
-    assert instance.issue_status == "cancelled" and h.fake.envelopes[instance.envelope_id]["status"] == "CANCELLED"
-    assert len(h.fake.calls("POST", "/envelope/cancel")) == 1  # the envelope that went out was cancelled
+    assert seen["stop"] == ["cancel_requested"]
+    instance = AgreementInstance.objects.get(application=app)
+    assert instance.cancel_requested_at is not None and instance.issue_status == "cancelled"
+    assert h.fake.envelopes[instance.envelope_id]["status"] == "CANCELLED"
+    assert len(h.fake.calls("POST", "/envelope/distribute")) == 1 and len(h.fake.calls("POST", "/envelope/cancel")) == 1
+    kinds = [m["kind"] for m in h.fake.emails]
+    assert kinds == ["signing_request"]  # the request went out; no cancellation email followed it
+    assert h.fake.envelopes[instance.envelope_id]["_cancel_reason"] == "This agreement request was withdrawn."
+    assert app.events.filter(kind="agreement_cancel_after_send").exists()
 
 
 def test_p4_06_an_advance_that_cannot_issue_opens_a_staff_item(h, monkeypatch):

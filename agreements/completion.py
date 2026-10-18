@@ -27,6 +27,7 @@ from django.db.models import Value
 from django.db.models.functions import Greatest, Least, Now
 
 from applications.models import Application, Stage
+from correspondence.models import StaffItem
 from correspondence.staff_items import event, open_item
 from workflow import ledger
 from workflow.models import AutomationPause, PendingAction
@@ -56,6 +57,9 @@ TEMPLATE_MISSING = "agreement_template_missing"
 GATE_READ_FAILED = "agreement_gate_read_failed"
 
 ADVANCE_FAILED = "agreement_advance_failed"
+INTEGRITY_HOLD = "agreement_integrity_hold"  # D-43: blocks progression and P5 until a permissioned resolution
+REISSUE_NEEDS_DECISION = "agreement_reissue_needs_decision"  # D-42: never reissued without a decision-maker
+CLOSED_WATCH_ENDED = "agreement_closed_watch_ended"  # D-44: bounded follow-up of a closed instance ended unresolved
 STOPPED_EVENT = "agreements_stopped"
 RESUMED_EVENT = "agreements_resumed"
 
@@ -117,7 +121,7 @@ def _due(instance, due_in: timedelta | None):
     return due
 
 
-def enqueue_read(instance, *, due_in: timedelta | None = None) -> PendingAction:
+def enqueue_read(instance, *, due_in: timedelta | None = None, closed: bool = False) -> PendingAction:
     """Inside the caller's transaction with the instance locked. Coalesced onto a queued read, which is brought
     forward when this one is due sooner (a webhook advances the sweep's read); a running read gets one follow-up, so
     a hint arriving mid-read is never lost (4B.2 review). At most one queued read per instance, whatever the flood."""
@@ -127,9 +131,10 @@ def enqueue_read(instance, *, due_in: timedelta | None = None) -> PendingAction:
         PendingAction.objects.filter(pk=pending.pk).update(due_at=Least("due_at", due))
         return pending
     n = PendingAction.objects.filter(kind=READ, input_ref=str(instance.public_id)).count() + 1
+    mode = "closed:" if closed else ""
     return PendingAction.objects.create(
         kind=READ, subject_type="application", subject_id=instance.application.public_ref,
-        input_ref=str(instance.public_id), idempotency_key=f"{READ}:{instance.public_id}:{n}", due_at=due,
+        input_ref=str(instance.public_id), idempotency_key=f"{READ}:{instance.public_id}:{mode}{n}", due_at=due,
         max_attempts=settings.CATALYST_AGREEMENT_ATTEMPTS)
 
 
@@ -137,15 +142,33 @@ def _sweep_on(instance) -> None:
     enqueue_read(instance, due_in=timedelta(seconds=settings.CATALYST_AGREEMENT_READ_INTERVAL_SECONDS))
 
 
-def enqueue_advance(application) -> PendingAction:
+def enqueue_advance(application, authorization: str = "") -> PendingAction:
+    """`authorization` ("resume:<event>") is a decision-maker's resume: only then may a type whose earlier instance was
+    cancelled or superseded be issued again (D-42). A queued advance takes the authorization over."""
     pending = PendingAction.objects.filter(kind=ADVANCE, subject_id=application.public_ref, status=Status.QUEUED).first()
     if pending is not None:
+        if authorization:
+            PendingAction.objects.filter(pk=pending.pk).update(input_ref=authorization, updated_at=Now())
         return pending
     n = PendingAction.objects.filter(kind=ADVANCE, subject_id=application.public_ref).count() + 1
     return PendingAction.objects.create(
         kind=ADVANCE, subject_type="application", subject_id=application.public_ref,
-        input_ref=str(application.public_ref), idempotency_key=f"{ADVANCE}:{application.public_ref}:{n}",
+        input_ref=authorization or str(application.public_ref), idempotency_key=f"{ADVANCE}:{application.public_ref}:{n}",
         max_attempts=settings.CATALYST_AGREEMENT_ATTEMPTS)
+
+
+def integrity_hold_open(instance) -> bool:
+    return StaffItem.objects.filter(reason_code=INTEGRITY_HOLD, dedupe_key=f"integrity:{instance.public_id}",
+                                    status=StaffItem.Status.OPEN).exists()
+
+
+def open_integrity_hold(instance, reason: str, claim_id=None, actor: str = "") -> None:
+    """D-43: the verified fact stays as recorded; this separate hold blocks relying on it."""
+    if not integrity_hold_open(instance):
+        open_item(INTEGRITY_HOLD, f"integrity:{instance.public_id}", application=instance.application,
+                  pending_action_id=claim_id)
+        event(instance.application, "agreement_integrity_hold", {"instance": str(instance.public_id), "reason": reason},
+              actor_ref=actor)
 
 
 def enqueue_cancel_instance(instance) -> PendingAction:
@@ -168,7 +191,9 @@ def _pause(application, reason: str) -> None:  # P4-D-9: decline, expiry and a p
 class ReadAgreement:
     kind = READ
     redeliverable = True  # it reads only
-    automated = True  # a pause stops it; resuming runs the one coalesced read, never a burst
+    # D-44: read-only reconciliation is protective and runs while automation is paused or agreements are stopped. A
+    # read never issues, distributes, advances or provisions; what it may lead to (advance) is automated and waits.
+    automated = False
 
     def lock_subject(self, claim) -> None:
         application = Application.objects.select_for_update(of=("self",)).filter(public_ref=claim.subject_id).first()
@@ -188,9 +213,6 @@ class ReadAgreement:
                     .filter(public_id=claim.input_ref).first())
         if instance is None or str(instance.application.public_ref) != str(claim.subject_id) or not instance.envelope_id:
             ledger.finish(claim, self, status=Status.DONE, error="nothing_to_read")
-            return
-        if paused(instance.application):
-            ledger.finish(claim, self, status=Status.QUEUED, error="automation_paused", refund_attempt=True, due_in=_poll())
             return
         try:
             env = provider.read(instance.envelope_id)  # outside any transaction
@@ -215,6 +237,17 @@ def _keep_sweeping(instance_ref) -> None:
         _sweep_on(instance)
 
 
+def _closed_follow_up(instance, claim_id) -> None:
+    done = PendingAction.objects.filter(kind=READ, input_ref=str(instance.public_id),
+                                        idempotency_key__contains=":closed:").count()
+    if done < settings.CATALYST_AGREEMENT_ORPHAN_CHECKS:
+        enqueue_read(instance, due_in=timedelta(seconds=settings.CATALYST_AGREEMENT_READ_INTERVAL_SECONDS), closed=True)
+    else:  # the provider still shows it open: automatic checking ended with the uncertainty unresolved
+        open_item(CLOSED_WATCH_ENDED, f"closed:{instance.public_id}", application=instance.application,
+                  pending_action_id=claim_id)
+        event(instance.application, "agreement_closed_watch_ended", {"instance": str(instance.public_id)})
+
+
 def apply_read(claim, instance_id: int, env: provider.Envelope) -> None:
     """Record one fresh read and move the instance by what it shows (inside the fenced result transaction)."""
     instance = AgreementInstance.objects.select_related("application", "template_version").get(pk=instance_id)
@@ -223,16 +256,34 @@ def apply_read(claim, instance_id: int, env: provider.Envelope) -> None:
     data = facts(instance, env.status, env.recipients, identity=read_identity(instance, env))
     observe(instance, ProviderObservation.Source.READ, data)
     ref = str(instance.public_id)
+    # A follow-up queued while this read ran keeps the minimum interval from this read, not from the one before.
+    PendingAction.objects.filter(kind=READ, input_ref=ref, status=Status.QUEUED).update(due_at=Greatest(
+        "due_at", Now() + timedelta(seconds=settings.CATALYST_AGREEMENT_READ_MIN_INTERVAL_SECONDS)))
 
     def status(**fields):
         AgreementInstance.objects.filter(pk=instance.pk).update(updated_at=Now(), **fields)
 
+    if instance.signing_status == "signing_complete_verified" and not instance.replaced_at:
+        ok = env.status == "COMPLETED" and data["identity_match"] and data["all_required_signed"]
+        if not ok:  # D-43: the earlier verified read stays recorded; reliance on it is blocked
+            open_integrity_hold(instance, "recipients_changed" if not data["recipients_match"] else "provider_state_changed",
+                                claim.id, actor)
+        return
+    if instance.replaced_at:
+        return  # verified history replaced by a new generation (D-43): not a closed agreement, not a new exception
+    if instance.issue_status in ("superseded", "cancelled"):
+        if env.status == "COMPLETED":  # TEST-P4-29: never verified, never dropped
+            open_item(COMPLETED_AFTER_CANCEL, f"read:{ref}", application=application, pending_action_id=claim.id)
+            event(application, "agreement_completed_after_cancel", {"instance": ref}, actor_ref=actor)
+        elif env.status in ("PENDING", "DRAFT"):
+            _closed_follow_up(instance, claim.id)  # D-44: bounded, then an explicit end of watch
+        return
     if not data["identity_match"]:
         open_item(ENVELOPE_MISMATCH, f"read:{ref}", application=application, pending_action_id=claim.id)
         event(application, "agreement_read_mismatch", {"instance": ref}, actor_ref=actor)
         _keep_sweeping(ref)
         return
-    if instance.issue_status in ("superseded", "cancelled", "cancel_pending", "cancel_uncertain"):
+    if instance.issue_status in ("cancel_pending", "cancel_uncertain"):
         if env.status == "COMPLETED":  # TEST-P4-29: never verified, never dropped
             open_item(COMPLETED_AFTER_CANCEL, f"read:{ref}", application=application, pending_action_id=claim.id)
             event(application, "agreement_completed_after_cancel", {"instance": ref}, actor_ref=actor)
@@ -282,21 +333,22 @@ def apply_read(claim, instance_id: int, env: provider.Envelope) -> None:
 # --- the D-15 sequence -----------------------------------------------------------------------------------------------
 
 def gate_passed(instance) -> bool:
-    if instance.signing_status != "signing_complete_verified":
+    if instance.signing_status != "signing_complete_verified" or instance.replaced_at or integrity_hold_open(instance):
         return False
     return instance.agreement_type.gate == AgreementType.Gate.SIGNING or instance.custody_status == "stored_verified"
 
 
 def next_step(application):
     """(previous instance or None, next type or None, reason). The next type is the first, by order, without a live
-    instance; every type before it must have passed its gate."""
+    instance (not superseded, cancelled or replaced); every type before it must have passed its gate. The reason is
+    "reissue" when that type had an earlier instance: issuing it again needs a decision-maker (D-42)."""
     previous = None
     for agreement_type in AgreementType.objects.filter(required=True).order_by("order"):
-        live = (AgreementInstance.objects.select_related("agreement_type", "template_version")
-                .filter(application=application, agreement_type=agreement_type)
-                .exclude(issue_status__in=("superseded", "cancelled")).first())
+        of_type = AgreementInstance.objects.select_related("agreement_type", "template_version").filter(
+            application=application, agreement_type=agreement_type)
+        live = of_type.exclude(issue_status__in=("superseded", "cancelled")).filter(replaced_at__isnull=True).first()
         if live is None:
-            return previous, agreement_type, ""
+            return previous, agreement_type, "reissue" if of_type.exists() else ""
         if not gate_passed(live):
             return previous, None, "waiting_for_gate"
         previous = live
@@ -332,6 +384,15 @@ class AdvanceAgreements:
                 application, "agreements_all_passed", {}, actor_ref=f"pending_action:{claim.id}")
                 if reason == "all_passed" else None)  # the P5 hand-off is 4B.3
             return
+        late = StaffItem.objects.filter(application=application, reason_code=COMPLETED_AFTER_CANCEL,
+                                        status=StaffItem.Status.OPEN).exists()
+        if reason == "reissue" and (late or not claim.input_ref.startswith("resume:")):
+            # D-42: never reissued without a decision-maker, and never while the provider shows an earlier one
+            # completed after its cancel (QA review)
+            ledger.finish(claim, self, status=Status.DONE, error="reissue_needs_decision", write=lambda: open_item(
+                REISSUE_NEEDS_DECISION, f"advance:{application.public_ref}:{next_type.key}", application=application,
+                pending_action_id=claim.id))
+            return
         if previous is not None:
             try:  # REQ-011: the previous agreement is re-read at the moment the next one is issued
                 env = provider.read(previous.envelope_id)
@@ -359,10 +420,11 @@ class AdvanceAgreements:
             data = facts(previous, env.status, env.recipients, identity=read_identity(previous, env))
             observe(previous, ProviderObservation.Source.READ, data)
             if not (env.status == "COMPLETED" and data["identity_match"] and data["all_required_signed"]):
-                reason = RECIPIENTS_CHANGED if not data["recipients_match"] else ENVELOPE_MISMATCH
-                open_item(reason, f"gate:{previous.public_id}", application=application, pending_action_id=claim.id)
+                # TEST-P4-31, D-43: nothing is issued on a stale verification; reliance on it is held for resolution
+                open_integrity_hold(previous, "recipients_changed" if not data["recipients_match"] else "provider_state_changed",
+                                    claim.id, actor)
                 event(application, "agreement_gate_read_refused", {"instance": str(previous.public_id)}, actor_ref=actor)
-                return  # TEST-P4-31: nothing is issued on a stale verification
+                return
         version = approved_version(next_type.key)
         if version is None:
             open_item(TEMPLATE_MISSING, f"advance:{application.public_ref}:{next_type.key}", application=application,
@@ -429,6 +491,10 @@ class CancelAgreement(_ProviderStep):
             if closed:
                 AgreementInstance.objects.filter(pk=instance.pk, issue_status="cancel_pending").update(
                     issue_status="cancelled", signing_status="cancelled", updated_at=Now())
+                if result == "left_draft":  # D-44: a draft left at the provider gets bounded follow-up reads
+                    from .handlers import _watch_left_draft
+
+                    _watch_left_draft(instance)
             else:
                 reason = COMPLETED_AFTER_CANCEL if result == "completed" else ENVELOPE_MISMATCH
                 AgreementInstance.objects.filter(pk=instance.pk, issue_status="cancel_pending").update(

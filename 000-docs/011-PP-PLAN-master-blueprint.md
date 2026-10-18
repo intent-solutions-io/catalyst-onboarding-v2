@@ -4,7 +4,7 @@
 |---|---|
 | Document | `011-PP-PLAN-master-blueprint` (the only master blueprint for this repository) |
 | Version | 1.2.0 (current status corrected and the candidate selection-quality contract added, section 11, 2026-10-14; 1.1.0 recorded the ADR decisions of 2026-10-10) |
-| Status | **APPROVED IN SCOPE** (section 10): project direction, amended requirements and the bounded synthetic first-slice scope; later owner decisions D-16 to D-39 are recorded in section 4. **Current (2026-10-17):** GATE-S1 (D-26) and GATE-P2 (D-33) signed off for synthetic work; P3 accepted for synthetic work: GATE-P3 signed off 2026-10-17 (D-36). **Not approved:** the open policies of section 6 beyond their recorded synthetic decisions, live model use, real applicant data, provider writes, deployment and release; implementation only as each handoff is released. Items marked PROPOSED stay proposals; section 11 and `019` were approved on 2026-10-14 (D-35). |
+| Status | **APPROVED IN SCOPE** (section 10): project direction, amended requirements and the bounded synthetic first-slice scope; later owner decisions D-16 to D-44 are recorded in section 4. **Current (2026-10-17):** GATE-S1 (D-26) and GATE-P2 (D-33) signed off for synthetic work; P3 accepted for synthetic work: GATE-P3 signed off 2026-10-17 (D-36). **Not approved:** the open policies of section 6 beyond their recorded synthetic decisions, live model use, real applicant data, provider writes, deployment and release; implementation only as each handoff is released. Items marked PROPOSED stay proposals; section 11 and `019` were approved on 2026-10-14 (D-35). |
 | Owner | Jeremy Longshore (product owner and approver) |
 | Reviewers | `catalyst-django-architect` (build design), `catalyst-independent-qa` (independent review); results in section 9 |
 | Date | 2026-10-09 |
@@ -76,7 +76,7 @@ direct database edits or a coding agent. The learning site itself is not replace
 
 ## 4. Owner decisions and boundaries
 
-### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-39)
+### 4.1 Recorded owner direction (source of D-01 to D-11 and D-14 to D-44)
 
 The owner gave this project direction in the build-contract instruction of 2026-10-09, in the
 invoking session. It is recorded here verbatim so a fresh session can check the source. The owner
@@ -269,6 +269,67 @@ answered, so their recorded defaults stand (`021` sections 15 and 16). It author
 webhook or email, no public webhook exposure (P6), no agreement text or real data, and not 4B.3, release or
 deployment.
 
+**Bounded autonomous build, 2026-10-18** (source of D-40 to D-44). After PR #39 (4B.2), the owner gave a written
+instruction in the invoking session titled "CATALYST V2 -- OWNER DECISIONS AND BOUNDED AUTONOMOUS BUILD". It is
+summarized here by decision. Its full scope is recorded in D-40.
+
+- **D-40, scope.** The instruction authorizes, for synthetic work only, a finite development batch:
+  - **P4 delivery:** merging PR #39 after review; the 4B.2 corrections and tests (`catalyst-v2-hdg.6`); 4B.3
+    (`hdg.4`); 4C (`hdg.5`), with the acceptance PR left as a draft for the owner.
+  - **Pre-production hardening:** suite profiling (`egz`); `9kg.1` to `.3`; `oyu`; a read-only check of the
+    effective GitHub protections; a reconciliation of earlier audit findings.
+  - **Preparation only:** the 5A specification, a POL-11 and POL-12 decision brief, and P6 and PL readiness
+    planning.
+  - **Rules:** merges go only through the merge guard, after independent review and green required checks on the
+    exact head.
+  - **The GATE-P4 result is not pre-approved.**
+  - **Not authorized:**
+    - deployment, live providers, real data or agreements;
+    - real mailboxes, policy activation, credential use;
+    - a versioned release, organization or protection changes;
+    - P5 implementation.
+- **D-41, Documenso cancellation email.** Accepted for synthetic development only.
+  - Upstream `v2.20.0` cancel (`cancel-envelope.ts` calls `cancel-document.ts`, which queues
+    `send.document.cancelled.emails`) can email recipients. The handler checks owner and organization eligibility,
+    recipient eligibility, quotas and the derived `documentDeleted` setting.
+  - Catalyst uses the supported per-envelope suppression: `emailSettings.documentDeleted = false`, on create and on
+    distribute.
+  - The fake models provider email. Provider-owned email is inventoried separately from Catalyst's.
+  - Protective cancellation stays possible while paused or delivery-blocked, with a fixed generic reason and never
+    staff notes.
+  - Before real provider use: a separately authorized synthetic-recipient canary, or the owner's narrow written
+    acceptance of the risk.
+- **D-42, agreement hold, cancel and resume** (amends P4-D-20).
+  - An explicit agreement hold cancels unfinished live envelopes, including partially signed ones, through
+    reconciled actions. An ordinary automation pause does not.
+  - The stop intent is durable even while an exchange is in flight: it is recorded first, and the cancel follows
+    reconciliation.
+  - Verified signing, completed agreements, observations and stored copies are kept.
+  - Resume is an explicit decision-maker act after cancellation and review. It reissues only the unfinished
+    agreements still needed, as new instances.
+  - Withdrawal and closure are not resumable here (POL-12, P5).
+- **D-43, agreement integrity.** A verified agreement whose provider recipients later differ gets an
+  agreement-integrity hold.
+  - The hold is recorded separately from the earlier verified fact.
+  - It blocks User Agreement progression and the P5 hand-off until a permissioned resolution, and generic resume
+    does not clear it.
+  - Continuing needs a fresh matching read. Replacement makes a new agreement generation with prior records kept
+    and an explicit change of the eligible instance.
+  - The expected recipient is never changed to match the provider's.
+  - No software disposition claims to void an agreement. Legal questions stay blocked for the owner and counsel.
+- **D-44, carried defaults.**
+  - **Late envelopes.** A late draft is kept at the provider, excluded and left with staff. A late pending envelope
+    gets a reconciled protective cancel. A late completed envelope is an exception, never verified.
+  - **The orphan watch** is bounded but never silently ends. Exhaustion records an unresolved-uncertainty staff
+    obligation, with a permissioned, bounded re-arm. Its six checks are a labelled synthetic default, not a
+    production horizon.
+  - **Cancelled and superseded instances** get bounded follow-up reconciliation.
+  - **Protective cleanup** (read-only reconciliation and authorized cancellation) may run while paused or stopped.
+    It never issues, distributes, advances or provisions.
+  - **The `v2.20.0` reference** stays as dated compatibility evidence.
+  - **The same-transaction verification backstop** stays, proven by direct database tests. It is not tamper-proof
+    against a compromised privileged role.
+
 ### 4.2 Decision summary
 
 Decision records with rationale live in `003` section "Architecture decisions". This table is the
@@ -308,6 +369,11 @@ summary a reader needs first.
 | D-30 | POL-13, P2 role matrix (`016` section F) for synthetic operation only: operators handle routine correspondence; identity-affecting resolutions, uncertain-send decisions and collector restarts need the decision-maker role; template approval stays with the owner. MFA, network restriction and production staff access remain undecided | OWNER-DECIDED 2026-10-12 (P2 slice) | section 4.1; `016` F |
 | D-31 | POL-19 fail-closed: a mismatched or unverifiable identity produces a staff exception with no automatic positive effect and no identity or dossier change; only the decision-maker resolves identity-affecting cases | OWNER-DECIDED 2026-10-12 | section 4.1; `016` C3, C4, F |
 | D-34 | `018` (P3 evidence, assessment and qualification specification) version 0.2.1 approved with its recommended defaults `P3-D-1` to `P3-D-16` for synthetic P3; 3B.1 (`catalyst-v2-oc4.2`) released. Not authorized: a live model call, real fetching, real applicant data, 3B.2 to 3C (each needs its own release), a versioned release or a deployment. The decisions marked for GATE-PILOT or later (real fetching, the applicant notice, retention, live model use) stay conditions at those gates | OWNER-DECIDED 2026-10-14 | section 4.1; `018` section 8 |
+| D-44 | Carried defaults. Late envelopes: a draft is kept and excluded; a pending one is cancelled; a completed one is an exception. The bounded orphan watch ends visibly, with a bounded re-arm. Closed instances get a bounded follow-up. Protective reads and cancels run while paused. The v2.20.0 reference stays as dated evidence. The verification backstop is kept and is not tamper-proof | OWNER-DECIDED 2026-10-18 | section 4.1; `021` section 17 |
+| D-43 | Agreement integrity: a separate hold, recorded apart from verified history, blocks progression and P5 until a permissioned, reasoned, state-bound resolution (continue on a fresh matching read, replace as a new generation, or escalate) | OWNER-DECIDED 2026-10-18 | section 4.1; `021` section 17 |
+| D-42 | Agreement hold, cancel and resume (amends P4-D-20): the stop intent is durable while an exchange is in flight; resume is a decision-maker act that reissues only unfinished agreements as new instances; withdrawal and closure are not resumable here | OWNER-DECIDED 2026-10-18 | section 4.1; `021` section 17 |
+| D-41 | Documenso cancellation email: accepted for synthetic development only; per-envelope `documentDeleted` suppression; a generic reason; a canary or a narrow owner acceptance before real use | OWNER-DECIDED 2026-10-18 | section 4.1; `021` section 17 |
+| D-40 | Bounded autonomous build: the P4 close-out (#39, hdg.6, 4B.3, 4C with the acceptance PR left for the owner), egz, 9kg.1 to .3, oyu, a read-only protection check, audit reconciliation, and 5A/P6/PL preparation. Not authorized: deployment, live providers, real data, policy activation, a versioned release, P5 implementation; the GATE-P4 result is not pre-approved | OWNER-DECIDED 2026-10-18 | section 4.1 |
 | D-39 | 4B.2 released for synthetic work against the local fake Documenso: webhooks as hints, observations, the sweep, database-visible completion verification, the D-15 sequence, decline, expiry, cancel at the provider, withdrawal during agreements. Not authorized: real Documenso use, public webhook exposure, agreement text, real data, 4B.3, release, deployment | OWNER-DECIDED 2026-10-17 | section 4.1; `021` section 16 |
 | D-38 | The read-only check of the installed Documenso (version and published API schema; no credential, write or envelope) authorized and done (`021` section 15); 4B.1 released for synthetic work against a local fake Documenso. Not authorized: credentialed provider requests, real envelopes, webhooks or email, agreement text, real data, 4B.2, release, deployment | OWNER-DECIDED 2026-10-17 | section 4.1; `021` section 15 |
 | D-37 | `021` (P4 agreements specification) version 0.2.0 approved with its recommended defaults `P4-D-1` to `P4-D-20` for synthetic P4 (a local fake Documenso, synthetic placeholder PDFs). Not authorized: 4B.1 to 4C (each needs its own release), the read-only Documenso version check (P4-D-2, separately), real Documenso use, agreement text, real data, release, deployment | OWNER-DECIDED 2026-10-17 | section 4.1; `021` section 11 |

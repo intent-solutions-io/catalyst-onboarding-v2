@@ -64,6 +64,33 @@ LATE_ORPHAN = "agreement_late_orphan"
 CANCEL_UNKNOWN = "agreement_cancel_unknown"
 SIGNED_ORPHAN = "agreement_orphan_signed"  # an orphan was signed: never verified, staff decide
 WATCH_FAILED = "agreement_orphan_watch_failed"
+ORPHAN_WATCH_ENDED = "agreement_orphan_watch_ended"  # D-44: automatic checking ended, uncertainty unresolved
+MAX_WATCH_REARMS = 3
+
+
+def watch_limit(attempt) -> int:
+    """The bounded watch (D-44): CATALYST_AGREEMENT_ORPHAN_CHECKS per arming, a labelled synthetic default and not a
+    production horizon. A decision-maker may re-arm it at most MAX_WATCH_REARMS times."""
+    rearms = attempt.instance.application.events.filter(kind="agreement_orphan_watch_rearmed",
+                                                        data__attempt=str(attempt.public_id)).count()
+    return settings.CATALYST_AGREEMENT_ORPHAN_CHECKS * (1 + rearms)
+
+
+def _watch_left_draft(instance) -> None:
+    """D-44: a draft left at the provider (never distributed) gets bounded follow-up reads, then a staff item, so a
+    draft someone sends in the provider's interface is noticed."""
+    from .completion import enqueue_read
+
+    enqueue_read(AgreementInstance.objects.get(pk=instance.pk),
+                 due_in=timedelta(seconds=settings.CATALYST_AGREEMENT_READ_INTERVAL_SECONDS), closed=True)
+
+
+def _cancel_after_send(instance) -> None:
+    from .completion import enqueue_cancel_instance  # completion builds on this module
+
+    AgreementInstance.objects.filter(pk=instance.pk).update(issue_status="cancel_pending", updated_at=Now())
+    enqueue_cancel_instance(instance)
+    event(instance.application, "agreement_cancel_after_send", {"instance": str(instance.public_id)})
 
 
 def _start_sweep(instance) -> None:
@@ -305,6 +332,21 @@ class _ProviderStep(_AgreementAction):
         pending = self._pending(instance, key)
         if pending:
             return application, instance, self._to_reconcile(claim, instance, pending)
+        from .completion import stopped  # completion builds on this module
+
+        if (instance.cancel_requested_at or stopped(application)) and instance.issue_status in (
+                "create_pending", "distribute_pending"):
+            # D-42: a stop arrived while an earlier exchange ran; nothing more is created or sent. A draft that
+            # exists stays at the provider, never distributed.
+            def close():
+                AgreementInstance.objects.filter(pk=instance.pk, issue_status=instance.issue_status).update(
+                    issue_status="cancelled", signing_status="cancelled", updated_at=Now())
+                event(application, "agreement_closed_on_request", {"instance": str(instance.public_id),
+                                                                   "draft_left": bool(instance.envelope_id)},
+                      actor_ref=f"pending_action:{claim.id}")
+                if instance.envelope_id:
+                    _watch_left_draft(instance)
+            return application, instance, Decision(Status.DONE, "cancel_requested", write=close)
         if paused(application):
             return application, instance, Decision(Status.QUEUED, "automation_paused", refund=True, due_in=_poll())
         if application.stage != Stage.AGREEMENTS:
@@ -428,12 +470,18 @@ class CreateAgreement(_ProviderStep):
 
         def write():
             self._finish_attempt(plan.attempt_id, Out.SUCCEEDED, "created", envelope_id=result)
-            if not AgreementInstance.objects.filter(pk=instance.pk, issue_status="create_pending").update(
-                    envelope_id=result, issue_status="distribute_pending", updated_at=Now()):
-                # Stopped or cancelled meanwhile (4B.2): the draft is recorded on its attempt, never distributed.
+            current = AgreementInstance.objects.get(pk=instance.pk)
+            if current.issue_status != "create_pending" or current.cancel_requested_at:
+                # Stopped or cancelled meanwhile (D-42): the draft is recorded and never distributed.
+                AgreementInstance.objects.filter(pk=instance.pk, envelope_id="").update(envelope_id=result, updated_at=Now())
+                AgreementInstance.objects.filter(pk=instance.pk, issue_status="create_pending").update(
+                    issue_status="cancelled", signing_status="cancelled", updated_at=Now())
                 event(instance.application, "agreement_created_after_stop", {"instance": str(instance.public_id)},
                       actor_ref=f"pending_action:{claim.id}")
+                _watch_left_draft(instance)
                 return
+            AgreementInstance.objects.filter(pk=instance.pk).update(envelope_id=result, issue_status="distribute_pending",
+                                                                    updated_at=Now())
             event(instance.application, "agreement_envelope_created", {"instance": str(instance.public_id)},
                   actor_ref=f"pending_action:{claim.id}")
             enqueue_distribute(instance)
@@ -497,15 +545,14 @@ class DistributeAgreement(_ProviderStep):
         if result in ("distributed", "already_distributed"):
             def write():
                 self._finish_attempt(plan.attempt_id, Out.SUCCEEDED, result)
-                if AgreementInstance.objects.filter(pk=instance.pk, issue_status="distribute_pending").update(
-                        issue_status="issued", updated_at=Now()):
+                current = AgreementInstance.objects.get(pk=instance.pk)
+                if current.issue_status == "distribute_pending" and not current.cancel_requested_at:
+                    AgreementInstance.objects.filter(pk=instance.pk).update(issue_status="issued", updated_at=Now())
                     _start_sweep(instance)
-                elif AgreementInstance.objects.filter(pk=instance.pk, issue_status="cancelled").update(
-                        issue_status="cancel_pending", updated_at=Now()):
-                    # The envelope went out after a stop or cancel closed the instance: cancel it again (4B.2 review).
-                    from .completion import enqueue_cancel_instance
-
-                    enqueue_cancel_instance(instance)
+                elif current.issue_status in ("distribute_pending", "cancelled"):
+                    # The envelope went out although a stop or cancel was requested meanwhile (D-42): it happened, so
+                    # it is recorded as sent and then cancelled through the reconciled cancel.
+                    _cancel_after_send(current)
                 event(instance.application, "agreement_issued", {"instance": str(instance.public_id), "how": result},
                       actor_ref=actor)
             return ledger.finish(claim, self, status=Status.DONE, write=write)
@@ -598,12 +645,20 @@ class ReconcileAgreement:
         instance = attempt.instance
         limit = settings.CATALYST_AGREEMENT_ORPHAN_CHECKS if watch else settings.CATALYST_AGREEMENT_RECONCILE_CHECKS
 
+        if watch:
+            limit = watch_limit(attempt)
+
         def write():
             if n < limit:
                 enqueue_reconcile(attempt, n + 1, watch=watch)
             elif not watch:  # no admissible evidence by the deadline: a decision-maker decides (P4-D-8)
                 open_item(reason, f"{attempt.step}:{attempt.public_id}", application=instance.application,
                           pending_action_id=claim.id)
+            else:  # D-44: the bounded watch never ends silently; the uncertainty stays a visible staff obligation
+                open_item(ORPHAN_WATCH_ENDED, f"watch:{attempt.public_id}", application=instance.application,
+                          pending_action_id=claim.id)
+                event(instance.application, "agreement_orphan_watch_ended",
+                      {"attempt": str(attempt.public_id), "checks": n}, actor_ref=f"pending_action:{claim.id}")
         ledger.finish(claim, self, status=Status.DONE, write=write)
 
     def created(self, claim, attempt, n) -> None:
@@ -629,6 +684,15 @@ class ReconcileAgreement:
                     or not EnvelopeAttempt.objects.filter(pk=attempt.pk, outcome=Out.UNKNOWN).update(
                         outcome=Out.FOUND_BY_EVIDENCE, envelope_id=envelope_id, finished_at=Now())):
                 return  # decided meanwhile: the watch, not this check, handles a late match
+            if current.cancel_requested_at:  # D-42: the draft is recorded, never distributed
+                AgreementInstance.objects.filter(pk=instance.pk).update(envelope_id=envelope_id, issue_status="cancelled",
+                                                                        signing_status="cancelled", updated_at=Now())
+                PendingAction.objects.filter(kind=CREATE, input_ref=str(instance.public_id), status=Status.UNCERTAIN).update(
+                    status=Status.DONE, last_error="found_by_evidence", completed_at=Now(), updated_at=Now())
+                event(instance.application, "agreement_created_after_stop", {"instance": str(instance.public_id)},
+                      actor_ref=actor)
+                _watch_left_draft(instance)
+                return
             AgreementInstance.objects.filter(pk=instance.pk).update(envelope_id=envelope_id, issue_status="distribute_pending",
                                                                     updated_at=Now())
             PendingAction.objects.filter(kind=CREATE, input_ref=str(instance.public_id), status=Status.UNCERTAIN).update(
@@ -667,6 +731,9 @@ class ReconcileAgreement:
                                              status=Status.UNCERTAIN).update(
                     status=Status.DONE, last_error="found_by_evidence", completed_at=Now(), updated_at=Now())
             if attempt.step == Step.DISTRIBUTE and AgreementInstance.objects.filter(
+                    pk=instance.pk, issue_status="distribute_uncertain", cancel_requested_at__isnull=False).exists():
+                _cancel_after_send(AgreementInstance.objects.get(pk=instance.pk))  # D-42: sent, then cancelled
+            elif attempt.step == Step.DISTRIBUTE and AgreementInstance.objects.filter(
                     pk=instance.pk, issue_status="distribute_uncertain").update(issue_status="issued", updated_at=Now()):
                 _start_sweep(instance)
                 PendingAction.objects.filter(kind=DISTRIBUTE, input_ref=str(instance.public_id), status=Status.UNCERTAIN).update(
