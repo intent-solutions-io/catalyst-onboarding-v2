@@ -492,6 +492,10 @@ def retry_custody(instance_id: int, user) -> None:
         application, instance = _lock(instance_id)
         if instance.signing_status != "signing_complete_verified" or instance.custody_status != "failed_needs_staff":
             raise Refused("custody_not_failed")
+        if instance.documents.exists():
+            # A stored copy exists (insert-only): replacing it, for example after corruption, is a POL-09 and POL-10
+            # decision for the owner, never an operator retry (QA review of PR #43).
+            raise Refused("stored_copy_exists")
         AgreementInstance.objects.filter(pk=instance.pk).update(custody_status="pending", updated_at=Now())
         enqueue_store(instance)
         event(application, "agreement_custody_retry", {"instance": str(instance.public_id)},
@@ -500,21 +504,34 @@ def retry_custody(instance_id: int, user) -> None:
 
 def retrieve_document(document_ref: str, user, reason: str):
     """021 section 7. Returns (filename, bytes) or raises. The access record is committed before any byte is read for
-    release; a failed audit write releases nothing. A caller without the permission, or a reference that does not
-    exist, gets the same `Refused("not_available")` and leaves a `denied` record that names only the reference asked
-    for. The bytes are read once, verified against the recorded size and SHA-256, and exactly those bytes are
-    returned; a mismatch refuses, is recorded, and opens a staff item."""
+    release (the caller must not hold a transaction); a failed audit write releases nothing. A staff caller without
+    the permission, or a reference that does not exist, gets the same `Refused("not_available")` and leaves a
+    `denied` record naming only the reference asked for; a non-staff or anonymous caller gets the same answer and is
+    logged, not recorded, so outsiders cannot grow the append-only table (security review). The bytes are read once,
+    verified against the recorded size and SHA-256, and exactly those bytes are returned. Wrong bytes refuse, are
+    recorded, open a staff item and mark custody failed; storage being unavailable refuses without blaming the
+    document."""
+    import logging
+
+    from django.db import connection
+
     from . import storage
     from .custody import CUSTODY_CORRUPTED
     from .models import DocumentAccess, StoredDocument
 
-    actor = f"user:{getattr(user, 'pk', None) or 'anonymous'}"
+    if connection.in_atomic_block:
+        raise RuntimeError("retrieve_document must run outside a transaction, so the audit commits before release")
+    staff_caller = bool(user is not None and user.is_authenticated and user.is_active and user.is_staff)
+    actor = f"user:{user.pk}" if staff_caller else "anonymous_or_non_staff"
     ref = str(document_ref)[:64]
     raw = (reason or "").strip()
     document = StoredDocument.objects.select_related("instance", "application").filter(public_id=ref).first() \
         if len(ref) == 36 else None
     if not can(user, "retrieve_agreement_document") or document is None:
-        DocumentAccess.objects.create(requested_ref=ref, actor_ref=actor, outcome=DocumentAccess.Outcome.DENIED)
+        if staff_caller:
+            DocumentAccess.objects.create(requested_ref=ref, actor_ref=actor, outcome=DocumentAccess.Outcome.DENIED)
+        else:
+            logging.getLogger(__name__).warning("agreement document retrieval refused for a non-staff caller")
         raise Refused("not_available")
     if len(raw) > RETRIEVE_REASON_MAX:
         raise Refused("reason_too_long")
@@ -527,7 +544,11 @@ def retrieve_document(document_ref: str, user, reason: str):
     try:
         data = storage.read(document.storage_key, document.sha256, document.size)
     except storage.StorageError as exc:
+        if str(exc) not in storage.INTEGRITY:
+            raise Refused("storage_unavailable") from None  # the environment, not the document
         with transaction.atomic():
+            Application.objects.select_for_update(of=("self",)).get(pk=document.application_id)
+            AgreementInstance.objects.select_for_update(of=("self",)).get(pk=document.instance_id)
             DocumentAccess.objects.create(document=document, requested_ref=ref, actor_ref=actor,
                                           outcome=DocumentAccess.Outcome.REFUSED_INTEGRITY)
             AgreementInstance.objects.filter(pk=document.instance_id).update(custody_status="failed_needs_staff",
@@ -552,7 +573,9 @@ def record_required_details(application_id: int, type_key: str, values: dict, us
     from .models import AgreementDetailsVersion, AgreementType
 
     require(user, "confirm_required_details")
-    agreement_type = AgreementType.objects.get(key=type_key)
+    agreement_type = AgreementType.objects.filter(key=type_key).first()
+    if agreement_type is None:
+        raise Refused("unknown_type")
     fields = required_details(agreement_type)
     if not fields:
         raise Refused("no_details_required")
@@ -566,8 +589,8 @@ def record_required_details(application_id: int, type_key: str, values: dict, us
         cleaned[name] = text
     with transaction.atomic():
         application = Application.objects.select_for_update(of=("self",)).get(pk=application_id)
-        if application.stage != Stage.AGREEMENTS:
-            raise Refused("not_in_agreements")
+        if application.stage not in (Stage.ADMITTED, Stage.AGREEMENTS):
+            raise Refused("not_in_agreements")  # details may come before the first agreement (QA review)
         version = (AgreementDetailsVersion.objects.filter(application=application, agreement_type=agreement_type)
                    .count() + 1)
         row = AgreementDetailsVersion.objects.create(
@@ -590,12 +613,20 @@ def confirm_required_details(details_id: int, user, expected_sha256: str):
         row = AgreementDetailsVersion.objects.select_for_update(of=("self",)).get(pk=details_id)
         if row.status != AgreementDetailsVersion.Status.DRAFT:
             raise Refused("not_draft")
-        if expected_sha256 != row.values_sha256:
-            raise Refused("changed_since_shown")
+        if expected_sha256 != row.values_sha256 or _details_digest(row.values) != row.values_sha256:
+            raise Refused("changed_since_shown")  # the digest is recomputed from the values themselves
+        if AgreementDetailsVersion.objects.filter(application=application, agreement_type=row.agreement_type,
+                                                  version__gt=row.version).exists():
+            raise Refused("newer_version_exists")
         AgreementDetailsVersion.objects.filter(pk=row.pk).update(
             status=AgreementDetailsVersion.Status.CONFIRMED, confirmed_by=f"user:{user.pk}", confirmed_at=Now())
         event(application, "agreement_details_confirmed", {"type": row.agreement_type.key, "version": row.version},
               actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=f"user:{user.pk}")
-        enqueue_advance(application)
+        if application.stage == Stage.AGREEMENTS:
+            enqueue_advance(application)
+        else:  # the NDA was held for these details: release it to run again (QA review)
+            PendingAction.objects.filter(kind=handlers.ISSUE_NDA, subject_id=application.public_ref,
+                                         status=PendingAction.Status.HELD, last_error="details_needed").update(
+                status=PendingAction.Status.QUEUED, due_at=Now(), updated_at=Now())
     row.refresh_from_db()
     return row

@@ -38,6 +38,10 @@ def protect(apps, schema_editor):
             END IF;
             RETURN NEW;
           END IF;
+          IF TG_OP = 'UPDATE' AND NEW.status = 'confirmed' AND (NEW.confirmed_by = '' OR NEW.confirmed_at IS NULL) THEN
+            RAISE EXCEPTION 'agreement details: a confirmation names who and when'
+              USING ERRCODE = 'insufficient_privilege';
+          END IF;
           IF TG_OP = 'DELETE' OR OLD.status <> 'draft'
              OR (NEW.application_id, NEW.agreement_type_id, NEW.version, NEW.values::text, NEW.values_sha256,
                  NEW.recorded_by, NEW.created_at, NEW.public_id)
@@ -53,9 +57,12 @@ def protect(apps, schema_editor):
     schema_editor.execute("REVOKE ALL ON FUNCTION public.catalyst_agreement_details_frozen() FROM PUBLIC")
     schema_editor.execute(f"CREATE TRIGGER catalyst_agreement_details_frozen BEFORE INSERT OR UPDATE OR DELETE "
                           f"ON public.{DETAILS} FOR EACH ROW EXECUTE FUNCTION public.catalyst_agreement_details_frozen()")
+    schema_editor.execute(f"CREATE TRIGGER catalyst_no_truncate BEFORE TRUNCATE ON public.{DETAILS} "
+                          "FOR EACH STATEMENT EXECUTE FUNCTION public.catalyst_append_only_strict()")
 
 
 def unprotect(apps, schema_editor):
+    schema_editor.execute(f"DROP TRIGGER IF EXISTS catalyst_no_truncate ON public.{DETAILS}")
     schema_editor.execute(f"DROP TRIGGER IF EXISTS catalyst_agreement_details_frozen ON public.{DETAILS}")
     schema_editor.execute("DROP FUNCTION IF EXISTS public.catalyst_agreement_details_frozen()")
     for table in (DOCUMENT, ACCESS):

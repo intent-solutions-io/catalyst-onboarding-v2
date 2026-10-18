@@ -260,7 +260,12 @@ class IssueAgreement(_AgreementAction):
         from .completion import details_confirmed  # completion builds on this module
 
         if not details_confirmed(application, version.agreement_type):
-            return held("details_needed")
+            from .completion import DETAILS_NEEDED
+
+            decision = held("details_needed")
+            return Decision(decision.status, decision.reason, refund=True, write=lambda: (
+                decision.write(), open_item(DETAILS_NEEDED, f"details:{application.public_ref}:nda", application=application,
+                                            pending_action_id=claim.id)))
         if verified_address(application) is None:
             return held("contact_not_verified")
 

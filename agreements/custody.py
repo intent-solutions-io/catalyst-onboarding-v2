@@ -108,6 +108,10 @@ class StoreAgreement:
                 pdf = provider.download(item)
                 key, digest = storage.write(pdf)
                 stored.append((item, key, digest, len(pdf)))
+            # A second fresh read: the envelope did not change while its items were downloaded (security review).
+            after = provider.read(instance.envelope_id)
+            if (after.id, after.external_id, after.status, after.items) != (env.id, env.external_id, env.status, env.items):
+                raise provider.ProviderError("envelope_changed_during_download", sent=True, status=200)
         except (provider.ProviderError, storage.StorageError) as exc:
             code = exc.code if isinstance(exc, provider.ProviderError) else str(exc)
             if claim.final:
@@ -146,7 +150,11 @@ class StoreAgreement:
                                                   envelope_id=instance.envelope_id, item_id=item, storage_key=key,
                                                   sha256=digest, size=size, observation=observation)
         except IntegrityError:
-            return  # already stored by an earlier attempt: one authoritative record per item
+            # A record for this item already exists (insert-only). Never a silent "pending": staff decide.
+            AgreementInstance.objects.filter(pk=instance.pk).update(custody_status="failed_needs_staff", updated_at=Now())
+            open_item(CUSTODY_FAILED, f"custody:{instance.public_id}", application=instance.application,
+                      pending_action_id=claim.id)
+            return
         AgreementInstance.objects.filter(pk=instance.pk).update(custody_status="stored_verified", updated_at=Now())
         event(instance.application, "agreement_custody_verified",
               {"instance": str(instance.public_id), "documents": len(stored)}, actor_ref=f"pending_action:{claim.id}")

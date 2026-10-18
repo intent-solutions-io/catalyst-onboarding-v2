@@ -711,6 +711,36 @@ Bead `catalyst-v2-hdg.4`; tests in `tests/test_agreement_custody.py`.
 - **Duplicates.** A duplicate or stale advance creates nothing more.
 - **Nothing runs it.** No `provision` handler exists.
 
+**After the reviews of PR #43** (independent QA and security; QA found two HIGH, security none):
+
+- **A stored copy is never replaced by a retry.** After corruption, retrieval refuses, records it, opens an item
+  and marks custody failed. Retrying custody is then refused (`stored_copy_exists`). Whether and how a corrupt copy
+  is replaced is the owner's POL-09 and POL-10 decision. A store run that meets an existing record goes to staff;
+  it never sits silently at `pending`.
+- **Details can come before the first agreement.** Required details may be recorded and confirmed while the
+  application is `admitted`. An NDA held for its details opens a staff item, and confirming the details releases
+  it. A confirmation recomputes the digest from the stored values, refuses a superseded draft, and must name who
+  and when. The details table cannot be truncated.
+- **Storage is pinned by descriptor.** The storage directory is opened once without following links, checked
+  through its descriptor, and every file operation works relative to it. A new file's name is flushed to disk.
+- **"Unavailable" is not "corrupt".** Storage being unavailable refuses retrieval without blaming the document;
+  only wrong bytes count as corruption.
+- **Retrieval refuses inside a transaction**, so the audit always commits first.
+- **Outsiders add nothing to the audit table.** Non-staff and anonymous callers get the same 404 and are logged,
+  not recorded, so outsiders cannot grow the append-only table. Staff refusals are recorded.
+- **A second fresh read after the downloads** confirms the envelope did not change while its items were fetched.
+- **Malformed identifiers** on the staff screen are refused (409), never a server error.
+- **The PDF response** also carries `Content-Security-Policy: sandbox`.
+
+**Open for the owner, and blocking real data:**
+
+- Required details and PDFs are stored in plaintext. Neither can be erased (insert-only and append-only), and no
+  correction path exists beyond a new version. These need POL-09, POL-10 and POL-18 before any real data.
+- Whether the same person may both record and confirm details (POL-18).
+- How a corrupt stored copy is replaced (POL-09, POL-10).
+- **P5 must re-check every prerequisite when it releases the held `provision` action.** A corruption or an
+  integrity hold after the hand-off does not change the held action itself.
+
 **Deviations and limits:**
 
 - Unreferenced files from interrupted runs are not swept. Deleting them is a retention act (POL-10).

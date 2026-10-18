@@ -15,7 +15,7 @@ from functools import wraps
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -150,7 +150,7 @@ def act(request, public_ref):
         raise Http404
     try:
         ACTIONS[action](request, application, request.POST)
-    except (services.Refused, PermissionDenied, KeyError, ValueError) as exc:
+    except (services.Refused, PermissionDenied, KeyError, ValueError, ValidationError, ObjectDoesNotExist, Http404) as exc:
         code = str(exc) if isinstance(exc, services.Refused) else "not_permitted" if isinstance(
             exc, PermissionDenied) else "invalid_request"
         context = _context(request, application, error=f"{action}: refused ({code})", form=request.POST)
@@ -161,10 +161,9 @@ def act(request, public_ref):
 
 @require_POST
 @never_cache
-@login_required(login_url="admin:login")
 def retrieve(request, public_id):
-    """Audited retrieval (021 section 7). A refusal for a missing document and one for a missing permission look
-    the same (404), and both are recorded."""
+    """Audited retrieval (021 section 7). Every refusal looks the same (404): a missing document, a missing
+    permission, a non-staff or anonymous caller. Staff refusals are recorded; outsiders are logged."""
     try:
         filename, data = services.retrieve_document(str(public_id), request.user, request.POST.get("note", ""))
     except services.Refused as exc:
@@ -175,4 +174,5 @@ def retrieve(request, public_id):
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     response["X-Content-Type-Options"] = "nosniff"
     response["Cache-Control"] = "private, no-store"
+    response["Content-Security-Policy"] = "sandbox; default-src 'none'"
     return response
