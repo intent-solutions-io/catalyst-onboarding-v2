@@ -146,7 +146,7 @@ minutes on a named runner, with sustained runs over 10 minutes investigated. Rec
 timeout, queue time, setup time (cold and warm) and test time separately. An overrun prompts
 profiling, never removed assertions, weakened thresholds, skipped legal gates or unlimited retries.
 
-**Current repository, measured:** one CI job, documentation-only; the last six runs on GitHub-hosted
+**As of 2026-10-09, measured:** one CI job, documentation-only; the last six runs on GitHub-hosted
 `ubuntu-latest` took 6 to 9 seconds from creation to completion (`gh run list` created and updated
 timestamps, 2026-10-09; queue and setup not separated). Earlier pipeline problems in the
 first-generation repository are lessons for later lanes, not a description of this repository.
@@ -171,9 +171,10 @@ those 40 resets, the timed parts were:
 - the owner connection, 0.47 s;
 - waiting for other sessions to close, 0.20 s;
 - the truncate, 2.9 s;
-- the protection re-check, 1.1 s.
+- the protection re-check, 1.1 s;
+- releasing the test's own connections and threads, 0.10 s.
 
-That leaves 0.13 s untimed: the release of the test's own connections and threads.
+These sum to 4.77 s.
 
 **Change.** A 0.02 s poll interval in the four fixture servers. Every assertion and every database and role check
 is unchanged.
