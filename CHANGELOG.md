@@ -24,7 +24,7 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 
 - Initial project setup with full governance
 - README, LICENSE, CODE_OF_CONDUCT, CONTRIBUTING, SECURITY, SUPPORT
-- Docs CI (Markdown lint, index completeness) and an inert release workflow (no release exists)
+- Docs CI (Markdown lint, index completeness) and a release workflow, inert at the time (since replaced; see above)
 - Six-document planning set under `000-docs/` with `000-INDEX.md`, each marked preliminary
 - Beads task tracking (prefix `catalyst-v2`) with one planning epic
 - GitHub issue templates and PR template
@@ -50,6 +50,26 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   all PASS; acceptance evidence `013` and after-action report `014` (#16)
 - Owner's GATE-S1 sign-off (D-26) and POL-01 confirmation for the slice (D-25) recorded (#17)
 - Operator-grade system analysis `015` (#19)
+- P2, the correspondence loop: handoff 2A specification (#20); outbound foundations (#21); inbound collection
+  (#22); reply processing (#23); reminders and staff intervention (#24); GATE-P2 evidence, closeout and
+  after-action report `017` (#25, #27)
+- P3, evidence and assessment: handoff 3A specification (#28); claims and fixture-backed evidence (#30); bounded
+  assessment on test models (#32); the selection-quality contract `019` (#33); clarification (#34); the authorized
+  qualification decision (#35); GATE-P3 map and after-action report `020` (#36)
+- P4, agreements: handoff 4A specification (#37); create and distribute against a fake Documenso (#38);
+  verification by fresh read and sequencing (#39); recovery corrections and D-41 to D-44 (#42); custody,
+  retrieval, required details and the staff screen (#43); GATE-P4 map, HTTP journey and after-action report `022`
+  (#47)
+- Hardening: correspondence evidence append-only (#44); hard bounces block every send (#45); system pauses need a
+  decision-maker (#46); a quarter-faster test suite (#40)
+- Preparation: P5 specification, P6 readiness matrix and PL cutover plan, `023` and `024` (#48)
+
+### Changed
+
+- Dependabot no longer proposes Django major-version bumps (#29)
+- The release workflow publishes only an already-merged, CI-green commit of `main` and never commits or pushes to it
+  (#41)
+- The Intent Solutions Select partner badge is shown (#31)
 
 ### Fixed
 
