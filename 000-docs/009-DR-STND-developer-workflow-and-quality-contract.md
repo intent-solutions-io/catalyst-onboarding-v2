@@ -173,6 +173,27 @@ after this change are recorded in `010` section 2.
   head. This repository was registered in the guard's configuration (kept outside this repository)
   on 2026-10-09 with one required check, "Markdown lint and doc index check"; that registration is
   not verifiable from the repository itself.
+- **Effective GitHub protection, checked read-only on 2026-10-18 (D-40):**
+  - `main` has no branch protection: `GET repos/.../branches/main/protection` returns 404 "Branch not
+    protected".
+  - There are no repository rulesets, and `GET repos/.../rules/branches/main`, which includes any
+    organization ruleset that applies, returns none.
+  - Organization rulesets could not be listed: that needs the `admin:org` scope.
+  - The merge guard is therefore client-side and the only gate. Anyone with write access can push to `main` or
+    merge without checks.
+  - **Proposed** (needs the owner, not done): a ruleset on `main` requiring a pull request, the two required checks
+    and linear history, and blocking force pushes and deletion.
+- **Releases** (bead `catalyst-v2-oyu`, 2026-10-18):
+  - The version and changelog change is an ordinary pull request. `python3 scripts/prepare_release.py vX.Y.Z`
+    writes `version.txt`, the `pyproject.toml` version and the CHANGELOG entry. It never commits, tags or pushes.
+  - After that pull request merges through the guard, the Release workflow runs on the merged commit with
+    `version` set. It runs `scripts/release_check.py`, which checks that the version and changelog match, that the
+    commit is on `origin/main` and that the tag does not exist yet. It then runs `scripts/require_green_ci.py`.
+  - Only then does it call `gh release create --target <that commit>`, so GitHub creates the tag on the tested
+    commit. The workflow never commits, tags locally or pushes.
+  - `dry_run` defaults to true, and the checkout action is pinned to a commit.
+  - Today `pyproject.toml` says 0.0.0 while `version.txt` says 0.1.0 and `v0.1.0` is tagged. The next prepared
+    release aligns both.
 
 ### 5.6 Test integrity
 
