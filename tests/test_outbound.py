@@ -997,3 +997,56 @@ def test_p2_27_a_real_worker_killed_after_acceptance_is_recovered_without_a_seco
     assert [i.status for i in items(message)] == ["open"]
     for text in (out, err):
         assert "ada@example.test" not in text and "Which synthetic project" not in text
+
+
+# --- 9kg.1: correspondence evidence is protected for every role, not only by the application role's grants -------
+
+REFUSED = (errors.InsufficientPrivilege, errors.RaiseException)
+
+
+def test_9kg_1_an_approved_message_keeps_its_authorization_and_only_its_disposition_changes(ready):
+    question, message = ask(ready)
+    owner = ready.committed.connect("owner", autocommit=True)
+    for column, value in (("recipient", "mallory@example.test"), ("frozen_body", "changed"),
+                          ("authorized_by", "user:0"), ("content_sha256", "0" * 64), ("authorized_at", None)):
+        with pytest.raises(REFUSED, match="approved message"):
+            owner.execute(f"UPDATE correspondence_approvedmessage SET {column} = %s WHERE id = %s", [value, message.pk])
+    with pytest.raises(REFUSED, match="approved message"):
+        owner.execute("DELETE FROM correspondence_approvedmessage WHERE id = %s", [message.pk])
+    with pytest.raises(REFUSED):
+        owner.execute("TRUNCATE correspondence_approvedmessage CASCADE")
+    # Delivery state is not evidence: the disposition stays updatable.
+    owner.execute("UPDATE correspondence_approvedmessage SET disposition = 'operator_abandoned', disposition_at = now(),"
+                  " disposition_by = 'user:1' WHERE id = %s", [message.pk])
+
+
+def test_9kg_1_an_approved_template_version_is_final_and_may_only_retire_while_drafts_stay_free(ready):
+    owner = ready.committed.connect("owner", autocommit=True)
+    approved = MessageTemplateVersion.objects.get(template__key="question_request", version=1)
+    for sql in ("UPDATE correspondence_messagetemplateversion SET body_text = 'changed' WHERE id = %s",
+                "UPDATE correspondence_messagetemplateversion SET approved_by = 'user:0' WHERE id = %s",
+                "UPDATE correspondence_messagetemplateversion SET status = 'draft' WHERE id = %s",
+                "DELETE FROM correspondence_messagetemplateversion WHERE id = %s"):
+        with pytest.raises(REFUSED, match="message template version"):
+            owner.execute(sql, [approved.pk])
+    draft = question_template(version=2)
+    owner.execute("UPDATE correspondence_messagetemplateversion SET body_text = body_text || ' ' WHERE id = %s", [draft.pk])
+    owner.execute("UPDATE correspondence_messagetemplateversion SET status = 'retired' WHERE id = %s", [approved.pk])
+    with pytest.raises(REFUSED, match="message template version"):  # retired is final too
+        owner.execute("UPDATE correspondence_messagetemplateversion SET status = 'approved' WHERE id = %s", [approved.pk])
+
+
+def test_9kg_1_a_staff_item_resolution_is_append_only_for_every_role(ready):
+    from correspondence.staff_items import open_item, resolve_item
+
+    item = open_item("synthetic_protection_check", "protection:1", application=ready.app)
+    resolve_item(item, code="checked", actor_ref=f"user:{ready.decider.pk}")
+    resolution = StaffItemResolution.objects.get(item=item)
+    for role in ("app", "owner"):
+        conn = ready.committed.connect(role, autocommit=True)
+        for sql in ("UPDATE correspondence_staffitemresolution SET note = 'rewritten' WHERE id = %s",
+                    "DELETE FROM correspondence_staffitemresolution WHERE id = %s"):
+            with pytest.raises(REFUSED):
+                conn.execute(sql, [resolution.pk])
+        with pytest.raises(REFUSED):
+            conn.execute("TRUNCATE correspondence_staffitemresolution")

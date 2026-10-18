@@ -459,7 +459,10 @@ def test_e2_reminders_due_together_never_leave_in_a_burst(remind, settings):
     second, _ = sent_question(remind, text="A second synthetic question?")
     owner = remind.committed.connect("owner", autocommit=True)  # age the earlier mail past the gap
     owner.execute("UPDATE correspondence_outboundmessage SET server_accepted_at = now() - interval '2 hours'")
-    owner.execute("UPDATE correspondence_approvedmessage SET authorized_at = now() - interval '2 hours'")
+    with owner.transaction():  # time travel only: the authorization is frozen for every role (9kg.1)
+        owner.execute("ALTER TABLE correspondence_approvedmessage DISABLE TRIGGER catalyst_approved_message_frozen")
+        owner.execute("UPDATE correspondence_approvedmessage SET authorized_at = now() - interval '2 hours'")
+        owner.execute("ALTER TABLE correspondence_approvedmessage ENABLE TRIGGER catalyst_approved_message_frozen")
     fire()
     assert len(reminder_mails(remind)) == 1  # the second waits for the gap after the first is frozen
     deferred = [a for a in PendingAction.objects.filter(kind="remind") if a.last_error == "minimum_gap"]
@@ -496,7 +499,12 @@ def test_e2_an_unapproved_reminder_template_waits_for_staff_and_the_chain_surviv
     [action] = actions(question)
     assert (action.status, action.last_error, action.attempts) == ("queued", "no_approved_reminder_template", 0)
     assert StaffItem.objects.filter(reason_code="reminder_refused", status="open").count() == 1
-    MessageTemplateVersion.objects.filter(template__key="question_reminder").update(status="approved")
+    # A retired version is final (9kg.1): the owner approves a new version instead.
+    retired = MessageTemplateVersion.objects.get(template__key="question_reminder")
+    successor = MessageTemplateVersion.objects.create(
+        template=retired.template, version=2, subject=retired.subject, body_text=retired.body_text,
+        variables=retired.variables, content_sha256=retired.content_sha256)
+    outbound.approve_template_version(successor.pk, remind.owner)
     fire()
     assert states(question)[0] == ("1", "done") and len(reminder_mails(remind)) == 1
 

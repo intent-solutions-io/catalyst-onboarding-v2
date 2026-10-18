@@ -248,6 +248,14 @@ EXPECTED_TRIGGERS = {
     ("agreements_documentaccess", "catalyst_append_only"), ("agreements_documentaccess", "catalyst_no_truncate"),
     ("agreements_agreementdetailsversion", "catalyst_agreement_details_frozen"),
     ("agreements_agreementdetailsversion", "catalyst_no_truncate"),
+    ("correspondence_staffitemresolution", "catalyst_append_only"),  # 9kg.1
+    ("correspondence_staffitemresolution", "catalyst_no_truncate"),
+    ("correspondence_inboundmessagelocation", "catalyst_append_only"),
+    ("correspondence_inboundmessagelocation", "catalyst_no_truncate"),
+    ("correspondence_approvedmessage", "catalyst_approved_message_frozen"),
+    ("correspondence_approvedmessage", "catalyst_no_truncate"),
+    ("correspondence_messagetemplateversion", "catalyst_template_version_frozen"),
+    ("correspondence_messagetemplateversion", "catalyst_no_truncate"),
 }
 
 

@@ -840,3 +840,18 @@ def test_p2_39_47_no_table_stores_original_message_bytes(mailbox):
                              [app_role, table, privilege, privilege, app_role, table, privilege]).fetchone()[0]
         assert held is False, (
             table, privilege)  # drafts, resolutions and locations are insert-only for the application role
+
+
+def test_9kg_1_inbound_locations_are_append_only_for_every_role(mailbox):
+    question, message = sent_question(mailbox)
+    mailbox.imap.deliver(reply(message))
+    collect()
+    [location] = InboundMessage.objects.get().locations.all()
+    for role in ("app", "owner"):
+        conn = mailbox.committed.connect(role, autocommit=True)
+        for sql in ("UPDATE correspondence_inboundmessagelocation SET uid = uid + 1 WHERE id = %s",
+                    "DELETE FROM correspondence_inboundmessagelocation WHERE id = %s"):
+            with pytest.raises((errors.InsufficientPrivilege, errors.RaiseException)):
+                conn.execute(sql, [location.pk])
+        with pytest.raises((errors.InsufficientPrivilege, errors.RaiseException)):
+            conn.execute("TRUNCATE correspondence_inboundmessagelocation CASCADE")
