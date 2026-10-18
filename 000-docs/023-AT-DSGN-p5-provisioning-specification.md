@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document | `023-AT-DSGN-p5-provisioning-specification` |
-| Version | 0.2.0 (0.1.0 prepared under D-40; 0.2.0 records the owner's P5 decisions, D-47, and corrects the MXroute research from the public API reference) |
+| Version | 0.2.1 (0.1.0 prepared under D-40; 0.2.0 records the owner's P5 decisions, D-47, and corrects the MXroute research from the public API reference; 0.2.1 resolves the pre-build security and reliability reviews, section 11) |
 | Status | **P5 decisions DECIDED by the owner 2026-10-18 (D-47) for synthetic work; 5A amended and 5B.1 to 5B.3 released for synthetic implementation against a local fake MXroute.** Not authorized: live MXroute access, any provider key, real mailboxes or passwords, real applicant data, role grants to real staff, deployment, and GATE-P5 acceptance (5C stays a draft for the owner). |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-18 |
@@ -64,13 +64,13 @@ Tags used in this section:
 
 | # | Fact | Tag |
 |---|---|---|
-| 1 | **Mailboxes** (`/domains/{domain}/email-accounts`): list (GET); create (POST `username`, `password` 8 to 72 characters, `quota` in MB default 1024, `limit` daily sends default 9600 and maximum 9600) returning 201; read one (GET `/{user}`); update (PATCH `password`, `quota`, `limit`; omitted fields unchanged; the local part is resolved case-insensitively, and an ambiguous lookup refuses); delete (DELETE, 204). Errors: 400 for a rejected password, 404, and 500 for a failed or ambiguous lookup. Raw backend errors are hidden. | DOCUMENTED; NOT VERIFIED |
+| 1 | **Mailboxes** (`/domains/{domain}/email-accounts`): list (GET); create (POST `username`, `password` 8 to 72 characters, `quota` in MB default 1024, `limit` daily sends default 9600 and maximum 9600) returning 201; read one (GET `/{user}`); update (PATCH `password`, `quota`, `limit`; omitted fields unchanged; the local part is resolved case-insensitively, and an ambiguous lookup refuses); delete (DELETE, 204). Errors: 400 for a rejected password, 404, and 500 for a failed or ambiguous lookup. Raw backend errors are hidden. **A 500 is an unknown outcome, never "absent".** | DOCUMENTED; NOT VERIFIED |
 | 2 | **Quota 0 means unlimited.** It is never a way to disable a mailbox. | DOCUMENTED |
-| 3 | **Authentication** uses three headers: `X-Server`, `X-Username` (or `reseller\|user`) and `X-API-Key`. The schema says "the key's DirectAdmin restrictions remain in force". So the panel's lack of a per-key permission editor does not prove a key is unrestricted. | DOCUMENTED; restriction scope NOT VERIFIED |
+| 3 | **Authentication** uses three headers: `X-Server`, `X-Username` (or `reseller\|user`) and `X-API-Key`. In the reseller-impersonation section the schema says "the key's DirectAdmin restrictions remain in force". So the panel's lack of a per-key permission editor does not prove a key is unrestricted. A reseller key can impersonate any owned user and reach the reseller endpoints (suspend, delete, packages), so it is far broader than a key for one hosting user. | DOCUMENTED; restriction scope NOT VERIFIED |
 | 4 | **Errors** are `{success, error: {code, message, field}}`. The codes include `CONFLICT` (resource exists), `FORBIDDEN`, `RATE_LIMITED` (with `Retry-After`), `BUSINESS_ERROR` and `SERVER_ERROR`. | DOCUMENTED |
 | 5 | **Rate limits:** 200 reads, 60 writes and 10 bulk requests per minute, with `X-RateLimit-*` headers. Impersonated users share the reseller's bucket. | DOCUMENTED |
 | 6 | **Forwarders** (list, create, delete per domain), **catch-all** and **pointers** exist. | DOCUMENTED |
-| 7 | The mailbox schema has a read-only `suspended` flag. **There is no per-mailbox suspend operation.** Suspend exists only for a whole reseller user (`/reseller/users/{u}/suspend`), which must never be used to remove one person's access. | DOCUMENTED |
+| 7 | The mailbox schema includes a `suspended` flag, but **no documented operation sets it for one mailbox.** Suspend exists only for a whole reseller user (`/reseller/users/{u}/suspend`), and mail can be disabled only for a whole domain (`PATCH /domains/{d}/mail-status`). Neither is ever used to remove one person's access. | DOCUMENTED |
 | 8 | Not in the schema: idempotency keys; session revocation; app passwords; a password-setup or reset link; forced change at first login; the semantics of a create that meets an existing mailbox beyond `CONFLICT`. | NOT DOCUMENTED |
 | 9 | From the panel and docs pages: the 200-row CSV import cap, a separate 400 per hour maximum, and "Deletion removes the mailbox's messages and data". | DOCUMENTED ([email accounts](https://docs.mxroute.com/docs/email-accounts.html)) |
 | 10 | The SMTP API sends mail only and uses mailbox credentials. | DOCUMENTED ([SMTP API](https://docs.mxroute.com/docs/api/smtp-api.html)) |
@@ -108,7 +108,7 @@ Tags used in this section:
 | 3 | Approve | The approver (P5-D-3) confirms the exact address, quota, limit, method and prerequisite digest, against the digest of what they were shown. | approved | A stale screen refuses and needs a fresh confirmation. |
 | 4 | Create | **API:** the attempt is committed first, then one create call with a random password nobody sees (the setup flow replaces it). A `CONFLICT`, or an unknown outcome, is reconciled by reading that specific mailbox. A mailbox that exists is never assumed to be ours. **Checklist:** a staff task with the recorded steps. | created; conflict; uncertain | Never retried blindly. Duplicates are serialized per address. |
 | 5 | Verify | **API:** an authoritative read of that mailbox, tied to the request. **Checklist:** a different named verifier's attestation (P5-D-5). | verified; not found; conflict | Bounded re-checks, then staff. |
-| 6 | Credential setup | An invitation to the **previously verified external address**, not to the new mailbox. It goes through the existing secret-bearing message path and its uncertain-send rules. The page shows on GET and sets the password on POST. The password is handed over only transiently to the privileged operation (section 7). An unknown outcome blocks activation and opens a safe recovery path. | invited; presented; completed; expired; uncertain | A new invitation cancels the old one. A credential operation is never replayed blindly. |
+| 6 | Credential setup | An invitation to the **previously verified external address**, not to the new mailbox. It goes through a secret-bearing message kind that 5B.2 builds (P2 refuses secret-bearing templates today; section 11.2). The page shows on GET and sets the password on POST. The password is handed over only transiently to the privileged operation (section 7). An unknown outcome blocks activation and opens a safe recovery path. | invited; presented; completed; expired; uncertain | A new invitation cancels the old one. A credential operation is never replayed blindly. |
 | 7 | Activate | One transaction: the prerequisites are current, provisioning is verified **and** setup is completed. The stage moves `agreements_complete → active` and the approved welcome is queued; the worker sends it later, outside the transaction. Protective jobs stay. | active | A welcome bounce opens a staff item; the stage stays `active`. |
 
 "Invitation accepted by the mail server", "link presented", "credential set" and "access ready" are four
@@ -189,7 +189,7 @@ in 5C.
 | TEST-P5-11 | On the checklist path, the verifier must differ from the creator. |
 | TEST-P5-12 | An SMTP acceptance alone never verifies a mailbox. |
 | TEST-P5-13 | The setup token is hash-only, single-use and expiring. A repeated or expired link refuses. A new invitation cancels the old one. |
-| TEST-P5-14 | The invitation goes to the verified external address through the P2 secret-bearing path, never to the new mailbox. |
+| TEST-P5-14 | The invitation goes to the verified external address, re-checked at send time and at redemption, never to the new mailbox or any company-domain address; the token is minted at send time and only its hash is stored. |
 | TEST-P5-15 | The chosen password appears in no record, event, log, exception or payload. |
 | TEST-P5-16 | An unknown password-set outcome blocks activation and is never replayed blindly. |
 | TEST-P5-17 | Stop intent survives an in-flight create or credential operation. A late mailbox is recovered without a welcome or reactivation. |
@@ -212,3 +212,217 @@ in 5C.
 
 Each slice gets a focused security and reliability review before it is built where it is sensitive (5B.2 and
 5B.3), then a QA review before its merge.
+
+## 11. Design resolutions after the pre-build reviews (0.2.1)
+
+A focused security review and a reliability review read 0.2.0 before any 5B code. Their blockers and highs are
+resolved below.
+
+- **Engineering defaults** (no tag) are design choices inside the owner's decisions. The owner may change them.
+- **OWNER** marks a question only the owner can settle. None of them blocks synthetic work.
+- Where a resolution changes an earlier section, this section governs.
+
+### 11.1 Where the privileged operation runs (security BLOCKER 1)
+
+- **Live design: a separate credential service.**
+  - It runs as its own process and OS user, holding the provider key as a service credential rather than an
+    environment variable.
+  - It uses a key for one hosting user, never a reseller key.
+  - It exposes one narrow local call per operation: create mailbox, set password for a setup, rotate, list and
+    remove forwarders, read the catch-all.
+  - It validates the setup token's hash and state itself, so the web process cannot pick an arbitrary target.
+  - The password exists only in the web request and in the service's memory. It never enters the database or a
+    queue.
+- **Synthetic build.** The same interface is implemented by the local fake, in process. 5B builds against the
+  interface and never against a key.
+- **Before live:** running the real service, its key custody and its OS isolation are the pre-live privilege
+  separation that P5-D-6 already names.
+- **OWNER, at pre-live:** this design (P1) or the sealed-box fallback (P2, a short-lived ciphertext in a job row).
+
+### 11.2 The setup invitation (security BLOCKER 2; reliability BLOCKER 1)
+
+The invitation is a new secret-bearing kind built in 5B.2. It is a deliberate, recorded exception to the `016`
+re-render pattern.
+
+- **Minting.** The worker mints a CSPRNG token at send time and stores only its hash on `CredentialSetup`. The frozen
+  message holds identifiers only (the setup and its series). The body with the link exists only in memory during
+  the send.
+- **No Sent copy** is filed (as for every secret-bearing kind).
+- **Uncertain send.** An uncertain or unknown send is never reconciled by evidence. It **supersedes**: the old token
+  is cancelled and a new series mints a new token. After `CATALYST_SETUP_INVITE_MAX_SERIES` series (a synthetic
+  default of 3), staff decide. **OWNER:** the production bound.
+- **Base URL.** The link uses the configured public base URL only, never the Host header.
+
+### 11.3 When a mailbox is "ours" (reliability BLOCKER 2)
+
+A mailbox counts as ours only by **evidence within a window**:
+
+1. In the same claim, immediately before the create call, an authoritative read of that exact normalized address
+   returns "absent". The read and its result are recorded on the attempt.
+2. After an unknown or `CONFLICT` outcome, a later read finds the mailbox.
+
+Anything else is a `conflict` for staff, never adoption: an existing mailbox with no recorded "absent" read, a read
+answering 500, or a found mailbox whose quota or limit differ from the request. The residual risk is a person
+creating the same address in the panel inside the window. Staff therefore confirm every `found_by_evidence`
+outcome with a one-step item before verification.
+
+**OWNER, at pre-live:** whether a login probe with a create password derived in the service may strengthen this.
+
+### 11.4 Fresh reads and effect boundaries (reliability HIGH 3)
+
+The prerequisite function factored out of the P4 hand-off is evaluated at each boundary, with a fresh Documenso
+read outside any transaction where noted. It covers agreement integrity, custody, details, the verified contact,
+pause, delivery blocks and stop intent.
+
+| # | Boundary | Fresh provider read |
+|---|---|---|
+| B1 | release | yes |
+| B2 | the create's check transaction | yes |
+| B3 | the create's result transaction | no (stop flag only) |
+| B4 | before an invitation is sent | no (P2 send checks plus the request state) |
+| B5 | the password-set compare-and-set | no (stop flag and token) |
+| B6 | activation | yes |
+| B7 | the welcome send | no (P2 checks) |
+
+### 11.5 Password set, stop and revocation ordering (reliability HIGH 4 and 5)
+
+**The set-password protocol** is a web request with compare-and-set; it is not a ledger action, so the password never
+enters a payload.
+
+1. Under a row lock, check the state is `invited` or `presented`, the token hash, the expiry, a non-terminal
+   application and no stop intent. Then move to `set_pending` and stamp the start time. Commit.
+2. The service call runs outside any lock.
+3. A second transaction records `completed`, or `set_uncertain` on an unknown outcome.
+4. A sweep moves any `set_pending` older than the provider timeout to `set_uncertain`.
+
+`set_uncertain` cannot be resolved by reading. The recovery is a new invitation; the old setup is superseded.
+
+**Stop intent** is a `stop_requested_at` column on `ProvisioningRequest`, not a status. It is written in the
+withdrawal or closure transaction together with:
+
+- the stage change;
+- cancelling queued invitations and welcome sends;
+- cancelling the setup;
+- the revocation obligations;
+- the event.
+
+Every result transaction takes the application lock first, so it serializes with the stop. A mailbox found under
+stop is `recovered_after_stop`: no welcome, no reactivation, and its revocation obligations are added.
+
+**Rotation never runs while any setup is `set_pending`.** It then repeats once after a settle delay longer than the
+provider timeout. This is safe because the new value is random and unknown. It means a late password write cannot
+outlive revocation.
+
+### 11.6 Revocation states (security HIGH 4; reliability MEDIUM 11)
+
+**States for each obligation:**
+
+- `requested`
+- `applied_unverified`: a write was accepted but cannot be read back, as with a password rotation
+- `verified`: only for state that can be read back, such as a forwarder list or the catch-all
+- `not_applicable`
+- `unsupported`
+- `exception`
+
+**Obligations**, unique per request and kind:
+
+- cancel setup links;
+- rotate the password;
+- remove forwarders owned by the mailbox, and forwarders whose destinations name the address;
+- the domain catch-all and pointers naming the address;
+- existing sessions, client connections, and app or delegated credentials. These are `unsupported` until a
+  documented mechanism exists.
+
+**Rollup:** revocation is complete only when every row is `verified`, `applied_unverified` (with the accepted
+limitation shown) or `not_applicable`. An `unsupported` or `exception` row keeps a staff item open, with its age
+shown.
+
+### 11.7 States, keys and the stage (reliability HIGH 5 and 6, MEDIUM 12; LOW 16)
+
+**`ProvisioningRequest`:**
+
+```text
+awaiting_approval -> approved -> create_pending -> created | create_uncertain | conflict | failed_needs_staff
+create_uncertain -> found_by_evidence (staff confirm) -> created | conflict | failed_needs_staff
+created -> verified | verify_uncertain -> verified | failed_needs_staff
+verified -> setup_pending -> setup_complete -> active
+with stop_requested_at: create_* -> stopping -> stopped | recovered_after_stop; created and later -> stopped
+```
+
+**`CredentialSetup`:**
+
+```text
+invitation_pending -> invited | invitation_uncertain | invitation_failed
+invitation_uncertain -> superseded (bounded) | staff
+invited -> presented -> set_pending -> completed | set_uncertain
+set_uncertain -> superseded
+invited | presented -> expired | cancelled | superseded
+```
+
+**Keys.** `provision:<application>` stays the release gate only. The request's own actions carry their own keys:
+
+- `provision_create:<request>:<series>`
+- `provision_reconcile:<attempt>:<n>`
+- `provision_verify:<request>:<n>`
+- `setup_invite:<setup>:<series>`
+- `setup_sweep:<setup>`
+- `activate:<request>`
+- `revoke_<kind>:<request>`
+
+The welcome uses the P2 send key.
+
+**Stage.** The existing `provisioning` stage marks provisioning in flight. Release moves `agreements_complete ->
+provisioning` by compare-and-set, and activation moves it to `active`.
+
+### 11.8 Smaller rules (security MEDIUM 6 to 10; reliability MEDIUM 9, 10, 13 and LOW 14, 15, 17)
+
+**The set-password view:**
+
+- `sensitive_post_parameters`; the password field is never re-rendered, and the page keeps no typed values;
+- a test with a deliberate exception;
+- `Referrer-Policy: no-referrer` and `Cache-Control: no-store`;
+- GET never consumes the token, so link previews are harmless;
+- identical failure pages for an unknown, used, expired and cancelled token.
+
+Access-log redaction of the setup path is a P6 item (`024` row 5).
+
+**The invitation recipient** is re-checked at send time and at redemption: still the current verified contact, no
+delivery block, no stop, and never an address in the company domain.
+
+**The adapter:**
+
+- it has no delete method at all;
+- it refuses any path outside the configured domain's mailbox, forwarder, catch-all and pointer endpoints, and every
+  reseller endpoint;
+- it uses the P4 error taxonomy, where only a 4xx other than 429 is definite;
+- its audit uses an allowlisted schema, so a password is never logged and request bodies and HTTP-client exceptions
+  are never captured;
+- a create password is generated inside the call, never in a plan object.
+
+**The database:**
+
+- reservations are unique on the normalized `lower(local)@domain`;
+- one live request per application;
+- quota of at least 1, and a limit between 1 and 9600.
+
+**Leases.** A fence between sub-steps, and a settle grace before the first reconcile read.
+
+**Provider password rules beyond 8 to 72 characters are unknown.** A 400 with `field: password` is definite and safe
+to retry with a new choice, with a generic message to the applicant.
+
+### 11.9 Welcome recipient (reliability HIGH 8)
+
+The welcome goes to the verified external address and names the new mailbox. The applicant may not yet read the new
+mailbox. **OWNER:** confirm.
+
+### 11.10 Owner questions left open
+
+None of these blocks synthetic work:
+
+- P1 or P2 for the live credential service (11.1);
+- a login probe to strengthen "ours" (11.3);
+- the production bound on invitation series (11.2);
+- the welcome recipient (11.9);
+- the key type our account allows, and the server's password rules. These are pre-live checks that need a separately
+  authorized live look.
+
