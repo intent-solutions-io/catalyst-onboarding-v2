@@ -461,4 +461,3 @@ None of these blocks synthetic work:
 - **Open revocation items can end.** `unsupported` rows (sessions, app credentials) end only by an explicit,
   owner-accepted `exception` with a recorded reason. That acceptance is shown on the screen and is never automatic.
 - **Setup-path log redaction** stays a blocking pre-live gate (`024` row 5).
-
