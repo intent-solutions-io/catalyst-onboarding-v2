@@ -92,7 +92,7 @@ the hand-off does not change the held action itself.
 | 3 | Approve | A named decision-maker approves the exact address (POL-11 authority), confirmed against the digest of what they were shown. | approved | — |
 | 4a | Create (checklist) | A staff task with the checklist: create the mailbox in the panel with the approved address, quota and send limit, then record the evidence. | recorded | an unrecorded task stays visible with its owner |
 | 4b | Create (API, later) | The request is committed before the call; an uncertain result is reconciled by checking existence before any retry (ADR-15). | created; uncertain | never retried blindly |
-| 5 | Verify | Existence is checked without using the applicant's credential (P5-D-5): a second person confirms the panel listing, or a test message to the address is accepted. A failed check goes to staff. | verified; not found | bounded re-checks, then staff |
+| 5 | Verify | Existence is checked without using the applicant's credential (P5-D-5): a different named staff member than the creator confirms the panel listing (to be enforced in 5B.1), or a test message to the address is accepted. A failed check goes to staff. | verified; not found | bounded re-checks, then staff |
 | 6 | Credentials | Delivery by the POL-11 method. The credential never enters history, logs, email bodies or this repository. | delivered; failed | staff |
 | 7 | Activate | One transaction: the stage moves `agreements_complete → active`, the welcome message is sent through P2 (an approved template, delivery checks), and remaining actions close. | active | a welcome bounce opens a staff item; the stage stays `active` |
 
@@ -107,7 +107,8 @@ the hand-off does not change the held action itself.
   export decision first.
 - **What happens to live work:**
   - agreements: P4 `stop_agreements` (D-42);
-  - provisioned access: per POL-11 and POL-12. The proposed default is a staff task to disable the mailbox,
+  - provisioned access: per POL-11 and POL-12. The proposed default is a staff task to disable the mailbox by the
+    interim below,
     **never automatic deletion**: MXroute deletion removes the mailbox's data (fact 1), and POL-10 governs
     retention.
 - **Reopening.** Never a generic button. Whether a new application is created follows POL-01 and POL-12.
@@ -132,7 +133,7 @@ the hand-off does not change the held action itself.
 | P5-D-1 | POL-11 naming: the mailbox domain and the local-part rule | one domain chosen by the owner; local part `firstname.lastname`, with a numeric suffix on conflict | initials; an applicant-chosen name within rules | step 2 |
 | P5-D-2 | POL-11 quota and daily send limit | conservative synthetic values; production values by the owner | provider defaults (1024 MB) | step 4 |
 | P5-D-3 | POL-11 approval authority | a named decision-maker (the POL-05 pattern), explicit grant | any operator | step 3 |
-| P5-D-4 | Provisioning method | operator checklist with recorded evidence, plus independent verification | the panel API, after an authorized read-only look at its documentation and the owner's acceptance of the full-scope key | steps 4a and 4b |
+| P5-D-4 | Provisioning method | operator checklist with recorded evidence, plus independent verification | the panel API, after the owner accepts the full-scope key in writing (reading its documentation may itself mint that key; section 3) | steps 4a and 4b |
 | P5-D-5 | Existence verification method | a check that never uses the applicant's credential: a second person's panel-listing attestation on the checklist path, or an accepted test message | an IMAP or SMTP login probe (rejected as the default: Catalyst or staff would authenticate as the applicant, coupling verification to credential delivery and risking lockouts) | step 5 |
 | P5-D-6 | Credential delivery | **open; needs a decision.** On the checklist path, the operator who creates the mailbox necessarily sets an initial password. Options: (a) the operator sets a random password nobody records, then a Catalyst-built one-time "set your password" link changes it (this needs the panel API, so the API decision P5-D-4 comes first); (b) the operator gives the initial password to the applicant through a channel the owner approves, and the applicant must change it at first login | email the password (refused: J-14 forbids it) | step 6 |
 | P5-D-7 | Other access at activation (LMS, Slack, and so on) | none in P5; each is a separate later decision | — | step 7 |
@@ -153,6 +154,8 @@ TEST-P5-01 to TEST-P5-05 keep their meaning from `004`. New cases:
 - credentials are absent from every record and log;
 - a delivery block stops the welcome message;
 - withdrawal stops P4 work and opens the mailbox-disable task without deleting anything;
+- the disable task never uses a quota change, and records the password rotation and removed forwards;
+- the verification attestation is by a different staff member than the creator;
 - reopening follows POL-01.
 
 ## 10. Build slices (proposed)
