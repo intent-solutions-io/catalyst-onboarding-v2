@@ -31,10 +31,11 @@ from django.conf import settings
 from django.core.mail import EmailMessage
 from django.db import transaction
 from django.db.models.functions import Now
+from django.views.decorators.debug import sensitive_variables
 
 from applications.links import SETUP_PATH
 from applications.models import Application, Stage
-from applications.stages import StageConflict, transition
+from applications.stages import transition
 from correspondence.messages import verified_address
 from workflow import ledger
 from workflow.models import PendingAction
@@ -47,7 +48,7 @@ logger = logging.getLogger(__name__)
 Status = PendingAction.Status
 
 INVITE = "provision_invite"
-SWEEP = "provision_setup_sweep"
+SWEEP = "provision_setup_sweep"  # also the expiry check of an unused link (key setup_expire:...)
 ACTIVATE = "provision_activate"
 WELCOME_TEMPLATE = "provisioning_welcome"
 ITEM_SETUP = "provisioning_setup_needs_staff"
@@ -70,9 +71,23 @@ def _outside_company(address: str) -> bool:
     return bool(address) and not (domain and address.lower().rsplit("@", 1)[-1] == domain)
 
 
+def recipient_problem(application, setup) -> str:
+    """023 11.8: at send time and at redemption the recipient is still the current verified contact, outside the
+    company domain."""
+    current = verified_address(application)
+    if not current or current != setup.recipient or not _outside_company(current):
+        return "recipient_changed"
+    return ""
+
+
 def open_setup(request, actor_ref: str) -> CredentialSetup | None:
     """Inside the caller's transaction, with the application and request locked. The recipient is the verified
     external address now, never the new mailbox or any company-domain address."""
+    if request.method != ProvisioningRequest.Method.API:
+        # The set-your-own-password flow needs the API (P5-D-6 option a). On the checklist path the credential is
+        # the owner's separately approved contingency (option b): staff are told, nothing is sent.
+        core.item(ITEM_SETUP, request)
+        return None
     recipient = verified_address(request.application)
     if not recipient or not _outside_company(recipient):
         core.item(ITEM_SETUP, request)
@@ -129,10 +144,7 @@ class SendSetupInvitation(_Action):
                 if setup.state != "invitation_pending" or request.status != "setup_pending":
                     ledger.finish(claim, self, status=Status.DONE, error="nothing_to_send")
                     return
-                problem = core.database_problem(application, request)
-                recipient = verified_address(application)
-                if not problem and (recipient != setup.recipient or not _outside_company(recipient)):
-                    problem = "recipient_changed"  # re-checked at send time (023 11.8)
+                problem = core.database_problem(application, request) or recipient_problem(application, setup)
                 if problem:
                     CredentialSetup.objects.filter(pk=setup.pk).update(state="cancelled", updated_at=Now())
                     core.item(ITEM_SETUP, request, claim_id=claim.id)
@@ -170,9 +182,13 @@ class SendSetupInvitation(_Action):
             CredentialSetup.objects.filter(pk=setup.pk).update(state="invitation_uncertain", updated_at=Now())
             _supersede_and_reopen(setup, request, actor, "send_uncertain")
             return
-        CredentialSetup.objects.filter(pk=setup.pk, state="invitation_sending").update(
-            state="invited", token_sha256=digest, updated_at=Now(),
-            expires_at=Now() + timedelta(seconds=settings.CATALYST_SETUP_LINK_SECONDS))
+        if not CredentialSetup.objects.filter(pk=setup.pk, state="invitation_sending").update(
+                state="invited", token_sha256=digest, updated_at=Now(),
+                expires_at=Now() + timedelta(seconds=settings.CATALYST_SETUP_LINK_SECONDS)):
+            return
+        # An unused link ends visibly: at expiry it is `expired` and a new series opens (bounded), never a stall.
+        core.enqueue(SWEEP, request, f"setup_expire:{setup.public_id}:0",
+                     due_in=timedelta(seconds=settings.CATALYST_SETUP_LINK_SECONDS))
         core.record(request.application, "provisioning_setup_invited", {"request": str(request.public_id),
                                                                         "series": setup.series}, actor)
 
@@ -191,6 +207,8 @@ def live_setup(token: str):
              .filter(token_sha256=token_hash(token), state__in=("invited", "presented")).first())
     if setup is None or setup.request.stop_requested_at is not None or setup.request.status != "setup_pending":
         return None
+    if recipient_problem(setup.request.application, setup):
+        return None
     if CredentialSetup.objects.filter(pk=setup.pk, expires_at__lte=Now()).exists():
         return None
     return setup
@@ -200,6 +218,7 @@ def mark_presented(setup) -> None:
     CredentialSetup.objects.filter(pk=setup.pk, state="invited").update(state="presented", updated_at=Now())
 
 
+@sensitive_variables("password")
 def set_password(token: str, password: str) -> str:
     """The protocol of 023 11.5. Returns "completed" or "retry" (a definite rejection: choose again), or raises
     SetupRefused. The password is never stored, logged or kept beyond this call."""
@@ -213,6 +232,7 @@ def set_password(token: str, password: str) -> str:
         setup = CredentialSetup.objects.select_for_update(of=("self",)).get(pk=setup.pk)
         if (setup.state not in ("invited", "presented") or setup.token_sha256 != token_hash(token)
                 or request.status != "setup_pending" or core.database_problem(application, request)
+                or recipient_problem(application, setup)  # re-checked at redemption (023 11.8)
                 or CredentialSetup.objects.filter(pk=setup.pk, expires_at__lte=Now()).exists()):
             raise SetupRefused
         CredentialSetup.objects.filter(pk=setup.pk).update(state="set_pending", set_started_at=Now(),
@@ -259,22 +279,75 @@ def set_password(token: str, password: str) -> str:
 
 
 class SweepSetup(_Action):
-    """Protective: a `set_pending` older than the operation timeout is `set_uncertain` (never read back), and a new
-    series opens."""
+    """Protective. `setup_sweep:<setup>:<attempt>`: a `set_pending` of that same attempt, older than the operation
+    timeout, is `set_uncertain` (never read back) and a new series opens. `setup_expire:<setup>:0`: an unused link
+    past its expiry is `expired` and a new series opens. Both bounded by the series limit, then staff."""
 
     kind = SWEEP
 
     def run(self, claim) -> None:
         key = self._key(claim)
-        setup_id = key.split(":")[1] if key.count(":") >= 2 else ""
+        mode, setup_id, n = (key.split(":") + ["", "", ""])[:3]
 
         def write():
             setup = CredentialSetup.objects.select_related("request__application").filter(public_id=setup_id).first()
-            if setup is None or setup.state != "set_pending":
+            if setup is None:
                 return
+            actor = f"pending_action:{claim.id}"
+            if mode == "setup_expire":
+                if setup.state in ("invited", "presented") and CredentialSetup.objects.filter(
+                        pk=setup.pk, expires_at__lte=Now()).exists():
+                    CredentialSetup.objects.filter(pk=setup.pk).update(state="expired", updated_at=Now())
+                    core.record(setup.request.application, "provisioning_setup_expired",
+                                {"request": str(setup.request.public_id), "series": setup.series}, actor)
+                    _reopen_after(setup, setup.request, actor)
+                return
+            timeout = timedelta(seconds=settings.CATALYST_SETUP_SET_TIMEOUT_SECONDS)
+            if (setup.state != "set_pending" or str(setup.set_attempts) != n
+                    or not CredentialSetup.objects.filter(pk=setup.pk, set_started_at__lte=Now() - timeout).exists()):
+                return  # a later attempt, or still within its time: not this sweep's business (security review)
             CredentialSetup.objects.filter(pk=setup.pk).update(state="set_uncertain", updated_at=Now())
-            _supersede_and_reopen(setup, setup.request, f"pending_action:{claim.id}", "set_timed_out")
+            _supersede_and_reopen(setup, setup.request, actor, "set_timed_out")
         ledger.finish(claim, self, status=Status.DONE, write=write)
+
+
+def _reopen_after(setup, request, actor_ref: str) -> None:
+    """After an expired (terminal) series: open a new one within the bound, else staff."""
+    if request.setups.count() >= settings.CATALYST_SETUP_INVITE_MAX_SERIES or request.stop_requested_at is not None:
+        core.item(ITEM_SETUP, request)
+        return
+    open_setup(request, actor_ref)
+
+
+def reissue(request_id: int, user, reason: str) -> CredentialSetup:
+    """Staff, with a reason, send a fresh link after the bound was reached, a link expired or a recipient changed:
+    any live series is superseded first. Never replays an old link."""
+    from correspondence.models import StaffItem
+    from correspondence.staff_items import resolve_item
+
+    from . import services
+
+    services.require(user, "operate_provisioning")
+    note = services._reason(reason)
+    request = ProvisioningRequest.objects.get(pk=request_id)
+    with transaction.atomic():
+        application, request = core.lock(request.application_id, request.pk)
+        if request.status != "setup_pending":
+            raise services.Refused("not_awaiting_setup")
+        problem = core.database_problem(application, request)
+        if problem:
+            raise services.Refused(problem)
+        if request.setups.filter(state="set_pending").exists():
+            raise services.Refused("set_in_progress")
+        request.setups.filter(state__in=("invitation_pending", "invited", "presented")).update(
+            state="superseded", updated_at=Now())
+        setup = open_setup(request, services.actor(user))
+        if setup is None:
+            raise services.Refused("recipient_not_usable")
+        for open_one in StaffItem.objects.filter(reason_code=ITEM_SETUP, dedupe_key=f"provisioning:{request.public_id}",
+                                                 status=StaffItem.Status.OPEN):
+            resolve_item(open_one, code="reissued", actor_ref=services.actor(user), note=note)
+    return setup
 
 
 # --- activation -------------------------------------------------------------------------------------------------
@@ -306,31 +379,53 @@ class Activate(_Action):
         application = Application.objects.get(pk=request.application_id)
         request = ProvisioningRequest.objects.select_related("reservation").get(pk=request.pk)
         actor = f"pending_action:{claim.id}"
+        if application.stage != Stage.PROVISIONING:
+            return  # already active, or no longer provisioning: nothing more (the lock is held, so this stands)
         problem = fresh_problem or core.database_problem(application, request)
-        completed = request.setups.filter(state="completed").exists()
-        verified = request.evidence.filter(kind__in=("adapter_read", "checklist_attested")).exists()
-        version = current_template_version(WELCOME_TEMPLATE)
-        if not problem and not (completed and verified):
+        completed = request.setups.filter(state="completed", completed_at__isnull=False).exists()
+        verified = application.events.filter(kind="provisioning_verified", data__request=str(request.public_id)).exists()
+        if not problem and (request.status != "setup_complete" or not (completed and verified)):
             problem = "not_ready"
+        version = current_template_version(WELCOME_TEMPLATE)
         if not problem and version is None:
             problem = "no_approved_welcome_template"
+        message = None
+        if not problem:
+            try:  # the welcome is frozen first: no activation without a welcome to send (security review)
+                message = _freeze(application, ApprovedMessage.Kind.WELCOME, verified_address(application), version,
+                                  {"display_name": application.display_name,
+                                   "mailbox_address": request.reservation.address},
+                                  actor, ApprovedMessage.Authority.SYSTEM_POLICY)
+            except (Refused, TemplateRefused) as exc:
+                problem = f"welcome_refused_{type(exc).__name__.lower()}"
         if problem:
             core.item(ITEM_ACTIVATION, request, claim_id=claim.id)
             core.record(application, "provisioning_activation_refused", {"request": str(request.public_id),
                                                                          "reason": problem}, actor)
             return
-        try:
-            transition(application.pk, (Stage.PROVISIONING,), Stage.ACTIVE, event_kind="provisioning_activated",
-                       data={"request": str(request.public_id)}, actor_ref=actor)
-        except StageConflict:
-            return  # already active, or no longer provisioning: nothing more
+        transition(application.pk, (Stage.PROVISIONING,), Stage.ACTIVE, event_kind="provisioning_activated",
+                   data={"request": str(request.public_id)}, actor_ref=actor)
         core.set_status(request, "active")
-        try:
-            message = _freeze(application, ApprovedMessage.Kind.WELCOME, verified_address(application), version,
-                              {"display_name": application.display_name, "mailbox_address": request.reservation.address},
-                              actor, ApprovedMessage.Authority.SYSTEM_POLICY)
-        except (Refused, TemplateRefused) as exc:
-            core.item(ITEM_ACTIVATION, request, claim_id=claim.id)
-            logger.warning("activation %s: the welcome was refused (%s)", request.public_id, type(exc).__name__)
-            return
         enqueue_send(message, 0)  # the P2 sender sends it later, outside this transaction, with its own checks
+
+
+def retry_activation(request_id: int, user, reason: str) -> None:
+    """Staff, with a reason, run activation again once its cause is fixed (for example the owner approved the
+    welcome template). Every check runs again; nothing is forced."""
+    from correspondence.models import StaffItem
+    from correspondence.staff_items import resolve_item
+
+    from . import services
+
+    services.require(user, "operate_provisioning")
+    note = services._reason(reason)
+    request = ProvisioningRequest.objects.get(pk=request_id)
+    with transaction.atomic():
+        application, request = core.lock(request.application_id, request.pk)
+        if request.status != "setup_complete":
+            raise services.Refused("not_ready")
+        n = PendingAction.objects.filter(kind=ACTIVATE, input_ref=str(request.public_id)).count()
+        core.enqueue(ACTIVATE, request, f"activate:{request.public_id}:{n}")
+        for open_one in StaffItem.objects.filter(reason_code=ITEM_ACTIVATION, dedupe_key=f"provisioning:{request.public_id}",
+                                                 status=StaffItem.Status.OPEN):
+            resolve_item(open_one, code="retried", actor_ref=services.actor(user), note=note)

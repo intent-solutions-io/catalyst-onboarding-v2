@@ -9,7 +9,7 @@ are private and no-referrer (`config.redaction`).
 from django.http import HttpResponse
 from django.shortcuts import render
 from django.views.decorators.cache import never_cache
-from django.views.decorators.debug import sensitive_post_parameters
+from django.views.decorators.debug import sensitive_post_parameters, sensitive_variables
 from django.views.decorators.http import require_http_methods
 
 from . import credentials
@@ -20,6 +20,7 @@ def _closed(request, status=404):
 
 
 @never_cache
+@sensitive_variables("password", "confirm")
 @sensitive_post_parameters("password", "confirm")
 @require_http_methods(["GET", "POST"])
 def setup(request, token):

@@ -25,7 +25,7 @@ from tests.test_outbound import staff
 from workflow.models import PendingAction
 
 REFUSED = (errors.InsufficientPrivilege, errors.RaiseException)
-VERIFIED = ("verified", "setup_pending")  # since 5B.2 a verified mailbox opens its setup at once
+VERIFIED = ("setup_pending",)  # since 5B.2 a verified API mailbox opens its setup at once (exactly this status)
 
 
 @pytest.fixture
@@ -310,7 +310,7 @@ def test_p5_11_the_checklist_verifier_must_differ_from_the_creator_for_every_rol
     assert isinstance(caught.value.__cause__, errors.InsufficientPrivilege)
     services.attest_checklist_verification(request.pk, pv.op2, "Listed in the panel with the limits")
     request.refresh_from_db()
-    assert request.status in VERIFIED and not items(app, core.ITEM_CHECKLIST).exists()
+    assert request.status == "verified" and not items(app, core.ITEM_CHECKLIST).exists()
 
 
 # --- supersession and the watch (023 11.11) ---------------------------------------------------------------------
