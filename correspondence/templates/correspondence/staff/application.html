@@ -2,7 +2,13 @@
 {% block content %}
 <h1>Correspondence: <bdi>{{ application.display_name|visible }}</bdi></h1>
 <p>Stage {{ application.stage }}. Automation {% if paused %}paused by {{ paused.actor_ref }} at {{ paused.created_at|date:"Y-m-d H:i" }} UTC. Reason: <bdi>{{ paused.reason|visible }}</bdi>{% else %}running{% endif %}.</p>
-{% if paused and can_resume %}
+{% if paused and system_pause and not can_resume_system %}
+<p>This is a system safety pause: resuming it needs decision-maker review once its cause is resolved.</p>
+{% elif paused and system_pause %}
+<form method="post" action="{% url 'correspondence_staff:resume' application.public_ref %}">{% csrf_token %}
+<p>This is a system safety pause. Resolve its cause first; resuming does not resolve it.</p>
+<label>Reason (at least 10 characters) <input name="note" minlength="10" maxlength="500" required></label> <button>Resume automation</button></form>
+{% elif paused and can_resume %}
 <form method="post" action="{% url 'correspondence_staff:resume' application.public_ref %}">{% csrf_token %}
 <label>Note <input name="note" maxlength="500"></label> <button>Resume automation</button></form>
 {% elif not paused and can_pause %}

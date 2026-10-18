@@ -620,3 +620,85 @@ def test_9kg_3_an_exchange_in_flight_still_reconciles_and_the_verification_send_
     assert StaffItemResolution.objects.get(item=item).effects["released_sends"] == 1
     run_worker()
     assert len(mail.outbox) == outbox + 1 and mail.outbox[-1].to == ["grace@example.test"]
+
+
+# --- 9kg.2: a system safety pause needs decision-maker review, a reason and its cause addressed ----------------
+
+def test_9kg_2_a_system_pause_resumes_only_by_a_decision_maker_with_a_reason_after_its_cause(mailbox):
+    from applications.models import ApplicationEvent
+    from correspondence import staff_actions
+
+    mailbox.imap.deliver(bounce(sent_question(mailbox)[1]))
+    collect()
+    processed()
+    assert AutomationPause.objects.get(subject_id=mailbox.app.public_ref).actor_ref.startswith("system")
+    with pytest.raises(Refused, match="decision_maker_review_required"):  # an operator may not clear it
+        staff_actions.resume(mailbox.app.pk, mailbox.operator, "Looks fine to me now")
+    with pytest.raises(Refused, match="reason_needed"):
+        staff_actions.resume(mailbox.app.pk, mailbox.decider, "ok")
+    with pytest.raises(Refused, match="pause_cause_open"):  # resuming never clears the delivery block itself
+        staff_actions.resume(mailbox.app.pk, mailbox.decider, "Applicant confirmed the address")
+    assert paused(mailbox)
+    item = StaffItem.objects.get(reason_code="hard_bounce", status="open")
+    processing.resolve_exception(item.pk, "address_usable_again", mailbox.decider, note="Applicant confirmed by phone")
+    staff_actions.resume(mailbox.app.pk, mailbox.decider, "Applicant confirmed the address")
+    assert not paused(mailbox)
+    resumed = ApplicationEvent.objects.get(kind="automation_resumed")
+    assert resumed.data["system_pause"] is True and resumed.actor_ref == f"user:{mailbox.decider.pk}"
+    assert resumed.data["note"] == "Applicant confirmed the address"
+    refusals = [e.data["code"] for e in ApplicationEvent.objects.filter(kind="automation_resume_refused").order_by("id")]
+    assert refusals == ["decision_maker_review_required", "reason_needed", "pause_cause_open"]  # each refusal audited
+
+
+def test_9kg_2_a_staff_pause_cannot_be_resumed_past_a_system_cause_that_arrived_later(mailbox):
+    from correspondence import staff_actions
+    from correspondence.staff_items import open_item
+
+    staff_actions.pause(mailbox.app.pk, mailbox.operator, "Checking the applicant's details")
+    # Agreement reads run while paused (D-44): a decline found meanwhile opens its item, and its own pause is a no-op
+    # because the staff pause row already exists.
+    item = open_item("agreement_declined", f"read:{uuid.uuid4()}", application=mailbox.app)
+    with pytest.raises(Refused, match="pause_cause_open"):
+        staff_actions.resume(mailbox.app.pk, mailbox.operator)
+    assert paused(mailbox)
+    with pytest.raises(PermissionDenied):  # the agreement cause is settled by a decision-maker, with a reason
+        processing.resolve_exception(item.pk, "agreement_decided", mailbox.operator, note="Reissued on the screen")
+    with pytest.raises(Refused, match="reason_needed"):
+        processing.resolve_exception(item.pk, "agreement_decided", mailbox.decider, note="done")
+    processing.resolve_exception(item.pk, "agreement_decided", mailbox.decider, note="Reissued on the agreements screen")
+    staff_actions.resume(mailbox.app.pk, mailbox.operator)  # a staff pause stays an operator's to resume
+    assert not paused(mailbox)
+
+
+def test_9kg_2_every_system_pause_reason_is_a_resumable_cause_with_a_resolution():
+    """A new system pause creator must add its reason to PAUSE_CAUSES and give its item a resolution, or an
+    application would either skip the cause check or stay paused for good."""
+    import re
+
+    from correspondence import staff_actions
+
+    root = Path(__file__).resolve().parent.parent
+    reasons = set()
+    for source in ("correspondence/processing.py", "agreements/completion.py"):
+        reasons |= set(re.findall(r'_pause\(application, "([a-z_]+)"\)', (root / source).read_text()))
+    assert reasons and reasons == set(staff_actions.PAUSE_CAUSES)
+    for reason in reasons:
+        # Every cause has a resolution path (the resume itself still needs the decision-maker and a reason).
+        assert reason in processing.RESOLUTIONS or reason in processing.ACKNOWLEDGE_ONLY, reason
+
+
+def test_9kg_2_the_screen_offers_a_system_resume_only_to_a_decision_maker_with_a_required_reason(mailbox):
+    from django.test import Client
+    from django.urls import reverse
+
+    mailbox.imap.deliver(bounce(sent_question(mailbox)[1]))
+    collect()
+    processed()
+    url = reverse("correspondence_staff:application", args=[mailbox.app.public_ref])
+    pages = {}
+    for who in ("operator", "decider"):
+        client = Client()
+        client.force_login(getattr(mailbox, who))
+        pages[who] = client.get(url).content.decode()
+    assert "needs decision-maker review" in pages["operator"] and "Resume automation" not in pages["operator"]
+    assert "Resume automation" in pages["decider"] and 'minlength="10"' in pages["decider"]
