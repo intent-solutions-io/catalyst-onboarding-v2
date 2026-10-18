@@ -654,14 +654,18 @@ def resolve_exception(item_id: int, code: str, user, note: str = "", target_appl
             if len(clean_note(note)) < HARD_BOUNCE_REASON_MIN:
                 raise Refused("reason_needed")
             note = clean_note(note)
-            if not StaffItem.objects.filter(application_id=item.application_id, reason_code="hard_bounce",
-                                            status=StaffItem.Status.OPEN).exclude(pk=item.pk).exists():
+            if item.application_id is not None and not StaffItem.objects.filter(
+                    application_id=item.application_id, reason_code="hard_bounce",
+                    status=StaffItem.Status.OPEN).exclude(pk=item.pk).exists():
                 # The last open hard bounce: held sends look again now (each re-checks everything under lock).
+                from applications.services import SEND_VERIFICATION
+
                 from .outbound import SEND_KINDS
 
                 effects["released_sends"] = PendingAction.objects.filter(
-                    kind__in=SEND_KINDS, subject_id=item.application.public_ref, status=PendingAction.Status.QUEUED,
-                    last_error="hard_bounce_open").update(due_at=Now(), updated_at=Now())
+                    kind__in=(*SEND_KINDS, SEND_VERIFICATION), subject_id=item.application.public_ref,
+                    status=PendingAction.Status.QUEUED, last_error__in=("hard_bounce_open", "hard bounce open")).update(
+                    due_at=Now(), updated_at=Now())
         elif code in ("dismiss", "mark_spoof") and message is not None and message.status == Inbound.EXCEPTION:
             fields = {"status": Inbound.PROCESSED, "processed_at": Now()}
             if code == "mark_spoof":

@@ -293,8 +293,6 @@ class SendMessage:
             if self.automated and AutomationPause.objects.filter(
                     subject_type="application", subject_id=application.public_ref).exists():
                 return Stop(Status.QUEUED, "automation_paused")  # a staff message is not automated (J-09)
-            if hard_bounce_open(application):  # every kind, staff messages and resends included (9kg.3)
-                return Stop(Status.QUEUED, "hard_bounce_open", settings.CATALYST_HARD_BOUNCE_RECHECK_SECONDS)
             if message.disposition != Disposition.ACTIVE:
                 return skip("message_not_active")
             if application.stage in TERMINAL_STAGES:
@@ -314,7 +312,9 @@ class SendMessage:
                 approved_message=message, attempt_series=series, status__in=(Attempt.SENDING, Attempt.UNKNOWN))
                 .values_list("pk", flat=True))
             if pending:
-                return Reconcile(tuple(pending))
+                return Reconcile(tuple(pending))  # an exchange already happened: reconciling sends nothing
+            if hard_bounce_open(application):  # every kind, staff messages and resends included (9kg.3)
+                return Stop(Status.QUEUED, "hard_bounce_open", settings.CATALYST_HARD_BOUNCE_RECHECK_SECONDS)
             subject, body = message.frozen_subject, message.frozen_body
             digest = canonical_digest(subject, body)
             if digest != message.content_sha256:

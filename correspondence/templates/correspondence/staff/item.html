@@ -21,7 +21,9 @@ sender matches the verified address: {{ message.from_matches_verified_address|ye
 <form method="post" action="{% url 'correspondence_staff:resolve' item.public_id %}">{% csrf_token %}
 <input type="hidden" name="code" value="{{ code }}">
 {% if code == "associate" and not item.application %}<label>Application reference <input name="target" required></label>{% endif %}
-<label>Note <input name="note" maxlength="500"></label>
+{% if code == "address_usable_again" %}<p>The address hard-bounced. Resolving this lets every held message to it go out again; the automation pause stays until it is resumed.</p>
+<label>Reason (at least 10 characters) <input name="note" maxlength="500" minlength="10" required></label>
+{% else %}<label>Note <input name="note" maxlength="500"></label>{% endif %}
 <button>{{ code }}</button>{% if code == "mark_spoof" %} (records the message as spoofed; it changes no identity){% elif code == "associate" %} (links the message to the application; it changes no identity){% endif %}</form>
 {% endfor %}
 {% if decide %}

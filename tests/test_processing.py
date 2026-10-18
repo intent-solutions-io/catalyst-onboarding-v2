@@ -572,3 +572,46 @@ def test_9kg_3_an_open_hard_bounce_holds_every_send_and_refuses_staff_bypasses(m
     assert resolution.resolved_by == f"user:{mailbox.decider.pk}" and resolution.effects["released_sends"] == 1
     run_worker()
     assert len(mailbox.server.messages) == sent + 1  # released at once, after every check ran again
+
+
+
+def test_9kg_3_an_exchange_in_flight_still_reconciles_and_the_verification_send_is_held(mailbox, monkeypatch):
+    from datetime import timedelta
+    from urllib.parse import urlencode
+
+    from django.core import mail
+    from django.db.models.functions import Now
+    from django.test import Client
+
+    from correspondence import outbound
+    from tests.test_outbound import FORM, VALID, ask, attempts, no_blind_retry, sends
+
+    no_blind_retry(monkeypatch)
+    crashed = []
+
+    def crash_once(claim, result):
+        if not crashed:
+            crashed.append(result.outcome)
+            raise RuntimeError("synthetic: the worker stopped before recording")
+    monkeypatch.setattr(outbound, "_after_send", crash_once)
+    _, message = ask(mailbox)
+    run_worker()
+    [action] = sends(message)
+    assert action.status == "running" and attempts(message) == [(1, 0, "sending")]
+    # The bounce arrives while the exchange's outcome is unrecorded: reconciliation still runs first (it sends nothing).
+    StaffItem.objects.create(application=mailbox.app, reason_code="hard_bounce", dedupe_key="inbound:synthetic")
+    PendingAction.objects.filter(pk=action.pk).update(lease_expires_at=Now() - timedelta(seconds=1))
+    run_worker()
+    action.refresh_from_db()
+    assert action.status == "uncertain" and attempts(message) == [(1, 0, "unknown")]
+    assert len(mailbox.server.messages) == 1
+    # The S1 verification send is held as well, refunded, for an application with an open hard bounce.
+    outbox = len(mail.outbox)
+    assert Client().post(FORM, urlencode({**VALID, "email": "grace@example.test"}),
+                         content_type="application/x-www-form-urlencoded").status_code == 302
+    other = Application.objects.get(email_key="grace@example.test")
+    StaffItem.objects.create(application=other, reason_code="hard_bounce", dedupe_key="inbound:synthetic-2")
+    run_worker()
+    [held] = PendingAction.objects.filter(kind="send_verification", subject_id=other.public_ref)
+    assert (held.status, held.last_error, held.attempts) == ("queued", "hard bounce open", 0)
+    assert len(mail.outbox) == outbox

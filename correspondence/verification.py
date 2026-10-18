@@ -28,6 +28,7 @@ and nothing here claims exactly-once external effects.
 
 import logging
 from dataclasses import dataclass
+from datetime import timedelta
 from email.utils import make_msgid
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -75,6 +76,7 @@ class Proceed:
 class Stop:
     status: str
     reason: str  # a reason code: no address, token or database text
+    due_seconds: float | None = None  # for a deferral (QUEUED): when to look again
 
 
 def _after_send(claim) -> None:
@@ -186,6 +188,10 @@ class SendVerification:
                 return refuse("idempotency key does not match the challenge")
             if AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists():
                 return Stop(Status.QUEUED, "automation paused")
+            from .staff_items import hard_bounce_open
+
+            if hard_bounce_open(application):  # every send path, S1 verification included (9kg.3)
+                return Stop(Status.QUEUED, "hard bounce open", settings.CATALYST_HARD_BOUNCE_RECHECK_SECONDS)
             if challenge.used_at is not None:
                 return skip("challenge already used")
             if challenge.superseded_at is not None:
@@ -199,7 +205,8 @@ class SendVerification:
     def _stop(self, claim, decision: Stop) -> None:
         if decision.status == Status.QUEUED:
             logger.info("action %s: %s; returned to the queue", claim.id, decision.reason)
-            ledger.finish(claim, self, status=Status.QUEUED, error=decision.reason, refund_attempt=True)
+            due = None if decision.due_seconds is None else timedelta(seconds=decision.due_seconds)
+            ledger.finish(claim, self, status=Status.QUEUED, error=decision.reason, refund_attempt=True, due_in=due)
             return
         event = "verification_send_refused" if decision.status == Status.FAILED else "verification_send_skipped"
         if ledger.finish(claim, self, status=decision.status, error=decision.reason,
