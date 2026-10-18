@@ -15,7 +15,7 @@ from django.urls import reverse
 from psycopg import errors
 
 from agreements import completion
-from agreements.models import AgreementInstance, AgreementType, DocumentAccess, StoredDocument
+from agreements.models import AgreementInstance, AgreementType, DocumentAccess, ProviderObservation, StoredDocument
 from applications.models import Application
 from tests.test_agreement_completion import SECRET, post, reads_now
 from tests.test_agreement_custody import (  # noqa: F401  (fixture chain and helpers)
@@ -23,7 +23,7 @@ from tests.test_agreement_custody import (  # noqa: F401  (fixture chain and hel
 )
 from workflow.models import PendingAction
 
-PASSWORD = "synthetic-password-only"  # tests.test_outbound.staff gives every synthetic staff user this password
+PASSWORD = "synthetic-password-only"  # gitleaks:allow (synthetic; tests.test_outbound.staff gives every staff user this)
 
 
 def csrf(page: str) -> str:
@@ -42,11 +42,15 @@ def logged_in(username: str) -> Client:
 
 
 def sign_over_http(k, app, key):
-    """The applicant signs at the provider; the provider's webhook arrives over HTTP; the fresh read decides."""
+    """The applicant signs at the provider; the provider's webhook arrives over HTTP and is recorded as a hint (never
+    a verification); then the fresh read it brought forward decides."""
     instance = of(app, key).get()
     k.fake.sign(instance.envelope_id)
+    hints = ProviderObservation.objects.filter(instance=instance, source="webhook").count()
     response = post(k.fake.webhook(instance.envelope_id))
-    assert response.status_code in (200, 202, 204)
+    assert response.status_code == 200
+    assert ProviderObservation.objects.filter(instance=instance, source="webhook").count() == hints + 1
+    assert AgreementInstance.objects.get(pk=instance.pk).signing_status != "signing_complete_verified"  # a hint only
     reads_now()
     return AgreementInstance.objects.get(pk=instance.pk)
 
@@ -64,10 +68,15 @@ def test_p4_journey_the_default_gate_journey_over_http(k, monkeypatch):
     page = staff.get(screen).content.decode()
     for label in ("Issue", "Signing", "Custody"):  # three statuses, shown separately
         assert f'<th scope="row">{label}</th>' in page
-    assert not of(app, "user_agreement").exists()  # the User Agreement waits for the NDA's gate
+    # The User Agreement waits for the NDA's gate: not created, not shown, not linked.
+    assert not of(app, "user_agreement").exists() and "user_agreement &middot;" not in page
+    assert "secret-signing-token" not in page and "/sign/" not in page  # the fake's token and link are never rendered
 
     nda_instance = sign_over_http(k, app, "nda")
     assert (nda_instance.signing_status, nda_instance.custody_status) == ("signing_complete_verified", "stored_verified")
+    events = list(app.events.order_by("id").values_list("kind", flat=True))
+    created = [i for i, e in enumerate(events) if e == "agreement_instance_created"]
+    assert len(created) == 2 and events.index("agreement_custody_verified") < created[1]  # signing AND custody first
     ua = sign_over_http(k, app, "user_agreement")
     assert (ua.signing_status, ua.custody_status) == ("signing_complete_verified", "stored_verified")
     app = Application.objects.get(pk=app.pk)
@@ -92,8 +101,11 @@ def test_p4_journey_the_default_gate_journey_over_http(k, monkeypatch):
     assert body.startswith(b"%PDF")
     assert list(DocumentAccess.objects.values_list("outcome", flat=True)) == ["granted"]
 
+    assert b"secret-signing-token" not in body
     # A forged webhook changes nothing, and a duplicate callback after completion adds no second hand-off.
+    observations = ProviderObservation.objects.count()
     assert post(k.fake.webhook(nda_instance.envelope_id), secret="wrong-secret").status_code == 401
+    assert ProviderObservation.objects.count() == observations
     post(k.fake.webhook(ua.envelope_id))
     reads_now()
     assert PendingAction.objects.filter(kind="provision").count() == 1
@@ -113,19 +125,23 @@ def test_p4_removed_gate_a_status_write_without_a_fresh_read_is_refused(k, monke
     with pytest.raises(Exception) as caught, transaction.atomic():
         AgreementInstance.objects.filter(pk=instance.pk).update(signing_status="signing_complete_verified")
     assert isinstance(caught.value.__cause__, errors.InsufficientPrivilege)
+    assert "verified only by a fresh read" in str(caught.value)  # the trigger, not a column grant
     assert AgreementInstance.objects.get(pk=instance.pk).signing_status != "signing_complete_verified"
 
 
 def test_p4_removed_gate_the_user_agreement_backstop_refuses_an_early_instance(k, monkeypatch):
-    """With the sequence gate removed (the advance believes the NDA passed), the D-15 database backstop still refuses
-    a User Agreement instance before the NDA is `signing_complete_verified`."""
+    """Remove every service-level gate: call the instance-creating step directly for the User Agreement while the NDA
+    is complete at the provider but not yet verified in Catalyst. The D-15 database backstop still refuses it."""
+    from agreements import handlers
+
     app = admitted(k, monkeypatch)
     approve(k)
     activate()
     run_worker()
-    monkeypatch.setattr(completion, "gate_passed", lambda instance: True)
-    completion.enqueue_advance(Application.objects.get(pk=app.pk))
-    run_worker()
+    k.fake.sign(nda(app).envelope_id)  # complete at the provider; no read has run, so not verified in Catalyst
+    with pytest.raises(Exception) as caught, transaction.atomic():
+        handlers.start_agreement(Application.objects.get(pk=app.pk), k.ua, "test:removed-gate")
+    assert isinstance(caught.value.__cause__, errors.InsufficientPrivilege) and "D-15" in str(caught.value)
     assert not of(app, "user_agreement").exists()
 
 
@@ -138,7 +154,7 @@ def test_p4_removed_gate_the_hand_off_refuses_without_custody(k, monkeypatch, se
     activate()
     run_worker()
     instance = sign_over_http(k, app, "nda")
-    assert instance.signing_status == "signing_complete_verified" and instance.custody_status != "stored_verified"
+    assert (instance.signing_status, instance.custody_status) == ("signing_complete_verified", "failed_needs_staff")
     assert not of(app, "user_agreement").exists()
     # Remove the custody half of the gate (a signing-only gate) and the same state advances: the gate is load-bearing,
     # and TEST-P4-07's "nothing advances" assertion is what catches its removal.
@@ -146,3 +162,26 @@ def test_p4_removed_gate_the_hand_off_refuses_without_custody(k, monkeypatch, se
     completion.enqueue_advance(Application.objects.get(pk=app.pk))
     run_worker()
     assert of(app, "user_agreement").exists()
+
+
+def test_p4_details_are_visible_only_to_those_who_confirm_them(k, monkeypatch, settings):
+    """TEST-P4-05's visibility clause: recorded details appear only for a holder of `confirm_required_details`; a
+    reader or an operator of the same screen never sees the values."""
+    from agreements import services
+
+    settings.CATALYST_AGREEMENT_REQUIRED_DETAILS = {"user_agreement": ["mailing_country"]}
+    app = admitted(k, monkeypatch)
+    approve(k)
+    activate()
+    run_worker()
+    sign_over_http(k, app, "nda")
+    services.record_required_details(app.pk, "user_agreement", {"mailing_country": "Exampleland-7731"},
+                                     k.agreement_decider)
+    grant(k, k.operator, "view_agreementinstance")
+    screen = reverse("agreements_staff:agreements", args=[app.public_ref])
+    for user, sees in ((k.reader, False), (k.operator, False), (k.agreement_decider, True)):
+        client = Client()
+        client.force_login(user)
+        page = client.get(screen)
+        assert page.status_code == 200
+        assert ("Exampleland-7731" in page.content.decode()) is sees, user.username

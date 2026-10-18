@@ -829,15 +829,18 @@ P4_CASES = {
         "test_agreement_custody::test_p4_04_19_the_default_gate_journey_ends_in_exactly_one_held_hand_off",
         "test_agreement_custody::test_p4_04_storage_refuses_an_unsafe_directory_and_a_repository_location",
         "test_agreement_custody::test_review_downloads_run_outside_any_transaction_and_reads_open_the_file_once",
+        "test_agreement_custody::test_p4_27_corruption_or_an_unsafe_file_refuses_and_opens_a_staff_item",
     ],
     "TEST-P4-05": [
         "test_agreement_custody::test_p4_05_the_user_agreement_waits_for_confirmed_required_details",
         "test_agreement_custody::test_review_an_nda_that_needs_details_starts_once_they_are_confirmed",
+        "test_p4_journey::test_p4_details_are_visible_only_to_those_who_confirm_them",
     ],
     "TEST-P4-06": [
         "test_agreement_completion::test_p4_01_06_the_user_agreement_waits_for_the_ndas_gate",
         "test_agreement_completion::test_p4_06_an_advance_that_cannot_issue_opens_a_staff_item",
         "test_agreement_recovery::test_d43_the_d15_backstop_ignores_a_replaced_nda",
+        "test_p4_journey::test_p4_journey_the_default_gate_journey_over_http",
     ],
     "TEST-P4-07": [
         "test_agreement_custody::test_p4_07_a_custody_outage_leaves_signing_verified_and_blocks_only_progression",
@@ -845,6 +848,7 @@ P4_CASES = {
         "test_agreement_custody::test_p4_07_an_interruption_between_the_file_and_the_record_leaves_one_authoritative_copy",
         "test_agreement_custody::test_review_a_stored_copy_is_never_replaced_by_a_retry_and_a_collision_goes_to_staff",
         "test_agreement_custody::test_review_a_changed_envelope_during_custody_fails_custody_and_stores_nothing",
+        "test_p4_journey::test_p4_removed_gate_the_hand_off_refuses_without_custody",
     ],
     "TEST-P4-08": [
         "test_agreement_completion::test_p4_08_webhook_authentication_and_uniform_answers",
@@ -931,11 +935,13 @@ P4_CASES = {
     "TEST-P4-24": [
         "test_agreements::test_p4_24_signing_tokens_and_links_are_never_stored_or_logged",
         "test_agreement_completion::test_p4_23_24_a_webhook_flood_makes_one_read_and_keeps_no_body_or_token",
+        "test_p4_journey::test_p4_journey_the_default_gate_journey_over_http",
     ],
     "TEST-P4-25": [
         "test_agreements::test_p4_25_distribute_refuses_when_a_p2_send_check_fails",
         "test_agreements::test_p4_25_create_refuses_when_the_recipient_is_no_longer_the_verified_address",
         "test_agreements::test_p4_25_distribute_refuses_when_the_provider_recipients_differ",
+        "test_agreements::test_p4_22_a_pause_after_create_holds_the_distribute",
     ],
     "TEST-P4-26": [
         "test_agreements::test_p4_26_protections_hold_for_every_role",
