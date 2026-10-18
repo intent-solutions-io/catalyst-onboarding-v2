@@ -54,6 +54,7 @@ from .outbound import (
     verified_address,
 )
 from . import mime
+from .common import can
 from .inbound import enqueue_pass, refresh_question_status
 from .models import MailboxCursor
 from .rendering import TemplateRefused, canonical_digest
@@ -226,6 +227,10 @@ PAUSE_CAUSES = ("hard_bounce", "loop_threshold", "agreement_declined", "agreemen
 SYSTEM_RESUME_REASON_MIN = 10
 
 
+def is_system_pause(row) -> bool:
+    return row.actor_ref == "system" or row.actor_ref.startswith("system:")
+
+
 def resume(application_id: int, user, note: str = "") -> int:
     """E4: delete the pause and reschedule the reminders that fell due, in one transaction. Question statuses,
     counts and held reminders are unchanged; nothing is sent as catch-up. Returns how many were rescheduled.
@@ -236,27 +241,36 @@ def resume(application_id: int, user, note: str = "") -> int:
     require(user, "resume_automation")
     note = clean_note(note)
     actor = actor_ref(user)
+    refused = None
     with transaction.atomic():
         application = _lock_application(application_id)
         row = _pause_row(application).first()
         if row is None:
             raise Refused("not_paused")
-        system = row.actor_ref.startswith("system")
-        if system:
-            require(user, "decide_uncertain_send")  # decision-maker review
-            if len(note) < SYSTEM_RESUME_REASON_MIN:
-                raise Refused("reason_needed")
+        system = is_system_pause(row)
         open_causes = sorted(set(StaffItem.objects.filter(application=application, reason_code__in=PAUSE_CAUSES,
                                                           status=StaffItem.Status.OPEN)
                                  .values_list("reason_code", flat=True)))
-        if open_causes:
-            raise Refused("pause_cause_open")
-        prior = {"paused_by": row.actor_ref, "paused_at": row.created_at.isoformat(), "pause_reason": row.reason,
-                 "system_pause": system}
-        _pause_row(application).delete()
-        moved = reschedule_on_resume(application)
-        event(application, "automation_resumed", {**prior, "rescheduled": moved, "note": note},
-              actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
+        if system and not can(user, "decide_uncertain_send"):
+            refused = "decision_maker_review_required"
+        elif system and len(note) < SYSTEM_RESUME_REASON_MIN:
+            refused = "reason_needed"
+        elif open_causes:
+            refused = "pause_cause_open"
+        if refused is None:
+            prior = {"paused_by": row.actor_ref, "paused_at": row.created_at.isoformat(), "pause_reason": row.reason,
+                     "system_pause": system}
+            _pause_row(application).delete()
+            moved = reschedule_on_resume(application)
+            event(application, "automation_resumed", {**prior, "rescheduled": moved, "note": note},
+                  actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
+    if refused is not None:
+        # 9kg.2: a refused resume is audited too (who, why, the causes still open), in its own transaction.
+        with transaction.atomic():
+            event(_lock_application(application_id), "automation_resume_refused",
+                  {"code": refused, "system_pause": system, "open_causes": open_causes},
+                  actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
+        raise Refused(refused)
     return moved
 
 

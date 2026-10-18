@@ -51,6 +51,13 @@ RESOLUTIONS = {
     # 9kg.3: a hard bounce blocks every send until a decision-maker records, with a reason, that the address may be
     # used again. It is never a routine acknowledgement. The automation pause it set is cleared separately (9kg.2).
     "hard_bounce": {"address_usable_again": "decide_uncertain_send"},
+    # 9kg.2: an agreement declined, expired or cancelled at the provider set a system pause. Once the agreement side
+    # is settled (reissue, cancel or stop on the agreements screen), the correspondence decision-maker records, with a
+    # reason, that the cause is addressed; only then can the pause be resumed. Proposed default: the same role that
+    # resumes a system pause (owner may assign another).
+    "agreement_declined": {"agreement_decided": "decide_uncertain_send"},
+    "agreement_expired": {"agreement_decided": "decide_uncertain_send"},
+    "agreement_cancelled_at_provider": {"agreement_decided": "decide_uncertain_send"},
     "unmatched": {"dismiss": "resolve_exception", "associate": "resolve_identity_exception"},
     "reply_unverified": {"associate": "resolve_identity_exception", "dismiss": "resolve_identity_exception",
                          "mark_spoof": "resolve_identity_exception"},
@@ -650,6 +657,10 @@ def resolve_exception(item_id: int, code: str, user, note: str = "", target_appl
         effects = {"reason": item.reason_code}
         if code == "associate":
             effects.update(_associate_by_staff(message, item, target_application_id, actor))
+        elif code == "agreement_decided":
+            if len(clean_note(note)) < HARD_BOUNCE_REASON_MIN:
+                raise Refused("reason_needed")
+            note = clean_note(note)
         elif code == "address_usable_again":
             if len(clean_note(note)) < HARD_BOUNCE_REASON_MIN:
                 raise Refused("reason_needed")

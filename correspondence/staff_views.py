@@ -201,8 +201,10 @@ def application_detail(request, public_ref):
     user = request.user
     return render(request, "correspondence/staff/application.html", {
         "application": application, "questions": Question.objects.filter(application=application).order_by("created_at", "id"),
-        "paused": staff_actions._pause_row(application).first(),
+        "paused": (pause := staff_actions._pause_row(application).first()),
+        "system_pause": pause is not None and staff_actions.is_system_pause(pause),
         "can_pause": can(user, "pause_automation"), "can_resume": can(user, "resume_automation"),
+        "can_resume_system": can(user, "resume_automation") and can(user, "decide_uncertain_send"),
         "can_withdraw": can(user, "withdraw_question"), "can_approve": can(user, "approve_question"),
         "can_message": can(user, "send_staff_message"), "withdraw_reasons": staff_actions.WITHDRAW_REASONS,
         "items": application.staff_items.filter(status="open").order_by("opened_at", "id"),
