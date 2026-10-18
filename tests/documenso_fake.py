@@ -75,6 +75,34 @@ class FakeDocumenso:
     def calls(self, method, path):
         return [r for r in self.requests if r["method"] == method and r["path"].split("?")[0] == BASE + path]
 
+    def sign(self, envelope_id, index=0, complete=True):
+        """A recipient signs; with `complete`, the envelope completes once every recipient has signed."""
+        with self._lock:
+            env = self.envelopes[envelope_id]
+            env["recipients"][index]["signingStatus"] = "SIGNED"
+            if complete and all(r["signingStatus"] == "SIGNED" for r in env["recipients"]):
+                env["status"] = "COMPLETED"
+
+    def reject(self, envelope_id, index=0):
+        with self._lock:
+            env = self.envelopes[envelope_id]
+            env["recipients"][index]["signingStatus"] = "REJECTED"
+            env["status"] = "REJECTED"
+
+    def expire(self, envelope_id, index=0):
+        with self._lock:
+            self.envelopes[envelope_id]["recipients"][index]["expired"] = datetime.now(UTC).isoformat()
+
+    def webhook(self, envelope_id, event="DOCUMENT_COMPLETED"):
+        """The installed version's webhook body (021 section 15): the document with its legacy numeric id, tokens
+        included, wrapped in {event, payload, createdAt, webhookEndpoint}."""
+        env = self.envelopes[envelope_id]
+        return {"event": event, "createdAt": datetime.now(UTC).isoformat(),
+                "webhookEndpoint": "https://catalyst.example.test/hooks/documenso/",
+                "payload": {"id": int(envelope_id.split("_")[1]), "externalId": env["externalId"], "status": env["status"],
+                            "templateId": env["templateId"], "title": env["title"],
+                            "recipients": [dict(r) for r in env["recipients"]]}}
+
     def add_envelope(self, **fields):
         """An envelope created outside Catalyst's view (for example a late one)."""
         with self._lock:

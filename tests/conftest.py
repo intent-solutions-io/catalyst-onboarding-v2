@@ -241,6 +241,9 @@ EXPECTED_TRIGGERS = {
     ("agreements_agreementinstance", "catalyst_agreement_instance_fixed"),
     ("agreements_agreementrecipient", "catalyst_agreement_recipient_open"),
     ("agreements_agreementrecipient", "catalyst_append_only"), ("agreements_agreementrecipient", "catalyst_no_truncate"),
+    ("agreements_providerobservation", "catalyst_append_only"), ("agreements_providerobservation", "catalyst_no_truncate"),  # 4B.2
+    ("agreements_providerobservation", "catalyst_observation_txid"),
+    ("agreements_agreementinstance", "catalyst_agreement_verified_needs_read"),
 }
 
 

@@ -69,7 +69,7 @@
 Current (2026-10-17):
 
 1. The open selection-quality inputs (`019` section 13): domain expert, operational delegate, private evaluation location.
-2. P4: `021` approved (D-37); the read-only Documenso check done and 4B.1 released (D-38, draft pull request); next, the release of 4B.2; the P3 owner decisions (`018` section 18), first POL-05.
+2. P4: `021` approved (D-37); the read-only Documenso check done and 4B.1 merged (D-38, PR #38); 4B.2 released (D-39, draft pull request); next, the release of 4B.3; the P3 owner decisions (`018` section 18), first POL-05.
 3. Owner decision on what clears a capped assessment snapshot; live-call protections before any 3E run.
 4. Profiling of the runtime suite (bead `catalyst-v2-egz`).
 

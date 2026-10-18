@@ -161,6 +161,10 @@ CATALYST_ACTION_HANDLERS = {
     "distribute_agreement": "agreements.handlers.DistributeAgreement",
     "reconcile_agreement": "agreements.handlers.ReconcileAgreement",
     "cancel_envelope": "agreements.handlers.CancelEnvelope",
+    # P4 4B.2 (021 sections 4 to 6)
+    "read_agreement": "agreements.completion.ReadAgreement",
+    "advance_agreements": "agreements.completion.AdvanceAgreements",
+    "cancel_agreement": "agreements.completion.CancelAgreement",
 }
 # The one seam through which the applications app opens a staff item for a `needs_staff_attention` event
 # (016 3.8; 2B.3). Like the handler mapping, a fixed dotted path in code, so `applications` never imports
@@ -286,6 +290,10 @@ CATALYST_AGREEMENT_PROVIDER_URL = ""  # e.g. https://documenso.test:<port>/api/v
 CATALYST_AGREEMENT_PROVIDER_ADDRESS = ""  # the literal loopback address the provider host is pinned to
 CATALYST_AGREEMENT_PROVIDER_CA_FILE = ""
 CATALYST_AGREEMENT_PROVIDER_TOKEN = ""
+# Documenso webhook secrets (021 section 6; P4-D-17): the installed version sends a plain shared secret in
+# `X-Documenso-Secret`. Two may be valid during a rotation. Fixed in code and empty outside `test`; the webhook route
+# is mounted only in `test` and `development` until the P6 exposure decision.
+CATALYST_AGREEMENT_WEBHOOK_SECRETS: list = []
 CATALYST_AGREEMENT_DEADLINE_SECONDS = number("CATALYST_AGREEMENT_DEADLINE_SECONDS",
                                              str(max(1, min(10, CATALYST_WORKER_LEASE_SECONDS // 2))))
 CATALYST_AGREEMENT_MAX_BYTES = number("CATALYST_AGREEMENT_MAX_BYTES", "1048576")
@@ -297,6 +305,9 @@ CATALYST_AGREEMENT_LIST_PAGES = number("CATALYST_AGREEMENT_LIST_PAGES", "3")  # 
 CATALYST_AGREEMENT_LIST_PAGE_SIZE = number("CATALYST_AGREEMENT_LIST_PAGE_SIZE", "50")
 CATALYST_AGREEMENT_ORPHAN_CHECKS = number("CATALYST_AGREEMENT_ORPHAN_CHECKS", "6")  # P4-D-19: watching an old key
 CATALYST_AGREEMENT_RETRY_AFTER_MAX_SECONDS = number("CATALYST_AGREEMENT_RETRY_AFTER_MAX_SECONDS", "3600", minimum=0)
+CATALYST_AGREEMENT_READ_INTERVAL_SECONDS = number("CATALYST_AGREEMENT_READ_INTERVAL_SECONDS", "3600", minimum=0)  # the sweep
+CATALYST_AGREEMENT_READ_MIN_INTERVAL_SECONDS = number("CATALYST_AGREEMENT_READ_MIN_INTERVAL_SECONDS", "60", minimum=0)
+CATALYST_AGREEMENT_WEBHOOK_MAX_BYTES = number("CATALYST_AGREEMENT_WEBHOOK_MAX_BYTES", "65536")
 if CATALYST_AGREEMENT_DEADLINE_SECONDS * 2 > CATALYST_WORKER_LEASE_SECONDS:
     raise ImproperlyConfigured("CATALYST_AGREEMENT_DEADLINE_SECONDS must be at most half of CATALYST_WORKER_LEASE_SECONDS")
 if CATALYST_AGREEMENT_LIST_PAGE_SIZE > 100:
