@@ -177,7 +177,8 @@ def decision_problems(settings, environ: Mapping[str, str]) -> list[str]:
 
 AGREEMENT_TEST_ONLY = ("CATALYST_AGREEMENT_PROVIDER_URL", "CATALYST_AGREEMENT_PROVIDER_ADDRESS",
                        "CATALYST_AGREEMENT_PROVIDER_CA_FILE", "CATALYST_AGREEMENT_PROVIDER_TOKEN",
-                       "CATALYST_AGREEMENT_WEBHOOK_SECRETS")
+                       "CATALYST_AGREEMENT_WEBHOOK_SECRETS", "CATALYST_AGREEMENT_STORAGE_DIR",
+                       "CATALYST_AGREEMENT_REQUIRED_DETAILS")
 
 
 def agreement_problems(settings, environ: Mapping[str, str]) -> list[str]:
@@ -199,6 +200,14 @@ def agreement_problems(settings, environ: Mapping[str, str]) -> list[str]:
             problems.append("CATALYST_AGREEMENT_PROVIDER_URL must name a .test host")
         if not is_loopback_literal(getattr(settings, "CATALYST_AGREEMENT_PROVIDER_ADDRESS", "")):
             problems.append("CATALYST_AGREEMENT_PROVIDER_ADDRESS must be a literal loopback address")
+    storage = getattr(settings, "CATALYST_AGREEMENT_STORAGE_DIR", "")
+    if storage:
+        from pathlib import Path
+
+        repository = Path(__file__).resolve().parent.parent
+        target = Path(storage).resolve()
+        if not Path(storage).is_absolute() or target == repository or repository in target.parents:
+            problems.append("CATALYST_AGREEMENT_STORAGE_DIR must be an absolute path outside the repository")
     if len(getattr(settings, "CATALYST_AGREEMENT_WEBHOOK_SECRETS", []) or []) > 2:
         problems.append("CATALYST_AGREEMENT_WEBHOOK_SECRETS holds at most two secrets (one rotation, P4-D-17)")
     return problems

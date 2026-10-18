@@ -79,7 +79,7 @@ def test_p4_13_02_a_webhook_never_verifies_and_duplicates_and_late_events_are_ha
     assert ProviderObservation.objects.filter(instance=instance, source="webhook").count() == 1
     reads_now()
     instance.refresh_from_db()
-    assert instance.signing_status == "signing_complete_verified" and instance.custody_status == "pending"
+    assert instance.signing_status == "signing_complete_verified" and instance.custody_status != "not_due"  # custody due
     read = ProviderObservation.objects.get(instance=instance, source="read", envelope_status="COMPLETED")
     assert read.identity_match and read.recipients_match and read.all_required_signed
     late = h.fake.webhook(instance.envelope_id, "DOCUMENT_SENT")
@@ -385,11 +385,12 @@ def test_p4_22_reads_run_while_paused_but_the_sequence_waits_and_resume_does_not
         pause = AutomationPause.objects.create(subject_type="application", subject_id=app.public_ref, reason="synthetic",
                                                actor_ref="t")
         h.fake.sign(instance.envelope_id)
-        gets = len(h.fake.calls("GET", f"/envelope/{instance.envelope_id}"))
+        reads = ProviderObservation.objects.filter(instance=instance, source="read").count()
         for _ in range(10):
             post(h.fake.webhook(instance.envelope_id))
         run_worker()
-        assert len(h.fake.calls("GET", f"/envelope/{instance.envelope_id}")) == gets + 1  # one read, while paused
+        # one coalesced read recorded, while paused (custody's own fresh reads are separate, 4B.3)
+        assert ProviderObservation.objects.filter(instance=instance, source="read").count() == reads + 1
         assert nda(Application.objects.get(pk=app.pk)).signing_status == "signing_complete_verified"
         assert PendingAction.objects.get(kind="advance_agreements").status == "queued"  # the sequence waits
         assert not AgreementInstance.objects.filter(application=app, agreement_type__key="user_agreement").exists()

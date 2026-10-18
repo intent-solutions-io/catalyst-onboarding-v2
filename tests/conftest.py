@@ -244,6 +244,10 @@ EXPECTED_TRIGGERS = {
     ("agreements_providerobservation", "catalyst_append_only"), ("agreements_providerobservation", "catalyst_no_truncate"),  # 4B.2
     ("agreements_providerobservation", "catalyst_observation_txid"),
     ("agreements_agreementinstance", "catalyst_agreement_verified_needs_read"),
+    ("agreements_storeddocument", "catalyst_append_only"), ("agreements_storeddocument", "catalyst_no_truncate"),  # 4B.3
+    ("agreements_documentaccess", "catalyst_append_only"), ("agreements_documentaccess", "catalyst_no_truncate"),
+    ("agreements_agreementdetailsversion", "catalyst_agreement_details_frozen"),
+    ("agreements_agreementdetailsversion", "catalyst_no_truncate"),
 }
 
 

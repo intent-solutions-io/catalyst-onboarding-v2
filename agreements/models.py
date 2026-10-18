@@ -225,3 +225,83 @@ class ProviderObservation(models.Model):
         ]
         indexes = [models.Index(fields=["instance", "observed_at"], name="observation_instance_time")]
 
+
+
+class StoredDocument(models.Model):
+    """The signed PDF of one envelope item, held by Catalyst (021 section 7; 4B.3). The bytes live outside the database
+    and the repository, under a system-generated key; this row records where, the SHA-256 Catalyst computed itself
+    (Documenso documents none, and its ETag is a hash of a storage reference, not of the bytes), and the provenance.
+    Insert-only for every role. One row per (instance, envelope item)."""
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    instance = models.ForeignKey(AgreementInstance, on_delete=models.PROTECT, related_name="documents")
+    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="+")
+    envelope_id = models.CharField(max_length=64)
+    item_id = models.CharField(max_length=64)
+    version = models.CharField(max_length=16, default="signed")
+    storage_key = models.CharField(max_length=80, unique=True)  # system-generated; never from input
+    sha256 = models.CharField(max_length=64)
+    size = models.PositiveIntegerField()
+    observation = models.ForeignKey("ProviderObservation", on_delete=models.PROTECT, related_name="+")  # the read
+    stored_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        permissions = [("retrieve_agreement_document", "Retrieve a signed agreement document (decision-maker; P4-D-16)"),
+                       ("operate_agreements", "Retry agreement custody and request fresh reads (operator)")]
+        constraints = [
+            models.UniqueConstraint(fields=["instance", "item_id"], name="stored_document_one_per_item"),
+            models.CheckConstraint(condition=Q(version="signed"), name="stored_document_signed_only"),
+        ]
+
+
+class DocumentAccess(models.Model):
+    """Every retrieval attempt, granted or not (021 section 7). Written and committed before any byte is released;
+    a denied attempt records only the reference asked for, so it reveals nothing about whether a document exists.
+    Append-only for every role."""
+
+    class Outcome(models.TextChoices):
+        GRANTED = "granted"
+        DENIED = "denied"
+        REFUSED_INTEGRITY = "refused_integrity"  # the stored bytes no longer match
+
+    document = models.ForeignKey(StoredDocument, on_delete=models.PROTECT, null=True, blank=True, related_name="accesses")
+    requested_ref = models.CharField(max_length=64)
+    actor_ref = models.CharField(max_length=200)
+    outcome = models.CharField(max_length=24, choices=Outcome.choices)
+    reason = models.CharField(max_length=300, blank=True, default="")  # the stated purpose, cleaned and capped
+    at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        constraints = [models.CheckConstraint(condition=Q(outcome__in=["granted", "denied", "refused_integrity"]),
+                                              name="document_access_outcome_valid")]
+
+
+class AgreementDetailsVersion(models.Model):
+    """POL-18 required details for one agreement type, as staff recorded them from what the applicant provided (an
+    email is never adopted as an answer by itself) and then explicitly confirmed (021 section 8; 4B.3). Versioned:
+    a change is a new version; a confirmed version is frozen. The production field list is undecided (POL-18): only
+    synthetic fields exist."""
+
+    class Status(models.TextChoices):
+        DRAFT = "draft"
+        CONFIRMED = "confirmed"
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="agreement_details")
+    agreement_type = models.ForeignKey(AgreementType, on_delete=models.PROTECT, related_name="+")
+    version = models.PositiveIntegerField()
+    values = models.JSONField(default=dict)
+    values_sha256 = models.CharField(max_length=64)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
+    recorded_by = models.CharField(max_length=200)
+    confirmed_by = models.CharField(max_length=200, blank=True, default="")
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        permissions = [("confirm_required_details", "Record and confirm the details an agreement needs (POL-18)")]
+        constraints = [
+            models.UniqueConstraint(fields=["application", "agreement_type", "version"], name="details_one_per_version"),
+            models.CheckConstraint(condition=Q(status__in=["draft", "confirmed"]), name="details_status_valid"),
+            models.CheckConstraint(condition=Q(status="draft") | ~Q(confirmed_by=""), name="details_confirmed_has_actor"),
+        ]

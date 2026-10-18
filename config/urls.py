@@ -11,6 +11,7 @@ configure_site()
 urlpatterns = [
     path("staff/p2/", include("correspondence.staff_urls")),
     path("staff/p3/", include("assessments.staff_urls")),
+    path("staff/p4/", include("agreements.staff_urls")),
     path("staff/", admin.site.urls),
     path("", include("applications.urls")),
 ]
