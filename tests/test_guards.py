@@ -27,11 +27,12 @@ def test_every_non_postgresql_alias_is_reported():
     assert any("'third'" in p and "mysql" in p for p in problems)
 
 
-def test_only_development_and_test_environments_are_allowed():
-    assert guards.environment_problems("test") == []
-    assert guards.environment_problems("development") == []
-    assert guards.environment_problems("production") != []
-    assert guards.environment_problems("staging") != []
+def test_only_development_test_and_staging_environments_are_allowed():
+    for allowed in ("test", "development", "staging"):  # staging: 026 P6-D-2 (D-49)
+        assert guards.environment_problems(allowed) == []
+    for refused in ("production", "prod", "", "Staging", "staging "):
+        assert guards.environment_problems(refused) != []
+    assert {e for e in ("test", "staging", "development", "production") if guards.synthetic(e)} == {"test", "staging"}
 
 
 def test_sink_backends_pass_and_smtp_is_refused():
@@ -112,3 +113,68 @@ def test_code_loading_settings_are_pinned_to_catalyst_apps_and_never_from_the_en
     assert guards.dispatch_problems(ok, {}) == []
     bad = SimpleNamespace(CATALYST_ATTENTION_OPENER="os.system", CATALYST_ACTION_HANDLERS={"x": "subprocess.run"})
     assert len(guards.dispatch_problems(bad, {"CATALYST_ATTENTION_OPENER": "y"})) == 3
+
+
+# --- 6B.1: the staging environment is synthetic under test's strict rules (026 P6-D-2, D-49) -------------------
+
+def staging(**values):
+    base = dict(CATALYST_ENV="staging", CATALYST_PUBLIC_BASE_URL="https://catalyst.staging.test")
+    return SimpleNamespace(**{**base, **values})
+
+
+def test_6b1_staging_allows_the_fake_agreement_provider_only_under_the_test_rules(tmp_path):
+    good = staging(CATALYST_AGREEMENT_PROVIDER_URL="https://documenso.staging.test:8443/api/v2",
+                   CATALYST_AGREEMENT_PROVIDER_ADDRESS="127.0.0.1", CATALYST_AGREEMENT_STORAGE_DIR=str(tmp_path),
+                   CATALYST_AGREEMENT_WEBHOOK_SECRETS=["synthetic-one"])
+    assert guards.agreement_problems(good, {}) == []
+    for change, expected in (({"CATALYST_AGREEMENT_PROVIDER_URL": "https://documenso.example.com/api/v2"}, ".test host"),
+                             ({"CATALYST_AGREEMENT_PROVIDER_URL": "http://documenso.staging.test/api/v2"}, "https"),
+                             ({"CATALYST_AGREEMENT_PROVIDER_ADDRESS": "10.0.0.5"}, "loopback"),
+                             ({"CATALYST_AGREEMENT_STORAGE_DIR": "relative/dir"}, "absolute"),
+                             ({"CATALYST_AGREEMENT_WEBHOOK_SECRETS": ["a", "b", "c"]}, "at most two")):
+        problems = guards.agreement_problems(SimpleNamespace(**{**vars(good), **change}), {})
+        assert any(expected in p for p in problems), (change, problems)
+    assert guards.agreement_problems(good, {"CATALYST_AGREEMENT_PROVIDER_TOKEN": "x"})  # never from the environment
+
+
+def test_6b1_staging_allows_only_the_fake_mail_host_and_a_test_domain():
+    good = staging(CATALYST_PROVISIONING_ADAPTER="tests.mxroute_fake.FakeMailHost",
+                   CATALYST_PROVISIONING_DOMAIN="team.staging.test")
+    assert guards.provisioning_problems(good, {}) == []
+    assert any("test fake" in p for p in guards.provisioning_problems(
+        staging(CATALYST_PROVISIONING_ADAPTER="provisioning.live.MXroute"), {}))
+    assert any(".test domain" in p for p in guards.provisioning_problems(
+        staging(CATALYST_PROVISIONING_DOMAIN="intentsolutions.io"), {}))
+    assert any("mail-host credential" in p for p in guards.provisioning_problems(good, {"MXROUTE_API_KEY": "x"}))
+
+
+def test_6b1_staging_links_must_be_https_and_production_still_may_not_use_any_fake():
+    assert any("https" in p for p in guards.provisioning_problems(
+        staging(CATALYST_PUBLIC_BASE_URL="http://catalyst.staging.test"), {}))
+    production = SimpleNamespace(CATALYST_ENV="production", CATALYST_PROVISIONING_ADAPTER="tests.mxroute_fake.FakeMailHost",
+                                 CATALYST_AGREEMENT_PROVIDER_URL="https://documenso.staging.test/api/v2",
+                                 CATALYST_EVIDENCE_ALLOWED_HOSTS=["site.staging.test"], CATALYST_ASSESSMENT_MODEL="test",
+                                 CATALYST_PUBLIC_BASE_URL="https://x.test")
+    assert guards.provisioning_problems(production, {}) and guards.agreement_problems(production, {})
+    assert guards.evidence_problems(production, {}) and guards.assessment_problems(production, {})
+
+
+def test_6b1_staging_evidence_fixtures_are_no_wider_than_test():
+    good = staging(CATALYST_EVIDENCE_ALLOWED_HOSTS=["portfolio.staging.test"], CATALYST_EVIDENCE_FIXTURE_ADDRESS="127.0.0.1",
+                   CATALYST_EVIDENCE_CA_FILE="/run/fixtures/ca.pem")
+    assert guards.evidence_problems(good, {}) == []
+    assert guards.evidence_problems(staging(CATALYST_EVIDENCE_ALLOWED_HOSTS=["github.com"]), {})
+    assert guards.evidence_problems(staging(CATALYST_EVIDENCE_FIXTURE_ADDRESS="192.0.2.10"), {})
+    assert guards.evidence_problems(staging(CATALYST_EVIDENCE_CA_FILE="ca.pem"), {})
+
+
+def test_6b1_staging_keeps_the_test_model_only_and_no_live_mail_or_send_evidence():
+    assert guards.assessment_problems(staging(CATALYST_ASSESSMENT_MODEL="test"), {}) == []
+    assert guards.assessment_problems(staging(CATALYST_ASSESSMENT_MODEL="minimax"), {})
+    mail = dict(CATALYST_MAIL_SENT_FOLDER="", CATALYST_MAIL_COLLECT_FOLDER="INBOX", CATALYST_MAIL_TLS="starttls")
+    assert guards.mail_problems(staging(CATALYST_MAIL_HOST="127.0.0.1", **mail)) == []  # the loopback sink
+    assert guards.mail_problems(staging(CATALYST_MAIL_HOST="smtp.example.com", **mail))
+    assert guards.mail_problems(staging(CATALYST_MAIL_HOST="mailsink", CATALYST_MAIL_TEST_HOST="mailsink", **mail))
+    assert guards.mail_problems(staging(CATALYST_SEND_EVIDENCE_SOURCE="sent-folder", **mail))  # still test only
+    assert guards.provider_problems(LOCMEM, {"DOCUMENSO_API_TOKEN": "x"})  # provider variables refused everywhere
+

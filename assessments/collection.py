@@ -25,6 +25,7 @@ from django.db.models.functions import Now
 
 from applications.models import Application, ApplicationEvent, Stage
 from applications.stages import StageConflict, transition
+from config import guards
 from correspondence.staff_items import open_item
 from workflow import ledger
 from workflow.models import AutomationPause, PendingAction
@@ -257,7 +258,7 @@ class FetchEvidence(_ApplicationAction):
         source = item.source
         if (source is None or source.status != EvidenceSource.Status.APPROVED
                 or source.host not in settings.CATALYST_EVIDENCE_ALLOWED_HOSTS
-                or (source.fixture_only and settings.CATALYST_ENV != "test")):
+                or (source.fixture_only and not guards.synthetic(settings.CATALYST_ENV))):
             reason = "source_not_allowed"
             return Decision(Status.DONE, reason, write=lambda: self._terminal_write(application, item, Item.REFUSED, reason)), None
         return None, item
