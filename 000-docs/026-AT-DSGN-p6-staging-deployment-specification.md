@@ -504,4 +504,3 @@ specification text; nothing is built.
 - Staging links must be https. Every non-synthetic environment, production included, still refuses every fake, and
   provider variables are refused everywhere.
 - **Evidence:** `tests/test_guards.py` (6B.1 tests) and the updated TEST-P5-23 test.
-
