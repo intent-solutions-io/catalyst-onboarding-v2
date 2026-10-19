@@ -17,9 +17,9 @@ django==5.2.18 \
     --hash=sha256:461c5dd06d2ea16bd5ca37d3f46e4def1d6b0fe7588c6f4e2119517bb0af8b2d \
     --hash=sha256:92ed81d500be6408ecd704d7bd1366c534f30427bffcc63c5fefb129561aec7c
     # via -r requirements/base.in
-genai-prices==0.1.12 \
-    --hash=sha256:89d98303c5b7a366a05136ba03884c5951ec9a9ceb28fef62c7fa719f2828182 \
-    --hash=sha256:d1493977cb7f61bc436516a166f644f5bbb01e1a83365e2914c99c6298f77ca4
+genai-prices==0.1.13 \
+    --hash=sha256:6d2b40760a2f7f5e207bac9b98de0af80e60c58ead497872a5331a7cee610477 \
+    --hash=sha256:76c9e2dd3917fdacdf3bc562297c4591384142ea2283c477e1512fafa4e3a384
     # via pydantic-ai-slim
 griffelib==2.3.2 \
     --hash=sha256:8e710afededd5607f95bf3c8ccc175ee306e7084459faf27b9f9f44ef2a7a274 \
@@ -65,7 +65,7 @@ pluggy==1.6.0 \
     --hash=sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3 \
     --hash=sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746
     # via pytest
-psycopg==3.3.6 \
+psycopg[binary]==3.3.6 \
     --hash=sha256:a1db9f7148b06a28606767efaca51fa6f9398c5c0a3810519be69d7000bdb631 \
     --hash=sha256:c081f2250df751a943036e42db6df4571c66cd0aabe8291a7a506512b12007d2
     # via -r requirements/base.in
@@ -144,9 +144,9 @@ pydantic==2.14.1 \
     #   genai-prices
     #   pydantic-ai-slim
     #   pydantic-graph
-pydantic-ai-slim==2.55.0 \
-    --hash=sha256:50b5ee70d3a0509c1f36bec759249e69f4dc060f1a816b1bbf0730af54297376 \
-    --hash=sha256:7fcea628e78c2f247af94504534f0577151496166998d74ec145505040b19c68
+pydantic-ai-slim==2.57.0 \
+    --hash=sha256:2c5c150bcd097e6a1e267ea13e7f279a0b504d46b346a4e00b61e1996ad05372 \
+    --hash=sha256:a07d732e09df8d51f22bd3be2ad45ab644721a904809a2481146bf5d7bb47c67
     # via -r requirements/base.in
 pydantic-core==2.50.1 \
     --hash=sha256:0036473f5583e6a60e50b8b21651511564277a3f05cc5dab8cf579f552cd5f6c \
@@ -287,9 +287,9 @@ pydantic-core==2.50.1 \
     --hash=sha256:f77ac30b19221cd9bd3fcfa3d4614eff93140d0572ab730cded17b64adca05f3 \
     --hash=sha256:fe90228920fd8ff2be62622b6bb8a2b11acd65046d50c6b130614b5879605a20
     # via pydantic
-pydantic-graph==2.55.0 \
-    --hash=sha256:461de7d0c33af634c3adeb21712f527f15878edf826d216184f024795e9c80c1 \
-    --hash=sha256:774a64db707e759e22a4b2d6f8849986331fac009bb3f36ba3ed0cb8eee7a150
+pydantic-graph==2.57.0 \
+    --hash=sha256:4c65193a1d8b58e3c6f29a15cbe7b96e1e255a1670a5bcb9a323b8600fc1686a \
+    --hash=sha256:f848857baab4030c44b30de0c3ba650749d60f2295a0723645fb325f92191cf1
     # via pydantic-ai-slim
 pygments==2.21.0 \
     --hash=sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9 \
