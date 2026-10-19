@@ -3,8 +3,8 @@
 | Field | Value |
 |---|---|
 | Document | `026-AT-DSGN-p6-staging-deployment-specification` |
-| Version | 0.1.1 (0.1.1 applies the security and privacy review: section 15) |
-| Status | **PROPOSED, for the owner's decisions (section 10).** Handoff 6A: specify and decide; no application code, no host, DNS, proxy, secret or provider change. Nothing in this document is authorized until the owner decides it. |
+| Version | 0.2.0 (0.1.1 applies the security and privacy review, section 15; 0.2.0 records the owner's approval, D-49) |
+| Status | **APPROVED by the owner 2026-10-19 with every recommendation (D-49 in `011`).** 6B's repository-local tasks are released for synthetic work. Each host task (6B tasks 11 to 13), the pilot and the cutover still needs its own authorization. The owner still sets the values the decisions leave to them: RPO and RTO targets (P6-D-7), alert thresholds and who is paged (P6-D-9), rotation intervals (P6-D-15), and applies the `main` ruleset and protected `release` environment (P6-D-5). |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-18 |
 | Epic | P6 `catalyst-v2-9kg` ("Prepare staging, deployment, backup with demonstrated restore, monitoring and the reversible Learn routing cutover") |
@@ -340,7 +340,7 @@ hands, provider records, or anything written after the backup point.
   live configuration's hash and diff stay in the private operations record.
 - **Further preconditions:** a privacy notice and a data-protection assessment for real applicants.
 
-## 10. Owner decisions (P6-D-1 to P6-D-11)
+## 10. Owner decisions (P6-D-1 to P6-D-15), decided 2026-10-19 as recommended (D-49)
 
 | # | Decision | Options | Recommendation | Earliest blocker |
 |---|---|---|---|---|
