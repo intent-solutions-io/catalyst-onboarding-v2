@@ -9,6 +9,7 @@
 | Date | 2026-10-18 |
 | Epics | P6 `catalyst-v2-9kg`; PL `catalyst-v2-dy7` |
 | Builds on | `003` (architecture, ADR-14 roles, "Learn and Django routing"); `009` section 5.5 (GitHub protections, releases); `011` POL-10, POL-13, POL-14, POL-15; `021` sections 16 to 18 (webhook, custody); `023` (P5) |
+| Superseded for P6 design by | `026` (handoff 6A, 2026-10-18): this matrix stays the readiness record; `026` holds the P6 design, decisions and acceptance plan |
 
 ## 1. P6 readiness matrix
 
