@@ -376,9 +376,10 @@ USE_I18N = False
 # Local sink only outside production (config.guards). Tests use locmem.
 EMAIL_BACKEND = env(
     "CATALYST_EMAIL_BACKEND",
-    "django.core.mail.backends.locmem.EmailBackend"
-    if CATALYST_ENV == "test"
-    else "django.core.mail.backends.console.EmailBackend",
+    {"test": "django.core.mail.backends.locmem.EmailBackend",
+     # staging: a private file sink, never the console, whose output lands in container logs with bearer links
+     "staging": "django.core.mail.backends.filebased.EmailBackend"}.get(
+        CATALYST_ENV, "django.core.mail.backends.console.EmailBackend"),
 )
 EMAIL_FILE_PATH = os.environ.get("CATALYST_EMAIL_FILE_PATH") or None  # the filebased sink's private directory
 DEFAULT_FROM_EMAIL = env("CATALYST_FROM_EMAIL", "onboarding@example.invalid")  # synthetic (POL-17)

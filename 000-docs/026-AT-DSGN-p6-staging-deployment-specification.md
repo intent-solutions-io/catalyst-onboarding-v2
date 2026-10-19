@@ -503,4 +503,11 @@ specification text; nothing is built.
   - the Documenso webhook route, which is unmounted in staging until the 6B.8 setting.
 - Staging links must be https. Every non-synthetic environment, production included, still refuses every fake, and
   provider variables are refused everywhere.
-- **Evidence:** `tests/test_guards.py` (6B.1 tests) and the updated TEST-P5-23 test.
+- **After the security review of PR #59** (no blocker or high; two medium, both fixed):
+  - staging's default mail backend is a private file sink, never the console, whose output would carry bearer links
+    into the container log; the guards refuse the console backend in staging and require an absolute
+    `EMAIL_FILE_PATH`;
+  - staging tests now cover its runtime branches: a fixture fetch, the test model, and a private mail peer refused as
+    in development.
+- **Evidence:** `tests/test_guards.py` (6B.1 tests), the staging leg of the TEST-P3-05 fetch test and the updated
+  TEST-P5-23 test.

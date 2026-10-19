@@ -87,7 +87,7 @@ def is_loopback_literal(host: str) -> bool:
 
 
 def mail_host_allowed(environment: str, host: str, test_host: str) -> bool:
-    """016 section 6, A-4 (D-28, amends REQ-022): a literal loopback address in `development` and `test`,
+    """016 section 6, A-4 (D-28, amends REQ-022): a literal loopback address in `development`, `test` and `staging`,
     or, in `test` only, the one named test-service host. Names other than that one are refused, so a
     real provider can never be configured outside production."""
     if environment not in ALLOWED_ENVIRONMENTS:
@@ -114,6 +114,15 @@ def mail_problems(settings) -> list[str]:
     sent, collected = getattr(settings, "CATALYST_MAIL_SENT_FOLDER", ""), getattr(settings, "CATALYST_MAIL_COLLECT_FOLDER", "INBOX")
     if sent and sent == collected:
         problems.append("CATALYST_MAIL_SENT_FOLDER must differ from CATALYST_MAIL_COLLECT_FOLDER (016 3.6)")
+    if settings.CATALYST_ENV == "staging":
+        # 6B.1 review: messages carry bearer links, so staging never prints them (the console backend writes to
+        # stdout, which is the container log); the file sink needs a private absolute directory.
+        backend = getattr(settings, "EMAIL_BACKEND", "")
+        if backend == "django.core.mail.backends.console.EmailBackend":
+            problems.append("the console mail backend is not allowed in staging (it writes links to the logs)")
+        path = getattr(settings, "EMAIL_FILE_PATH", None) or ""
+        if backend == "django.core.mail.backends.filebased.EmailBackend" and not str(path).startswith("/"):
+            problems.append("staging's file mail sink needs an absolute EMAIL_FILE_PATH")
     tls = getattr(settings, "CATALYST_MAIL_TLS", "starttls")
     if tls not in ("starttls", "none"):
         problems.append("CATALYST_MAIL_TLS must be 'starttls' or 'none'")
@@ -157,7 +166,7 @@ def evidence_problems(settings, environ: Mapping[str, str]) -> list[str]:
         for name in EVIDENCE_TEST_ONLY:
             if getattr(settings, name, None):
                 problems.append(f"{name} is allowed only in the test and staging environments (synthetic evidence only)")
-    elif environment == "staging":  # staging gets no wider than test's fixtures: reserved names, loopback, a real file
+    elif environment == "staging":  # staging gets no wider than test's fixtures: reserved names, loopback, an absolute path
         if any(not str(host).lower().endswith(".test") for host in getattr(settings, "CATALYST_EVIDENCE_ALLOWED_HOSTS", ()) or ()):
             problems.append("CATALYST_EVIDENCE_ALLOWED_HOSTS may name only .test hosts in staging")
         address = getattr(settings, "CATALYST_EVIDENCE_FIXTURE_ADDRESS", "")

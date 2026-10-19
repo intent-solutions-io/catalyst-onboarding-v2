@@ -178,3 +178,40 @@ def test_6b1_staging_keeps_the_test_model_only_and_no_live_mail_or_send_evidence
     assert guards.mail_problems(staging(CATALYST_SEND_EVIDENCE_SOURCE="sent-folder", **mail))  # still test only
     assert guards.provider_problems(LOCMEM, {"DOCUMENSO_API_TOKEN": "x"})  # provider variables refused everywhere
 
+
+def test_6b1_review_staging_never_prints_mail_and_its_file_sink_is_private():
+    mail = dict(CATALYST_MAIL_SENT_FOLDER="", CATALYST_MAIL_COLLECT_FOLDER="INBOX", CATALYST_MAIL_TLS="starttls")
+    console = staging(EMAIL_BACKEND="django.core.mail.backends.console.EmailBackend", **mail)
+    assert any("console" in p for p in guards.mail_problems(console))
+    filebased = "django.core.mail.backends.filebased.EmailBackend"
+    assert any("absolute EMAIL_FILE_PATH" in p for p in guards.mail_problems(staging(EMAIL_BACKEND=filebased, **mail)))
+    assert guards.mail_problems(staging(EMAIL_BACKEND=filebased, EMAIL_FILE_PATH="/run/mailsink", **mail)) == []
+
+
+def test_6b1_review_staging_refuses_a_private_mail_peer_like_development(settings):
+    from correspondence import transport
+
+    settings.CATALYST_MAIL_HOST = settings.CATALYST_MAIL_TEST_HOST = "mailsink"
+    for environment, private_ok in (("test", True), ("staging", False), ("development", False)):
+        settings.CATALYST_ENV = environment
+        assert transport.peer_allowed("10.0.0.5") is private_ok, environment
+        assert transport.peer_allowed("127.0.0.1") is True
+    settings.CATALYST_ENV = "test"
+
+
+def test_6b1_review_staging_builds_only_the_test_model(settings):
+    from pydantic_ai.models.function import FunctionModel
+    from pydantic_ai.models.test import TestModel
+
+    from assessments import agent
+
+    settings.CATALYST_ASSESSMENT_MODEL = "test"
+    for environment, allowed in (("staging", True), ("test", True), ("development", False)):
+        settings.CATALYST_ENV = environment
+        if allowed:
+            assert isinstance(agent.build_model(), (TestModel, FunctionModel))
+        else:
+            with pytest.raises(agent.ModelUnavailable):
+                agent.build_model()
+    settings.CATALYST_ENV = "test"
+
