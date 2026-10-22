@@ -25,6 +25,9 @@ for service in worker fetcher; do
 done
 facts="$(compose exec -T web python manage.py catalyst_release receipt)" || fail "cannot read the release facts"
 label="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$expected")"
+# The intended commit, when the deploy step names one (6B.11's force-command will always): a wrong but self-consistent
+# image is refused. A revert names none, since it returns to whatever was recorded.
+[ -z "${CATALYST_EXPECTED_COMMIT:-}" ] || [ "$label" = "$CATALYST_EXPECTED_COMMIT" ] || fail "not the intended commit"
 python3 - "$facts" "$label" <<'PY' || fail "the release facts do not read back as intended"
 import json, sys
 facts, label = json.loads(sys.argv[1]), sys.argv[2]

@@ -115,6 +115,19 @@ check "a tag is refused as an image reference" bash -c "! '$adapters/deploy.sh' 
 check "the forward-only list is recorded in the deploy state, not read from the serving image" \
   grep -q "workflow.0004_restore_hold_protection" "$CATALYST_DEPLOY_STATE/forward-only.json"
 
+# 4b. A forward-only migration applied by the predeploy step of a release whose deploy then never happens: it was
+# recorded before migrating, so switching to any image that does not know it is still refused.
+staged="$(derive next staged "printf 'from django.db import migrations\\n\\n\\nclass Migration(migrations.Migration):\\n    dependencies = [(\"workflow\", \"0004_restore_hold_protection\")]\\n    operations = [migrations.RunSQL(\"SELECT 1\", migrations.RunSQL.noop)]\\n' > /app/workflow/migrations/0005_staged.py && sed -i 's/^FORWARD_ONLY: frozenset\\[str\\] = frozenset()/FORWARD_ONLY: frozenset[str] = frozenset({\"workflow.0005_staged\"})/' /app/config/release.py")"
+check "the predeploy step applies a forward-only migration" "$adapters/predeploy.sh" "$staged"
+out="$("$adapters/deploy.sh" "$fwd" 2>&1)"; rc=$?
+check "after an aborted deploy, an image without that migration is refused" bash -c "[ $rc != 0 ] && grep -q 'workflow.0005_staged' <<<'$out'"
+
+# 4c. With a release serving, a lost forward-only record is refused, never read as "nothing is forward-only".
+mv "$CATALYST_DEPLOY_STATE/forward-only.json" "$work/forward-only.saved"
+out="$("$adapters/deploy.sh" "$fwd" 2>&1)"; rc=$?
+check "a missing forward-only record is refused while a release serves" bash -c "[ $rc != 0 ] && grep -q 'record is missing' <<<'$out'"
+mv "$work/forward-only.saved" "$CATALYST_DEPLOY_STATE/forward-only.json"
+
 # 5. The host check refuses a tarball with no attestation from this repository's main-branch workflow.
 docker save "$(tag good)" -o "$work/unattested.tar"
 check "an unattested image tarball is refused before it is loaded" bash -c \

@@ -1025,18 +1025,25 @@ specification text; nothing is built.
   - Every migration is expand-then-contract, and Django ignores an applied migration it does not know, so an older
     image runs on a newer schema.
   - A release that breaks that rule lists its migration in `FORWARD_ONLY`.
-  - `deploy.sh` records each deployed image's list in the deploy state before switching (the list only grows), and
-    refuses any image that does not know an applied, recorded forward-only migration ("restore instead").
+  - The deploy state records every forward-only migration any image has named: `predeploy.sh` records the image's
+    list before migrating, and `deploy.sh` before switching. The list only grows. `deploy.sh` refuses any image that
+    does not know an applied, recorded forward-only migration ("restore instead").
+  - With a release serving, a missing record is refused as lost state, never read as "none". Only the very first
+    deploy starts from an empty list.
   - The applied list is read through the target image; nothing is read through the serving containers, which during
     a revert are the broken release.
   - Anything unreadable refuses the switch, and the wrapper then holds. Never treat an unreadable list as empty: that
     was the PR #73 review's blocker.
   - The blocker computation runs the tested `config.release` code.
 - **Not left to memory:**
-  - `config.release.contracting()` finds every migration with an operation that can break the previous image:
-    removing, renaming or altering a field or model; a constraint on an existing table; a table rename.
-  - A test fails until each is in `FORWARD_ONLY` or in `EXPAND_SAFE` with its reviewed reason. Six existing
-    migrations are reviewed: four widen a set of allowed values, two constrain a column they add.
+  - `config.release.contracting()` finds every migration after the baseline with an operation that can break the
+    previous image: removing, renaming or altering a field or model; a constraint on an existing table; a NOT NULL
+    column without a database default; a table rename.
+  - A test fails until each is in `FORWARD_ONLY` or in `EXPAND_SAFE` with its reviewed reason.
+  - The baseline is every migration that existed when this guard arrived. No image without them can ever serve,
+    because `deploy.sh` refuses any image that cannot answer `config.release`. They were not all expand-safe:
+    `correspondence.0013` added NOT NULL columns with Python-only defaults, which the scan still finds when the
+    baseline is set aside (tested).
   - RunSQL and RunPython cannot be read this way; their authors and reviewers decide.
   - A test keeps the release app list equal to the installed first-party apps.
 - **Stated limits:**
@@ -1060,9 +1067,13 @@ specification text; nothing is built.
   - the loaded image's commit label matches.
 
   It prints the id for `deploy.sh`.
-- **After the review of PR #73** (one BLOCKER, four HIGH, nine MEDIUM): the recorded forward-only list; the smoke as
-  the single gate (stability, heartbeats, pending migrations, commit); the contracting scan; a required backup
-  receipt; the private-copy verification; the split workflow; a pruned revert target refused at capture.
+- **After the review of PR #73:**
+  - **first review** (one BLOCKER, four HIGH, nine MEDIUM): the recorded forward-only list; the smoke as the single
+    gate (stability, heartbeats, pending migrations, commit); the contracting scan; a required backup receipt; the
+    private-copy verification; the split workflow; a pruned revert target refused at capture;
+  - **re-review** (two HIGH): the list recorded before migrating, and a lost record refused;
+  - the scan covers NOT NULL columns without a database default;
+  - the smoke checks the intended commit when one is named. Making it mandatory comes with 6B.11's force-command.
 - **Evidence:**
   - `tests/test_release.py`:
     - the migration list with no settings, the forward-only rule and its command;
@@ -1071,7 +1082,7 @@ specification text; nothing is built.
     - the adapters' reference pattern, smoke gates and fail-closed rules;
     - the workflow's pins, split permissions and absence of a registry push, and the verification's private copy
       and flags;
-  - `scripts/deploy_drill.sh`, run with the estate wrapper on the dev box, 25 of 25 PASS:
+  - `scripts/deploy_drill.sh`, run with the estate wrapper on the dev box, 28 of 28 PASS twice:
     - a backup that prints no receipt refused, with nothing migrated;
     - a first release migrated, deployed, smoked and receipted;
     - a good release promoted through the wrapper (exit 0), with a matching receipt;
@@ -1080,6 +1091,8 @@ specification text; nothing is built.
       serving;
     - a forward-only revert refused, naming the migration, with nothing changed, and the list read from the
       recorded state;
+    - a forward-only migration applied by a predeploy whose deploy never happened, still refusing an image without it;
+    - a missing record refused while a release serves;
     - a tag refused;
     - an unattested tarball refused before it is loaded.
 - **Found by the drill:** synthetic secret keys shorter than Django's deploy check requires, which the receipt

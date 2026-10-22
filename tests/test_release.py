@@ -45,6 +45,13 @@ def test_6b10_every_contracting_migration_is_marked_forward_only_or_reviewed_as_
     assert unreviewed == [], f"mark these FORWARD_ONLY or EXPAND_SAFE (with the reason): {unreviewed}"
     assert set(release.EXPAND_SAFE) <= set(flagged), "an EXPAND_SAFE entry no longer needs to be there"
     assert all(len(reason) > 20 for reason in release.EXPAND_SAFE.values())
+    # The baseline is exactly what existed when the guard arrived: a later migration must never hide inside it.
+    last = {}
+    for name in release.known():
+        app, migration = name.split(".", 1)
+        last[app] = max(last.get(app, ""), migration)
+    assert all(release.BASELINE[app] <= last[app] for app in release.APPS)
+    assert release.contracting(baseline={})["correspondence.0013_clarification_and_interpretation"] == ["AddConstraint", "AddField"]
 
 
 def test_6b10_the_contracting_scan_sees_a_removed_field_and_ignores_a_new_table(tmp_path):
@@ -58,7 +65,13 @@ def test_6b10_the_contracting_scan_sees_a_removed_field_and_ignores_a_new_table(
         "    operations = [migrations.CreateModel(name='Fresh', fields=[]),\n"
         "                  migrations.AddConstraint(model_name='fresh', constraint=models.CheckConstraint(\n"
         "                      condition=models.Q(id__gt=0), name='fresh_positive'))]\n")
-    assert release.contracting(tmp_path) == {"workflow.0099_drop": ["RemoveField"]}
+    (tmp_path / "workflow" / "migrations" / "0097_column.py").write_text(
+        "from django.db import migrations, models\n\nclass Migration(migrations.Migration):\n"
+        "    operations = [migrations.AddField(model_name='pendingaction', name='a', field=models.IntegerField(default=0)),\n"
+        "                  migrations.AddField(model_name='pendingaction', name='b', field=models.IntegerField(null=True)),\n"
+        "                  migrations.AddField(model_name='pendingaction', name='c', field=models.IntegerField(db_default=0))]\n")
+    assert release.contracting(tmp_path, baseline={}) == {"workflow.0097_column": ["AddField"],  # only `a` counts
+                                                          "workflow.0099_drop": ["RemoveField"]}
 
 
 def test_6b10_the_release_apps_are_every_first_party_app():
@@ -102,13 +115,16 @@ def test_6b10_the_adapters_take_only_content_references_and_smoke_through_the_re
     assert "{{.Image}} {{.State.Running}}" in smoke  # the containers run exactly the recorded image (its resolved id)
     deploy = (ADAPTERS / "deploy.sh").read_text()
     assert "compose exec -T web" not in deploy  # never through the serving release: during a revert it is the broken one
-    assert 'in_image "$serving"' not in deploy and "FORWARD_ONLY_STATE" in deploy  # the recorded list, never the serving image's
+    assert 'in_image "$serving"' not in deploy and "recorded_forward_only" in deploy  # the record, never the serving image's
     assert "release blockers" in deploy and "restore instead" in deploy
     assert "|| serving_fwd=" not in deploy  # nothing unreadable becomes an empty list (PR #73 review)
     for gate in ("RestartCount", "CATALYST_WORKER_HEARTBEAT_FILE", "migrations_pending", "org.opencontainers.image.revision"):
         assert gate in smoke, gate  # the smoke is the promotion gate
     predeploy = (ADAPTERS / "predeploy.sh").read_text()
     assert "CATALYST_BACKUP_CMD:?" in predeploy and '[ -e "$receipt" ]' in predeploy  # no backup receipt, no migration
+    assert predeploy.index('record_forward_only "$target"') < predeploy.index("run --rm --no-deps migrate")  # record first
+    lib_text = (ADAPTERS / "lib.sh").read_text()
+    assert 'elif [ -s "$POINTER" ]; then fail' in lib_text  # a lost record is refused while a release serves
 
 
 def test_6b10_the_image_workflow_attests_only_main_and_pushes_nowhere():

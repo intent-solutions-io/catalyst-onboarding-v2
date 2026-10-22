@@ -25,4 +25,26 @@ compose() { docker compose --project-name "$CATALYST_COMPOSE_PROJECT" -f "$CATAL
 valid_ref() { [[ "$1" =~ $IMAGE_REF ]]; }
 release() { PYTHONPATH="$REPO" python3 -m config.release "$@"; }  # the tested code (config/release.py), no Django
 in_image() { docker run --rm --network none --entrypoint python "$1" -m config.release "${@:2}"; }
+
+# Print the recorded forward-only list. With a serving release recorded, a missing record is lost state, never "none":
+# only the very first deploy (no pointer yet) starts from an empty list.
+recorded_forward_only() {
+  if [ -s "$FORWARD_ONLY_STATE" ]; then cat "$FORWARD_ONLY_STATE"
+  elif [ -s "$POINTER" ]; then fail "refused: the forward-only record is missing; restore it from the deploy state backup or hold"
+  else echo '[]'
+  fi
+}
+
+# Add <image>'s forward-only migrations to the record, atomically, before anything can apply them (predeploy) or switch
+# to that image (deploy). Prints the merged list. Fails when either list cannot be read.
+record_forward_only() {
+  local recorded target_fwd merged tmp
+  recorded="$(recorded_forward_only)" || exit 1
+  target_fwd="$(in_image "$1" forward-only)" || fail "refused: cannot read $1's forward-only list"
+  merged="$(python3 -c 'import json,sys;print(json.dumps(sorted(set(json.loads(sys.argv[1]))|set(json.loads(sys.argv[2])))))' \
+    "$recorded" "$target_fwd")" || fail "refused: the forward-only lists are unreadable"
+  tmp="$(mktemp "$CATALYST_DEPLOY_STATE/.forward-only.XXXXXX")"
+  printf '%s\n' "$merged" > "$tmp" && mv -f "$tmp" "$FORWARD_ONLY_STATE"
+  printf '%s\n' "$merged"
+}
 fail() { echo "catalyst-deploy: $*" >&2; exit 1; }

@@ -7,8 +7,9 @@ source "$(dirname "$0")/lib.sh"
 target="${1:?usage: deploy.sh <image>}"
 valid_ref "$target" || fail "refused: $target is not a content reference"
 docker image inspect "$target" >/dev/null 2>&1 || fail "refused: $target is not present on this host"
+# The record before this switch, plus the target's own marks: a revert away from the target must still know them.
+recorded="$(recorded_forward_only)" || exit 1
 target_fwd="$(in_image "$target" forward-only)" || fail "refused: cannot read $target's forward-only list"
-recorded="$( [ -s "$FORWARD_ONLY_STATE" ] && cat "$FORWARD_ONLY_STATE" || echo '[]')"
 marked="$(python3 -c 'import json,sys;print(json.dumps(sorted(set(json.loads(sys.argv[1]))|set(json.loads(sys.argv[2])))))' \
   "$recorded" "$target_fwd")" || fail "refused: the recorded forward-only list is unreadable"
 
@@ -22,9 +23,9 @@ if [ -s "$POINTER" ]; then
   [ -z "$blocked" ] || fail "refused: forward-only migrations applied that $target does not know ($blocked); restore instead"
 fi
 
+record_forward_only "$target" >/dev/null  # before switching: a revert away knows it (kept even if the switch fails)
 tmp="$(mktemp "$CATALYST_DEPLOY_STATE/.deploy.XXXXXX")"
-trap 'rm -f "$tmp" "$tmp.fwd"' EXIT
-printf '%s\n' "$marked" > "$tmp.fwd" && mv -f "$tmp.fwd" "$FORWARD_ONLY_STATE"  # before switching: a revert away knows it
+trap 'rm -f "$tmp"' EXIT
 printf '%s\n' "$target" > "$tmp"
 CATALYST_IMAGE="$target" compose up -d --no-deps --force-recreate web worker fetcher >/dev/null || fail "compose up failed"
 mv -f "$tmp" "$POINTER"  # recorded only once the containers were recreated from it; the smoke checks they stay up
