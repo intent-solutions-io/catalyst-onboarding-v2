@@ -38,6 +38,9 @@ Status = PendingAction.Status
 Item = EvidenceItem.Status
 START = "start_evidence_collection"
 FETCH = "fetch_evidence"
+# 9kg.24: completion (018 step 3) runs in the worker, never in the fetcher, whose role can move no stage and queue
+# no assessment. The fetcher only asks for it, once per finished item; the check itself is idempotent.
+COMPLETE = "complete_evidence_collection"
 CLAIM_KINDS = {"work": "work_sample_page", "credential": "credential_verification"}
 
 
@@ -86,6 +89,16 @@ def enqueue_fetch(application, item) -> None:
 def finish_item(item, status: str, reason: str = "") -> None:
     EvidenceItem.objects.filter(pk=item.pk, status=Item.PENDING).update(status=status, reason_code=reason,
                                                                         finished_at=Now(), updated_at=Now())
+
+
+def request_completion(application, item) -> None:
+    """From the fetcher, inside its write: queue the completion check for the item's adopted version."""
+    try:
+        with transaction.atomic():
+            PendingAction.objects.create(kind=COMPLETE, subject_type="application", subject_id=application.public_ref,
+                                         input_ref=str(item.adopted_version_id), idempotency_key=f"{COMPLETE}:{item.public_id}")
+    except IntegrityError:
+        pass  # already requested for this item (a redelivered write)
 
 
 def complete_if_done(application, version) -> None:
@@ -195,16 +208,41 @@ class StartEvidenceCollection(_ApplicationAction):
         return Decision(Status.DONE, write=write)
 
 
+class CompleteEvidenceCollection(_ApplicationAction):
+    """018 step 3 for one adopted version, run by the worker after the fetcher finished an item (9kg.24)."""
+
+    kind = COMPLETE
+
+    def run(self, claim) -> None:
+        from applications.models import SubmissionVersion
+
+        with transaction.atomic():
+            self.lock_subject(claim)
+            application = Application.objects.filter(public_ref=claim.subject_id).first()
+            if application is None or application.stage != Stage.EVIDENCE:
+                ledger.finish(claim, self, status=Status.DONE, error="" if application else "application_not_found")
+                return
+            if self._paused(application):
+                ledger.finish(claim, self, status=Status.QUEUED, error="automation_paused", refund_attempt=True,
+                              due_in=timedelta(seconds=settings.CATALYST_WORKER_POLL_SECONDS))
+                return
+            version = SubmissionVersion.objects.filter(pk=int(claim.input_ref), application=application).first()
+            if version is None:
+                ledger.finish(claim, self, status=Status.FAILED, error="version_not_found")
+                return
+            ledger.finish(claim, self, status=Status.DONE, write=lambda: complete_if_done(application, version))
+
+
 class FetchEvidence(_ApplicationAction):
     kind = FETCH
 
     def on_final_failure(self, claim, application) -> None:
         """The item becomes unavailable (a handler defect, never a negative finding), so collection can complete."""
-        item = EvidenceItem.objects.select_related("adopted_version").filter(public_id=claim.input_ref).first()
+        item = EvidenceItem.objects.filter(public_id=claim.input_ref).first()
         if item is not None and item.status == Item.PENDING:
             finish_item(item, Item.UNAVAILABLE, "handler_error")
             if Application.objects.filter(pk=application.pk, stage=Stage.EVIDENCE).exists():
-                complete_if_done(application, item.adopted_version)
+                request_completion(application, item)
         super().on_final_failure(claim, application)
 
     def lock_subject(self, claim) -> None:
@@ -244,8 +282,8 @@ class FetchEvidence(_ApplicationAction):
 
     def check(self, claim):
         application = Application.objects.filter(public_ref=claim.subject_id).first()
-        item = (EvidenceItem.objects.select_related("source", "adopted_version").filter(public_id=claim.input_ref)
-                .first() if application else None)
+        item = (EvidenceItem.objects.select_related("source").filter(public_id=claim.input_ref).first()
+                if application else None)
         if application is None or item is None or item.application_id != application.pk:
             return Decision(Status.FAILED, "item_not_found"), None
         if item.status != Item.PENDING:
@@ -266,12 +304,12 @@ class FetchEvidence(_ApplicationAction):
     def _terminal_write(self, application, item, status, reason) -> None:
         finish_item(item, status, reason)
         event(application, "evidence_item_" + status, {"item": str(item.public_id), "claim": item.claim_ref, "reason": reason})
-        complete_if_done(application, item.adopted_version)
+        request_completion(application, item)
 
     def _terminal(self, claim, status, reason, ledger_status=Status.DONE) -> None:
         def write():
             application = Application.objects.get(public_ref=claim.subject_id)
-            item = EvidenceItem.objects.select_related("adopted_version").get(public_id=claim.input_ref)
+            item = EvidenceItem.objects.get(public_id=claim.input_ref)
             if item.status == Item.PENDING and application.stage == Stage.EVIDENCE:
                 self._terminal_write(application, item, status, reason)
         ledger.finish(claim, self, status=ledger_status, error=reason, write=write)
@@ -279,7 +317,7 @@ class FetchEvidence(_ApplicationAction):
     def _record(self, claim, result) -> None:
         def write():
             application = Application.objects.get(public_ref=claim.subject_id)
-            item = EvidenceItem.objects.select_related("source", "adopted_version").get(public_id=claim.input_ref)
+            item = EvidenceItem.objects.select_related("source").get(public_id=claim.input_ref)
             if item.status != Item.PENDING or application.stage != Stage.EVIDENCE:
                 return  # decided meanwhile: the observation is not recorded against a finished slot
             derived = fetch.derive(result)
@@ -300,7 +338,7 @@ class FetchEvidence(_ApplicationAction):
             finish_item(item, Item.FETCHED)
             event(application, "evidence_observed", {"item": str(item.public_id), "claim": item.claim_ref,
                                                      "outcome": outcome, "markers": derived.markers})
-            complete_if_done(application, item.adopted_version)
+            request_completion(application, item)
         ledger.finish(claim, self, status=Status.DONE, write=write)
 
 

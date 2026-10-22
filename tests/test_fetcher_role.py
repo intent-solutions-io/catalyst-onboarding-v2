@@ -55,6 +55,7 @@ def collect_as_fetcher(env, settings, **claims):
     assert PendingAction.objects.filter(kind="fetch_evidence", status="queued").exists()
     with as_fetcher(settings):
         worker(only="fetch_evidence")
+    worker(exclude="fetch_evidence")  # the worker runs the completion the fetcher asked for
     app.refresh_from_db()
     return app
 
@@ -66,6 +67,8 @@ def test_9kg24_the_fetcher_role_fetches_completes_collection_and_queues_the_asse
     app = collect_as_fetcher(ev, settings, work_url_1=url(ev, "/w1"), work_url_2=url(ev, "/w2"))
     assert {i.status for i in items(app)} == {"fetched"}
     assert ApplicationEvent.objects.filter(application=app, kind="evidence_collection_complete").count() == 1
+    assert app.stage == "assessing"  # moved by the worker's completion, which the fetcher only requested
+    assert PendingAction.objects.filter(kind="complete_evidence_collection", status="done").count() == 2
     assert AssessmentRun.objects.filter(application=app).count() == 1
     assert not PendingAction.objects.filter(kind="fetch_evidence", status__in=("queued", "running")).exists()
 
@@ -80,6 +83,7 @@ def test_9kg24_the_fetcher_role_records_retries_refusals_and_missing_pages(ev, s
         PendingAction.objects.filter(kind="fetch_evidence", status="queued").update(due_at=Now())
         with as_fetcher(settings):
             worker(only="fetch_evidence")
+        worker(exclude="fetch_evidence")
     [item] = items(app)
     assert item.status == expected[0] and (not expected[1] or item.reason_code == expected[1])
     assert Application.objects.get(pk=app.pk).stage == "assessing"
@@ -122,3 +126,39 @@ def test_9kg24_a_fetcher_process_must_connect_as_the_fetcher_role_and_run_only_t
     finally:
         connections.close_all()
         default.settings_dict.update(USER=saved[0], PASSWORD=saved[1])
+
+
+def _refused(conn, statement, params=()):
+    with pytest.raises(errors.InsufficientPrivilege):
+        conn.execute(statement, params)
+
+
+def test_9kg24_a_compromised_fetcher_cannot_queue_replay_or_move_anything_outside_its_fetch(ev, settings):
+    """PR #71 security review: grants say which tables; the triggers say which rows and values."""
+    source(ev)
+    ev.site.page("/w", "<p>Work sample for the scope probe.</p>")
+    app = collect_as_fetcher(ev, settings, work_url_1=url(ev, "/w"))
+    done = PendingAction.objects.filter(kind="send_verification").first()
+    assert done is not None and done.status == "done"
+    fetcher = ev.committed.connect("fetcher", autocommit=True)
+    fresh = "INSERT INTO workflow_pendingaction (kind, subject_type, subject_id, input_ref, idempotency_key, status," \
+            " due_at, attempts, max_attempts, last_error, created_at, updated_at) VALUES (%s, 'application', %s, '', %s," \
+            " 'queued', now(), 0, 3, '', now(), now())"
+    _refused(fetcher, fresh, ["send_message", app.public_ref, "forged-send"])  # no other kind, ever
+    _refused(fetcher, fresh, ["run_assessment", app.public_ref, "forged-run"])
+    fetcher.execute(fresh, ["complete_evidence_collection", app.public_ref, "a-completion-request"])  # its one insert
+    _refused(fetcher, "UPDATE workflow_pendingaction SET status = 'queued', attempts = 0 WHERE id = %s", [done.pk])
+    _refused(fetcher, "UPDATE workflow_pendingaction SET status = 'queued' WHERE kind = 'fetch_evidence'"
+                      " AND status = 'done'")  # not even its own finished fetch
+    _refused(fetcher, "UPDATE applications_application SET updated_at = now() WHERE id = %s", [app.pk])
+    _refused(fetcher, "UPDATE applications_application SET stage = 'active' WHERE id = %s", [app.pk])
+    _refused(fetcher, "UPDATE assessments_evidenceitem SET status = 'unavailable' WHERE application_id = %s", [app.pk])
+    _refused(fetcher, "INSERT INTO applications_applicationevent (application_id, kind, actor_type, actor_ref, data,"
+                      " occurred_at) VALUES (%s, 'stage_changed', 'system', '', '{}', now())", [app.pk])
+    _refused(fetcher, "INSERT INTO applications_applicationevent (application_id, kind, actor_type, actor_ref, data,"
+                      " occurred_at) VALUES (%s, 'evidence_observed', 'staff', 'forged', '{}', now())", [app.pk])
+    _refused(fetcher, "INSERT INTO correspondence_staffitem (public_id, reason_code, dedupe_key, status, opened_at,"
+                      " application_id) VALUES (gen_random_uuid(), 'send_rejected_permanent', 'forged', 'open', now(), %s)", [app.pk])
+    for table in ("assessments_assessmentrun", "applications_submissionversion", "correspondence_inboundmessage"):
+        _refused(fetcher, f"SELECT count(*) FROM {table}")  # completion's reads and writes are the worker's
+

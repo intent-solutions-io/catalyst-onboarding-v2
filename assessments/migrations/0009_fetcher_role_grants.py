@@ -1,31 +1,34 @@
-"""9kg.24 (026 P6-D-14): the fetcher role's grants, exactly what `fetch_evidence` touches.
+"""9kg.24 (026 P6-D-14): the fetcher role's grants, only what `fetch_evidence` itself does, each write pinned.
 
-Traced from every statement FetchEvidence issued across the evidence and assessment suites (138 tests), and proven
-by tests/test_fetcher_role.py, which runs the fetch as this role. The fetch itself reads the application, its
-adopted submission, the sources and the item, and writes the item, its capture, history events and staff items. When
-the last fetch completes collection it also moves the application's stage and queues the assessment run (freezing
-the snapshot reads the confirmed answers, hence the question and inbound-message reads). Nothing else: no staff,
-agreement, provisioning, mail or session table, and no grant to change history.
+The fetcher handles untrusted pages, so a compromise must reach nothing but its own fetch (PR #71 security review).
+It reads the application, the item and its source, and pauses; it records the item's result, a capture, evidence
+history events, the evidence staff item and its own action's progress; and it asks the worker to check completion.
+Completion itself (the stage, the assessment run, the snapshot) is the worker's (`complete_evidence_collection`).
+
+Grants alone cannot say *which* rows or values, so a trigger refuses, for a session in the fetcher role:
+- a pending action insert other than a fresh, queued completion request, and an update to any action but a live
+  `fetch_evidence` (no other kind, no revived finished row);
+- any change to an application (it may only lock the row: a row lock needs an UPDATE grant);
+- a change to an evidence item that is no longer pending;
+- a history event or staff item of a kind the fetch never writes.
 """
 
+from django.conf import settings
 from django.db import migrations
 
 from config.db_roles import apply_grants
 
 ACTION_UPDATE = "UPDATE (status, due_at, attempts, lease_token, lease_expires_at, last_error, updated_at, completed_at)"
+EVENT_KINDS = ("evidence_observed", "evidence_item_refused", "evidence_item_unavailable", "action_failed",
+               "action_attempts_exhausted")
+STAFF_ITEM_KINDS = ("evidence_collection_failed",)
 
 forward, reverse = apply_grants({
-    "applications_application": {"fetcher": ["SELECT", "UPDATE (stage, updated_at)"]},
+    "applications_application": {"fetcher": ["SELECT", "UPDATE (updated_at)"]},  # the row lock only (trigger)
     "applications_applicationevent": {"fetcher": ["SELECT", "INSERT"]},
-    "applications_submissionversion": {"fetcher": ["SELECT"]},
-    "applications_versionadoption": {"fetcher": ["SELECT"]},
-    "assessments_assessmentrun": {"fetcher": ["SELECT", "INSERT"]},
     "assessments_evidencecapture": {"fetcher": ["SELECT", "INSERT"]},
     "assessments_evidenceitem": {"fetcher": ["SELECT", "UPDATE (status, reason_code, finished_at, updated_at)"]},
     "assessments_evidencesource": {"fetcher": ["SELECT"]},
-    "correspondence_inboundmessage": {"fetcher": ["SELECT"]},
-    "correspondence_question": {"fetcher": ["SELECT"]},
-    "correspondence_questionreplylink": {"fetcher": ["SELECT"]},
     "correspondence_staffitem": {"fetcher": ["SELECT", "INSERT"]},
     "workflow_automationpause": {"fetcher": ["SELECT"]},
     "workflow_pendingaction": {"fetcher": ["SELECT", "INSERT", ACTION_UPDATE]},
@@ -33,9 +36,52 @@ forward, reverse = apply_grants({
     "django_content_type": {"fetcher": ["SELECT"]},
 })
 
+TRIGGERS = (  # (table, events, condition under which a fetcher session is refused)
+    ("workflow_pendingaction", "INSERT", "NOT (NEW.kind = 'complete_evidence_collection' AND NEW.status = 'queued'"
+     " AND NEW.attempts = 0 AND NEW.lease_token IS NULL AND NEW.subject_type = 'application')"),
+    ("workflow_pendingaction", "UPDATE", "NOT (OLD.kind = 'fetch_evidence' AND OLD.status IN ('queued', 'running'))"),
+    ("applications_application", "UPDATE", "true"),
+    ("assessments_evidenceitem", "UPDATE", "OLD.status <> 'pending'"),
+    ("applications_applicationevent", "INSERT",
+     "NOT (NEW.kind = ANY (ARRAY[" + ", ".join(f"'{k}'" for k in EVENT_KINDS) + "]) AND NEW.actor_type = 'system')"),
+    ("correspondence_staffitem", "INSERT",
+     "NOT (NEW.reason_code = ANY (ARRAY[" + ", ".join(f"'{k}'" for k in STAFF_ITEM_KINDS) + "]))"),
+)
+
+
+def _name(table, events):
+    return f"catalyst_fetcher_{table}_{events.lower()}"[:63]
+
+
+def protect(apps, schema_editor):
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute("SELECT quote_literal(%s)", [settings.CATALYST_DB_ROLES["fetcher"]])
+        fetcher = cursor.fetchone()[0]
+    for table, events, refused in TRIGGERS:
+        name = _name(table, events)
+        schema_editor.execute(f"""
+            CREATE FUNCTION public.{name}() RETURNS trigger
+            LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
+            BEGIN
+              IF pg_catalog.pg_has_role(session_user, {fetcher}, 'MEMBER') AND ({refused}) THEN
+                RAISE EXCEPTION 'fetcher: % on % refused', TG_OP, TG_TABLE_NAME USING ERRCODE = 'insufficient_privilege';
+              END IF;
+              RETURN NEW;
+            END $$
+        """, params=None)
+        schema_editor.execute(f"REVOKE ALL ON FUNCTION public.{name}() FROM PUBLIC")
+        schema_editor.execute(f"CREATE TRIGGER {name} BEFORE {events} ON public.{table}"
+                              f" FOR EACH ROW EXECUTE FUNCTION public.{name}()")
+
+
+def unprotect(apps, schema_editor):
+    for table, events, _ in TRIGGERS:
+        schema_editor.execute(f"DROP TRIGGER IF EXISTS {_name(table, events)} ON public.{table}")
+        schema_editor.execute(f"DROP FUNCTION IF EXISTS public.{_name(table, events)}()")
+
 
 class Migration(migrations.Migration):
     # Only what the granted tables need, so reversing and reapplying one app never drags in unrelated ones.
     dependencies = [("assessments", "0008_decision_protection"), ("workflow", "0002_role_grants"),
                     ("contenttypes", "0002_remove_content_type_name")]
-    operations = [migrations.RunPython(forward, reverse)]
+    operations = [migrations.RunPython(forward, reverse), migrations.RunPython(protect, unprotect)]

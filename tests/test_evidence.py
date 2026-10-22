@@ -602,6 +602,15 @@ def test_p3_19_two_last_fetches_racing_complete_collection_exactly_once(ev):
     for t in threads:
         t.join(timeout=30)
     assert errors == [] and {i.status for i in items(app)} == {"fetched"}
+    # 9kg.24: each fetch asks the worker for the completion check; the two checks race in turn.
+    from workflow import ledger
+
+    handler = collection.CompleteEvidenceCollection()
+    checks = [ledger.claim_next({collection.COMPLETE: handler}) for _ in range(2)]
+    assert all(c is not None and c.kind == collection.COMPLETE for c in checks)
+    threads = [ev.committed.thread(handler.run, c) for c in checks]
+    for t in threads:
+        t.join(timeout=30)
     assert ApplicationEvent.objects.filter(application=app, kind="evidence_collection_complete").count() == 1
     assert Application.objects.get(pk=app.pk).stage == "assessing"
 

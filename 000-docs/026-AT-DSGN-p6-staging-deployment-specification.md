@@ -885,18 +885,27 @@ specification text; nothing is built.
   may not be a member of the application, owner or retention role. An ordinary worker may not borrow the fetcher's
   login.
 - **Kinds:** the fetcher runs only `fetch_evidence` and refuses to start with any other kind selected.
-- **Grants** (`assessments` 0009), traced from every statement the fetch handler issued across the evidence and
-  assessment suites (138 tests):
-  - reads of the application, its adopted submission, the sources, and the confirmed answers (questions, their
-    reply links and inbound messages), which freezing the assessment snapshot reads;
-  - writes to the evidence item's status, new captures, history events and staff items;
-  - the application's stage, and a new assessment run, when the last fetch completes collection;
-  - its own pending actions.
-  - Nothing else: no staff, session, two-factor, agreement, provisioning or outbound-mail table, and no change to
-    history.
+- **Completion moved out of the fetcher** (after the PR #71 security review): when an item finishes, the fetcher
+  only queues `complete_evidence_collection`. The worker runs that action, as the application role: it moves the
+  stage, opens the "required evidence unavailable" item, and queues the assessment run. The check is idempotent,
+  and two racing checks still complete collection exactly once.
+- **Grants** (`assessments` 0009): the fetcher reads the application, the item and its source, and pauses. It writes
+  the item's result, a capture, history events, the evidence staff item, its own action's progress and the
+  completion request. It may lock an application row but never change it. It has no access to submissions,
+  inbound mail, questions, assessment runs, staff, sessions, two-factor, agreements, provisioning or outbound mail.
+- **Pinned writes:** a trigger per write refuses, for a session in the fetcher role:
+  - any pending-action insert but a fresh, queued completion request, so it cannot queue a send for the worker to
+    run;
+  - any update but to a live `fetch_evidence` action, so it cannot revive or cancel another action;
+  - any change to an application;
+  - a change to an evidence item that is no longer pending;
+  - a history event or staff item of a kind the fetch never writes.
 - **Evidence:** `tests/test_fetcher_role.py`:
-  - real fetches through the worker command, connected as the fetcher role: success with collection completed and
-    the assessment queued, plus a retried 503, a 403 and a 404;
+  - real fetches through the worker command, connected as the fetcher role, with completion run by the worker:
+    success with collection completed and the assessment queued, plus a retried 503, a 403 and a 404;
   - the role refused on ten statements outside its grant;
+  - a compromised fetcher refused when it tries to queue a send or an assessment, revive a finished action, move or
+    touch an application, change a finished item, forge a history event or staff item, or read submissions, mail or
+    assessment runs;
   - a fetcher process refused as the application role, or with another kind selected, and an ordinary worker refused
     as the fetcher role.

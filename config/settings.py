@@ -214,6 +214,7 @@ CATALYST_ACTION_HANDLERS = {
     # P3 3B.1 (018 4.1): the S1 action stays held until the owner-run activation command releases it.
     "start_evidence_collection": "assessments.collection.StartEvidenceCollection",
     "fetch_evidence": "assessments.collection.FetchEvidence",
+    "complete_evidence_collection": "assessments.collection.CompleteEvidenceCollection",  # 9kg.24: run by the worker
     "run_assessment": "assessments.runs.RunAssessment",  # 018 4 step 4 (P3 3B.2); test models only
     "interpret_message": "correspondence.processing.InterpretMessage",  # 018 5.4 (P3 3B.3); test models only
     # P4 4B.1 (021 section 4): the held `issue_nda` from 3B.4 stays held until `activate_agreements` releases it.
