@@ -31,6 +31,8 @@ def select(registry: dict, only: str, exclude: str) -> dict:
     selected = {kind: h for kind, h in registry.items() if (not wanted or kind in wanted) and kind not in unwanted}
     if not selected:  # a process with nothing to run is a misconfiguration, never a quiet idle loop (PR #65 review)
         raise CommandError("no action kinds left to run")
+    if settings.CATALYST_PROCESS_ROLE == "fetcher" and set(selected) != {"fetch_evidence"}:
+        raise CommandError("the fetcher runs only fetch_evidence (--only fetch_evidence)")  # its role grants nothing else
     return selected
 
 

@@ -222,7 +222,7 @@ def protection_state(conn):
         " has_table_privilege(r.role, t.oid, 'DELETE'), has_table_privilege(r.role, t.oid, 'TRUNCATE')"
         " FROM (SELECT tablename, ('public.' || quote_ident(tablename))::regclass AS oid FROM pg_tables"
         "       WHERE schemaname = 'public') t CROSS JOIN unnest(%s::text[]) AS r(role) ORDER BY 1, 2",
-        [[roles["app"], roles["retention"], roles["backup"]]],
+        [[roles["app"], roles["retention"], roles["backup"], roles["fetcher"]]],
     ).fetchall()
     return triggers, privileges
 
@@ -240,6 +240,13 @@ EXPECTED_TRIGGERS = {
     ("applications_application", "catalyst_decided_stage_needs_decision"),  # P3 3B.4
     ("workflow_automationpause", "catalyst_restore_hold"),  # 6B.7a
     ("otp_totp_totpdevice", "catalyst_otp_device_fixed"), ("otp_static_staticdevice", "catalyst_otp_device_fixed"),  # 6B.9
+    # 9kg.24: the fetcher's writes, pinned
+    ("workflow_pendingaction", "catalyst_fetcher_workflow_pendingaction_insert"),
+    ("workflow_pendingaction", "catalyst_fetcher_workflow_pendingaction_update"),
+    ("applications_application", "catalyst_fetcher_applications_application_update"),
+    ("assessments_evidenceitem", "catalyst_fetcher_assessments_evidenceitem_update"),
+    ("applications_applicationevent", "catalyst_fetcher_applications_applicationevent_insert"),
+    ("correspondence_staffitem", "catalyst_fetcher_correspondence_staffitem_insert"),
     ("assessments_qualificationdecision", "catalyst_decision_txid"),
     ("agreements_agreementtemplateversion", "catalyst_agreement_template_frozen"),  # P4 4B.1
     ("agreements_agreementtemplateversion", "catalyst_agreement_template_draft"),

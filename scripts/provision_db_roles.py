@@ -9,14 +9,15 @@ creates, idempotently:
   app        LOGIN, no other attribute; the web, worker and fetcher login
   retention  LOGIN, no other attribute; the separately authorized retention path
   backup     LOGIN, no other attribute; reads every table but the session table, for the backup job (6B.7)
+  fetcher    LOGIN, no other attribute; only what the evidence fetch touches (9kg.24)
 
 None is a superuser, none can create roles, and no role is a member of another.
 
 Where the passwords come from:
 - test and development: CATALYST_DB_OWNER_PASSWORD, CATALYST_DB_APP_PASSWORD, CATALYST_DB_RETENTION_PASSWORD,
-  CATALYST_DB_BACKUP_PASSWORD and CATALYST_DB_ADMIN_PASSWORD in the environment;
-- staging: files in CATALYST_SECRETS_DIR named owner_password, app_password, retention_password, backup_password and
-  admin_password, never the environment (026 section 5).
+  CATALYST_DB_BACKUP_PASSWORD, CATALYST_DB_FETCHER_PASSWORD and CATALYST_DB_ADMIN_PASSWORD in the environment;
+- staging: files in CATALYST_SECRETS_DIR named owner_password, app_password, retention_password, backup_password,
+  fetcher_password and admin_password, never the environment (026 section 5).
 
 Production provisioning is not authorized yet: the script refuses any environment but these three.
 """
@@ -28,9 +29,9 @@ import psycopg
 from psycopg import sql
 
 ENVIRONMENTS = ("development", "test", "staging")
-KEYS = ("owner", "app", "retention", "backup")
+KEYS = ("owner", "app", "retention", "backup", "fetcher")
 DEFAULT_NAMES = {"owner": "catalyst_owner", "app": "catalyst_app", "retention": "catalyst_retention",
-                 "backup": "catalyst_backup"}
+                 "backup": "catalyst_backup", "fetcher": "catalyst_fetcher"}
 
 
 def password(key: str, environment: str) -> str:

@@ -143,13 +143,14 @@ CATALYST_DB_ROLES = {
     "app": env("CATALYST_DB_APP_ROLE", "catalyst_app"),
     "retention": env("CATALYST_DB_RETENTION_ROLE", "catalyst_retention"),
     "backup": env("CATALYST_DB_BACKUP_ROLE", "catalyst_backup"),  # 6B.6: reads for the backup job, never writes
+    "fetcher": env("CATALYST_DB_FETCHER_ROLE", "catalyst_fetcher"),  # 9kg.24: only what the evidence fetch touches
 }
 # Role names reach SQL as identifiers in migrations: accept only plain lowercase identifiers.
 for _key, _role in CATALYST_DB_ROLES.items():
     if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", _role):
         raise ImproperlyConfigured(f"CATALYST_DB_ROLES[{_key!r}] is not a plain lowercase identifier")
 if len(set(CATALYST_DB_ROLES.values())) != len(CATALYST_DB_ROLES):
-    raise ImproperlyConfigured("the owner, application, retention and backup roles must be different roles")
+    raise ImproperlyConfigured("the owner, application, retention, backup and fetcher roles must be different roles")
 # The kind of process for the catalyst.E002 diagnostic. Runtime enforcement does not read it: entry points
 # declare their kind in code (config.runtime), so a stale value cannot exempt the web process.
 # CATALYST_DB_USER / CATALYST_DB_PASSWORD are the login of whichever role this process uses.
@@ -213,6 +214,7 @@ CATALYST_ACTION_HANDLERS = {
     # P3 3B.1 (018 4.1): the S1 action stays held until the owner-run activation command releases it.
     "start_evidence_collection": "assessments.collection.StartEvidenceCollection",
     "fetch_evidence": "assessments.collection.FetchEvidence",
+    "complete_evidence_collection": "assessments.collection.CompleteEvidenceCollection",  # 9kg.24: run by the worker
     "run_assessment": "assessments.runs.RunAssessment",  # 018 4 step 4 (P3 3B.2); test models only
     "interpret_message": "correspondence.processing.InterpretMessage",  # 018 5.4 (P3 3B.3); test models only
     # P4 4B.1 (021 section 4): the held `issue_nda` from 3B.4 stays held until `activate_agreements` releases it.
