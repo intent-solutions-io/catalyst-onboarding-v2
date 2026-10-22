@@ -59,11 +59,14 @@ def outward_kinds() -> list[str]:
                   | {kind for kind in OUTWARD_REDELIVERABLE if kind in ledger.handlers()})
 
 
-def close_outstanding_links(report: dict, cause: str = "restore") -> None:
+def close_outstanding_links(report: dict, cause: str = "restore", signed_only: bool = False) -> None:
     """Close every outstanding applicant link (unused confirmation links, open password links, open withdrawal links)
     and open a staff item for each applicant left waiting, so nobody is stranded silently; a password set in flight
-    becomes "outcome unknown" with a staff item to send a fresh link. Inside the caller's transaction. Used after a
-    restore (review below) and after a leaked link-signing key (`manage.py catalyst_close_links`, 027)."""
+    becomes "outcome unknown" with a staff item to send a fresh link. Inside the caller's transaction.
+
+    After a restore (review below) every kind is closed. After a leaked link-signing key (`catalyst_close_links`, 027)
+    `signed_only` closes the confirmation links alone: they are the only links signed with that key. Password and
+    withdrawal links are random tokens stored as hashes, which a key leak does not touch (6B.10a review)."""
     from applications.models import ContactChallenge
     from correspondence.staff_items import open_item
     from provisioning import core, credentials
@@ -77,6 +80,8 @@ def close_outstanding_links(report: dict, cause: str = "restore") -> None:
     report["confirmation_links_closed"] = challenges.update(superseded_at=Now())
     for application in stranded:
         open_item(ITEMS[cause][0], f"{cause}:confirmation:{application.public_ref}", application=application)
+    if signed_only:
+        return
     setups = CredentialSetup.objects.filter(state__in=(*OPEN_SETUP_STATES, "set_pending")).select_related("request")
     affected = {s.request for s in setups}
     report["password_links_closed"] = CredentialSetup.objects.filter(state__in=OPEN_SETUP_STATES).update(

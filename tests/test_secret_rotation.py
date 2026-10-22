@@ -1,6 +1,8 @@
 """6B.10a (027; 026 section 5, P6-D-15; TEST-P6-21 to 24): each secret class's rotation does what the runbook says.
 The webhook secrets' two-secret overlap is tested in test_agreement_completion (a rotation: both valid)."""
 
+import hashlib
+import json
 import os
 import re
 import sys
@@ -13,7 +15,12 @@ from config.post_restore import ITEMS
 from correspondence.models import StaffItem
 from tests import support
 from tests.support import manage_as_owner
-from tests.test_outbound import FORM, VALID, p2, run_worker, staff  # noqa: F401  (fixture chain and helpers)
+from tests.test_closure import cl  # noqa: F401  (fixture chain)
+from tests.test_credentials import invited
+from tests.test_outbound import FORM, VALID, staff
+from tests.test_provisioning import (  # noqa: F401  (fixture chain and helpers)
+    a, admitted, approve, c, d, ev, g, h, issued, k, nda, p2, pv, run_worker, sign_and_settle, tls,
+)
 
 OLD_KEY = "synthetic-old-link-key-" + "Qw3Er5Ty7Ui9Op1As3Df5Gh7Jk9Lz2X" * 2  # gitleaks:allow
 NEW_KEY = "synthetic-new-link-key-" + "Mn8Bv6Cx4Za2Sd0Fg8Hj6Kl4Qw2Er0T" * 2  # gitleaks:allow
@@ -40,26 +47,70 @@ def test_6b10a_a_routine_link_key_rotation_keeps_links_in_hand_working_while_the
     assert not offered(path)  # step 2, after the longest link lifetime: the old key is gone and so are its links
 
 
+def leaked_digest(key=OLD_KEY) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
+def close_links(**env):
+    from django.conf import settings
+
+    return support.run([sys.executable, "manage.py", "catalyst_close_links", "--confirm-database", support_db(),
+                        "--leaked-key-sha256", leaked_digest()], CATALYST_DB_NAME=support_db(),
+                       CATALYST_DB_USER=settings.CATALYST_DB_ROLES["owner"],
+                       CATALYST_DB_PASSWORD=os.environ["CATALYST_DB_OWNER_PASSWORD"], **env)
+
+
 def test_6b10a_after_a_leak_the_old_links_fail_and_every_outstanding_one_is_closed_for_reissue(p2, settings):
     path = confirmation_link(settings, "leaked@example.test")
+    assert offered(path)  # before: the link works under the key about to leak
     settings.CATALYST_VERIFICATION_KEY, settings.CATALYST_VERIFICATION_FALLBACK_KEYS = NEW_KEY, []  # no fallback
     assert not offered(path)  # links signed with the leaked key fail at once
-    report = manage_as_owner("catalyst_close_links", "--confirm-database", support_db()).stdout
-    assert '"confirmation_links_closed": 1' in report
-    assert StaffItem.objects.filter(reason_code=ITEMS["rotation"][0], status="open").count() == 1  # staff reissue
+    result = close_links(CATALYST_VERIFICATION_KEY=NEW_KEY)  # the command runs with the new key deployed
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout.strip().splitlines()[-1]) == {"confirmation_links_closed": 1}  # nothing else
+    item = StaffItem.objects.get(reason_code=ITEMS["rotation"][0], status="open")  # staff reissue
+    assert item.dedupe_key.startswith("rotation:confirmation:")
     settings.CATALYST_VERIFICATION_KEY = OLD_KEY
     assert not offered(path)  # closed, not just unverifiable: even the leaked key no longer opens it
 
 
-def test_6b10a_closing_links_refuses_while_a_fallback_key_remains_or_for_another_database(p2):
+def test_6b10a_closing_links_refuses_while_the_leaked_key_is_still_the_link_key(p2, settings):
+    path = confirmation_link(settings, "early@example.test")
+    result = close_links(CATALYST_VERIFICATION_KEY=OLD_KEY)  # run before the new key was deployed
+    assert result.returncode == 1 and "still the link key" in result.stderr
+    assert offered(path)  # nothing was closed
+    bad = support.run([sys.executable, "manage.py", "catalyst_close_links", "--confirm-database", support_db(),
+                       "--leaked-key-sha256", "not-a-digest"], **owner_env())
+    assert bad.returncode == 1 and "64 lowercase hex" in bad.stderr
+
+
+def test_6b10a_password_links_are_not_signed_with_the_link_key_and_survive_its_rotation(cl, monkeypatch, settings):
+    from provisioning.models import CredentialSetup
+
+    app, request, setup_path = invited(cl, monkeypatch)
+    assert Client().get(setup_path).status_code == 200  # before
+    settings.CATALYST_VERIFICATION_KEY, settings.CATALYST_VERIFICATION_FALLBACK_KEYS = NEW_KEY, []
+    assert Client().get(setup_path).status_code == 200  # a random token, unaffected by the key
+    result = close_links(CATALYST_VERIFICATION_KEY=NEW_KEY)
+    assert result.returncode == 0, result.stderr
+    assert Client().get(setup_path).status_code == 200  # and the leak procedure leaves it alone
+    assert CredentialSetup.objects.get(request=request).state not in ("superseded", "set_uncertain")
+
+
+def owner_env() -> dict:
     from django.conf import settings
 
-    base = [sys.executable, "manage.py", "catalyst_close_links", "--confirm-database"]
-    owner = {"CATALYST_DB_NAME": support_db(), "CATALYST_DB_USER": settings.CATALYST_DB_ROLES["owner"],
-             "CATALYST_DB_PASSWORD": os.environ["CATALYST_DB_OWNER_PASSWORD"]}
-    wrong = support.run([*base, "another-database"], **owner)
+    return {"CATALYST_DB_NAME": support_db(), "CATALYST_DB_USER": settings.CATALYST_DB_ROLES["owner"],
+            "CATALYST_DB_PASSWORD": os.environ["CATALYST_DB_OWNER_PASSWORD"]}
+
+
+def test_6b10a_closing_links_refuses_while_a_fallback_key_remains_or_for_another_database(p2):
+    base = [sys.executable, "manage.py", "catalyst_close_links", "--leaked-key-sha256", leaked_digest(),
+            "--confirm-database"]
+    wrong = support.run([*base, "another-database"], **owner_env(), CATALYST_VERIFICATION_KEY=NEW_KEY)
     assert wrong.returncode == 1 and "must name this database" in wrong.stderr
-    fallback = support.run([*base, support_db()], **owner, CATALYST_VERIFICATION_FALLBACK_KEYS=OLD_KEY)
+    fallback = support.run([*base, support_db()], **owner_env(), CATALYST_VERIFICATION_KEY=NEW_KEY,
+                           CATALYST_VERIFICATION_FALLBACK_KEYS=OLD_KEY)
     assert fallback.returncode == 1 and "must not stay a fallback" in fallback.stderr
 
 

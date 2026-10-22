@@ -31,7 +31,7 @@ TARGET = ROOT / "deploy" / "staging" / "compose.yaml"
 POSTGRES = "postgres:16.15@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d"
 CADDY = "caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d"
 IMAGE = "${CATALYST_IMAGE:?the attested staging image digest}"
-SECRET_FILES = ("secret_key", "verification_key", "admin_password", "owner_password", "app_password",
+SECRET_FILES = ("secret_key", "verification_key", "verification_fallback_keys", "admin_password", "owner_password", "app_password",
                 "retention_password", "backup_password", "fetcher_password")
 STAFF_PORT = 8444
 PUBLIC_PORT = 8443
@@ -87,7 +87,8 @@ def catalyst(command: list, role: str, secrets: list, *, process_role: str = "",
 
 
 def definition() -> dict:
-    keys = [mount("secret_key"), mount("verification_key")]
+    # The fallback file is empty except during a routine link-key rotation (027): it holds the previous key.
+    keys = [mount("secret_key"), mount("verification_key"), mount("verification_fallback_keys")]
     migrated = {"migrate": {"condition": "service_completed_successfully"}}
     web = catalyst([], "catalyst_app", [*keys, mount("app_password", "db_password")],
                    volumes=["catalyst-run:/run/catalyst"], depends=migrated)

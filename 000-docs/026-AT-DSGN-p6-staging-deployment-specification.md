@@ -1109,18 +1109,39 @@ specification text; nothing is built.
 
 **6B.10a, the secret rotation runbook (026 section 5; P6-D-15).**
 
-- **The runbook** is `027`: per secret class, the routine procedure, the leak procedure and what users notice; the
-  rules (a leaked key is never a fallback, one class at a time, a record without values); intervals are the owner's.
-- **Leak tooling:** `manage.py catalyst_close_links --confirm-database <name>` (owner) closes every outstanding
-  applicant link record and opens a staff item for each applicant left waiting, labelled as a rotation. It reuses the
-  post-restore step's link closing (`config.post_restore.close_outstanding_links`, now shared), and it refuses while
-  any fallback key is configured, so the leak procedure cannot be finished half-way.
-- **Evidence:** `tests/test_secret_rotation.py`:
+- **The runbook** is `027`. For each secret class it gives the routine procedure, the leak procedure, what users
+  notice, and whether the procedure is tested. It also states the rules: a leaked key is never a fallback; one class
+  at a time; a record without values; intervals are the owner's.
+- **Only confirmation links are signed with the link key.** Password-setup and withdrawal links are random tokens
+  stored as hashes, so a key rotation neither breaks nor protects them. The routine fallback window is therefore the
+  confirmation link's lifetime alone.
+- **Leak tooling:** `manage.py catalyst_close_links --confirm-database <name> --leaked-key-sha256 <hex>`, run as the
+  owner.
+  - It closes every outstanding confirmation link record, and opens a staff item for each applicant left waiting,
+    labelled as a rotation.
+  - It reuses the post-restore step's link closing (`config.post_restore.close_outstanding_links`, now shared, with
+    `signed_only` for this case).
+  - It refuses while the leaked key, named by its digest and never its value, is still the link key or any fallback
+    key. The new key must therefore be deployed first, or staff would reissue links under the leaked one.
+- **Staging:** the compose file now mounts `verification_fallback_keys` (empty unless a rotation is under way) in
+  web, worker and migrate, so the routine procedure can run there.
+- **Corrects the secrets table in section 5:** the link key also reaches migrate, which signs no links but loads the
+  same settings.
+- **The administrator's password** has its own procedure, because the provisioning step logs in with it. That
+  procedure, removing an old webhook secret, and the pilot's provider credentials are procedures only, stated as
+  untested.
+- **After the QA review of PR #74** (four HIGH):
+  - the leak procedure closes confirmation links only, and a password link survives it (tested);
+  - the administrator's procedure;
+  - the staging fallback mount;
+  - the leaked-key ordering is enforced by the command.
+- **Evidence:** `tests/test_secret_rotation.py`, each with a positive control:
   - a routine link-key rotation keeps links in hand working while the old key is a fallback, and ends them when it
     goes;
-  - after a leak, links signed with the leaked key fail at once, and every outstanding one is closed with a staff
-    item to reissue, so not even the leaked key opens it again;
-  - closing refuses while a fallback remains, or for another database;
+  - after a leak, links signed with the leaked key fail at once. Exactly the confirmation links are closed, each
+    with a staff item to reissue, and not even the leaked key opens them again;
+  - closing refuses while the leaked key is still the link key, while a fallback remains, or for another database;
+  - a password-setup link survives the key's rotation and the leak procedure;
   - rotating the Django key ends every staff session;
   - a rotated role password takes effect, and the old one stops working.
 

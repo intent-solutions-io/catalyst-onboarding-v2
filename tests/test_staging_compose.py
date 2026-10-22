@@ -42,10 +42,12 @@ def test_6b5b_no_secret_is_ever_in_an_environment_or_an_env_file():
 def test_6b5b_each_process_mounts_only_its_own_secrets_and_its_own_database_password():
     s = services()
     assert secrets_of(s["web"]) == {"secret_key": "secret_key", "verification_key": "verification_key",
+                                    "verification_fallback_keys": "verification_fallback_keys",
                                     "db_password": "app_password"}
     assert secrets_of(s["worker"]) == secrets_of(s["web"])
     assert secrets_of(s["fetcher"]) == {"secret_key": "secret_key", "db_password": "fetcher_password"}  # no link key
     assert secrets_of(s["migrate"]) == {"secret_key": "secret_key", "verification_key": "verification_key",
+                                        "verification_fallback_keys": "verification_fallback_keys",
                                         "db_password": "owner_password"}
     assert secrets_of(s["db"]) == {"admin_password": "admin_password"}
     assert "admin_password" in secrets_of(s["provision-roles"]) and s["provision-roles"]["profiles"] == ["provision"]
