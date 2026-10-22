@@ -15,6 +15,7 @@ STAGING = {
     "CATALYST_SECRET_KEY": "synthetic-staging-key-" + "x7Qp2LmZ9vR4tYw8NcB3hK6sJd1FgUe5aTo0" * 2,  # gitleaks:allow
     "CATALYST_EMAIL_BACKEND": None, "CATALYST_EMAIL_FILE_PATH": "/tmp/catalyst-staging-mail",
     "CATALYST_MAIL_TEST_HOST": None, "CATALYST_STAFF_HOST": "staff.staging.test", "CATALYST_LOCAL_HOSTS": "localhost",
+    "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-staging-worker.beat",
 }
 WSGI = [sys.executable, "-c", "import config.wsgi"]
 
@@ -182,3 +183,9 @@ def test_6b3_review_staging_needs_a_proper_staff_host_and_local_hosts():
                         ("CATALYST_LOCAL_HOSTS", "localhost,catalyst.staging.test"), ("CATALYST_LOCAL_HOSTS", ".staging.test")):
         result = run(CHECK, **{**STAGING, name: value})
         assert result.returncode != 0 and "may not be a wildcard" in result.stderr, (name, value)
+
+
+def test_6b4_review_staging_requires_a_worker_heartbeat_file():
+    result = run(CHECK, **{**STAGING, "CATALYST_WORKER_HEARTBEAT_FILE": None})
+    assert result.returncode != 0 and "CATALYST_WORKER_HEARTBEAT_FILE must be an absolute path" in result.stderr
+

@@ -561,3 +561,39 @@ specification text; nothing is built.
   so probes cannot load the database, and the header test asserts the full header set. The WSGI server's own
   `Server` header is checked on staging (NOT RUN here).
 - **Evidence:** `tests/test_health.py`.
+
+**6B.4, the worker heartbeat and the health command.**
+
+- The worker rewrites a heartbeat file (`CATALYST_WORKER_HEARTBEAT_FILE`) atomically on every loop, including while
+  the database is down. A failed write never stops the worker; the stale heartbeat raises the alert instead.
+- `manage.py catalyst_health` (`config/system_health.py`) prints JSON (counts and signal names only) and exits 0
+  when healthy, 1 on any anomaly, and 2 when the check itself fails. It adds these signals to the correspondence
+  ones:
+  - a missing or stale heartbeat (default: twice the lease);
+  - the oldest due action still queued (moved here from readiness, 6B.3), and running actions whose lease expired
+    long ago;
+  - agreements in an uncertain or failed state, and custody failures;
+  - provisioning still settling (an uncertain create or verify, a found mailbox);
+  - provisioning staff items that mean something went wrong (alert at once; they clear when staff resolve them),
+    and routine waiting items (checklist, name review, blocked) only once overdue;
+  - a revocation round that never ran;
+  - hard bounces unresolved past a target.
+- The thresholds are configurable placeholders until POL-16 (P6-D-9).
+- After the QA review of PR #64 (two HIGH, four MEDIUM):
+  - terminal provisioning states no longer alert forever; the open staff item is the signal, and it clears when
+    staff resolve it;
+  - every failure of the check itself, including a malformed report, exits 2 and never 1;
+  - the heartbeat also beats on every lease renewal (in the write phase, after the external call); a handler that
+    makes several slow calls before its first renewal can still look quiet for longer, which twice the lease allows
+    for one call each of at most half the lease;
+  - staging requires a heartbeat file;
+  - tests now cover each signal both firing and clearing, with a real leak check on seeded applicant data.
+- **Runbook note:** a stopped worker (a deploy, for example) leaves the heartbeat to age; the alert fires only past
+  twice the lease.
+- **Evidence:** `tests/test_system_health.py`:
+  - the heartbeat's atomic write and failure tolerance, and the worker beating;
+  - a quiet system reported healthy, with counts only;
+  - a dead worker detected and cleared on recovery (TEST-P6-17);
+  - a backlog and an expired lease;
+  - an unknown mailbox create reported (TEST-P6-19);
+  - a failing check exits 2 without leaking its message.

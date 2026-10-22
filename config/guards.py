@@ -309,6 +309,9 @@ def host_problems(settings) -> list[str]:
     public = (urlsplit(base).hostname or "").lower().rstrip(".") if base else ""
     staff = (getattr(settings, "CATALYST_STAFF_HOST", "") or "").lower().rstrip(".")
     problems = [] if staff else ["CATALYST_STAFF_HOST is required outside test and development"]
+    beat = getattr(settings, "CATALYST_WORKER_HEARTBEAT_FILE", "") or ""
+    if not beat.startswith("/"):  # PR #64 review: no deployment without a worker liveness signal
+        problems.append("CATALYST_WORKER_HEARTBEAT_FILE must be an absolute path outside test and development")
     for name, hosts in (("CATALYST_STAFF_HOST", [staff] if staff else []),
                         ("CATALYST_LOCAL_HOSTS", getattr(settings, "CATALYST_LOCAL_HOSTS", []) or [])):
         for host in hosts:
