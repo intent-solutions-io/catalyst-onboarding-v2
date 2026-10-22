@@ -1051,6 +1051,10 @@ specification text; nothing is built.
     target.
   - A database that cannot be read also refuses a revert, so the wrapper holds and a person decides.
   - The previous image must stay on the host (no image pruning between releases).
+  - A switch that fails after the record was written keeps that image's marks in the record. This is conservative: a
+    mark only ever refuses more.
+  - The forward-only arithmetic runs from the deploy host's checkout of this repository, so that checkout must sit
+    at the deployed commit (6B.11's force-command).
 - **The image workflow** (`.github/workflows/image.yml`, not a required check):
   - **every pull request:** a read-only build job builds the production target, checks its content and `COMMIT`,
     writes an SPDX bill of materials (Syft) and scans it (Grype);
