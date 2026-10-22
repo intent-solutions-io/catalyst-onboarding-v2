@@ -5,6 +5,7 @@ The default gate (signing AND custody, P4-D-6) is used throughout: no signing-on
 """
 
 import os
+import uuid
 from pathlib import Path
 
 import pytest
@@ -420,7 +421,12 @@ def test_review_outsiders_get_the_same_404_and_add_no_audit_rows(k, monkeypatch)
     other = Client()
     other.force_login(get_user_model().objects.get(pk=outsider.pk))
     non_staff = other.post(url, {"note": "Counsel review copy"})
-    assert anonymous.status_code == non_staff.status_code == 404 and b"%PDF" not in anonymous.content + non_staff.content
+    assert non_staff.status_code == 404 and b"%PDF" not in anonymous.content + non_staff.content
+    # 6B.9: every anonymous request under /staff/ goes to the login page, so a document that exists and one that does
+    # not answer an outsider identically.
+    missing = Client().post(reverse("agreements_staff:retrieve", args=[uuid.uuid4()]), {"note": "Counsel review copy"})
+    assert anonymous.status_code == missing.status_code == 302
+    assert anonymous["Location"].split("?")[0] == missing["Location"].split("?")[0] == "/staff/login/"
     assert not DocumentAccess.objects.exists()
 
 
