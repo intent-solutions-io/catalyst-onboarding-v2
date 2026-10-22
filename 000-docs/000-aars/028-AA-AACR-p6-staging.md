@@ -95,47 +95,51 @@ section 16.
 
 | Case | Status | Evidence, and what is not yet shown |
 |---|---|---|
-| TEST-P6-01 | partly | Unit: digest base, hash-locked, non-root, read-only root, no secret in a layer. Live: an unattested tarball is refused. **Not yet:** verifying a real `main` attestation on the host |
+| TEST-P6-01 | partly | Unit: digest base, hash-locked, non-root, read-only root, no secret in a layer. Live: an unattested tarball is refused. A real attestation was made on `main` (image run 39780920293). **Not yet:** verifying it on the host with the force-command (bead `9kg.20`) |
 | TEST-P6-02 | proven | Live and unit |
 | TEST-P6-03 | proven | Unit (guards) |
 | TEST-P6-04 | proven | Live secret and role checks; unit |
-| TEST-P6-05 | proven | Live (second migrate); `deploy_drill.sh` (readiness red while behind) |
-| TEST-P6-06 | proven | Live (second provisioning; random credentials); unit |
-| TEST-P6-07 | proven | Live (database stopped); unit (wrong role) |
-| TEST-P6-08 | proven | `deploy_drill.sh` |
+| TEST-P6-05 | proven | Live: a second migrate applies nothing. `deploy_drill.sh`: migrate runs as the owner, and readiness is red for the release deployed without its migrations. §16 called this partly before the drill's evidence was joined to it |
+| TEST-P6-06 | proven | Live: a second provisioning run, five roles read back, random credentials per run. Unit: attributes, memberships and grants. §16 called this partly because the attributes were unit-only; the case's clauses are now each shown |
+| TEST-P6-07 | proven | Live: database stopped (liveness 200, readiness 503) and health paths refused on the public listener (TEST-P6-12). Unit: the wrong role. §16 called this partly because the wrong role is unit-only |
+| TEST-P6-08 | proven | `deploy_drill.sh` (a good release promoted; three faults reverted and held; forward-only refused). The unit test pins the adapters' shape only |
 | TEST-P6-09 | proven | `deploy_drill.sh`; unit |
-| TEST-P6-10 | proven | `deploy_drill.sh`; unit |
-| TEST-P6-11 | partly | Live: secrets only as files, none in configuration. Unit: a role password rotation. **Not yet:** tmpfs on the host (SOPS, pilot) |
+| TEST-P6-10 | partly | `deploy_drill.sh`: the receipt is written and reads back as intended. **Not yet:** a mismatch failing the deploy. By design the smoke is the gate and the receipt is a record (6B.10); either a mismatch check is added or the owner records the deviation (bead `9kg.27`) |
+| TEST-P6-11 | partly | Live: secrets only as files, none in configuration. Unit: a role password rotation. **Not yet:** tmpfs on the host (SOPS, pilot; bead `9kg.20`) |
 | TEST-P6-12 | proven | Live, with variants; unit |
-| TEST-P6-13 | partly | Live and unit for token sentinels. **Not yet:** the webhook secret, since the webhook is mounted only at the pilot |
-| TEST-P6-14 | proven | Live; unit (session cookie flags) |
-| TEST-P6-15 | partly | Live (second factor, superuser). **Not yet:** the named-device network restriction (host) |
-| TEST-P6-16 | partly | Live: unmounted. Unit: authentication, uniform answers, two secrets. **Not yet:** live enabled refusals, size and source limits |
+| TEST-P6-13 | partly | Live and unit for token sentinels. **Not yet:** the webhook secret, since the webhook is mounted only at the pilot (bead `9kg.27`) |
+| TEST-P6-14 | proven | Live: HSTS, CSP, the CSRF cookie, `no-store` on a token path, a spoofed forwarded header overwritten. Unit: the session cookie's flags. §16 called this "mostly" because the session cookie was unit-only |
+| TEST-P6-15 | partly | Live (second factor, superuser). **Not yet:** the named-device network restriction (host; bead `9kg.20`) |
+| TEST-P6-16 | partly | Live: unmounted. Unit: authentication, uniform answers, two secrets. **Not yet:** live enabled refusals, size and source limits (bead `9kg.27`) |
 | TEST-P6-17 | proven | `alert_drill.sh`; unit |
-| TEST-P6-18 | partly | Unit only. **Not yet:** live, since staging has no inbound mail until the pilot |
-| TEST-P6-19 | partly | Live: bounce and backlog. Unit: uncertain send and custody |
+| TEST-P6-18 | partly | Unit only. **Not yet:** live, since staging has no inbound mail until the pilot (bead `9kg.27`) |
+| TEST-P6-19 | partly | Live: bounce and backlog. Unit: uncertain send and custody. **Not yet:** those two live (bead `9kg.27`) |
 | TEST-P6-20 | proven | `alert_drill.sh`; unit |
-| TEST-P6-21 | partly | Live and unit: set, manifest, a failed run keeps the good set. **Not yet:** the failed run's alert (scheduled job) |
+| TEST-P6-21 | partly | Live and unit: set, manifest, a failed run keeps the good set. **Not yet:** the failed run's alert (scheduled job; bead `9kg.22`) |
 | TEST-P6-22 | proven | `restore_drill.sh`, with times measured. **The owner sets** the RPO and RTO targets |
 | TEST-P6-23 | proven | `restore_drill.sh` (five controls on their exact refusals); unit |
-| TEST-P6-24 | partly | `deploy_drill.sh`: a missing receipt is refused. The backup runs in the same step, so it is fresh by construction. **Not yet:** refusing a backup command that prints an older receipt's path |
-| TEST-P6-25 | proven | `deploy_drill.sh` (revert against an expanded schema); `restore_drill.sh` |
-| TEST-P6-26 | proven on a stand-in | `cutover_rehearsal.sh` 19 of 19; unit. **Not yet:** the live Learn read (section 9 preconditions in `026` section 16) |
+| TEST-P6-24 | partly | `deploy_drill.sh`: a missing receipt is refused. The backup runs in the same step, so it is fresh by construction. **Not yet:** refusing a backup command that prints an older receipt's path (bead `9kg.27`) |
+| TEST-P6-25 | partly | The restore path: `restore_drill.sh`. The forward-only refusal: `deploy_drill.sh`. **Not yet:** migrating N+1 (expand) and reverting to N on that schema; the drill's reverts are of releases that never migrated (bead `9kg.27`) |
+| TEST-P6-26 | proven on a stand-in | `cutover_rehearsal.sh` 19 of 19. The gated unit tests pin only the route sets. **Not yet:** the live Learn read (the preconditions in `026` section 16; owner's go) |
 | TEST-P6-27 | proven | Live only (`staging_check.sh`) |
-| TEST-P6-28 | proven | Live (network refusals, no name resolution); unit |
+| TEST-P6-28 | partly | Live: web, worker and fetcher reach nothing outside the database, and names do not resolve; no production secret (TEST-P6-04). **Not yet:** the fetcher's proxy admits any public name, so the estate's own production hosts are not denied by name (bead `9kg.27`) |
 | TEST-P6-29 | partly | Live: a link from before the backup. Unit: sessions, passwords, revocations. **Not yet:** erasure replay (bead `9kg.25`) |
 | TEST-P6-30 | proven | Live (egress); unit |
 | TEST-P6-31 | partly | Unit: only `main` attests, with split permissions. Live: an unattested tarball is refused. **Not yet:** the deploy force-command (bead `9kg.20`) |
 | TEST-P6-32 | proven | Live (through the socket, no proxy); unit |
 | TEST-P6-33 | proven | Live; unit |
-| TEST-P6-34 | partly | Unit only (P4 webhook tests). **Not yet:** live, with the webhook at the pilot |
-| TEST-P6-35 | proven | Receipts, set modes and alerts; unit |
-| TEST-P6-36 | partly | Unit: link key (routine and leak), Django key, role passwords, webhook overlap. **Not yet:** the administrator's password and provider tokens (procedures only, `027`) |
-| TEST-P6-37 | proven | Image workflow on every pull request; unit |
+| TEST-P6-34 | partly | Unit only (P4 webhook tests). **Not yet:** live, with the webhook at the pilot (bead `9kg.27`) |
+| TEST-P6-35 | partly | Backup receipts, the set's modes and alerts carry no personal data (live and unit). **Not yet:** a check over committed evidence and the deployment receipt (bead `9kg.27`) |
+| TEST-P6-36 | partly | Unit: link key (routine and leak), Django key, role passwords, webhook overlap. **Not yet:** the administrator's password and provider tokens (procedures only, `027`; bead `9kg.27`) |
+| TEST-P6-37 | proven | Image run 39780920293 on `main` (head `178da42`): build, content check, SPDX bill of materials, scan and attestation all succeeded; the same build job runs on every pull request |
 | TEST-P6-38 | proven | `alert_drill.sh`, plus one real delivery read back from Buzz |
 
-**Totals:** 25 proven (one of them on a stand-in), 13 partly, none not run. Every "not yet" is named above and
-carried on a bead.
+**Totals:** 21 proven (one of them on a stand-in), 17 partly, none not run. Every "not yet" is named above with the
+bead that carries it.
+
+**What a gate PASS means.** For TEST-P6-08, 24, 25, 26 and 31 the gated tests pin the shape of the code (the
+adapters, the workflow, the route sets); the behaviour is shown by the drills named above. A PASS on those cases in
+the full run is not, by itself, evidence of behaviour.
 
 **Live drill results** (each run twice or more, all PASS):
 
@@ -192,10 +196,16 @@ deployed system depends on it yet.
 
 **Proposed GATE-STAGING sign-off statement (for the owner):**
 
-> "I accept GATE-STAGING for synthetic staging on the dev box. Accepted are the gated cases in a full run at the
-> final head of the 6C pull request, the live drills recorded in `026` section 16, and the partial cases in section
-> 4 of this report. This does not authorize a persistent staging or pilot host, a production deploy, a change to
-> Learn's routing, live provider keys, or real applicants. Each of those needs its own plan and go."
+> "I accept GATE-STAGING for synthetic staging on the dev box, on the full-run gate at the final head of the 6C
+> pull request (its CI run linked there) and the live drills recorded in `026` section 16. I accept that 17 cases are
+> only partly proven, with the gaps listed in section 4 of this report and carried on beads `9kg.20`, `9kg.22`,
+> `9kg.25` and `9kg.27`. TEST-P6-26 is proven on a synthetic stand-in of the Learn site only.
+>
+> This does not authorize: a persistent staging or pilot host; a production deploy; reading or changing Learn's
+> live proxy configuration; enabling the webhook or real inbound mail; live provider keys; real applicants or real
+> personal data in any backup (erasure replay, `9kg.25`, comes first). It does not set the RPO and RTO targets,
+> alert thresholds, rotation intervals or scan policy, which remain open decisions. Each needs its own plan and
+> go."
 
 **Open owner decisions:**
 

@@ -1405,6 +1405,12 @@ specification text; nothing is built.
 - **Two new tests:**
   - every case in this section is gated or live-only, never both and never neither;
   - every test written for P6 is mapped here or in an earlier gate.
-- **Per-case status:** in `000-aars/028-AA-AACR-p6-staging.md` section 4. 25 cases are proven (one on a stand-in) and
-  13 are partly proven, each with what is not yet shown and the bead that carries it.
+- **Per-case status:** in `000-aars/028-AA-AACR-p6-staging.md` section 4. 21 cases are proven (one on a stand-in) and
+  17 are partly proven, each with what is not yet shown and the bead that carries it (`9kg.27` holds the new ones).
+  - Joining the unit and live evidence moves TEST-P6-05, 06, 07 and 14 from partly to proven; the report names the
+    clause each one gained.
+  - The QA review of PR #80 moved TEST-P6-10, 25, 28 and 35 from proven to partly. TEST-P6-10's receipt is a record,
+    not a gate. TEST-P6-25's drill never reverts a migrated release. TEST-P6-28's fetcher proxy admits any public
+    name. TEST-P6-35 has no check over committed evidence.
+  - For TEST-P6-08, 24, 25, 26 and 31, a gate PASS pins the code's shape; the drills carry the behaviour.
 - **GATE-STAGING sign-off:** left for the owner, on the statement in that report's section 9.

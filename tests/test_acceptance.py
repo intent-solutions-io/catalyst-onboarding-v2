@@ -503,11 +503,13 @@ def test_every_p5_test_is_mapped():
 def test_the_p6_acceptance_map_names_exactly_the_cases_in_026():
     """Every staging case is either gated here or shown only live, never both and never neither."""
     spec = (ROOT / "000-docs/026-AT-DSGN-p6-staging-deployment-specification.md").read_text()
-    planned = sorted(set(re.findall(r"^\| (TEST-P6-\d\d) \|", spec, flags=re.M)))
-    assert len(planned) == 38 and not set(acceptance.P6_CASES) & set(acceptance.P6_LIVE_ONLY)
+    plan = spec[spec.index("\n## 11. "):spec.index("\n## 12. ")]  # the plan itself, not the status tables in 16
+    planned = re.findall(r"^\| (TEST-P6-\d\d) \|", plan, flags=re.M)
+    assert planned == [f"TEST-P6-{n:02d}" for n in range(1, 39)]
+    assert not set(acceptance.P6_CASES) & set(acceptance.P6_LIVE_ONLY)
     assert sorted({*acceptance.P6_CASES, *acceptance.P6_LIVE_ONLY}) == planned
     for case, script in acceptance.P6_LIVE_ONLY.items():
-        assert (ROOT / script.split(",")[0]).exists(), case
+        assert case in (ROOT / script.split(",")[0]).read_text(), case  # the script names the case it shows
 
 
 def test_every_p6_test_is_mapped():
@@ -519,7 +521,7 @@ def test_every_p6_test_is_mapped():
                 "test_staging_alerts", "test_cutover")
     found = set()
     for path in sorted((ROOT / "tests").glob("test_*.py")):
-        pattern = r"^def (test_\w+)" if path.stem in p6_files else r"^def (test_(?:6b|9kg|p6)\w*)"
+        pattern = r"^(?:async )?def (test_\w+)" if path.stem in p6_files else r"^(?:async )?def (test_(?:6b|9kg|p6)\w*)"
         found |= {f"{path.stem}::{n}" for n in re.findall(pattern, path.read_text(), flags=re.M)}
     earlier = {name.split("[", 1)[0] for names in {
         **acceptance.CASES, **acceptance.SUPPORTING, **acceptance.P2_CASES, **acceptance.P3_CASES,
@@ -528,6 +530,9 @@ def test_every_p6_test_is_mapped():
     p6 = {name.split("[", 1)[0] for names in {**acceptance.P6_CASES, **acceptance.P6_SUPPORTING}.values()
           for name in names}
     assert sorted(found - p6 - earlier) == []
+    # A test named for a 6B task or P6 is gated here, never only in an earlier gate; only the 9kg hardening tests
+    # that came before P6 may live in an earlier gate alone.
+    assert sorted(n for n in found - p6 if re.search(r"::test_(6b|p6)", n)) == []
 
 
 def test_every_mapped_test_exists():

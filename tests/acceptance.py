@@ -1225,6 +1225,8 @@ P5_SUPPORTING = {
 # task 6C). Most cases are also shown live on the staging stack by the scripts named in P6_LIVE, whose results 026
 # section 16 records; a live script is not a pytest run, so it is evidence beside the gate, not part of it.
 # P6_SUPPORTING holds the P6 tests that are design rules rather than a numbered case; every P6 test is mapped.
+# For TEST-P6-08, 24, 25, 26 and 31 the mapped tests pin the code's shape (adapters, workflow, route sets); the
+# behaviour is shown by the drills, so a PASS there is not behaviour evidence on its own (028 section 4).
 P6_CASES = {
     "TEST-P6-01": [
         "test_image::test_6b5_the_base_image_is_the_digest_the_tests_run_on",

@@ -35,10 +35,10 @@ Every document in this directory is **preliminary and subject to review** until 
 | [026-AT-DSGN-p6-staging-deployment-specification.md](026-AT-DSGN-p6-staging-deployment-specification.md) | Handoff 6A: P6 specification (environments and topology, the deployment unit and the estate deploy wrapper, secrets, coherent backup and the restore drill, monitoring to Buzz, staff access and web security, release and rollback, the Learn cutover outline), owner decisions `P6-D-1`-`15`, GATE-STAGING plan `TEST-P6-01`-`38`, 6B task graph | Approved 2026-10-19 (D-49), version 0.2.0; 6B repository-local tasks released |
 | [027-OD-OPNS-secret-rotation-runbook.md](027-OD-OPNS-secret-rotation-runbook.md) | 6B.10a: per-class secret rotation (link key with fallback, Django key, role passwords, webhook and provider secrets), the leak procedure with `catalyst_close_links`, rules | Proposed 2026-10-22; procedures adopted under P6-D-15 (D-49), intervals set by the owner |
 
-Next free number: `028`.
+Next free number: `029`.
 
 **After-action reports** go in `000-aars/` inside this directory (filing standard v4.5 §3.1.3): global
-`NNN`, `NNN-AA-AACR-<slug>.md`, from the template above. Filed: `014` (first slice), `017` (P2), `020` (P3), `022` (P4), `025` (P5). Cadence: `009` section 10.
+`NNN`, `NNN-AA-AACR-<slug>.md`, from the template above. Filed: `014` (first slice), `017` (P2), `020` (P3), `022` (P4), `025` (P5), `028` (P6). Cadence: `009` section 10.
 
 **Renamed 2026-10-09** to valid codes (doc-filing audit): `001` BCASE to PLAN, `002` PRD to PROD,
 `004` PP-UJRN to UC-USER, `005` SPEC to DSGN, `006` OD-STAT to LS-STAT.
