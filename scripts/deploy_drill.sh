@@ -49,6 +49,7 @@ for name in secret_key verification_key admin_password owner_password app_passwo
   # 64 random characters: Django's deploy check (security.W009) wants a key of at least 50.
   printf 'synthetic-%s-%s' "$name" "$(head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 64)" > "$work/secrets/$name"
 done
+: > "${CATALYST_STAGING_SECRETS}/verification_fallback_keys"  # empty: no rotation under way (027)
 chmod 0444 "$work/secrets"/*
 
 good="$(docker build -q --target staging --build-arg "CATALYST_COMMIT=$(git rev-parse HEAD)" -t "$(tag good)" .)" || exit 1

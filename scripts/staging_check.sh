@@ -39,6 +39,7 @@ for name in secret_key verification_key admin_password owner_password app_passwo
             backup_password fetcher_password; do
   printf 'synthetic-%s-%s' "$name" "$(head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 64)" > "$secrets/$name"
 done
+: > "${CATALYST_STAGING_SECRETS}/verification_fallback_keys"  # empty: no rotation under way (027)
 chmod 0444 "$secrets"/*  # read by uid 10001 and by postgres through bind mounts; the 0700 directory guards them
 
 docker build --quiet --target staging --build-arg "CATALYST_COMMIT=$(git rev-parse HEAD)" -t "$CATALYST_IMAGE" . >/dev/null
@@ -53,7 +54,7 @@ fi
 sleep 3
 
 values=()
-for f in "$secrets"/*; do values+=("$(cat "$f")"); done
+for f in "$secrets"/*; do [ -s "$f" ] && values+=("$(cat "$f")"); done  # an empty file is no sentinel
 no_value_in() {  # no secret value appears in the text on stdin
   local text; text="$(cat)"
   for v in "${values[@]}"; do [[ "$text" == *"$v"* ]] && return 1; done
@@ -86,7 +87,7 @@ for service in web worker fetcher; do
 done
 
 mounted() { docker exec "$("${compose[@]}" ps -q "$1")" ls /run/secrets | sort | tr '\n' ' '; }
-check "web mounts only its own secrets" test "$(mounted web)" = "db_password secret_key verification_key "
+check "web mounts only its own secrets" test "$(mounted web)" = "db_password secret_key verification_fallback_keys verification_key "
 check "fetcher mounts only its own secrets" test "$(mounted fetcher)" = "db_password secret_key "
 check "/run/catalyst is 0750 and the socket 0660, both group 10001" test "$(docker exec "$("${compose[@]}" ps -q web)" stat -c '%a %g' /run/catalyst /run/catalyst/web.sock | tr '\n' ' ')" = "750 10001 660 10001 "
 check "the proxy cannot replace the socket" bash -c "! docker exec $("${compose[@]}" ps -q proxy) rm -f /run/catalyst/web.sock 2>/dev/null && docker exec $("${compose[@]}" ps -q web) test -S /run/catalyst/web.sock"

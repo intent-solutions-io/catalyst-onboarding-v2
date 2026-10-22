@@ -157,6 +157,10 @@
           "target": "verification_key"
         },
         {
+          "source": "verification_fallback_keys",
+          "target": "verification_fallback_keys"
+        },
+        {
           "source": "owner_password",
           "target": "db_password"
         }
@@ -243,6 +247,10 @@
           "target": "verification_key"
         },
         {
+          "source": "verification_fallback_keys",
+          "target": "verification_fallback_keys"
+        },
+        {
           "source": "app_password",
           "target": "db_password"
         }
@@ -297,6 +305,10 @@
         {
           "source": "verification_key",
           "target": "verification_key"
+        },
+        {
+          "source": "verification_fallback_keys",
+          "target": "verification_fallback_keys"
         },
         {
           "source": "app_password",
@@ -443,6 +455,9 @@
     },
     "verification_key": {
       "file": "${CATALYST_STAGING_SECRETS:?}/verification_key"
+    },
+    "verification_fallback_keys": {
+      "file": "${CATALYST_STAGING_SECRETS:?}/verification_fallback_keys"
     },
     "admin_password": {
       "file": "${CATALYST_STAGING_SECRETS:?}/admin_password"

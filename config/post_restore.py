@@ -43,6 +43,9 @@ REVIEWED = "post-restore review run done"
 OUTWARD_REDELIVERABLE = ("send_verification", "run_assessment", "interpret_message", "fetch_evidence")
 ITEM_CONFIRMATION = "restore_confirmation_link_closed"
 ITEM_WITHDRAWAL = "restore_withdrawal_link_closed"
+# The staff items opened for applicants whose link was closed, by cause: a restore, or a leaked link-signing key (027).
+ITEMS = {"restore": (ITEM_CONFIRMATION, ITEM_WITHDRAWAL),
+         "rotation": ("rotation_confirmation_link_closed", "rotation_withdrawal_link_closed")}
 
 
 class PostRestoreError(Exception):
@@ -56,18 +59,19 @@ def outward_kinds() -> list[str]:
                   | {kind for kind in OUTWARD_REDELIVERABLE if kind in ledger.handlers()})
 
 
-def review() -> dict:
-    from accounts.models import User
+def close_outstanding_links(report: dict, cause: str = "restore", signed_only: bool = False) -> None:
+    """Close every outstanding applicant link (unused confirmation links, open password links, open withdrawal links)
+    and open a staff item for each applicant left waiting, so nobody is stranded silently; a password set in flight
+    becomes "outcome unknown" with a staff item to send a fresh link. Inside the caller's transaction.
+
+    After a restore (review below) every kind is closed. After a leaked link-signing key (`catalyst_close_links`, 027)
+    `signed_only` closes the confirmation links alone: they are the only links signed with that key. Password and
+    withdrawal links are random tokens stored as hashes, which a key leak does not touch (6B.10a review)."""
     from applications.models import ContactChallenge
     from correspondence.staff_items import open_item
-    from provisioning import closure, core, credentials
-    from provisioning.models import AccessRevocation, CredentialSetup, ProvisioningRequest, WithdrawalConfirmation
-    from workflow.models import AutomationPause, PendingAction
+    from provisioning import core, credentials
+    from provisioning.models import CredentialSetup, WithdrawalConfirmation
 
-    hold = AutomationPause.objects.select_for_update().filter(subject_type=RESTORE_HOLD[0], subject_id=RESTORE_HOLD[1])
-    if not hold.exists():
-        raise PostRestoreError("there is no restore hold: this database was not just restored")
-    report = {}
     challenges = ContactChallenge.objects.filter(used_at__isnull=True, superseded_at__isnull=True).select_related("application")
     # A staff item only for an applicant genuinely left waiting: a live link, an unconfirmed contact, still at the
     # first stage. Expired links and settled applications need nothing (PR #68 re-check).
@@ -75,7 +79,9 @@ def review() -> dict:
                                                           application__stage="submitted")}
     report["confirmation_links_closed"] = challenges.update(superseded_at=Now())
     for application in stranded:
-        open_item(ITEM_CONFIRMATION, f"restore:confirmation:{application.public_ref}", application=application)
+        open_item(ITEMS[cause][0], f"{cause}:confirmation:{application.public_ref}", application=application)
+    if signed_only:
+        return
     setups = CredentialSetup.objects.filter(state__in=(*OPEN_SETUP_STATES, "set_pending")).select_related("request")
     affected = {s.request for s in setups}
     report["password_links_closed"] = CredentialSetup.objects.filter(state__in=OPEN_SETUP_STATES).update(
@@ -86,8 +92,21 @@ def review() -> dict:
         core.item(credentials.ITEM_SETUP, request)
     withdrawals = WithdrawalConfirmation.objects.filter(state__in=("pending", "sent", "uncertain")).select_related("application")
     for application in {w.application for w in withdrawals}:
-        open_item(ITEM_WITHDRAWAL, f"restore:withdrawal:{application.public_ref}", application=application)
+        open_item(ITEMS[cause][1], f"{cause}:withdrawal:{application.public_ref}", application=application)
     report["withdrawal_links_closed"] = withdrawals.update(state="superseded", updated_at=Now())
+
+
+def review() -> dict:
+    from accounts.models import User
+    from provisioning import closure
+    from provisioning.models import AccessRevocation, ProvisioningRequest
+    from workflow.models import AutomationPause, PendingAction
+
+    hold = AutomationPause.objects.select_for_update().filter(subject_type=RESTORE_HOLD[0], subject_id=RESTORE_HOLD[1])
+    if not hold.exists():
+        raise PostRestoreError("there is no restore hold: this database was not just restored")
+    report = {}
+    close_outstanding_links(report)
     report["staff_sessions_ended"] = Session.objects.all().delete()[0]
     staff = User.objects.filter(is_staff=True)
     report["staff_passwords_disabled"] = staff.count()
