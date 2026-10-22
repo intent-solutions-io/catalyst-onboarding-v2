@@ -91,6 +91,10 @@ def claim_next(registry=None) -> Claim | None:
     if not registry:
         return None
     automated = [kind for kind, h in registry.items() if h.automated]
+    from config.backup import RESTORE_HOLD
+
+    if AutomationPause.objects.filter(subject_type=RESTORE_HOLD[0], subject_id=RESTORE_HOLD[1]).exists():
+        return None  # after a restore nothing runs until catalyst_post_restore lifts the hold (026 section 6)
     paused = AutomationPause.objects.filter(subject_type=OuterRef("subject_type"), subject_id=OuterRef("subject_id"))
     lease = timedelta(seconds=settings.CATALYST_WORKER_LEASE_SECONDS)
     with transaction.atomic():

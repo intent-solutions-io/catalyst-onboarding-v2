@@ -671,3 +671,35 @@ specification text; nothing is built.
   - staging provisioning refuses passwords in the environment, needs the files, and production stays refused.
 
   The protection inventory in `tests/conftest.py` now covers the backup role's privileges too.
+
+**6B.7a, the backup and restore commands and the restore hold (P6-D-7).**
+
+- **`manage.py catalyst_backup`** (`config/backup.py`), run as the backup role, writes one coherent set:
+  - a REPEATABLE READ, read-only snapshot of every table except `django_session` (COPY), with a 15-minute
+    statement timeout;
+  - the custody files those rows name, each checked against its record;
+  - a manifest: per-table row counts and order-independent digests, each document's key, size and digest, and the
+    migration list;
+  - a receipt holding counts, digests and versions only.
+
+  It writes to `<name>.pending` and renames when complete. A failed run removes everything it started. The set is
+  `0700` and its files `0600`.
+- **`manage.py catalyst_restore`** runs as the bootstrap administrator into an already-migrated, unused database.
+  - It refuses before loading anything unless the receipt matches the manifest, every table copy and custody file
+    matches its digest, and the target is at the backup's migrations.
+  - It loads with triggers off for the load only, resets the sequences, re-checks every loaded table against the
+    manifest, and restores the custody files into an empty directory.
+  - It records the **restore hold**: a database row the worker ledger honours by claiming nothing until the
+    post-restore step lifts it.
+- **Not in 6B.7a:**
+  - the post-restore step itself (6B.7b): invalidating links and sessions, revocation rounds, reconciliation, and
+    lifting the hold;
+  - wiring the backup into the estate archive (6B.13);
+  - running `pg_dump` (the COPY-based set is what the 9kg.7 rehearsal proved; the backup role can also read
+    sequences, so `pg_dump` remains possible).
+- **Evidence:** `tests/test_backup_commands.py`:
+  - a set restored elsewhere byte for byte, with its files and the hold, then verified;
+  - the worker claims nothing while the hold is present;
+  - a truncated table copy, a mismatched receipt and a missing custody file are each refused before anything loads;
+  - a target at other migrations is refused;
+  - a failed backup leaves nothing that looks usable.
