@@ -640,3 +640,34 @@ specification text; nothing is built.
     pinned environment and worker arguments, the tmpfs and socket-directory mounts, and tests against the running
     stack.
 - **6B.5b** (next): the staging compose stack.
+
+**6B.6, database roles for staging and the backup role (P6-D-7).**
+
+- `scripts/provision_db_roles.py` provisions in test, development and staging; production stays refused. In
+  staging every password comes from a file in `CATALYST_SECRETS_DIR` (`owner_password`, `app_password`,
+  `retention_password`, `backup_password`, `admin_password`), never the environment, and the owner gets no
+  `CREATEDB` (only test needs it).
+- **A fourth role, `backup`** (`CATALYST_DB_ROLES["backup"]`): a login with no other attribute, which reads every
+  table except `django_session` and writes nothing (`workflow/migrations/0003_backup_role_reads.py`). Grants stay
+  explicit per table: a later table gets nothing until its own migration grants it, and
+  `tests/test_db_roles.py` fails until it does.
+- **Deviation:** the narrower fetcher database role (P6-D-14) is deferred out of 6B.6. It must land before the
+  staging bring-up (6B.11), which its bead blocks, and so also before the pilot. The exact grant set needs tracing
+  every table the fetch path writes.
+- **After the security review of PR #66** (two HIGH, six MEDIUM):
+  - role passwords are hashed with SCRAM in the client, and that session logs no statement, so a clear password
+    never reaches the server, its log or `pg_stat_activity`;
+  - the backup role reads every sequence (`pg_dump` needs their values) but can neither draw nor set one;
+  - after provisioning, the script reads the attributes and memberships back and fails if they differ;
+  - the grant migration names a missing role clearly (provision, then migrate);
+  - the backup role holds staff password hashes and applicant contact data by design: a restore needs them, and
+    the dump is treated as personal data (section 6).
+  - **Intended, not enforced here:** the provisioner's staging gate is the environment name (production
+    provisioning is not authorized at all), and the backup role's local-socket-only login is host configuration
+    for 6B.7 and 6B.13.
+- **Evidence:** `tests/test_db_roles.py`:
+  - the backup role reads every table but sessions and writes none;
+  - it reads history but cannot change it, and cannot read sessions;
+  - staging provisioning refuses passwords in the environment, needs the files, and production stays refused.
+
+  The protection inventory in `tests/conftest.py` now covers the backup role's privileges too.

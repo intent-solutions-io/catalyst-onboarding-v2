@@ -24,6 +24,7 @@ PASSWORDS = {
     "owner": os.environ["CATALYST_DB_OWNER_PASSWORD"],
     "app": os.environ["CATALYST_DB_APP_PASSWORD"],
     "retention": os.environ["CATALYST_DB_RETENTION_PASSWORD"],
+    "backup": os.environ["CATALYST_DB_BACKUP_PASSWORD"],
 }
 SECRETS = [*PASSWORDS.values(), os.environ["CATALYST_DB_ADMIN_PASSWORD"]]
 # Trigger inventory (003 ADR-14): append-only on versions and events (2), no-truncate on versions, events,
@@ -724,3 +725,94 @@ def test_a_reset_refuses_while_another_session_is_connected(privileged_reset):
     finally:
         straggler.close()
 
+
+# --- 6B.6: the backup role (026 section 6, P6-D-7) -----------------------------------------------------------
+
+@pytest.mark.django_db
+def test_6b6_the_backup_role_reads_every_table_but_sessions_and_writes_nothing():
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT t.tablename, has_table_privilege(%s, t.oid, 'SELECT'),"
+            " has_table_privilege(%s, t.oid, 'INSERT') OR has_any_column_privilege(%s, t.oid, 'UPDATE')"
+            " OR has_table_privilege(%s, t.oid, 'DELETE') OR has_table_privilege(%s, t.oid, 'TRUNCATE')"
+            " FROM (SELECT tablename, ('public.' || quote_ident(tablename))::regclass AS oid FROM pg_tables"
+            "       WHERE schemaname = 'public') t ORDER BY 1", [ROLES["backup"]] * 5)
+        rows = cursor.fetchall()
+    unreadable = [table for table, readable, _ in rows if not readable and table != "django_session"]
+    assert unreadable == [], "a new table needs a backup grant in its migration (config.db_roles, role 'backup')"
+    assert [table for table, _, writes in rows if writes] == []
+    assert dict((t, r) for t, r, _ in rows)["django_session"] is False  # staff session keys stay out of backups
+
+
+def test_6b6_the_backup_role_can_read_but_never_change_history(connect):
+    app_id, _, event_id = new_application(connect("owner"), "backup-probe@example.test")
+    backup = connect("backup")
+    assert backup.execute("SELECT count(*) FROM applications_applicationevent WHERE id = %s", [event_id]).fetchone()[0] == 1
+    backup.rollback()
+    refused(backup, "UPDATE applications_application SET stage = 'closed' WHERE id = %s", [app_id])
+    refused(backup, "SELECT session_key FROM django_session")
+
+
+NO_PASSWORDS = {f"CATALYST_DB_{k}_PASSWORD": None for k in ("OWNER", "APP", "RETENTION", "BACKUP", "ADMIN")}
+
+
+def staging_secret_files(tmp_path):
+    directory = tmp_path / "secrets"
+    directory.mkdir()
+    for key in ("owner", "app", "retention", "backup", "admin"):
+        (directory / f"{key}_password").write_text(os.environ[f"CATALYST_DB_{key.upper()}_PASSWORD"] + "\n")
+    return directory
+
+
+def test_6b6_staging_provisioning_takes_passwords_only_from_files(tmp_path):
+    script = [sys.executable, "scripts/provision_db_roles.py"]
+    env = {"CATALYST_ENV": "staging", "CATALYST_SECRETS_DIR": str(tmp_path), **NO_PASSWORDS}
+    refused_env = run(script, **{**env, "CATALYST_DB_APP_PASSWORD": "in-the-env"})  # only the app password is set
+    output = refused_env.stderr + refused_env.stdout
+    assert refused_env.returncode != 0 and "CATALYST_DB_APP_PASSWORD may not be in the environment in staging" in output
+    missing = run(script, **env)
+    assert missing.returncode != 0 and "owner_password cannot be read" in missing.stderr + missing.stdout
+    production = run(script, CATALYST_ENV="production")
+    assert production.returncode == 2 and "only for CATALYST_ENV in development, test, staging" in production.stderr
+
+
+def test_6b6_staging_provisioning_succeeds_from_files_and_stores_only_password_hashes(tmp_path):
+    script = [sys.executable, "scripts/provision_db_roles.py"]
+    admin = {"CATALYST_DB_ADMIN_USER": os.environ["CATALYST_DB_ADMIN_USER"]}
+    try:
+        result = run(script, CATALYST_ENV="staging", CATALYST_SECRETS_DIR=str(staging_secret_files(tmp_path)),
+                     **NO_PASSWORDS, **admin)
+        assert result.returncode == 0, result.stderr
+        assert "4 roles ready" in result.stdout
+        with psycopg.connect(host=connection.settings_dict["HOST"], port=connection.settings_dict["PORT"],
+                             dbname=connection.settings_dict["NAME"], user=os.environ["CATALYST_DB_ADMIN_USER"],
+                             password=os.environ["CATALYST_DB_ADMIN_PASSWORD"], autocommit=True) as conn:
+            stored = conn.execute("SELECT rolname, rolpassword, rolcreatedb FROM pg_authid WHERE rolname = ANY(%s)",
+                                  [list(ROLES.values())]).fetchall()
+        assert len(stored) == 4 and all(p.startswith("SCRAM-SHA-256$") for _, p, _ in stored)  # never the clear text
+        assert not any(createdb for *_, createdb in stored)  # staging's owner creates no databases
+    finally:  # back to the test cluster's own provisioning (the owner needs CREATEDB for the restore rehearsal)
+        restored = run(script, CATALYST_ENV="test", **admin, CATALYST_DB_ADMIN_PASSWORD=os.environ["CATALYST_DB_ADMIN_PASSWORD"])
+        assert restored.returncode == 0, restored.stderr
+
+
+@pytest.mark.django_db
+def test_6b6_the_backup_role_reads_every_sequence_and_can_never_draw_or_set_one():
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT sequencename, has_sequence_privilege(%s, schemaname || '.' || sequencename, 'SELECT'),"
+                       " has_sequence_privilege(%s, schemaname || '.' || sequencename, 'USAGE'),"
+                       " has_sequence_privilege(%s, schemaname || '.' || sequencename, 'UPDATE')"
+                       " FROM pg_sequences WHERE schemaname = 'public'", [ROLES["backup"]] * 3)
+        rows = cursor.fetchall()
+    assert rows and all(select and not usage and not update for _, select, usage, update in rows)
+
+
+def test_6b6_reversing_the_grant_migration_revokes_and_reapplying_restores_it(connect):
+    owner = connect("owner", autocommit=True)
+    can = lambda: owner.execute("SELECT has_table_privilege(%s, 'applications_application', 'SELECT')",
+                                [ROLES["backup"]]).fetchone()[0]
+    assert can()
+    manage_as_owner("migrate", "workflow", "0002", "--verbosity", "0")
+    assert not can()
+    manage_as_owner("migrate", "--verbosity", "0")
+    assert can()

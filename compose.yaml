@@ -48,6 +48,7 @@ services:
       CATALYST_DB_ADMIN_PASSWORD: synthetic-admin-only
       CATALYST_DB_APP_PASSWORD: synthetic-app-only
       CATALYST_DB_RETENTION_PASSWORD: synthetic-retention-only
+      CATALYST_DB_BACKUP_PASSWORD: synthetic-backup-only
     command: >-
       sh -c "python -m venv /tmp/venv
       && /tmp/venv/bin/pip install --quiet --disable-pip-version-check --require-hashes --no-deps -r requirements/dev.txt
