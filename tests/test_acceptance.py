@@ -414,6 +414,8 @@ acceptance.P4_CASES = {}
 acceptance.P4_SUPPORTING = {}
 acceptance.P5_CASES = {}
 acceptance.P5_SUPPORTING = {}
+acceptance.P6_CASES = {}
+acceptance.P6_SUPPORTING = {}
 """
 
 
@@ -497,11 +499,42 @@ def test_every_p5_test_is_mapped():
     assert sorted(found - mapped) == [] and sorted(mapped - found) == []
 
 
+
+def test_the_p6_acceptance_map_names_exactly_the_cases_in_026():
+    """Every staging case is either gated here or shown only live, never both and never neither."""
+    spec = (ROOT / "000-docs/026-AT-DSGN-p6-staging-deployment-specification.md").read_text()
+    planned = sorted(set(re.findall(r"^\| (TEST-P6-\d\d) \|", spec, flags=re.M)))
+    assert len(planned) == 38 and not set(acceptance.P6_CASES) & set(acceptance.P6_LIVE_ONLY)
+    assert sorted({*acceptance.P6_CASES, *acceptance.P6_LIVE_ONLY}) == planned
+    for case, script in acceptance.P6_LIVE_ONLY.items():
+        assert (ROOT / script.split(",")[0]).exists(), case
+
+
+def test_every_p6_test_is_mapped():
+    """Every test written for P6 (the files that hold only P6 tests, and the 6b, 9kg and p6 tests in shared files) is
+    a staging case, a named P6 design rule, or already part of an earlier gate."""
+    p6_files = ("test_web_security", "test_health", "test_system_health", "test_image", "test_backup_commands",
+                "test_post_restore", "test_restore_rehearsal", "test_staging_proxy", "test_staff_two_factor",
+                "test_fetcher_role", "test_staging_compose", "test_release", "test_secret_rotation", "test_egress",
+                "test_staging_alerts", "test_cutover")
+    found = set()
+    for path in sorted((ROOT / "tests").glob("test_*.py")):
+        pattern = r"^def (test_\w+)" if path.stem in p6_files else r"^def (test_(?:6b|9kg|p6)\w*)"
+        found |= {f"{path.stem}::{n}" for n in re.findall(pattern, path.read_text(), flags=re.M)}
+    earlier = {name.split("[", 1)[0] for names in {
+        **acceptance.CASES, **acceptance.SUPPORTING, **acceptance.P2_CASES, **acceptance.P3_CASES,
+        **acceptance.P3_SUPPORTING, **acceptance.P4_CASES, **acceptance.P4_SUPPORTING, **acceptance.P5_CASES,
+        **acceptance.P5_SUPPORTING}.values() for name in names}
+    p6 = {name.split("[", 1)[0] for names in {**acceptance.P6_CASES, **acceptance.P6_SUPPORTING}.values()
+          for name in names}
+    assert sorted(found - p6 - earlier) == []
+
+
 def test_every_mapped_test_exists():
     missing = []
     for names in {**acceptance.CASES, **acceptance.SUPPORTING, **acceptance.P2_CASES, **acceptance.P3_CASES,
                   **acceptance.P3_SUPPORTING, **acceptance.P4_CASES, **acceptance.P4_SUPPORTING, **acceptance.P5_CASES,
-                  **acceptance.P5_SUPPORTING}.values():
+                  **acceptance.P5_SUPPORTING, **acceptance.P6_CASES, **acceptance.P6_SUPPORTING}.values():
         assert names
         for name in names:
             module, function = name.split("::")

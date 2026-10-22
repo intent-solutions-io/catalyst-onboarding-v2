@@ -1,7 +1,8 @@
 """The first-slice acceptance plan (005 S1.7, GATE-S1), the P2 correspondence plan (016 section 7, GATE-P2), the
 P3 evidence and assessment plan (018 section 9, GATE-P3), the P4 agreements plan (021 section 12, GATE-P4) and the
-P5 provisioning plan (023 section 9, GATE-P5), each mapped to the tests that prove each case (S1-T8; P2 task 2C; P3
-task 3C; P4 task 4C; P5 task 5C).
+P5 provisioning plan (023 section 9, GATE-P5) and the P6
+staging plan (026 section 11, GATE-STAGING), each mapped to the tests that prove each case (S1-T8; P2 task 2C; P3
+task 3C; P4 task 4C; P5 task 5C; P6 task 6C).
 
 Each case names test functions as "module::function", where every parametrized instance counts, or
 one instance as "module::function[id]" where a case depends on that instance specifically. tests/conftest.py reports every case at the end of a run as PASS (all its tests ran and passed),
@@ -1218,6 +1219,297 @@ P5_SUPPORTING = {
         "test_p5_journey::test_p5_removed_gate_without_the_screen_gate_each_service_still_refuses",
     ],
 }
+
+
+# P6 staging plan (026 section 11; GATE-STAGING, unsigned): each case names the tests that prove it in a full run (P6
+# task 6C). Most cases are also shown live on the staging stack by the scripts named in P6_LIVE, whose results 026
+# section 16 records; a live script is not a pytest run, so it is evidence beside the gate, not part of it.
+# P6_SUPPORTING holds the P6 tests that are design rules rather than a numbered case; every P6 test is mapped.
+P6_CASES = {
+    "TEST-P6-01": [
+        "test_image::test_6b5_the_base_image_is_the_digest_the_tests_run_on",
+        "test_image::test_6b5_dependencies_are_hash_locked_and_the_process_is_not_root",
+        "test_image::test_6b5_no_secret_reaches_a_layer",
+        "test_staging_compose::test_6b5b_every_catalyst_container_is_locked_down_and_pinned_to_staging",
+        "test_release::test_6b10_the_image_workflow_attests_only_main_and_pushes_nowhere",
+        "test_staging_compose::test_6b5b_the_image_creates_the_mount_points_with_their_owners_and_modes",
+    ],
+    "TEST-P6-02": [
+        "test_startup::test_6b2_staging_passes_django_deploy_checks",
+    ],
+    "TEST-P6-03": [
+        "test_guards::test_only_development_test_and_staging_environments_are_allowed",
+        "test_guards::test_6b1_staging_allows_the_fake_agreement_provider_only_under_the_test_rules",
+        "test_guards::test_6b1_staging_allows_only_the_fake_mail_host_and_a_test_domain",
+        "test_guards::test_6b1_staging_links_must_be_https_and_production_still_may_not_use_any_fake",
+        "test_guards::test_6b1_staging_evidence_fixtures_are_no_wider_than_test",
+        "test_guards::test_6b1_staging_keeps_the_test_model_only_and_no_live_mail_or_send_evidence",
+        "test_guards::test_6b1_review_staging_never_prints_mail_and_its_file_sink_is_private",
+        "test_guards::test_6b1_review_staging_refuses_a_private_mail_peer_like_development",
+        "test_guards::test_6b1_review_staging_builds_only_the_test_model",
+        "test_startup::test_6b2_staging_refuses_a_production_link_host",
+        "test_startup::test_6b2_review_staging_refuses_wildcard_production_and_look_alike_hosts",
+        "test_startup::test_6b5_a_deployment_cannot_call_itself_development",
+    ],
+    "TEST-P6-04": [
+        "test_fetcher_role::test_9kg24_a_fetcher_process_must_connect_as_the_fetcher_role_and_run_only_the_fetch",
+        "test_fetcher_role::test_9kg24_the_fetcher_role_reaches_nothing_else",
+        "test_worker::test_6b5_a_worker_process_runs_only_the_kinds_it_is_given",
+        "test_startup::test_6b5_review_the_web_process_never_runs_as_the_fetcher_or_without_a_signing_key",
+        "test_startup::test_6b5_the_fetcher_starts_without_the_link_signing_key",
+        "test_staging_compose::test_6b5b_each_process_mounts_only_its_own_secrets_and_its_own_database_password",
+        "test_staging_compose::test_6b5b_no_secret_is_ever_in_an_environment_or_an_env_file",
+        "test_fetcher_role::test_9kg24_the_fetcher_role_fetches_completes_collection_and_queues_the_assessment",
+        "test_fetcher_role::test_9kg24_the_fetcher_role_records_retries_refusals_and_missing_pages",
+        "test_fetcher_role::test_9kg24_a_compromised_fetcher_cannot_queue_replay_or_move_anything_outside_its_fetch",
+    ],
+    "TEST-P6-05": [
+        "test_health::test_6b3_readiness_refuses_pending_migrations_a_wrong_role_and_a_dead_database",
+    ],
+    "TEST-P6-06": [
+        "test_db_roles::test_6b6_staging_provisioning_takes_passwords_only_from_files",
+        "test_db_roles::test_6b6_staging_provisioning_succeeds_from_files_and_stores_only_password_hashes",
+        "test_db_roles::test_6b6_reversing_the_grant_migration_revokes_and_reapplying_restores_it",
+    ],
+    "TEST-P6-07": [
+        "test_health::test_6b3_liveness_answers_ok_without_touching_the_database",
+        "test_health::test_6b3_readiness_is_a_fixed_token_with_no_version_or_detail",
+        "test_health::test_6b3_readiness_refuses_pending_migrations_a_wrong_role_and_a_dead_database",
+        "test_health::test_6b3_readiness_runs_the_strict_web_role_check",
+        "test_health::test_6b3_health_answers_only_on_the_local_hosts",
+        "test_health::test_6b3_readiness_is_cached_briefly_so_probes_cannot_load_the_database",
+    ],
+    "TEST-P6-08": [
+        "test_release::test_6b10_the_adapters_take_only_content_references_and_smoke_through_the_readiness_cache",
+        "test_release::test_6b10_forward_only_migrations_block_only_an_image_that_does_not_know_them",
+    ],
+    "TEST-P6-09": [
+        "test_release::test_6b10_an_image_lists_its_migrations_with_no_settings_and_no_database",
+        "test_release::test_6b10_forward_only_migrations_block_only_an_image_that_does_not_know_them",
+        "test_release::test_6b10_every_contracting_migration_is_marked_forward_only_or_reviewed_as_safe",
+        "test_release::test_6b10_the_contracting_scan_sees_a_removed_field_and_ignores_a_new_table",
+        "test_release::test_6b10_the_release_apps_are_every_first_party_app",
+        "test_release::test_6b10_the_blockers_command_is_the_tested_function",
+    ],
+    "TEST-P6-10": [
+        "test_release::test_6b10_release_facts_read_back_from_the_database",
+    ],
+    "TEST-P6-11": [
+        "test_startup::test_6b5_staging_reads_each_secret_from_its_own_file",
+        "test_startup::test_6b5_staging_refuses_a_secret_in_the_environment",
+        "test_startup::test_6b5_every_secret_name_is_both_read_and_guarded",
+        "test_startup::test_6b5_secret_files_keep_their_own_spaces_and_lose_only_the_line_ending",
+        "test_startup::test_6b5_an_unreadable_secret_stops_start_up_without_showing_its_bytes",
+        "test_startup::test_6b5_staging_refuses_a_missing_secrets_directory_or_file",
+        "test_staging_compose::test_6b5b_no_secret_is_ever_in_an_environment_or_an_env_file",
+        "test_secret_rotation::test_6b10a_a_rotated_role_password_takes_effect_and_the_old_one_stops_working",
+        "test_staging_compose::test_6b5b_the_committed_compose_file_is_exactly_the_rendering",
+    ],
+    "TEST-P6-12": [
+        "test_staging_proxy::test_6b8_the_public_site_serves_only_the_applicant_routes",
+        "test_staging_proxy::test_6b8_every_token_bearing_route_is_a_private_path",
+        "test_cutover::test_6b11_r1_and_r2_together_are_every_applicant_route_and_nothing_more",
+        "test_staging_compose::test_6b5b_each_port_is_exactly_one_caddy_server",
+    ],
+    "TEST-P6-13": [
+        "test_staging_proxy::test_6b8_token_segments_are_redacted_in_every_log_including_errors",
+        "test_image::test_6b5_the_web_process_writes_no_access_log_and_listens_only_on_a_private_unix_socket",
+        "test_staging_compose::test_6b5b_the_database_never_logs_statements_or_parameters",
+        "test_cutover::test_6b11_the_learn_log_snippet_is_the_rendering_and_redacts_every_token_path",
+    ],
+    "TEST-P6-14": [
+        "test_web_security::test_6b2_plain_http_is_redirected_to_https_except_the_health_paths",
+        "test_web_security::test_6b2_hsts_is_sent_only_over_https_and_covers_no_subdomains",
+        "test_web_security::test_6b2_the_csrf_cookie_is_host_only_secure_and_hidden_from_scripts",
+        "test_web_security::test_6b2_every_page_carries_the_csp_and_framing_headers",
+        "test_web_security::test_6b2_an_anonymous_page_creates_no_session",
+        "test_startup::test_6b2_staging_cookies_are_secure_host_only_and_sessions_idle_out",
+        "test_staging_proxy::test_6b8_caddy_trusts_no_proxy_and_sets_the_forwarded_values_itself",
+        "test_staging_proxy::test_6b8_caddy_responses_carry_safe_headers_and_slow_clients_time_out",
+        "test_cutover::test_6b11_the_snippets_overwrite_the_forwarded_headers_and_default_to_the_web_socket",
+        "test_web_security::test_6b2_an_idle_staff_session_is_refused_after_30_minutes",
+        "test_startup::test_6b2_local_environments_keep_plain_cookies_but_still_idle_out",
+    ],
+    "TEST-P6-15": [
+        "test_staff_two_factor::test_6b9_two_factor_is_required_outside_the_local_environments",
+        "test_staff_two_factor::test_6b9_the_login_needs_the_token_and_a_verified_session_reaches_every_staff_page",
+        "test_staff_two_factor::test_6b9_an_unverified_staff_session_reaches_no_staff_page",
+        "test_staff_two_factor::test_6b9_an_anonymous_request_reaches_only_the_login_page",
+        "test_staff_two_factor::test_6b9_a_superuser_account_gets_no_staff_session_where_two_factor_is_required",
+        "test_staging_proxy::test_6b8_the_staff_site_binds_privately_and_carries_only_staff_and_static",
+        "test_staging_compose::test_6b5b_the_staff_site_is_published_only_on_a_named_private_address",
+        "test_staff_two_factor::test_6b9_a_recovery_code_signs_in_once",
+        "test_staff_two_factor::test_6b9_a_session_older_than_its_absolute_lifetime_is_ended",
+        "test_staff_two_factor::test_6b9_a_session_without_a_recorded_login_time_is_ended",
+        "test_staff_two_factor::test_6b9_expired_sessions_are_removed_by_a_self_renewing_action",
+        "test_staff_two_factor::test_6b9_health_reports_an_unscheduled_clean_up_where_two_factor_is_required",
+        "test_staff_two_factor::test_6b9_repeated_password_failures_lock_the_username_even_for_the_right_password",
+        "test_staff_two_factor::test_6b9_superusers_keep_their_local_sessions_in_test_and_development",
+        "test_staff_two_factor::test_6b9_the_application_role_may_count_failures_but_never_change_or_add_a_device",
+        "test_staff_two_factor::test_6b9_the_break_glass_reset_leaves_nothing_from_before_it_working",
+        "test_staff_two_factor::test_6b9_the_login_page_locks_a_username_that_does_not_exist_like_one_that_does",
+    ],
+    "TEST-P6-16": [
+        "test_staging_proxy::test_6b8_there_is_no_webhook_site",
+        "test_agreement_completion::test_p4_08_webhook_authentication_and_uniform_answers",
+        "test_agreement_completion::test_p4_08_every_secret_is_compared_and_csrf_does_not_block_the_provider",
+        "test_agreement_completion::test_p4_20_webhook_secrets_are_test_only_and_at_most_two",
+    ],
+    "TEST-P6-17": [
+        "test_system_health::test_6b4_a_dead_worker_is_reported_and_recovery_clears_it",
+        "test_staging_alerts::test_6b12_a_stopped_worker_and_an_unreachable_form_are_reported",
+        "test_staging_alerts::test_6b12_recovery_is_noted_once_and_retried_if_the_note_failed",
+        "test_system_health::test_6b4_the_heartbeat_is_written_atomically_and_never_stops_the_worker",
+        "test_system_health::test_6b4_the_worker_beats_while_it_runs",
+        "test_system_health::test_6b4_a_lease_renewal_also_beats_the_heartbeat",
+        "test_system_health::test_6b4_a_quiet_system_is_healthy",
+        "test_startup::test_6b4_review_staging_requires_a_worker_heartbeat_file",
+        "test_staging_alerts::test_6b12_a_healthy_report_sends_nothing_and_leaves_the_marker",
+    ],
+    "TEST-P6-18": [
+        "test_inbound::test_p2_41_g1_reports_a_healthy_collector_and_a_broken_chain",
+        "test_inbound::test_p2_41_g1_reports_a_stale_watermark",
+        "test_staging_alerts::test_6b12_findings_are_codes_and_a_stale_heartbeat_is_urgent",
+    ],
+    "TEST-P6-19": [
+        "test_outbound::test_p2_a7_an_uncertain_send_without_an_unknown_attempt_reaches_staff",
+        "test_system_health::test_6b4_an_aged_hard_bounce_alerts_and_a_fresh_one_does_not",
+        "test_system_health::test_6b4_agreement_and_custody_states_alert",
+        "test_system_health::test_6b4_a_backlog_and_an_expired_lease_are_anomalies",
+        "test_system_health::test_6b4_a_conflict_alerts_until_staff_resolve_it_then_the_system_is_healthy",
+        "test_system_health::test_6b4_a_revocation_round_that_never_ran_is_reported",
+        "test_system_health::test_6b4_an_unknown_mailbox_create_is_reported_until_staff_resolve_it",
+        "test_system_health::test_6b4_routine_staff_waiting_alerts_only_when_overdue",
+    ],
+    "TEST-P6-20": [
+        "test_staging_alerts::test_6b12_the_sweep_is_quiet_while_the_health_check_is_fresh",
+        "test_staging_alerts::test_6b12_the_sweep_alerts_when_the_health_check_is_stale_or_never_ran",
+        "test_staging_alerts::test_6b12_a_check_that_fails_without_a_report_is_never_healthy",
+        "test_system_health::test_6b4_a_malformed_report_is_a_failed_check_not_a_finding",
+        "test_system_health::test_6b4_a_failing_check_exits_2_and_never_reports_a_finding",
+    ],
+    "TEST-P6-21": [
+        "test_backup_commands::test_6b7_a_backup_restores_elsewhere_byte_for_byte_with_its_files_and_a_hold",
+        "test_backup_commands::test_6b7_a_failed_backup_leaves_no_set_that_looks_usable",
+        "test_backup_commands::test_6b13_a_failed_backup_keeps_the_previous_good_set_intact",
+        "test_db_roles::test_6b6_the_backup_role_reads_every_table_but_sessions_and_writes_nothing",
+        "test_db_roles::test_6b6_the_backup_role_can_read_but_never_change_history",
+        "test_db_roles::test_6b6_the_backup_role_reads_every_sequence_and_can_never_draw_or_set_one",
+        "test_staging_alerts::test_6b13_a_stale_backup_and_an_overdue_restore_drill_are_reported",
+        "test_staging_alerts::test_6b13_a_missing_or_empty_receipt_directory_counts_as_stale",
+    ],
+    "TEST-P6-22": [
+        "test_restore_rehearsal::test_9kg_7_backup_restore_elsewhere_and_verify_rows_files_roles_and_triggers",
+        "test_backup_commands::test_6b7_the_worker_claims_nothing_while_the_restore_hold_is_present",
+        "test_backup_commands::test_6b7_the_application_role_cannot_lift_the_restore_hold",
+        "test_post_restore::test_6b7b_lifting_needs_a_review_run_and_both_confirmations",
+        "test_staging_alerts::test_6b13_a_failed_drill_never_counts_as_a_drill_done",
+        "test_staging_alerts::test_6b13_a_stale_backup_and_an_overdue_restore_drill_are_reported",
+    ],
+    "TEST-P6-23": [
+        "test_backup_commands::test_6b7_a_damaged_set_is_refused_before_anything_loads",
+        "test_backup_commands::test_6b7_a_restore_never_touches_a_database_that_is_in_use_or_not_named",
+        "test_backup_commands::test_6b7_a_tampered_or_world_readable_set_is_refused",
+        "test_backup_commands::test_6b7_a_bad_set_name_is_refused",
+        "test_backup_commands::test_6b7_a_target_at_other_migrations_is_refused",
+        "test_restore_rehearsal::test_9kg_7_the_checker_refuses_a_relative_or_missing_directory",
+        "test_post_restore::test_6b7b_refuses_without_a_hold_or_a_named_database",
+    ],
+    "TEST-P6-24": [
+        "test_release::test_6b10_the_adapters_take_only_content_references_and_smoke_through_the_readiness_cache",
+    ],
+    "TEST-P6-25": [
+        "test_release::test_6b10_forward_only_migrations_block_only_an_image_that_does_not_know_them",
+        "test_restore_rehearsal::test_9kg_7_backup_restore_elsewhere_and_verify_rows_files_roles_and_triggers",
+    ],
+    "TEST-P6-26": [
+        "test_cutover::test_6b11_r2_is_exactly_the_token_return_paths",
+        "test_cutover::test_6b11_r1_is_exactly_the_entry_pages_the_staging_proxy_serves",
+        "test_cutover::test_6b11_r1_and_r2_together_are_every_applicant_route_and_nothing_more",
+    ],
+    "TEST-P6-28": [
+        "test_staging_compose::test_6b5b_the_socket_is_shared_only_with_the_proxy_and_only_the_proxy_has_an_open_network",
+        "test_guards::test_6b1_staging_links_must_be_https_and_production_still_may_not_use_any_fake",
+        "test_guards::test_6b1_staging_keeps_the_test_model_only_and_no_live_mail_or_send_evidence",
+    ],
+    "TEST-P6-29": [
+        "test_post_restore::test_6b7b_links_from_before_the_restore_stop_working_the_negative_control",
+        "test_post_restore::test_6b7b_staff_passwords_and_sessions_from_before_the_restore_never_return",
+        "test_post_restore::test_6b7b_withdrawal_links_close_and_in_flight_password_sets_become_unknown",
+        "test_post_restore::test_6b7b_unfinished_access_removal_gets_one_new_round",
+        "test_post_restore::test_6b7b_the_report_lists_outward_actions_and_running_ones_are_recovered",
+    ],
+    "TEST-P6-30": [
+        "test_egress::test_6b11_the_policy_refuses_anything_but_a_connect_to_a_name_on_an_allowed_port",
+        "test_egress::test_6b11_the_fixture_address_is_admitted_only_in_a_synthetic_environment",
+        "test_egress::test_6b11_a_name_resolving_to_any_denied_address_is_refused_by_the_live_proxy",
+        "test_egress::test_6b11_a_single_label_name_is_refused_before_any_lookup",
+        "test_egress::test_6b11_evidence_is_fetched_through_the_egress_proxy",
+        "test_egress::test_6b11_a_proxy_refusal_is_a_refusal_and_never_retried",
+        "test_egress::test_6b11_the_proxy_refuses_to_start_with_a_fixture_outside_a_synthetic_environment",
+        "test_egress::test_6b11_numeric_names_are_never_names",
+        "test_egress::test_6b11_a_tunnel_whose_peer_stops_reading_is_bounded",
+        "test_startup::test_6b11_a_staging_fetcher_refuses_to_start_without_the_egress_proxy",
+        "test_fetcher_role::test_9kg24_the_fetcher_role_reaches_nothing_else",
+    ],
+    "TEST-P6-31": [
+        "test_release::test_6b10_the_image_workflow_attests_only_main_and_pushes_nowhere",
+        "test_release::test_6b10_the_adapters_take_only_content_references_and_smoke_through_the_readiness_cache",
+    ],
+    "TEST-P6-32": [
+        "test_health::test_6b3_staff_answer_only_on_the_staff_host_once_one_is_named",
+        "test_health::test_6b3_health_answers_only_on_the_local_hosts",
+        "test_health::test_6b3_a_bad_host_header_is_a_400_not_a_server_error",
+        "test_startup::test_6b3_review_staging_needs_a_proper_staff_host_and_local_hosts",
+        "test_startup::test_6b8_the_staff_host_is_never_also_a_local_health_host",
+    ],
+    "TEST-P6-33": [
+        "test_staging_proxy::test_6b8_the_committed_caddyfile_is_exactly_the_rendering",
+        "test_staging_proxy::test_6b8_every_token_bearing_route_is_a_private_path",
+        "test_staging_compose::test_6b5b_the_database_never_logs_statements_or_parameters",
+    ],
+    "TEST-P6-34": [
+        "test_agreement_completion::test_p4_13_02_a_webhook_never_verifies_and_duplicates_and_late_events_are_harmless",
+        "test_agreement_completion::test_p4_23_24_a_webhook_flood_makes_one_read_and_keeps_no_body_or_token",
+    ],
+    "TEST-P6-35": [
+        "test_system_health::test_6b4_the_report_never_carries_applicant_data",
+        "test_backup_commands::test_6b7_a_database_error_reports_only_its_class_and_code_never_the_row",
+        "test_backup_commands::test_6b7_a_tampered_or_world_readable_set_is_refused",
+        "test_staging_alerts::test_6b12_an_alert_carries_signal_codes_and_nothing_else",
+    ],
+    "TEST-P6-36": [
+        "test_secret_rotation::test_6b10a_a_routine_link_key_rotation_keeps_links_in_hand_working_while_the_old_key_is_a_fallback",
+        "test_secret_rotation::test_6b10a_after_a_leak_the_old_links_fail_and_every_outstanding_one_is_closed_for_reissue",
+        "test_secret_rotation::test_6b10a_closing_links_refuses_while_the_leaked_key_is_still_the_link_key",
+        "test_secret_rotation::test_6b10a_password_links_are_not_signed_with_the_link_key_and_survive_its_rotation",
+        "test_secret_rotation::test_6b10a_closing_links_refuses_while_a_fallback_key_remains_or_for_another_database",
+        "test_secret_rotation::test_6b10a_rotating_the_django_secret_key_ends_every_staff_session",
+        "test_secret_rotation::test_6b10a_a_rotated_role_password_takes_effect_and_the_old_one_stops_working",
+        "test_agreement_completion::test_p4_08_every_secret_is_compared_and_csrf_does_not_block_the_provider",
+    ],
+    "TEST-P6-37": [
+        "test_image::test_6b5_the_build_context_excludes_tests_history_and_the_tracker",
+        "test_release::test_6b10_the_image_workflow_attests_only_main_and_pushes_nowhere",
+    ],
+    "TEST-P6-38": [
+        "test_staging_alerts::test_6b12_an_alert_carries_signal_codes_and_nothing_else",
+        "test_system_health::test_6b4_the_report_never_carries_applicant_data",
+    ],
+}
+
+P6_SUPPORTING = {
+    "9kg.2 a system pause resumes only past its cause (pre-staging hardening)": [
+        "test_processing::test_9kg_2_every_system_pause_reason_is_a_resumable_cause_with_a_resolution",
+        "test_processing::test_9kg_2_the_screen_offers_a_system_resume_only_to_a_decision_maker_with_a_required_reason",
+    ],
+}
+
+# Cases with no pytest evidence of their own: shown only by a live script (026 section 16).
+P6_LIVE_ONLY = {
+    "TEST-P6-27": "scripts/staging_check.sh, the dark deploy",
+}
+
 
 def key(nodeid: str) -> str:
     """'tests/test_x.py::test_name[param]' -> 'test_x::test_name' (the function: every instance)."""

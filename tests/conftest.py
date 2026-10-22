@@ -128,7 +128,7 @@ def pytest_sessionfinish(session, exitstatus):
     outcomes = _acceptance["outcomes"]
     groups = {**acceptance.CASES, **acceptance.SUPPORTING, **acceptance.P2_CASES, **acceptance.P3_CASES,
               **acceptance.P3_SUPPORTING, **acceptance.P4_CASES, **acceptance.P4_SUPPORTING, **acceptance.P5_CASES,
-              **acceptance.P5_SUPPORTING}
+              **acceptance.P5_SUPPORTING, **acceptance.P6_CASES, **acceptance.P6_SUPPORTING}
     _acceptance["statuses"] = {case: case_status(names, outcomes) for case, names in groups.items()}
     mapped = {name for names in groups.values() for name in names}
     _acceptance["full"] = (
@@ -155,7 +155,9 @@ def pytest_terminal_summary(terminalreporter):
              {**acceptance.P3_CASES, **acceptance.P3_SUPPORTING}),
             ("P4 agreements acceptance (021 section 12)", "GATE-P4", {**acceptance.P4_CASES, **acceptance.P4_SUPPORTING}),
             ("P5 provisioning acceptance (023 section 9)", "GATE-P5",
-             {**acceptance.P5_CASES, **acceptance.P5_SUPPORTING})):
+             {**acceptance.P5_CASES, **acceptance.P5_SUPPORTING}),
+            ("P6 staging acceptance (026 section 11; live evidence in 026 section 16)", "GATE-STAGING",
+             {**acceptance.P6_CASES, **acceptance.P6_SUPPORTING})):
         terminalreporter.section(title)
         part = {case: statuses[case] for case in groups}
         for case, status in part.items():
