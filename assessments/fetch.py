@@ -13,7 +13,10 @@ One GET of one claimed URL, checked against one approved `EvidenceSource` versio
    hosts; never to http.
 6. Limits: the socket timeout is set to the remaining deadline before every read; a streamed byte cap; GET only;
    `Accept-Encoding: identity` and any other `Content-Encoding` refused; content types from the source; no
-   cookies, credentials, proxies or connection reuse.
+   cookies, credentials or connection reuse.
+7. With `CATALYST_EVIDENCE_PROXY` set (6B.11), steps 2 to 4 happen in the egress proxy (`assessments.egress`), which
+   resolves the name, applies this module's `classify` to every answer and to the peer, and reports the peer; the
+   peer is classified here once more before the TLS handshake, which stays end to end with the real host.
 
 A synthetic fixture source (`fixture_only`, refused outside `test`) replaces DNS with one pinned address, which
 `classify` admits only because the source names it; every other step is identical.
@@ -250,9 +253,12 @@ def fetch(url: str, source) -> FetchResult:
     current, hops = url, 0
     while True:
         target = validate_url(current, source, {source.host} if hops == 0 else redirect_allowed)
-        ips, extra = _addresses(source, target.host, target.port, remaining())
-        if not ips or not all(classify(ip, extra) for ip in ips):
-            raise Refused("address_not_allowed")
+        if settings.CATALYST_EVIDENCE_PROXY and not source.fixture_only:
+            ips, extra = [None], frozenset()  # the egress proxy resolves and classifies every address
+        else:
+            ips, extra = _addresses(source, target.host, target.port, remaining())
+            if not ips or not all(classify(ip, extra) for ip in ips):
+                raise Refused("address_not_allowed")
         result = _one_request(target, ips[0], extra, source, remaining)
         if result.status in REDIRECT_STATUSES:
             hops += 1
@@ -285,12 +291,18 @@ def _one_request(target: Target, ip: str, extra, source, remaining) -> FetchResu
             pass
 
     try:
-        raw = socket.create_connection((ip, target.port), timeout=min(10.0, remaining()))
+        if settings.CATALYST_EVIDENCE_PROXY:
+            raw = socket.create_connection(_proxy_address(), timeout=min(10.0, remaining()))
+        else:
+            raw = socket.create_connection((ip, target.port), timeout=min(10.0, remaining()))
         live["sock"] = raw
         watchdog = threading.Timer(remaining(), expire)
         watchdog.daemon = True
         watchdog.start()
-        peer = raw.getpeername()[0]
+        if settings.CATALYST_EVIDENCE_PROXY:
+            peer = _tunnel(raw, ip or target.host, target.port, remaining)
+        else:
+            peer = raw.getpeername()[0]
         if not classify(peer, extra):
             raise Refused("peer_not_allowed")
         tls = tls_context().wrap_socket(raw, server_hostname=target.host, do_handshake_on_connect=False)
@@ -365,6 +377,32 @@ def _one_request(target: Target, ip: str, extra, source, remaining) -> FetchResu
                 raw.close()
             except OSError:
                 pass
+
+
+def _proxy_address() -> tuple:
+    host, _, port = settings.CATALYST_EVIDENCE_PROXY.rpartition(":")
+    return host, int(port)
+
+
+def _tunnel(raw, host: str, port: int, remaining) -> str:
+    """Ask the egress proxy for a tunnel; returns the peer address it connected to. A refusal is never retried; a
+    proxy that cannot reach the host is transient."""
+    raw.settimeout(remaining())
+    raw.sendall(f"CONNECT {host}:{port} HTTP/1.1\r\nHost: {host}:{port}\r\n\r\n".encode("ascii"))
+    head = b""
+    while b"\r\n\r\n" not in head:
+        chunk = raw.recv(1024)
+        if not chunk or len(head) > 4096:
+            raise Transient("egress_no_answer")
+        head += chunk
+    lines = head.split(b"\r\n\r\n", 1)[0].decode("ascii", "replace").split("\r\n")
+    status = lines[0].split(" ")[1] if len(lines[0].split(" ")) > 1 else ""
+    fields = {k.strip().lower(): v.strip() for k, _, v in (line.partition(":") for line in lines[1:])}
+    if status == "200":
+        return fields.get("x-catalyst-peer", "")  # classified by the caller; an empty peer fails classify
+    if status in ("502", "503"):
+        raise Transient("egress_unavailable")
+    raise Refused(fields.get("x-catalyst-refusal", "egress_refused")[:40])
 
 
 def _past(expired, remaining) -> bool:

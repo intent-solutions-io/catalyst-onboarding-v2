@@ -45,8 +45,8 @@ chmod 0444 "$secrets"/*  # read by uid 10001 and by postgres through bind mounts
 docker build --quiet --target staging --build-arg "CATALYST_COMMIT=$(git rev-parse HEAD)" -t "$CATALYST_IMAGE" . >/dev/null
 "${compose[@]}" up -d --wait db >/dev/null
 "${compose[@]}" --profile provision run --rm provision-roles >/dev/null
-if ! "${compose[@]}" up -d --wait web worker fetcher proxy >/dev/null 2>&1; then
-  for service in migrate web worker fetcher proxy; do  # the last lines say why; no secret is ever logged (checked below)
+if ! "${compose[@]}" up -d --wait web worker fetcher egress proxy >/dev/null 2>&1; then
+  for service in migrate web worker fetcher egress proxy; do  # the last lines say why; no secret is ever logged (checked below)
     echo "--- $service"; "${compose[@]}" logs --no-log-prefix "$service" 2>&1 | tail -4
   done
   echo "FAIL the stack did not come up"; exit 1
@@ -64,7 +64,7 @@ no_value_in() {  # no secret value appears in the text on stdin
 inspect() { docker inspect --format "$2" "$("${compose[@]}" ps -q "$1")"; }
 status() { docker exec "$("${compose[@]}" ps -q "$1")" sh -c "grep -E '^($2):' /proc/1/status | awk '{print \$2}' | tr '\n' ' '"; }
 
-for service in web worker fetcher proxy db; do
+for service in web worker fetcher egress proxy db; do
   id="$("${compose[@]}" ps -q "$service")"
   check "$service is running" test -n "$id"
   check "$service: docker inspect shows no secret value" bash -c "docker inspect '$id' | { $(declare -f no_value_in); values=($(printf '%q ' "${values[@]}")); no_value_in; }"
@@ -77,7 +77,7 @@ for service in web worker fetcher proxy db; do
     check "$service: the root filesystem is read-only (from the engine)" test "$(inspect "$service" '{{.HostConfig.ReadonlyRootfs}}')" = true
   fi
   case "$service" in
-    web|worker|fetcher) check "$service: runs as 10001 with no effective capability" test "$(status "$service" 'Uid|CapEff')" = "10001 0000000000000000 " ;;
+    web|worker|fetcher|egress) check "$service: runs as 10001 with no effective capability" test "$(status "$service" 'Uid|CapEff')" = "10001 0000000000000000 " ;;
     proxy) check "proxy: runs as 10001 with only the bind capability" test "$(status proxy 'Uid|CapEff')" = "10001 0000000000000400 " ;;
   esac
 done
@@ -207,6 +207,39 @@ for service in web worker fetcher; do
   check "TEST-P6-28 $service reaches nothing outside (refused, not errored)" test "$(probe "$service" "socket.create_connection(('1.1.1.1',443),3)")" = 42
 done
 check "TEST-P6-28 names do not resolve from the backend network" test "$(probe web "socket.getaddrinfo('example.com',443)")" = 42
+
+# TEST-P6-30: the fetcher's only way out is the egress proxy, which refuses every denied range. Names on a public
+# wildcard DNS service resolve to the denied addresses themselves, so the proxy's own lookup is what is tested.
+check "TEST-P6-30 control: the fetcher reaches the egress proxy" test "$(probe fetcher "socket.create_connection(('egress',3128),3)")" = 0
+for service in web worker; do  # only the fetcher shares a network with the proxy
+  check "TEST-P6-30 $service cannot reach the egress proxy" test "$(probe "$service" "socket.create_connection(('egress',3128),3)")" = 42
+done
+via_proxy() {  # via_proxy <authority>: the egress proxy's status and refusal code for CONNECT <authority>, from the fetcher
+  docker exec "$("${compose[@]}" ps -q fetcher)" python -c "import socket,sys
+s=socket.create_connection(('egress',3128),5);s.settimeout(15);s.sendall(('CONNECT '+sys.argv[1]+' HTTP/1.1\r\n\r\n').encode())
+head=s.recv(1024).decode().split('\r\n');refusal=[l.split(': ')[1] for l in head if l.startswith('X-Catalyst-Refusal')]
+print(head[0].split(' ')[1], refusal[0] if refusal else '-')" "$1" 2>/dev/null || echo "none -"
+}
+via_proxy_settled() {  # a policy answer (200 or 403) is final; a transient one (502, none) is retried, at most 3 times
+  local answer
+  for _ in 1 2 3; do
+    answer="$(via_proxy "$1")"
+    case "$answer" in 200\ *|403\ *|400\ *) break ;; esac
+    sleep 2
+  done
+  printf '%s\n' "$answer"
+}
+check "TEST-P6-30 control: through the proxy, a public name is tunnelled" test "$(via_proxy_settled example.com:443)" = "200 -"
+for authority in 127.0.0.1.nip.io:443 10.0.0.1.nip.io:443 172.17.0.1.nip.io:443 192.168.0.1.nip.io:443 \
+                 169.254.169.254.nip.io:443 100.64.0.1.nip.io:443; do
+  check "TEST-P6-30 the proxy refuses a name resolving into a denied range ($authority)" test "$(via_proxy_settled "$authority")" = "403 address_not_allowed"
+done
+for authority in 10.0.0.1:443 169.254.169.254:443 "[::1]:443"; do
+  check "TEST-P6-30 the proxy refuses an IP literal ($authority)" test "$(via_proxy "$authority")" = "403 ip_literal_refused"
+done
+check "TEST-P6-30 the proxy refuses a port other than 443" test "$(via_proxy_settled example.com:22)" = "403 port_not_allowed"
+check "TEST-P6-30 the proxy refuses a single-label name (the database's)" test "$(via_proxy db:443)" = "400 bad_host"
+check "TEST-P6-30 the egress proxy mounts no secret" test -z "$(docker exec "$("${compose[@]}" ps -q egress)" ls /run/secrets 2>/dev/null)"
 
 # TEST-P6-15: the staff login needs the second factor, and a superuser gets no session at all.
 staff_url=https://staff.staging.test:18444

@@ -1176,9 +1176,57 @@ specification text; nothing is built.
   by the image workflow.
 - **Result:** 98 of 98 PASS, in three consecutive runs.
 - **Still to come in 6B.11 to 6B.13:**
-  - the fetcher's egress proxy (TEST-P6-30);
   - alerts and the dead man to Buzz (TEST-P6-17 to 20, 38);
   - the backup and restore drill (TEST-P6-21 to 23, 29, 35);
   - a dark deploy with data (TEST-P6-27);
   - the cutover rehearsal (TEST-P6-26);
   - the webhook enabled, and its replay (TEST-P6-16 and 34, at the unit level today).
+
+**6B.11 (part 2), the fetcher's egress proxy (026 section 5, H5; TEST-P6-30).**
+
+- **`assessments/egress.py`** is an HTTP CONNECT proxy, run from the same image as its own service, `egress`. It
+  holds no secret and no database login, and it alone joins the outbound network.
+- **Networks:** the proxy shares an internal `fetch` network with the fetcher alone, and is never on `backend`, so
+  web, worker and migrate cannot reach it (from the PR #76 review). The fetcher sits on `backend` (for the database)
+  and on `fetch`, with no DNS and no other route, so every fetch goes through the proxy. The proxy:
+  - accepts CONNECT only, to port 443 (and, in a synthetic environment, the fixture's port), with a deadline for the
+    request head;
+  - takes a DNS name, never an IP literal, except the one pinned fixture address of a synthetic environment;
+  - refuses unless every address the name resolves to passes `assessments.fetch.classify`, the fetcher's own pure
+    function: global unicast only, so no loopback, private, shared (the tailnet range), link-local or metadata
+    address, and not the proxy's own host;
+  - checks the connected peer again and reports it, and the fetcher checks it a third time before its TLS
+    handshake;
+  - leaves TLS end to end, verified against the real host name, so the proxy never sees the path or the content;
+  - tries each classified address in turn;
+  - refuses all-numeric names;
+  - bounds tunnels in number (16), in idle time and in total time, with every send bounded too, so a peer that
+    stops reading cannot pin a slot;
+  - refuses to start if a fixture address or port is set outside a synthetic environment;
+  - logs outcome codes only.
+- **The peer check in the fetcher** is defence against a proxy bug, not an independent control: the proxy reports
+  the peer itself. The controls that hold even against a compromised proxy are the host allow-list, TLS hostname
+  verification and the network isolation.
+- **The fetcher** (`assessments.fetch`) uses the tunnel whenever `CATALYST_EVIDENCE_PROXY` is set. A refusal from
+  the proxy is a refusal and is never retried; a proxy that cannot connect is transient. Fixture sources go through
+  the proxy too, to their pinned address. The guards refuse a fetcher without the proxy in every environment but
+  test and development, and refuse a malformed proxy setting.
+- **Evidence:**
+  - `tests/test_egress.py`:
+    - the policy refuses anything but a CONNECT to a name on an allowed port;
+    - the fixture address is admitted only in a synthetic environment;
+    - a name resolving to loopback, private, metadata, tailnet or bridge addresses, or to a mix with a private one,
+      is refused by the live proxy, and so is a single-label name;
+    - evidence is fetched through the proxy end to end, with the reported peer recorded;
+    - a proxy refusal ends the item as refused, with nothing fetched;
+  - `tests/test_startup.py`: the staging fetcher's guard;
+  - `scripts/staging_check.sh` (TEST-P6-30), 120 of 120 PASS in three consecutive runs, shows that:
+    - the fetcher reaches the database and the proxy, and nothing else, while web and worker cannot reach the
+      proxy;
+    - through the proxy a public name is tunnelled (the control);
+    - names on a public wildcard DNS service that resolve into each denied range are refused, as are IP literals,
+      other ports and the database's single-label name;
+    - the proxy mounts no secret, runs as 10001 with no capability, and holds no secret in its environment.
+- **Stated limit:** the public wildcard DNS service and the control's public name are outside dependencies of the
+  check. A policy answer (200 or 403) is final; a transient one (no answer, or a lookup failure) is retried at most
+  three times. If they cannot be reached, those checks fail, never pass.

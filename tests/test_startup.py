@@ -270,7 +270,8 @@ def test_6b5_an_unreadable_secret_stops_start_up_without_showing_its_bytes(tmp_p
 def test_6b5_the_fetcher_starts_without_the_link_signing_key(tmp_path):
     directory = secrets_dir(tmp_path)
     (tmp_path / "secrets" / "verification_key").unlink()
-    result = run(CHECK, **{**STAGING, "CATALYST_SECRETS_DIR": directory, "CATALYST_PROCESS_ROLE": "fetcher"})
+    result = run(CHECK, **{**STAGING, "CATALYST_SECRETS_DIR": directory, "CATALYST_PROCESS_ROLE": "fetcher",
+                            "CATALYST_EVIDENCE_PROXY": "egress:3128"})
     assert result.returncode == 0, result.stderr
     web = run(CHECK, **{**STAGING, "CATALYST_SECRETS_DIR": directory})
     assert web.returncode != 0 and "CATALYST_VERIFICATION_KEY is missing" in web.stderr
@@ -291,7 +292,8 @@ def test_6b5_staging_refuses_a_missing_secrets_directory_or_file(tmp_path):
 def test_6b5_review_the_web_process_never_runs_as_the_fetcher_or_without_a_signing_key(tmp_path):
     directory = secrets_dir(tmp_path)
     (tmp_path / "secrets" / "verification_key").unlink()
-    fetcher = {**STAGING, "CATALYST_SECRETS_DIR": directory, "CATALYST_PROCESS_ROLE": "fetcher"}
+    fetcher = {**STAGING, "CATALYST_SECRETS_DIR": directory, "CATALYST_PROCESS_ROLE": "fetcher",
+               "CATALYST_EVIDENCE_PROXY": "egress:3128"}
     web = run(WSGI, **fetcher)  # config.wsgi declares the web kind before Django loads
     assert web.returncode != 0 and "the web process may not run as CATALYST_PROCESS_ROLE=fetcher" in web.stderr
     assert run(CHECK, **fetcher).returncode == 0  # a management or worker process may be the fetcher
@@ -302,4 +304,13 @@ def test_6b5_review_the_web_process_never_runs_as_the_fetcher_or_without_a_signi
 def test_6b8_the_staff_host_is_never_also_a_local_health_host():
     result = run(CHECK, **{**STAGING, "CATALYST_LOCAL_HOSTS": "localhost,staff.staging.test"})
     assert result.returncode != 0 and "may not also be one of CATALYST_LOCAL_HOSTS" in result.stderr
+
+
+def test_6b11_a_staging_fetcher_refuses_to_start_without_the_egress_proxy(tmp_path):
+    directory = secrets_dir(tmp_path)
+    fetcher = {**STAGING, "CATALYST_SECRETS_DIR": directory, "CATALYST_PROCESS_ROLE": "fetcher"}
+    missing = run(CHECK, **fetcher)
+    assert missing.returncode != 0 and "a fetcher outside test and development needs CATALYST_EVIDENCE_PROXY" in missing.stderr
+    malformed = run(CHECK, **{**fetcher, "CATALYST_EVIDENCE_PROXY": "http://egress:3128"})
+    assert malformed.returncode != 0 and "CATALYST_EVIDENCE_PROXY must be host:port" in malformed.stderr
 

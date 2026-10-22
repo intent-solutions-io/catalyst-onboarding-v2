@@ -363,7 +363,8 @@
         "CATALYST_EMAIL_FILE_PATH": "/var/lib/catalyst/mail",
         "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-fetcher.beat",
         "CATALYST_DB_USER": "catalyst_fetcher",
-        "CATALYST_PROCESS_ROLE": "fetcher"
+        "CATALYST_PROCESS_ROLE": "fetcher",
+        "CATALYST_EVIDENCE_PROXY": "egress:3128"
       },
       "secrets": [
         {
@@ -383,7 +384,8 @@
         "fetch_evidence"
       ],
       "networks": [
-        "backend"
+        "backend",
+        "fetch"
       ],
       "restart": "unless-stopped",
       "depends_on": {
@@ -391,6 +393,35 @@
           "condition": "service_completed_successfully"
         }
       }
+    },
+    "egress": {
+      "image": "${CATALYST_IMAGE:?the attested staging image digest}",
+      "user": "10001:10001",
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "tmpfs": [
+        "/tmp:mode=1777,size=64m",
+        "/dev/shm:mode=1777,size=64m"
+      ],
+      "environment": {
+        "CATALYST_ENV": "staging",
+        "CATALYST_EGRESS_LISTEN": "0.0.0.0:3128"
+      },
+      "command": [
+        "python",
+        "-m",
+        "assessments.egress"
+      ],
+      "networks": [
+        "fetch",
+        "egress"
+      ],
+      "restart": "unless-stopped"
     },
     "proxy": {
       "image": "caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d",
@@ -441,7 +472,11 @@
     "backend": {
       "internal": true
     },
-    "edge": {}
+    "fetch": {
+      "internal": true
+    },
+    "edge": {},
+    "egress": {}
   },
   "volumes": {
     "catalyst-db": {},
