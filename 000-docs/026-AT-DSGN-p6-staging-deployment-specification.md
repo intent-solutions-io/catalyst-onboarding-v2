@@ -993,3 +993,61 @@ specification text; nothing is built.
     It then removes everything it created.
 - **Carried to 6B.11 (host tasks):** the fetcher's egress proxy and host-level deny, the deploy unit's 0700 secrets
   directory, and the systemd unit.
+
+**6B.10, the deploy adapters and the attested image (026 sections 4 and 9; P6-D-5).**
+
+- **Adapters** (`deploy/staging/adapters/`), driven by the estate deploy wrapper's hooks:
+  - `capture.sh` prints the serving image recorded in the deploy state, and fails when none is recorded, so the
+    wrapper refuses to deploy;
+  - `deploy.sh <image>` makes an image the serving one, and the wrapper's revert uses it too. It takes only a
+    content reference (an image id or a digest, never a tag). It refuses a forward-only revert. It records the
+    pointer only after the containers were recreated;
+  - `smoke.sh` fails closed: the web, worker and fetcher containers must run exactly the recorded image; readiness
+    must answer 200 through the web socket, polled for 30 seconds because an answer may be up to five seconds old
+    (from the PR #63 review); and, when configured, the public form must answer through the proxy;
+  - `predeploy.sh <image>` runs the pre-deploy backup and then the migrations with that image, as the owner. It
+    refuses without a backup command;
+  - `receipt.sh` writes the deployment receipt (no personal data) and fails on any mismatch. The receipt holds:
+    - the image and its commit label, with the commit in the image;
+    - the schema head per app, and the pending migrations;
+    - the held actions per kind and the forward-only list;
+    - `check --deploy` (failing check ids only), the readiness readback, and the pre-deploy backup's receipt.
+- **Forward-only (`config/release.py`):**
+  - Every migration is expand-then-contract, and Django ignores an applied migration it does not know, so an older
+    image runs on a newer schema.
+  - A release that breaks that rule lists its migration in `FORWARD_ONLY`.
+  - Once such a migration is applied, `deploy.sh` refuses any image that does not know it ("restore instead").
+  - The applied list is read through the target image, and both images' lists are read offline, never through the
+    serving containers: during a revert those are the broken release (the drill found this).
+  - `python -m config.release known` lists an image's migrations with no settings, database or secret.
+- **The image workflow** (`.github/workflows/image.yml`, not a required check):
+  - every pull request builds the production target, checks that it carries no tests, history or tracker and that
+    its `COMMIT` matches, produces an SPDX bill of materials (Syft), and scans it (Grype; a fixable high or
+    critical finding fails the build);
+  - on `main` it attests the exact image tarball with this repository's workflow identity, and keeps the tarball,
+    its id and the bill of materials as the build artifact;
+  - it pushes to no registry, and every action is pinned by commit.
+- **Verification on the host** (`scripts/verify_image_attestation.sh`): refuses unless:
+  - the tarball's attestation comes from the image workflow, on `refs/heads/main`, for exactly the commit being
+    deployed, built on a GitHub-hosted runner;
+  - the loaded image's id and commit label match.
+
+  It prints the id for `deploy.sh`.
+- **Evidence:**
+  - `tests/test_release.py`:
+    - the migration list with no settings;
+    - the forward-only rule;
+    - the release facts from the database;
+    - the adapters' reference pattern and smoke timing;
+    - the workflow's pins, main-only attestation, no registry push, and the verification flags;
+  - `scripts/deploy_drill.sh`, run with the estate wrapper on the dev box, 18 of 18 PASS twice:
+    - a first release migrated, deployed, smoked and receipted;
+    - a good release promoted through the wrapper (exit 0) with a matching receipt;
+    - a broken release (its readiness module removed) reverted automatically through the same deploy hook
+      (exit 3), audited, and passing the smoke again;
+    - a forward-only migration's revert refused, naming the migration, with nothing changed;
+    - a tag refused.
+- **Found by the drill:** synthetic secret keys shorter than Django's deploy check requires, which the receipt
+  caught (`security.W009`); and the revert path reading migrations through the broken serving release.
+- **Carried to 6B.11:** the pre-deploy backup job on the host (the drill states its synthetic stand-in); the deploy
+  force-command, which accepts only a commit and runs the verification first; and the wrapper's stack entry.

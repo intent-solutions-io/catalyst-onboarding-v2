@@ -37,7 +37,7 @@ check() {  # check <name> <command...>
 install -d -m 0700 "$secrets"
 for name in secret_key verification_key admin_password owner_password app_password retention_password \
             backup_password fetcher_password; do
-  printf 'synthetic-%s-%s' "$name" "$(head -c 18 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')" > "$secrets/$name"
+  printf 'synthetic-%s-%s' "$name" "$(head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 64)" > "$secrets/$name"
 done
 chmod 0444 "$secrets"/*  # read by uid 10001 and by postgres through bind mounts; the 0700 directory guards them
 
