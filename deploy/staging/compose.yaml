@@ -208,6 +208,153 @@
       ],
       "network_mode": "none"
     },
+    "backup": {
+      "image": "${CATALYST_IMAGE:?the attested staging image digest}",
+      "user": "10001:10001",
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "tmpfs": [
+        "/tmp:mode=1777,size=64m",
+        "/dev/shm:mode=1777,size=64m"
+      ],
+      "environment": {
+        "CATALYST_ENV": "staging",
+        "CATALYST_SECRETS_DIR": "/run/secrets",
+        "CATALYST_DB_HOST": "db",
+        "CATALYST_DB_PORT": "5432",
+        "CATALYST_DB_NAME": "catalyst",
+        "CATALYST_PUBLIC_BASE_URL": "https://${CATALYST_PUBLIC_HOST:?}",
+        "CATALYST_ALLOWED_HOSTS": "${CATALYST_PUBLIC_HOST:?},${CATALYST_STAFF_HOST:?},localhost",
+        "CATALYST_STAFF_HOST": "${CATALYST_STAFF_HOST:?}",
+        "CATALYST_LOCAL_HOSTS": "localhost",
+        "CATALYST_CHALLENGE_LIFETIME_SECONDS": "3600",
+        "CATALYST_EMAIL_FILE_PATH": "/var/lib/catalyst/mail",
+        "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-worker.beat",
+        "CATALYST_DB_USER": "catalyst_backup"
+      },
+      "secrets": [
+        {
+          "source": "secret_key",
+          "target": "secret_key"
+        },
+        {
+          "source": "verification_key",
+          "target": "verification_key"
+        },
+        {
+          "source": "verification_fallback_keys",
+          "target": "verification_fallback_keys"
+        },
+        {
+          "source": "backup_password",
+          "target": "db_password"
+        }
+      ],
+      "command": [
+        "python",
+        "manage.py",
+        "catalyst_backup",
+        "--out",
+        "/var/lib/catalyst/backups",
+        "--storage-dir",
+        "/var/lib/catalyst/custody"
+      ],
+      "networks": [
+        "backend"
+      ],
+      "restart": "no",
+      "volumes": [
+        "catalyst-backups:/var/lib/catalyst/backups",
+        "catalyst-custody:/var/lib/catalyst/custody:ro"
+      ],
+      "depends_on": {
+        "db": {
+          "condition": "service_healthy"
+        }
+      },
+      "profiles": [
+        "ops"
+      ]
+    },
+    "restore": {
+      "image": "${CATALYST_IMAGE:?the attested staging image digest}",
+      "user": "10001:10001",
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "tmpfs": [
+        "/tmp:mode=1777,size=64m",
+        "/dev/shm:mode=1777,size=64m"
+      ],
+      "environment": {
+        "CATALYST_ENV": "staging",
+        "CATALYST_SECRETS_DIR": "/run/secrets",
+        "CATALYST_DB_HOST": "db",
+        "CATALYST_DB_PORT": "5432",
+        "CATALYST_DB_NAME": "catalyst",
+        "CATALYST_PUBLIC_BASE_URL": "https://${CATALYST_PUBLIC_HOST:?}",
+        "CATALYST_ALLOWED_HOSTS": "${CATALYST_PUBLIC_HOST:?},${CATALYST_STAFF_HOST:?},localhost",
+        "CATALYST_STAFF_HOST": "${CATALYST_STAFF_HOST:?}",
+        "CATALYST_LOCAL_HOSTS": "localhost",
+        "CATALYST_CHALLENGE_LIFETIME_SECONDS": "3600",
+        "CATALYST_EMAIL_FILE_PATH": "/var/lib/catalyst/mail",
+        "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-worker.beat",
+        "CATALYST_DB_USER": "catalyst_owner",
+        "CATALYST_DB_ADMIN_USER": "catalyst_admin"
+      },
+      "secrets": [
+        {
+          "source": "secret_key",
+          "target": "secret_key"
+        },
+        {
+          "source": "verification_key",
+          "target": "verification_key"
+        },
+        {
+          "source": "verification_fallback_keys",
+          "target": "verification_fallback_keys"
+        },
+        {
+          "source": "owner_password",
+          "target": "db_password"
+        },
+        {
+          "source": "admin_password",
+          "target": "admin_password"
+        }
+      ],
+      "command": [
+        "python",
+        "manage.py",
+        "catalyst_restore",
+        "--help"
+      ],
+      "networks": [
+        "backend"
+      ],
+      "restart": "no",
+      "volumes": [
+        "catalyst-custody:/var/lib/catalyst/custody"
+      ],
+      "depends_on": {
+        "db": {
+          "condition": "service_healthy"
+        }
+      },
+      "profiles": [
+        "ops"
+      ]
+    },
     "web": {
       "image": "${CATALYST_IMAGE:?the attested staging image digest}",
       "user": "10001:10001",
@@ -482,7 +629,9 @@
     "catalyst-db": {},
     "catalyst-run": {},
     "catalyst-static": {},
-    "catalyst-mail": {}
+    "catalyst-mail": {},
+    "catalyst-backups": {},
+    "catalyst-custody": {}
   },
   "secrets": {
     "secret_key": {

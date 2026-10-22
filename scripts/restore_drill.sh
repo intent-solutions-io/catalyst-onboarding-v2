@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# The measured restore drill (026 sections 6 and 11; 6B.13): synthetic data only, on this host, removed afterwards.
+#
+#   scripts/restore_drill.sh
+#
+# A source stack takes synthetic applicants through its public form and is backed up as the backup role. The set is
+# archived on the host (0700) and restored from that archive into a second, separate stack, as the owner with the
+# bootstrap administrator's credential, after every restore negative control has been refused. The post-restore step
+# runs (review, then lift), the stack starts, and the drill shows the restored data, the closed links and a working
+# form. RPO and RTO are measured and printed for the owner's targets (P6-D-7). Cases: TEST-P6-21 (in part), 22, 23, 29.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+work="$(mktemp -d)"
+fail=0
+export CATALYST_PUBLIC_HOST=catalyst.staging.test CATALYST_STAFF_HOST=staff.staging.test \
+  CATALYST_PUBLIC_PUBLISH=127.0.0.1 CATALYST_STAFF_PUBLISH=127.0.0.2 CATALYST_STAGING_SECRETS="$work/secrets" \
+  CATALYST_IMAGE="catalyst-restore-drill:$$"
+source_project="catalyst-restore-source-$$" target_project="catalyst-restore-target-$$"
+archive="$work/archive"
+a() { CATALYST_PUBLIC_PORT=18443 CATALYST_STAFF_PORT=18444 docker compose --project-name "$source_project" -f deploy/staging/compose.yaml "$@"; }
+b() { CATALYST_PUBLIC_PORT=19443 CATALYST_STAFF_PORT=19444 docker compose --project-name "$target_project" -f deploy/staging/compose.yaml "$@"; }
+cleanup() {
+  a --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
+  b --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
+  docker run --rm --user 0 -v "$work:/w" "$CATALYST_IMAGE" sh -c 'rm -rf /w/archive' >/dev/null 2>&1  # owned by 10001
+  docker image rm "$CATALYST_IMAGE" >/dev/null 2>&1
+  rm -rf "$work"
+}
+trap cleanup EXIT
+check() { local name="$1"; shift; if "$@"; then echo "PASS $name"; else echo "FAIL $name"; fail=1; fi; }
+check_not() { local name="$1"; shift; if "$@"; then echo "FAIL $name"; fail=1; else echo "PASS $name"; fi; }  # in this shell
+as_root() { docker run --rm --user 0 -v "$archive:/archive" "$@"; }  # the archive is owned by the containers' 10001
+count_applications() {  # count_applications <a|b>: the number of applications, as the owner (a count, never a row)
+  "$1" run --rm --no-deps -T migrate python manage.py shell -c \
+    "from applications.models import Application; print(Application.objects.count())" 2>/dev/null | tail -1
+}
+apply() {  # apply <port> <email>: one synthetic applicant through the public form; prints the response code
+  local port="$1" jar="$work/jar" page csrf url="https://catalyst.staging.test:$1"
+  rm -f "$jar"
+  page="$(curl -sk -c "$jar" --resolve "catalyst.staging.test:$port:127.0.0.1" "$url/request-access/")"
+  csrf="$(grep -oE 'name="csrfmiddlewaretoken" value="[^"]+"' <<<"$page" | head -1 | sed 's/.*value="//; s/"$//')"
+  curl -sk -b "$jar" -o /dev/null -w '%{http_code}' --resolve "catalyst.staging.test:$port:127.0.0.1" \
+    -H "Referer: $url/request-access/" -H "Origin: $url" --data-urlencode "csrfmiddlewaretoken=$csrf" \
+    --data-urlencode "name=Synthetic Applicant" --data-urlencode "email=$2" \
+    --data-urlencode "reason=Synthetic reason for access." "$url/request-access/"
+}
+offered() {  # offered <port> <path>: whether the confirmation page offers its form (the link still opens)
+  curl -sk --resolve "catalyst.staging.test:$1:127.0.0.1" "https://catalyst.staging.test:$1$2" | grep -q 'name="version"'
+}
+
+install -d -m 0700 "$work/secrets" "$archive"
+for name in secret_key verification_key admin_password owner_password app_password retention_password \
+            backup_password fetcher_password; do
+  printf 'synthetic-%s-%s' "$name" "$(head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 64)" > "$work/secrets/$name"
+done
+: > "$work/secrets/verification_fallback_keys"
+chmod 0444 "$work/secrets"/*
+docker build -q --target staging --build-arg "CATALYST_COMMIT=$(git rev-parse HEAD)" -t "$CATALYST_IMAGE" . >/dev/null || exit 1
+as_root "$CATALYST_IMAGE" sh -c 'chown 10001:10001 /archive && chmod 0700 /archive'
+
+# --- the source: synthetic applicants, a confirmation link in hand, the backup ----------------------------------
+a up -d --wait db >/dev/null 2>&1
+a --profile provision run --rm provision-roles >/dev/null 2>&1
+a up -d --wait web worker fetcher egress proxy >/dev/null 2>&1 || { echo "FAIL the source stack did not come up"; exit 1; }
+for n in 1 2 3; do
+  check "the source takes synthetic applicant $n through its form" test "$(apply 18443 "before-$n@example.test")" = 302
+done
+for _ in $(seq 30); do
+  links="$(a exec -T worker sh -c 'cat /var/lib/catalyst/mail/* 2>/dev/null' | grep -oE '/confirm/[^/[:space:]]+/' | sort -u)"
+  [ "$(wc -l <<<"$links")" -ge 3 ] && break; sleep 1
+done
+link="$(head -1 <<<"$links")"
+check "a confirmation link from before the backup opens on the source" offered 18443 "$link"
+backup_started=$(date +%s)
+receipt="$(a --profile ops run --rm backup 2>/dev/null | tail -1)"
+backup_finished=$(date +%s)
+set_name="$(python3 -c 'import json,sys;print(json.loads(sys.argv[1])["name"])' "$receipt" 2>/dev/null)"
+manifest="$(python3 -c 'import json,sys;print(json.loads(sys.argv[1])["manifest_sha256"])' "$receipt" 2>/dev/null)"
+check "TEST-P6-21 the backup wrote a set with a manifest digest" test -n "$set_name" -a -n "$manifest"
+check_not "TEST-P6-35 the backup receipt holds no personal data" grep -q '@' <<<"$receipt"
+check "the source has three applications at the backup" test "$(count_applications a)" = 3
+check "an applicant after the backup is accepted by the source" test "$(apply 18443 after-backup@example.test)" = 302
+
+# The archive on the host: a copy of the set, private, read by the restore through a read-only mount.
+volume="${source_project}_catalyst-backups"
+docker run --rm --user 0 -v "$volume:/sets:ro" -v "$archive:/archive" "$CATALYST_IMAGE" \
+  sh -c "cp -a /sets/$set_name /archive/ && chown -R 10001:10001 /archive"
+check "TEST-P6-35 the archived set is 0700 and its files 0600" bash -c "[ \"\$(docker run --rm --user 0 -v '$archive:/archive:ro' '$CATALYST_IMAGE' sh -c 'stat -c %a /archive/$set_name; find /archive/$set_name -type f -exec stat -c %a {} + | sort -u')\" = \$'700\\n600' ]"
+a down -v >/dev/null 2>&1  # the source is gone: only the archive remains
+
+# --- the target: a separate, migrated, empty stack ------------------------------------------------------------
+b up -d --wait db >/dev/null 2>&1
+b --profile provision run --rm provision-roles >/dev/null 2>&1
+b run --rm --no-deps -T migrate python manage.py migrate --noinput >/dev/null 2>&1
+refused_with() { grep -q "restore refused: $1" "$work/restore.out"; }  # this exact refusal, not any failure
+restore() {  # restore <set dir under /archive> [catalyst_restore arguments]: the restore's exit status
+  b --profile ops run --rm --no-deps -T -v "$archive:/archive:ro" restore python manage.py catalyst_restore \
+    --from "/archive/$1" --storage-dir /var/lib/catalyst/custody/restored "${@:2}" >"$work/restore.out" 2>&1
+  echo $?
+}
+# TEST-P6-23: each negative control is refused, and leaves the target empty for the real restore.
+as_root "$CATALYST_IMAGE" sh -c "cp -a /archive/$set_name /archive/tampered && f=\$(ls /archive/tampered/*.copy 2>/dev/null | head -1 || find /archive/tampered -type f -name '*.copy' | head -1); printf x >> \"\$f\"; cp -a /archive/$set_name /archive/loose && chmod 0755 /archive/loose; chown -R 10001:10001 /archive"
+check "TEST-P6-23 a restore naming the wrong database is refused" test "$(restore "$set_name" --confirm-database not-this-one)" = 1
+check "TEST-P6-23 ... for that reason" refused_with "--confirm-database must name the target database"
+check "TEST-P6-23 a restore with the wrong manifest digest is refused" test "$(restore "$set_name" --confirm-database catalyst --expect-manifest-sha256 "$(printf '0%.0s' $(seq 64))")" = 1
+check "TEST-P6-23 ... for that reason" refused_with "the manifest does not match the digest given on the command line"
+check "TEST-P6-23 a tampered set is refused" test "$(restore tampered --confirm-database catalyst)" = 1
+check "TEST-P6-23 ... because a copy differs from its manifest" refused_with "table copy does not match the manifest"
+check "TEST-P6-23 a set that is not private is refused" test "$(restore loose --confirm-database catalyst)" = 1
+check "TEST-P6-23 ... for that reason" refused_with "the set must be a private directory"
+check "TEST-P6-23 the refused restores changed nothing" test "$(count_applications b)" = 0
+
+# TEST-P6-22: the real restore, the post-restore step, and the stack back up, timed.
+restore_started=$(date +%s)
+check "TEST-P6-22 the set restores from the archive with its digest" test "$(restore "$set_name" --confirm-database catalyst --expect-manifest-sha256 "$manifest")" = 0
+[ "$fail" = 0 ] || sed 's/^/  restore said: /' "$work/restore.out" | tail -3  # a reason code, never data
+check "TEST-P6-23 a second restore into the now non-empty target is refused" test "$(restore "$set_name" --confirm-database catalyst)" = 1
+check "TEST-P6-23 ... because the target is not empty" refused_with "the target database is not empty"
+# The control for TEST-P6-29: restored as it was, the link would still open (the web process reads the restored rows).
+b up -d --no-deps --wait web proxy >/dev/null 2>&1
+for _ in $(seq 30); do offered 19443 "$link" && break; sleep 1; done
+check "TEST-P6-29 control: before the post-restore step, the restored link still opens" offered 19443 "$link"
+b stop web proxy >/dev/null 2>&1  # the post-restore step runs with nothing serving (026 section 6)
+b run --rm --no-deps -T migrate python manage.py catalyst_post_restore --confirm-database catalyst >"$work/post.out" 2>&1
+check "the post-restore review runs" test $? = 0
+[ "$fail" = 0 ] || sed 's/^/  post-restore said: /' "$work/post.out" | tail -3
+b run --rm --no-deps -T migrate python manage.py catalyst_post_restore --confirm-database catalyst --lift \
+  --outward-checked --no-closures-after-backup >"$work/lift.out" 2>&1
+check "the post-restore lift runs" test $? = 0
+b up -d --wait web worker fetcher egress proxy >/dev/null 2>&1
+ready=""
+for _ in $(seq 60); do
+  [ "$(curl -sk -o /dev/null -w '%{http_code}' --resolve catalyst.staging.test:19443:127.0.0.1 https://catalyst.staging.test:19443/request-access/)" = 200 ] && ready=1 && break
+  sleep 1
+done
+restore_finished=$(date +%s)
+check "TEST-P6-22 the restored stack serves the form" test -n "$ready"
+check "TEST-P6-22 the restored data is the backup's (three applications, not the later one)" test "$(count_applications b)" = 3
+check_not "TEST-P6-29 the confirmation link from before the backup is closed on the restored stack" offered 19443 "$link"
+check "the restored stack takes a new applicant" test "$(apply 19443 after-restore@example.test)" = 302
+
+echo "MEASURED backup: $((backup_finished - backup_started)) s; restore to serving: $((restore_finished - restore_started)) s (RTO, synthetic scale)"
+echo "MEASURED RPO: the backup's point; the applicant accepted after it is absent from the restored stack (as designed)"
+if [ -n "${CATALYST_DRILL_RECEIPTS:-}" ]; then  # the drill receipt the health check watches (overdue after 35 days)
+  install -d -m 0700 "$CATALYST_DRILL_RECEIPTS"
+  printf '{"at": "%s", "commit": "%s", "result": "%s", "backup_seconds": %d, "restore_to_serving_seconds": %d}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(git rev-parse HEAD)" "$([ "$fail" = 0 ] && echo pass || echo fail)" \
+    "$((backup_finished - backup_started))" "$((restore_finished - restore_started))" \
+    > "$CATALYST_DRILL_RECEIPTS/$(date -u +%Y%m%dT%H%M%SZ).json"
+fi
+exit "$fail"

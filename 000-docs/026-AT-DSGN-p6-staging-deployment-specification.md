@@ -1280,3 +1280,48 @@ specification text; nothing is built.
 - **Not yet installed:** the host timers for the health check and the sweep. Staging on the dev box runs as
   disposable drills, so a permanent timer would page `worker_unreachable` every five minutes. The timers are
   installed with the first persistent staging stack, using the same adapters and notify command (bead `9kg.21`).
+
+**6B.13, the measured restore drill (026 sections 6 and 11; host go recorded on bead `9kg.22`).**
+
+- **Operator services:** the staging stack gains two, under the `ops` profile:
+  - `backup` runs `catalyst_backup` as the backup role into a private volume;
+  - `restore` runs `catalyst_restore` as the owner, with the bootstrap administrator's credential, which only the
+    restore uses. Its target directory lives inside the custody volume, because the restore stages beside its
+    target and the image root is read-only.
+- **The image** creates private mount points for backup sets and custody files. Staging holds no custody files
+  until the pilot connects Documenso.
+- **`scripts/restore_drill.sh`**, on the dev box, synthetic data only, 28 of 28 PASS twice:
+  - a source stack takes three applicants through its public form, and a confirmation link from before the backup
+    is shown to open;
+  - the backup writes a set with a manifest digest, and its receipt holds no personal data;
+  - an applicant after the backup is accepted;
+  - the set is archived on the host, private (0700, files 0600), and the source stack is removed;
+  - a separate target stack is provisioned and migrated, then, each with its own reason (not merely an error), it
+    refuses:
+    - a restore naming the wrong database;
+    - a wrong manifest digest;
+    - a tampered copy;
+    - a set that is not private;
+
+    and those refusals change nothing. The real restore then succeeds from the archive with its digest, and a second
+    restore into the now non-empty target is refused;
+  - the control: restored as it was, the pre-backup link still opens. After the post-restore review and lift it is
+    closed;
+  - the restored stack serves the form, holds exactly the backup's three applications (not the later one), and
+    takes a new applicant.
+- **Measured, synthetic scale, for the owner's targets (P6-D-7):** the backup takes 3 to 4 seconds; from the start
+  of the restore to the form answering again, including the post-restore step, takes 27 to 29 seconds. The RPO is the
+  backup's point by design: the applicant accepted after it is absent from the restored stack. The drill writes a
+  receipt (date, commit, result, timings, no personal data) when `CATALYST_DRILL_RECEIPTS` names a directory.
+- **Health:** the health check now also reports `backup.stale` (no backup receipt within 26 hours) and
+  `restore_drill.overdue` (no drill receipt within 35 days) when the host names those directories. Both are tested.
+- **Case status:**
+  - **TEST-P6-22:** proven.
+  - **TEST-P6-23:** proven for the five negative controls above.
+  - **TEST-P6-29:** shown for links. Sessions, staff passwords, revocations and erasure replay (bead `9kg.25`) are
+    covered by the post-restore unit tests.
+  - **TEST-P6-21:** partly; the snapshot's isolation from a mid-backup write and a failed backup keeping the previous
+    set are unit-tested in `test_backup_commands`.
+  - **TEST-P6-35:** shown for the receipt and the set's modes.
+- **Not yet:** a scheduled backup job and the archive on the host's own backup fabric come with the first persistent
+  staging stack (bead `9kg.22`).

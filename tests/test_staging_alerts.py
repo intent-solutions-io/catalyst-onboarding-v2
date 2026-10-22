@@ -19,7 +19,7 @@ def test_6b12_an_alert_carries_signal_codes_and_nothing_else():
     assert "CATALYST_NOTIFY_CMD:?" in health and "CATALYST_HEALTH_STATE:?" in health
 
 
-def run_health(tmp_path, health_rc, health_out="", worker_running=True, notify_ok=True, form="200"):
+def run_health(tmp_path, health_rc, health_out="", worker_running=True, notify_ok=True, form="200", extra=None):
     """Run the real health.sh with docker and curl stubbed: `docker ... exec` prints health_out and exits health_rc."""
     stubs = tmp_path / "bin"
     stubs.mkdir(exist_ok=True)
@@ -38,7 +38,7 @@ esac
     python = os.path.dirname(sys.executable)  # the host's python3 parses the report; the test image keeps it here
     env = {"PATH": f"{stubs}:{python}:/usr/bin:/bin", "CATALYST_HEALTH_STATE": str(state), "CATALYST_NOTIFY_CMD": notify,
            "CATALYST_DEPLOY_STATE": str(tmp_path), "CATALYST_COMPOSE_PROJECT": "p", "CATALYST_COMPOSE_FILE": "f",
-           "CATALYST_SMOKE_URL": "https://catalyst.example.test/request-access/"}
+           "CATALYST_SMOKE_URL": "https://catalyst.example.test/request-access/", **(extra or {})}
     result = subprocess.run(["bash", str(ADAPTERS / "health.sh")], env=env, capture_output=True, text=True, timeout=30)
     alerts = log.read_text() if log.exists() else ""
     if log.exists():
@@ -97,3 +97,19 @@ def test_6b12_the_sweep_alerts_when_the_health_check_is_stale_or_never_ran(tmp_p
     (tmp_path / "alerts.log").unlink()
     (tmp_path / "health.ok").unlink()
     assert run_sweep(tmp_path, None) == (1, "urgent catalyst staging: health.check_stale\n")
+
+
+def test_6b13_a_stale_backup_and_an_overdue_restore_drill_are_reported(tmp_path):
+    backups, drills = tmp_path / "backups", tmp_path / "drills"
+    backups.mkdir()
+    drills.mkdir()
+    (backups / "receipt.json").touch()
+    old = (backups / "receipt.json").stat().st_mtime - 27 * 3600
+    os.utime(backups / "receipt.json", (old, old))
+    extra = {"CATALYST_BACKUP_RECEIPTS": str(backups), "CATALYST_DRILL_RECEIPTS": str(drills)}  # no drill at all
+    rc, alerts, _ = run_health(tmp_path, 0, '{"anomalies": []}', extra=extra)
+    assert rc == 1 and alerts == "high catalyst staging: backup.stale restore_drill.overdue\n"
+    (backups / "fresh.json").touch()
+    (drills / "drill.json").touch()
+    assert run_health(tmp_path, 0, '{"anomalies": []}', extra=extra)[:2] == (0, "info catalyst staging: recovered\n")
+
