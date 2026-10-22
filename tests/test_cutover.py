@@ -34,4 +34,21 @@ def test_6b11_r1_and_r2_together_are_every_applicant_route_and_nothing_more():
     assert sorted(matcher("catalyst-r1.caddy") + matcher("catalyst-r2.caddy")) == sorted(staging)
     for name in ("catalyst-r1.caddy", "catalyst-r2.caddy"):
         text = (CUTOVER / name).read_text()
-        assert "reverse_proxy {$CATALYST_UPSTREAM}" in text and "/staff" not in text and "healthz" not in text
+        assert "reverse_proxy {$CATALYST_UPSTREAM:" in text and "/staff" not in text and "healthz" not in text
+
+
+def test_6b11_the_learn_log_snippet_is_the_rendering_and_redacts_every_token_path():
+    renderer = staging_renderer()
+    committed = (CUTOVER / "catalyst-learn-log.caddy").read_text()
+    assert committed == renderer.render_learn_log(), "run `python scripts/render_caddyfile.py --write`"
+    assert f"request>uri regexp {renderer.redaction_pattern()} /$1/REDACTED" in committed
+
+
+def test_6b11_the_snippets_overwrite_the_forwarded_headers_and_default_to_the_web_socket():
+    for name in ("catalyst-r1.caddy", "catalyst-r2.caddy"):
+        text = (CUTOVER / name).read_text()
+        assert "reverse_proxy {$CATALYST_UPSTREAM:unix//run/catalyst/web.sock}" in text  # a reload needs no new variable
+        for line in ("header_up X-Forwarded-Proto {scheme}", "header_up X-Forwarded-For {remote_host}",
+                     "header_up -X-Forwarded-Host"):
+            assert line in text, (name, line)
+

@@ -260,20 +260,27 @@ check "TEST-P6-27 the verification mail reached the private file sink, not a pro
 page="$(curl -sk -c "$jar" -b "$jar" --resolve catalyst.staging.test:18443:127.0.0.1 "https://catalyst.staging.test:18443$dark_link")"
 version="$(grep -oE 'name="version" value="[^"]+"' <<<"$page" | head -1 | sed 's/.*value="//; s/"$//' || true)"
 csrf="$(grep -oE 'name="csrfmiddlewaretoken" value="[^"]+"' <<<"$page" | head -1 | sed 's/.*value="//; s/"$//' || true)"
-check "TEST-P6-27 the applicant confirms" bash -c "curl -sk -b '$jar' --resolve catalyst.staging.test:18443:127.0.0.1 \
-  -H 'Referer: https://catalyst.staging.test:18443$dark_link' -H 'Origin: https://catalyst.staging.test:18443' \
-  --data-urlencode 'csrfmiddlewaretoken=$csrf' --data-urlencode 'version=$version' \
-  https://catalyst.staging.test:18443$dark_link | grep -qi 'confirmed'"
+check "TEST-P6-27 the confirmation page offered its form" test -n "$version" -a -n "$csrf"
+answer="$(curl -sk -b "$jar" -w '\n%{http_code}' --resolve catalyst.staging.test:18443:127.0.0.1 \
+  -H "Referer: https://catalyst.staging.test:18443$dark_link" -H 'Origin: https://catalyst.staging.test:18443' \
+  --data-urlencode "csrfmiddlewaretoken=$csrf" --data-urlencode "version=$version" \
+  "https://catalyst.staging.test:18443$dark_link" || true)"
+check "TEST-P6-27 the applicant confirms (200, and the confirmed page's own sentence)" bash -c \
+  "[ \"\$(tail -1 <<<\"\$1\")\" = 200 ] && grep -q 'Your email address is confirmed' <<<\"\$1\"" _ "$answer"
 sleep 3  # the worker loop has had its turn: anything not held would have started
+# Every registered kind is counted except an explicit allow-list (the verification mail to the file sink, the session
+# clean-up), so a provider-reaching kind added later is covered without editing this check.
 dark="$(owner_run migrate python manage.py shell -c "
+from django.conf import settings
 from workflow.models import PendingAction as P
-outward = ['start_evidence_collection', 'fetch_evidence', 'run_assessment', 'interpret_message', 'issue_nda',
-           'create_agreement', 'distribute_agreement', 'send_message', 'send_staff_message', 'remind',
-           'provision_create', 'provision_invite', 'provision_revoke']
-print(P.objects.filter(kind='start_evidence_collection', status='held').count(),
-      P.objects.filter(kind__in=outward).exclude(status='held').count())" | tail -1 || true)"
-check "TEST-P6-27 the evidence collection is held until activation" test "${dark%% *}" = 1
-check "TEST-P6-27 no action that reaches a provider exists outside the held state" test "${dark##* }" = 0
+allowed = {'send_verification', 'clear_sessions'}
+registry = set(settings.CATALYST_ACTION_HANDLERS)
+print(int(allowed <= registry), P.objects.filter(kind='start_evidence_collection', status='held').count(),
+      P.objects.filter(kind__in=registry - allowed).exclude(status='held').count())" | tail -1 || true)"
+read -r allow_ok held_count others <<<"$dark"
+check "TEST-P6-27 control: the allow-list names registered kinds" test "${allow_ok:-}" = 1
+check "TEST-P6-27 the evidence collection is held until activation" test "${held_count:-}" = 1
+check "TEST-P6-27 no other registered action exists outside the held state" test "${others:-}" = 0
 
 # TEST-P6-15: the staff login needs the second factor, and a superuser gets no session at all.
 staff_url=https://staff.staging.test:18444

@@ -1351,29 +1351,48 @@ specification text; nothing is built.
   - an applicant goes through the real form;
   - the verification mail reaches the private file sink, not a provider;
   - the applicant confirms through the emailed link;
+  - the confirmation answers 200 with the confirmed page's own sentence;
   - the evidence collection that follows stays held until the owner's activation command (the held count is the
     control);
-  - no action that reaches a provider (evidence fetch, assessment, agreements, messages, reminders, provisioning)
-    exists in any state but held.
+  - every registered action kind except an explicit allow-list (the verification mail to the file sink and the
+    session clean-up) is held or absent, so a provider-reaching kind added later is covered without editing the check;
+  - "zero provider calls" rests on this together with the egress checks (TEST-P6-28 and 30).
 - **The cutover's route snippets** (`deploy/cutover/`), imported into the Learn site at cutover:
   - `catalyst-r1.caddy` holds the entry pages (the request form and its received page);
   - `catalyst-r2.caddy` holds the token return paths (confirmation, password setup, withdrawal).
 
-  Removing R1 alone is the R1 rollback; R2 stays while any v2 applicant holds a live link. `tests/test_cutover.py`
-  keeps R2 equal to `PRIVATE_PATHS`, R1 equal to the staging proxy's entry pages, and the two together equal to every
-  applicant route, with no staff or health path.
-- **TEST-P6-26, the rehearsal** (`scripts/cutover_rehearsal.sh`), 14 of 14 PASS twice. A stand-in Learn site in the
-  pinned Caddy fronts stand-in LMS and v2 upstreams, and the rehearsal shows:
+  Removing R1 alone is the R1 rollback; R2 stays while any v2 applicant holds a live link.
+  - **Upstream:** each snippet's upstream defaults to the v2 web socket, so reloading the live site needs no new
+    environment variable (Caddy reads one only at start).
+  - **Forwarded headers:** each sets `X-Forwarded-Proto` and `X-Forwarded-For` itself and drops `X-Forwarded-Host`,
+    as the staging proxy does.
+  - **Logging:** `catalyst-learn-log.caddy`, generated from `PRIVATE_PATHS`, is the Learn site's access log with
+    R2's token segments redacted.
+  - **Tests:** `tests/test_cutover.py` keeps R2 equal to `PRIVATE_PATHS`, R1 equal to the staging proxy's entry
+    pages, and the two together equal to every applicant route, with no staff or health path. It also pins the log
+    snippet to its rendering, and the upstream and forwarded-header lines.
+  - **Signing return:** section 9 lists a signing return path in R2. v2 has no signing return route, because
+    Documenso sends no applicant back to Catalyst, so R2 holds none. The owner confirms this with the cutover plan.
+- **TEST-P6-26, the rehearsal** (`scripts/cutover_rehearsal.sh`), 19 of 19 PASS twice. A stand-in Learn site in the
+  pinned Caddy, using the log snippet, fronts stand-in LMS and v2 upstreams, and the rehearsal shows:
+  - the snippets parse with no upstream variable set;
   - **before the switch**, every path is the LMS's;
   - **after the switch:**
-    - R1 and R2, with case and repeated-slash variants, reach v2;
-    - every LMS path, including near misses such as `/confirmation/`, `/setupwizard/` and `/request-accessible/`,
-      is still the LMS's and answers byte-identically;
+    - R1 and R2, with case, repeated-slash, encoded-letter and dot-segment variants, reach v2;
+    - v2 receives the forwarded scheme set by the snippet, and a client's spoofed one is overwritten;
+    - token paths sent in five forms never reach the Learn log, while the redacted form does (the control);
+    - every LMS path is still the LMS's and answers byte-identically, including near misses: `/confirmation/`,
+      `/setupwizard/`, `/request-accessible/`, `/request-access` without its slash, and a bare `/confirm`;
   - **after the R1 rollback:** R1 is the LMS's again, R2 stays on v2, and the LMS paths are still byte-identical;
   - **with both removed**, the site is exactly as before.
 
   Each change is a reload, never a restart.
-- **Stated limit:** the Learn site in the rehearsal is a synthetic stand-in. The live Learn configuration is read
-  (read-only), its hash recorded and its R2 paths checked for collisions only under the cutover plan, with the
-  owner's go, because it lives on the production host. The live site's log redaction for R2's token paths is part of
-  that plan.
+- **Stated limit, and the preconditions for the live switch:** the Learn site in the rehearsal is a synthetic
+  stand-in. The live Learn configuration lives on the production host, so it is read only under the cutover plan,
+  with the owner's go. That read must:
+  - record its hash, and check R1 and R2 for collisions with the LMS;
+  - confirm the snippets can be imported before any other `handle`, `route`, `rewrite` or `redir` that could match
+    their paths;
+  - confirm the import is a glob, which tolerates the removal of R1;
+  - confirm the site's `log` can be replaced by the log snippet, and the error log given the same filter;
+  - confirm the live Caddy version, and that no `trusted_proxies` setting lets a client's forwarded headers through.

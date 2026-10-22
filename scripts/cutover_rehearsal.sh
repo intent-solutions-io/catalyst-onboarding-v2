@@ -25,17 +25,18 @@ check() { local name="$1"; shift; if "$@"; then echo "PASS $name"; else echo "FA
 mkdir -p "$work/routes"
 docker network create "$net" >/dev/null
 # Stand-in upstreams: each answers with its own name and the path it received.
-for name in lms v2; do
-  label="$(tr a-z A-Z <<<"$name")"
-  docker run -d --name "$net-$name" --network "$net" --network-alias "$name" "$caddy_image" \
-    caddy respond --listen :8080 "$label {http.request.uri.path}" >/dev/null
-done
+docker run -d --name "$net-lms" --network "$net" --network-alias lms "$caddy_image" \
+  caddy respond --listen :8080 "LMS {http.request.uri.path}" >/dev/null
+# The v2 stand-in also echoes the forwarded scheme it received, to show the snippet sets it.
+docker run -d --name "$net-v2" --network "$net" --network-alias v2 "$caddy_image" \
+  caddy respond --listen :8080 "V2 {http.request.uri.path} proto={http.request.header.X-Forwarded-Proto}" >/dev/null
 # The stand-in Learn site: whatever route snippets are present, then everything else to the LMS.
 cat > "$work/Caddyfile" <<'CADDY'
 {
 	admin localhost:2019
 }
 :8080 {
+	import /etc/caddy/catalyst-learn-log.caddy
 	import /etc/caddy/routes/*.caddy
 	handle {
 		reverse_proxy lms:8080
@@ -43,13 +44,17 @@ cat > "$work/Caddyfile" <<'CADDY'
 }
 CADDY
 docker run -d --name "$net-learn" --network "$net" -p 127.0.0.1:18080:8080 -e CATALYST_UPSTREAM=v2:8080 \
-  -v "$work/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$work/routes:/etc/caddy/routes:ro" "$caddy_image" >/dev/null
+  -v "$work/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$work/routes:/etc/caddy/routes:ro" \
+  -v "$PWD/deploy/cutover/catalyst-learn-log.caddy:/etc/caddy/catalyst-learn-log.caddy:ro" "$caddy_image" >/dev/null
 for _ in $(seq 20); do curl -s -o /dev/null http://127.0.0.1:18080/ && break; sleep 0.5; done
 get() { curl -s --path-as-is "http://127.0.0.1:18080$1"; }
 reload() { docker exec "$net-learn" caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1; }
-LMS_PATHS=(/ /login/ /courses/intro/ /confirmation/ /setupwizard/ /withdrawal-policy/ /request-accessible/ /static/app.css)
+# Near misses stay the LMS's: a missing trailing slash, a bare prefix, look-alike paths.
+LMS_PATHS=(/ /login/ /courses/intro/ /confirmation/ /setupwizard/ /withdrawal-policy/ /request-accessible/ /static/app.css
+           /request-access /confirm /setup)
 R1=(/request-access/ /request-access/received/ /REQUEST-ACCESS/ //request-access/)
-R2=(/confirm/abc/ /setup/abc/ /withdraw/abc/ /CONFIRM/abc/ //setup/abc/)
+# Case, repeated slashes, an encoded letter and a dot segment: Caddy's path matcher normalizes all of them.
+R2=(/confirm/abc/ /setup/abc/ /withdraw/abc/ /CONFIRM/abc/ //setup/abc/ /%63onfirm/abc/ /x/../withdraw/abc/)
 snapshot() { for p in "${LMS_PATHS[@]}"; do printf '%s %s\n' "$p" "$(get "$p" | sha256sum | cut -c1-16)"; done; }
 all_to() {  # all_to <LMS|V2> <paths...>: every path is answered by that upstream
   local want="$1" p; shift
@@ -60,12 +65,26 @@ before="$(snapshot)"
 check "before the switch, the LMS answers every LMS path" all_to LMS "${LMS_PATHS[@]}"
 check "before the switch, R1 and R2 paths are the LMS's" all_to LMS "${R1[@]}" "${R2[@]}"
 
+check "the snippets parse with no CATALYST_UPSTREAM set (the reload of a live site sees no new variable)" \
+  docker run --rm -v "$PWD/deploy/cutover:/c:ro" "$caddy_image" sh -c \
+  'printf ":8080 {\n\timport /c/catalyst-learn-log.caddy\n\timport /c/catalyst-r1.caddy\n\timport /c/catalyst-r2.caddy\n}\n" > /tmp/C && caddy adapt --config /tmp/C >/dev/null 2>&1'
 cp deploy/cutover/catalyst-r1.caddy deploy/cutover/catalyst-r2.caddy "$work/routes/"
 check "the switch reloads cleanly" reload
 check "after the switch, R1 (with normalization variants) reaches v2" all_to V2 "${R1[@]}"
 check "after the switch, R2 (with normalization variants) reaches v2" all_to V2 "${R2[@]}"
 check "after the switch, every LMS path is still the LMS's" all_to LMS "${LMS_PATHS[@]}"
 check "after the switch, every LMS path answers byte-identically" test "$(snapshot)" = "$before"
+check "after the switch, v2 receives the forwarded scheme set by the snippet" bash -c "[[ \"\$(curl -s http://127.0.0.1:18080/confirm/abc/)\" == *'proto=http' ]]"
+check "after the switch, a client's spoofed X-Forwarded-Proto is overwritten" bash -c "[[ \"\$(curl -s -H 'X-Forwarded-Proto: https' http://127.0.0.1:18080/confirm/abc/)\" == *'proto=http' ]]"
+# The Learn log: token segments are redacted in every form a client can send.
+sentinel="SENTINEL$(head -c 9 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"
+for p in "/confirm/$sentinel/" "/SETUP/$sentinel/" "//withdraw/$sentinel/" "/%63onfirm/$sentinel/" "/confirm%2F$sentinel/"; do
+  curl -s --path-as-is -o /dev/null "http://127.0.0.1:18080$p"
+done
+sleep 1
+learn_log="$(docker logs "$net-learn" 2>&1)"
+check "the Learn log recorded those requests, redacted (the control)" grep -q '/confirm/REDACTED' <<<"$learn_log"
+check "no token reaches the Learn log, in any form" bash -c "! grep -q '$sentinel' <<<\"\$1\"" _ "$learn_log"
 
 rm "$work/routes/catalyst-r1.caddy"
 check "the R1 rollback reloads cleanly" reload
