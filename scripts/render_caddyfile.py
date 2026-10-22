@@ -129,7 +129,7 @@ def render() -> str:
 	}}
 }}
 
-{{$CATALYST_STAFF_HOST:staff.staging.test}} {{
+{{$CATALYST_STAFF_HOST:staff.staging.test}}:{{$CATALYST_STAFF_PORT:8444}} {{
 	bind {{$CATALYST_STAFF_BIND:127.0.0.1}}
 	import catalyst_site
 	request_body {{
@@ -148,6 +148,13 @@ def render() -> str:
 	handle {{
 		import catalyst_not_found
 	}}
+}}
+
+# Any other host name on either listener (an unknown name, the staff name on the public port, `localhost`) gets no
+# answer at all: Caddy would otherwise reply with an empty 200 (6B.5b staging check). Named sites take precedence.
+:443, :{{$CATALYST_STAFF_PORT:8444}} {{
+	tls internal
+	abort
 }}
 """
 

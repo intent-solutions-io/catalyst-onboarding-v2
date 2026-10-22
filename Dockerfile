@@ -19,6 +19,7 @@ COPY config/ config/
 COPY correspondence/ correspondence/
 COPY provisioning/ provisioning/
 COPY workflow/ workflow/
+COPY scripts/provision_db_roles.py scripts/provision_db_roles.py
 # Static files are collected at build time with throwaway values: collectstatic reads no secret and no database.
 RUN CATALYST_ENV=development CATALYST_SECRET_KEY=build-only-not-a-secret CATALYST_VERIFICATION_KEY=build-only-other \
     CATALYST_DB_NAME=x CATALYST_DB_USER=x CATALYST_DB_PASSWORD=x CATALYST_DB_HOST=x CATALYST_CHALLENGE_LIFETIME_SECONDS=3600 \
@@ -26,7 +27,12 @@ RUN CATALYST_ENV=development CATALYST_SECRET_KEY=build-only-not-a-secret CATALYS
 ARG CATALYST_COMMIT=unknown
 LABEL org.opencontainers.image.revision=$CATALYST_COMMIT \
       org.opencontainers.image.source=https://github.com/intent-solutions-io/catalyst-onboarding-v2
-RUN echo "$CATALYST_COMMIT" > /app/COMMIT && chmod -R a-w /app
+RUN echo "$CATALYST_COMMIT" > /app/COMMIT && chmod -R a-w /app \
+    && install -d -o catalyst -g catalyst -m 0750 /run/catalyst \
+    && install -d -o catalyst -g catalyst -m 0700 /var/lib/catalyst/mail \
+    && install -d -o catalyst -g catalyst -m 0755 /srv/static
+# Mount points (6B.5b): the web socket's directory, shared only with the proxy's group; the private file mail sink;
+# the static copy the proxy serves. A named volume takes these owners and modes on first use.
 USER catalyst
 # No --access-logfile: gunicorn writes no access log unless told to, and links carry bearer tokens (026 section 8).
 # --umask 0o117 (octal: gunicorn reads a bare 117 as decimal) makes the socket 0660 (the proxy's group only, 026 section 4); --worker-tmp-dir /dev/shm because the

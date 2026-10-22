@@ -18,7 +18,7 @@ def renderer():
 
 def site(text: str, host_variable: str) -> str:
     start = text.index("{$" + host_variable)
-    depth, i = 0, text.index("{", text.index("}", start) + 1)
+    depth, i = 0, text.index(" {\n", start) + 1  # the site block opens at the end of its address line
     for j in range(i, len(text)):
         depth += {"{": 1, "}": -1}.get(text[j], 0)
         if depth == 0:
