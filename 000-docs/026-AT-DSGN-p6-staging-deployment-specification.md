@@ -1146,3 +1146,39 @@ specification text; nothing is built.
   - a rotated role password takes effect, and the old one stops working.
 
   The webhook secrets' two-secret overlap is tested in `tests/test_agreement_completion.py`.
+
+**6B.11 (part 1), the live GATE-STAGING cases on the dev box (026 section 11; host go recorded on bead `9kg.20`).**
+
+- **`scripts/staging_check.sh`** runs these cases against the live stack. Each check has a positive control or an
+  exact signal, so it cannot pass because something unrelated failed. Status per case:
+
+  | Case | Status | What the live check shows |
+  |---|---|---|
+  | TEST-P6-02 | proven | `check --deploy` is clean under staging settings (W005 and W021 silenced, as section 8 decided) |
+  | TEST-P6-05 | partly | a second `migrate` applies nothing. Running as the owner, and readiness red while the schema is behind, are shown by `deploy_drill.sh` (the unmigrated release) |
+  | TEST-P6-06 | partly | a second provisioning run succeeds and reads its five roles back. Staging's credentials are random per run, never the test values |
+  | TEST-P6-07 | partly | with the database stopped, liveness answers 200 and readiness 503. Readiness recovers, with three answers in a row after the five-second cache. A wrong role is unit-tested |
+  | TEST-P6-12 | proven | variants of the staff, admin and health paths are refused by the public site, while a listed path is forwarded. Variants the proxy forwards (`/confirm/../staff/login/`, `/confirm/..%2fstaff/login/`) are refused by Django |
+  | TEST-P6-32 | proven | Django itself, reached through the socket with no proxy, refuses staff, admin and health paths and their variants on the public host name, and serves the staff login on the staff host |
+  | TEST-P6-14 | mostly | HSTS, the content security policy, the `__Host-` CSRF cookie (Secure, HttpOnly, SameSite=Lax), `no-store` on a token path, and a spoofed `X-Forwarded-Proto: http` overwritten. The session cookie's flags are unit-tested |
+  | TEST-P6-15 | partly | an enrolled staff account is refused with the password alone and with a wrong token, and signed in with both factors. A superuser is refused at the login form, with a message and no session. The named-device network restriction is a host item (staff publish address) |
+  | TEST-P6-16 | partly | the webhook is mounted neither at the proxy nor in Django. The enabled webhook's refusals and rotation are unit-tested |
+  | TEST-P6-28 | partly | web, worker and fetcher reach the database (the control) and nothing outside, refused by the network, not by an error; names do not resolve there. "No production secret" is shown by the secret checks (TEST-P6-04) |
+
+- **Superusers:** outside test and development, a superuser account is refused at the staff login form, and
+  `accounts.staff_access` ends any superuser session as a backstop. The owner works through `manage.py`. Unit tests
+  cover both.
+- **Found while making the checks honest:** each web worker caches its readiness answer for up to five seconds, so
+  just after an outage one worker can still answer 503 while another answers 200. This is the designed behaviour, and
+  the reason the deploy smoke polls rather than sampling once.
+- **Earlier checks in the same script** cover TEST-P6-01 (in part), 04, 11, 13 and 33. TEST-P6-08 to 10, 24 and 25
+  are covered by `scripts/deploy_drill.sh` with the estate wrapper; TEST-P6-36 by the rotation tests, and TEST-P6-37
+  by the image workflow.
+- **Result:** 98 of 98 PASS, in three consecutive runs.
+- **Still to come in 6B.11 to 6B.13:**
+  - the fetcher's egress proxy (TEST-P6-30);
+  - alerts and the dead man to Buzz (TEST-P6-17 to 20, 38);
+  - the backup and restore drill (TEST-P6-21 to 23, 29, 35);
+  - a dark deploy with data (TEST-P6-27);
+  - the cutover rehearsal (TEST-P6-26);
+  - the webhook enabled, and its replay (TEST-P6-16 and 34, at the unit level today).
