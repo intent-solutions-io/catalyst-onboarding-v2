@@ -31,12 +31,32 @@ def test_6b8_the_committed_caddyfile_is_exactly_the_rendering():
     assert committed == renderer().render(), "run `python scripts/render_caddyfile.py --write` after a route change"
 
 
-def test_6b8_token_paths_are_skipped_from_every_log_and_match_the_redaction_list():
+def test_6b8_token_segments_are_redacted_in_every_log_including_errors():
     module = renderer()
     assert module.PRIVATE_PATHS == PRIVATE_PATHS  # the proxy and the application never drift
     text = module.render()
-    assert f"@private_paths path {' '.join(p + '*' for p in PRIVATE_PATHS)}" in text
-    assert text.count("import catalyst_logs") == 2 and "log_skip @private_paths" in text  # both sites
+    pattern = module.redaction_pattern()
+    assert text.count(f"request>uri regexp {pattern} /$1/REDACTED") == 2  # the default (error) log and each site's
+    assert "log default {" in text and "log_skip" not in text  # lines kept for the audit trail, tokens removed
+    for path in PRIVATE_PATHS:
+        for variant in (f"{path}SENTINEL-TOKEN", f"/{path}SENTINEL-TOKEN", f"{path.upper()}SENTINEL-TOKEN"):
+            redacted = re.sub(pattern.replace("(?i)", ""), r"/\1/REDACTED", variant, flags=re.I)
+            assert "SENTINEL-TOKEN" not in redacted, variant
+
+
+def test_6b8_every_token_bearing_route_is_a_private_path():
+    from django.urls import get_resolver
+
+    def walk(patterns, prefix=""):
+        for entry in patterns:
+            route = prefix + str(entry.pattern)
+            if hasattr(entry, "url_patterns"):
+                yield from walk(entry.url_patterns, route)
+            else:
+                yield "/" + route
+    token_routes = [r for r in walk(get_resolver().url_patterns) if "<str:token>" in r]
+    assert token_routes, "the walk found no token routes"
+    assert all(r.startswith(PRIVATE_PATHS) for r in token_routes), token_routes
 
 
 def test_6b8_the_public_site_serves_only_the_applicant_routes():
@@ -45,19 +65,32 @@ def test_6b8_the_public_site_serves_only_the_applicant_routes():
     assert allowed == ["/request-access/", "/request-access/received/", *(p + "*" for p in PRIVATE_PATHS)]
     for absent in ("/staff", "/admin", "/healthz", "/readyz", "/static", "/hooks"):
         assert absent not in public
-    assert "respond 404" in public and "max_size 128KB" in public
+    assert "import catalyst_not_found" in public and "max_size 128KB" in public
 
 
 def test_6b8_the_staff_site_binds_privately_and_carries_only_staff_and_static():
     staff = site(renderer().render(), "CATALYST_STAFF_HOST")
     assert "bind {$CATALYST_STAFF_BIND:127.0.0.1}" in staff  # a tailnet address in staging, never all interfaces
-    assert "@staff path /staff /staff/*" in staff and "handle_path /static/*" in staff and "respond 404" in staff
+    assert "@staff path /staff /staff/*" in staff and "handle_path /static/*" in staff and "import catalyst_not_found" in staff
     for absent in ("/healthz", "/readyz", "/request-access", "/confirm"):
         assert absent not in staff
 
 
-def test_6b8_the_forwarded_headers_are_overwritten_and_there_is_no_webhook_site():
+def test_6b8_caddy_trusts_no_proxy_and_sets_the_forwarded_values_itself():
     text = renderer().render()
-    assert "header_up X-Forwarded-Proto {scheme}" in text and "header_up -X-Forwarded-Host" in text
-    assert "unix//run/catalyst/web.sock" in text and "admin off" in text
+    assert "trusted_proxies" not in text  # the edge: no client's forwarded headers are believed
+    assert "header_up X-Forwarded-Proto {scheme}" in text and "header_up X-Forwarded-For {remote_host}" in text
+    assert "header_up -X-Forwarded-Host" in text and "unix//run/catalyst/web.sock" in text
+
+
+def test_6b8_caddy_responses_carry_safe_headers_and_slow_clients_time_out():
+    text = renderer().render()
+    for line in ("?X-Content-Type-Options nosniff", "?Referrer-Policy no-referrer", "-Server", "header_down -Server",
+                 "header Cache-Control no-store", "read_header 10s", "read_body 30s", "idle 2m", "hide .*"):
+        assert line in text, line
+    assert "Never import it into the shared estate Caddyfile" in text  # a dedicated staging instance (admin off)
+
+
+def test_6b8_there_is_no_webhook_site():
+    text = renderer().render()
     assert "documenso" not in text.lower() and "/hooks/" not in text  # not mounted until the pilot (P6-D-4)

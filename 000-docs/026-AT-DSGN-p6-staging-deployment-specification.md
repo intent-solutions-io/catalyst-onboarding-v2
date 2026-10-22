@@ -783,21 +783,37 @@ specification text; nothing is built.
 - **The public site** serves only the applicant routes: the request form, its received page, and the
   confirmation, password and withdrawal links. Every other path on the public host is a 404, so the staff screens,
   the admin, the health paths and any webhook never answer there; `HostGuard` refuses them too.
-- **Logs:** the token paths, generated from `config.redaction.PRIVATE_PATHS`, are skipped from the access log on
-  both sites.
+- **Logs:** in every log line, the error log and the default logger included, the token segment of a private path
+  (generated from `config.redaction.PRIVATE_PATHS`) is replaced with `REDACTED`. The pattern ignores case and repeated
+  slashes. Lines are kept for the audit trail.
 - **Request size:** request bodies are capped (128 KB public, 1 MB staff).
-- **Headers:** `X-Forwarded-Proto` is set by the proxy (never passed through), and the client's
-  `X-Forwarded-Host` and `X-Forwarded-For` are dropped. The upstream is the web process's unix socket, and the
-  admin API is off.
+- **Headers:** Caddy is the edge and trusts no proxy. It sets `X-Forwarded-Proto` and `X-Forwarded-For` (the real
+  peer address, for throttling) itself and drops the client's `X-Forwarded-Host`. Its own responses carry
+  set-if-absent `nosniff` and `no-referrer`, no `Server` header, and `no-store` on the 404.
+- **The proxy instance:** the upstream is the web process's unix socket, with connection timeouts against slow
+  clients. This is a dedicated staging instance with its admin API off (a change means a restart). It is never
+  imported into the shared estate Caddyfile.
+- **Certificates:** `tls internal` uses Caddy's own root. Only staging devices install it, its key stays on the
+  host, and it is never used for production names.
 - **The staff site** binds to a private address (the tailnet address on the staging host, never all interfaces)
   and carries only the staff screens and the admin's static files.
 - **Webhook:** there is no webhook site; it is not mounted until the pilot (P6-D-4).
 - **Guards:** they refuse a staff host that is also a local health host (from the PR #63 review).
+- **After the security review of PR #69** (two HIGH, seven MEDIUM):
+  - tokens are redacted in every log rather than skipped from the access log alone (a 502 from the proxy logs the
+    full URI to the error log);
+  - there are no trusted proxies;
+  - the real client address is passed;
+  - Caddy-generated responses carry safe headers;
+  - there are timeouts, and hidden dotfiles under `/static`;
+  - the renderer checks its prefixes;
+  - a URLconf walk proves every token route is a private path.
 - **Validation:** `caddy validate` (as an ordinary user) accepts the file.
 - **Not proven here, carried to 6B.11 against the running stack:** what Caddy does with real requests:
   - path normalization variants;
-  - a forged `X-Forwarded-Proto`, and `Host: localhost` sent to the public listener;
-  - sentinel tokens absent from every log.
+  - a forged `X-Forwarded-Proto` from a private address, and `Host: localhost` sent to the public listener;
+  - sentinel tokens absent from every log, including after a 502 with the socket down;
+  - the actual listening addresses, with a preflight that refuses `0.0.0.0`, `::` or an empty staff bind.
 - **Evidence:** `tests/test_staging_proxy.py` (the rendering, the log skip matching `PRIVATE_PATHS`, the public
   allow-list, the staff site, the headers and the absence of a webhook) and the overlap test in
   `tests/test_startup.py`.
