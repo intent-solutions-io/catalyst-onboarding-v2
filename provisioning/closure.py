@@ -170,11 +170,13 @@ def ensure_revocations(request, actor_ref: str) -> None:
     core.record(request.application, "provisioning_revocation_requested", {"request": str(request.public_id)}, actor_ref)
 
 
-def _queue_round(request, due_in=None) -> None:
+def _queue_round(request, due_in=None) -> bool:
+    """Queue one revocation round unless one is already queued; True when it queued one."""
     if PendingAction.objects.filter(kind=REVOKE, input_ref=str(request.public_id), status=Status.QUEUED).exists():
-        return
+        return False
     n = PendingAction.objects.filter(kind=REVOKE, input_ref=str(request.public_id)).count()
     core.enqueue(REVOKE, request, f"revoke:{request.public_id}:{n}", due_in=due_in)
+    return True
 
 
 FINAL = ("verified", "applied_unverified", "not_applicable", "exception")

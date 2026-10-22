@@ -723,21 +723,32 @@ specification text; nothing is built.
   - a target at other migrations is refused;
   - a failed backup leaves nothing that looks usable.
 
-**6B.7b, the post-restore step (026 section 6 steps 4 and 5).**
+**6B.7b, the post-restore step (026 section 6 steps 4, 5 and 7).**
 
-- **`manage.py catalyst_post_restore`** (`config/post_restore.py`) runs as the owner after `catalyst_restore` and
-  before any worker or web process starts. It refuses unless the restore hold is present and `--confirm-database`
-  names the database. In one transaction it:
-  - closes every outstanding applicant link: unused confirmation links, open password links (a password set in
-    flight becomes "outcome unknown", never replayed) and open withdrawal links;
-  - ends every staff session;
-  - lets every action that was running expire its lease, so the ledger recovers it through its own path, where a
-    non-repeatable action is reconciled, never repeated;
+- **`manage.py catalyst_post_restore`** (`config/post_restore.py`) runs as the owner after `catalyst_restore`. It
+  refuses unless the restore hold is present and `--confirm-database` names the database. It runs in two phases,
+  and **neither the web nor the worker process starts until both have run** (this corrects step 4 above, which
+  started web first).
+- **The review run** (no `--lift`), in one transaction:
+  - closes every outstanding applicant link (unused confirmation links, open password links, open withdrawal links)
+    and opens a staff item for each applicant left without one;
+  - turns a password set that was in flight into "outcome unknown", with a staff item to send a fresh link through
+    the existing reissue path;
+  - **makes every staff password unusable and ends every staff session,** so staff disabled or re-keyed after T
+    never return. The owner checks the roster and re-issues passwords (`manage.py changepassword`);
+  - lets every running action expire its lease;
   - queues a revocation round for every stopped request whose access removal is not complete;
-  - reports, as counts per kind, the queued actions that reach the outside world (the handlers that are not
-    redeliverable).
-
-  A person checks those against the providers, then runs it again with `--lift` to remove the hold.
+  - reports every queued or running action that reaches the outside world (the non-redeliverable kinds plus the
+    redeliverable ones that still send mail, call a model or fetch), per kind and status, with action ids;
+  - records on the hold that the review happened.
+- **The lift run** (`--lift`) refuses unless a review run happened and the operator confirms `--outward-checked`
+  and `--no-closures-after-backup`.
+- **Stated limits,** which is why lifting needs those two confirmations:
+  - **Expiring a lease** makes the ledger run the action again. A handler reconciles instead of repeating only
+    where the restored record shows its exchange began. An exchange after T leaves no mark, so the operator must
+    check the reported actions against the providers and cancel any already done.
+  - **A closure after T** is not in the restored database at all, so its access removal cannot be found here. The
+    operator confirms there was none, or removes that access again by hand.
 - **Not here: erasure replay** (P6-D-13 option d). Erasure itself does not exist yet (POL-10). The bead
   "Replay erasures after a restore before any real personal data is backed up" must land before the pilot.
 - **Carried from the review of PR #67:**
@@ -751,9 +762,15 @@ specification text; nothing is built.
   - **If moving files into place fails after the commit,** the database is loaded and held. Copy the remaining
     files from the set's `custody/` directory and run `verify_custody_restore --manifest` before the post-restore
     step.
+- **After the QA review of PR #68** (four HIGH, five MEDIUM): staff passwords, the two lift confirmations, staff
+  items for stranded applicants and stranded setup requests, the report's scope and ids, an accurate revocation
+  count, and the negative-control tests.
 - **Evidence:** `tests/test_post_restore.py`:
-  - links, sessions and running actions reset (a password link from before the restore now gets 404);
-  - unused confirmation links closed and staff signed out;
-  - a new revocation round for unfinished access removal;
-  - the outward-action report, with work resuming only after `--lift`;
+  - the 026 section 6 step 7 negative control: a confirmation link and a password link that worked before the step
+    are refused after it, and staff items are opened;
+  - staff passwords and sessions from before the restore never return;
+  - withdrawal links close, and an in-flight password set becomes unknown;
+  - unfinished access removal gets exactly one new round, even across runs;
+  - the report lists queued and running outward actions with ids, and running ones are recovered;
+  - lifting needs a review run and both confirmations, after which work resumes;
   - a refusal without a hold or a named database.
