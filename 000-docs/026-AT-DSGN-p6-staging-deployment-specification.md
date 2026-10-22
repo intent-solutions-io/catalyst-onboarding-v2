@@ -891,21 +891,30 @@ specification text; nothing is built.
   and two racing checks still complete collection exactly once.
 - **Grants** (`assessments` 0009): the fetcher reads the application, the item and its source, and pauses. It writes
   the item's result, a capture, history events, the evidence staff item, its own action's progress and the
-  completion request. It may lock an application row but never change it. It has no access to submissions,
+  completion request. It reads three application columns (never contact details), and may lock an application
+  row but never change it. It has no access to submissions,
   inbound mail, questions, assessment runs, staff, sessions, two-factor, agreements, provisioning or outbound mail.
 - **Pinned writes:** a trigger per write refuses, for a session in the fetcher role:
-  - any pending-action insert but a fresh, queued completion request, so it cannot queue a send for the worker to
-    run;
+  - any pending-action insert but a completion request exactly as the fetch makes it (due now, its key and version
+    naming a real evidence item of that application), so it cannot queue a send for the worker to run or squat a
+    real request;
   - any update but to a live `fetch_evidence` action, so it cannot revive or cancel another action;
   - any change to an application;
   - a change to an evidence item that is no longer pending;
   - a history event or staff item of a kind the fetch never writes.
+- **Stated residual:** the fetcher is the process that produces fetch results, so a compromised fetcher can record
+  a forged result for any item still pending (it can always claim that item's fetch first). It cannot touch a
+  finished item, another kind of action, an application, or anything outside the evidence path. Captures keep the
+  peer address and digests, and staff review every assessment. The process-role check is a misconfiguration guard;
+  the controls are the grants, the triggers and the custody of the fetcher's password, which only the fetcher's
+  container mounts (6B.5b).
 - **Evidence:** `tests/test_fetcher_role.py`:
   - real fetches through the worker command, connected as the fetcher role, with completion run by the worker:
     success with collection completed and the assessment queued, plus a retried 503, a 403 and a 404;
   - the role refused on ten statements outside its grant;
-  - a compromised fetcher refused when it tries to queue a send or an assessment, revive a finished action, move or
-    touch an application, change a finished item, forge a history event or staff item, or read submissions, mail or
+  - a compromised fetcher refused when it tries to queue a send or an assessment, squat a completion request with
+    another key, version or junk, revive a finished action, move or touch an application, change a finished item,
+    forge a history event or staff item, read an applicant's contact details, or read submissions, mail or
     assessment runs;
   - a fetcher process refused as the application role, or with another kind selected, and an ordinary worker refused
     as the fetcher role.

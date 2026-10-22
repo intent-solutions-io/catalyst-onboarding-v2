@@ -5,9 +5,14 @@ It reads the application, the item and its source, and pauses; it records the it
 history events, the evidence staff item and its own action's progress; and it asks the worker to check completion.
 Completion itself (the stage, the assessment run, the snapshot) is the worker's (`complete_evidence_collection`).
 
+Stated residual: the fetcher is the process that produces fetch results, so a compromised fetcher can record a
+forged result for any item still pending (it can always claim that item's fetch first). It cannot touch a finished
+item, another kind of action, an application, or anything outside the evidence path; captures keep the peer address
+and digests, and staff review every assessment.
+
 Grants alone cannot say *which* rows or values, so a trigger refuses, for a session in the fetcher role:
-- a pending action insert other than a fresh, queued completion request, and an update to any action but a live
-  `fetch_evidence` (no other kind, no revived finished row);
+- a pending action insert other than a completion request exactly as the fetch makes it (naming a real item of
+  that application), and an update to any action but a live `fetch_evidence` (no other kind, no revived row);
 - any change to an application (it may only lock the row: a row lock needs an UPDATE grant);
 - a change to an evidence item that is no longer pending;
 - a history event or staff item of a kind the fetch never writes.
@@ -24,7 +29,8 @@ EVENT_KINDS = ("evidence_observed", "evidence_item_refused", "evidence_item_unav
 STAFF_ITEM_KINDS = ("evidence_collection_failed",)
 
 forward, reverse = apply_grants({
-    "applications_application": {"fetcher": ["SELECT", "UPDATE (updated_at)"]},  # the row lock only (trigger)
+    # Three columns, never contact details; UPDATE only so the row can be locked (the trigger refuses any change).
+    "applications_application": {"fetcher": ["SELECT (id, public_ref, stage)", "UPDATE (updated_at)"]},
     "applications_applicationevent": {"fetcher": ["SELECT", "INSERT"]},
     "assessments_evidencecapture": {"fetcher": ["SELECT", "INSERT"]},
     "assessments_evidenceitem": {"fetcher": ["SELECT", "UPDATE (status, reason_code, finished_at, updated_at)"]},
@@ -37,8 +43,14 @@ forward, reverse = apply_grants({
 })
 
 TRIGGERS = (  # (table, events, condition under which a fetcher session is refused)
+    # A completion request exactly as request_completion makes it: due now, default attempts, and its key and version
+    # naming a real evidence item of that application, so a squatted request is identical to the real one.
     ("workflow_pendingaction", "INSERT", "NOT (NEW.kind = 'complete_evidence_collection' AND NEW.status = 'queued'"
-     " AND NEW.attempts = 0 AND NEW.lease_token IS NULL AND NEW.subject_type = 'application')"),
+     " AND NEW.attempts = 0 AND NEW.max_attempts = 3 AND NEW.lease_token IS NULL AND NEW.due_at <= statement_timestamp()"
+     " AND NEW.subject_type = 'application' AND NEW.input_ref ~ '^[0-9]+$' AND EXISTS (SELECT 1 FROM"
+     " public.assessments_evidenceitem i JOIN public.applications_application a ON a.id = i.application_id"
+     " WHERE a.public_ref = NEW.subject_id AND i.adopted_version_id = NEW.input_ref::bigint"
+     " AND NEW.idempotency_key = 'complete_evidence_collection:' || i.public_id::text))"),
     ("workflow_pendingaction", "UPDATE", "NOT (OLD.kind = 'fetch_evidence' AND OLD.status IN ('queued', 'running'))"),
     ("applications_application", "UPDATE", "true"),
     ("assessments_evidenceitem", "UPDATE", "OLD.status <> 'pending'"),

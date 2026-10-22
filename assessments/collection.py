@@ -41,6 +41,8 @@ FETCH = "fetch_evidence"
 # 9kg.24: completion (018 step 3) runs in the worker, never in the fetcher, whose role can move no stage and queue
 # no assessment. The fetcher only asks for it, once per finished item; the check itself is idempotent.
 COMPLETE = "complete_evidence_collection"
+# The only application columns the fetch path reads: the fetcher role may read no others (no contact details).
+APPLICATION_FIELDS = ("id", "public_ref", "stage")
 CLAIM_KINDS = {"work": "work_sample_page", "credential": "credential_verification"}
 
 
@@ -142,10 +144,10 @@ class _ApplicationAction:
     redeliverable = True
 
     def lock_subject(self, claim) -> None:
-        Application.objects.select_for_update(of=("self",)).filter(public_ref=claim.subject_id).first()
+        Application.objects.only(*APPLICATION_FIELDS).select_for_update(of=("self",)).filter(public_ref=claim.subject_id).first()
 
     def record(self, claim, kind, data) -> None:
-        application = Application.objects.filter(public_ref=claim.subject_id).first()
+        application = Application.objects.only(*APPLICATION_FIELDS).filter(public_ref=claim.subject_id).first()
         if application is not None:
             event(application, kind, data, actor_ref=f"pending_action:{claim.id}")
             if kind == "action_attempts_exhausted" or (kind == "action_failed" and data.get("final")):
@@ -226,7 +228,8 @@ class CompleteEvidenceCollection(_ApplicationAction):
                 ledger.finish(claim, self, status=Status.QUEUED, error="automation_paused", refund_attempt=True,
                               due_in=timedelta(seconds=settings.CATALYST_WORKER_POLL_SECONDS))
                 return
-            version = SubmissionVersion.objects.filter(pk=int(claim.input_ref), application=application).first()
+            version = (SubmissionVersion.objects.filter(pk=int(claim.input_ref), application=application).first()
+                       if claim.input_ref.isdigit() else None)
             if version is None:
                 ledger.finish(claim, self, status=Status.FAILED, error="version_not_found")
                 return
@@ -247,7 +250,7 @@ class FetchEvidence(_ApplicationAction):
 
     def lock_subject(self, claim) -> None:
         """Application, then the item (018 section 4)."""
-        application = Application.objects.select_for_update(of=("self",)).filter(public_ref=claim.subject_id).first()
+        application = Application.objects.only(*APPLICATION_FIELDS).select_for_update(of=("self",)).filter(public_ref=claim.subject_id).first()
         if application is not None:
             EvidenceItem.objects.select_for_update(of=("self",)).filter(public_id=claim.input_ref, application=application).first()
 
@@ -281,7 +284,7 @@ class FetchEvidence(_ApplicationAction):
         self._record(claim, result)
 
     def check(self, claim):
-        application = Application.objects.filter(public_ref=claim.subject_id).first()
+        application = Application.objects.only(*APPLICATION_FIELDS).filter(public_ref=claim.subject_id).first()
         item = (EvidenceItem.objects.select_related("source").filter(public_id=claim.input_ref).first()
                 if application else None)
         if application is None or item is None or item.application_id != application.pk:
@@ -308,7 +311,7 @@ class FetchEvidence(_ApplicationAction):
 
     def _terminal(self, claim, status, reason, ledger_status=Status.DONE) -> None:
         def write():
-            application = Application.objects.get(public_ref=claim.subject_id)
+            application = Application.objects.only(*APPLICATION_FIELDS).get(public_ref=claim.subject_id)
             item = EvidenceItem.objects.get(public_id=claim.input_ref)
             if item.status == Item.PENDING and application.stage == Stage.EVIDENCE:
                 self._terminal_write(application, item, status, reason)
@@ -316,7 +319,7 @@ class FetchEvidence(_ApplicationAction):
 
     def _record(self, claim, result) -> None:
         def write():
-            application = Application.objects.get(public_ref=claim.subject_id)
+            application = Application.objects.only(*APPLICATION_FIELDS).get(public_ref=claim.subject_id)
             item = EvidenceItem.objects.select_related("source").get(public_id=claim.input_ref)
             if item.status != Item.PENDING or application.stage != Stage.EVIDENCE:
                 return  # decided meanwhile: the observation is not recorded against a finished slot

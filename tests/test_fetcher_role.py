@@ -96,7 +96,7 @@ def test_9kg24_the_fetcher_role_records_retries_refusals_and_missing_pages(ev, s
     "UPDATE applications_applicationevent SET kind = kind", "DELETE FROM assessments_evidencecapture",
     "INSERT INTO workflow_automationpause (subject_type, subject_id, reason, actor_ref, created_at)"
     " VALUES ('system', gen_random_uuid(), 'x', 'x', now())",
-    "UPDATE applications_application SET email = email",
+    "UPDATE applications_application SET email = email", "SELECT * FROM applications_application",
 ])
 def test_9kg24_the_fetcher_role_reaches_nothing_else(p2, statement):
     fetcher = p2.committed.connect("fetcher", autocommit=True)
@@ -142,11 +142,20 @@ def test_9kg24_a_compromised_fetcher_cannot_queue_replay_or_move_anything_outsid
     assert done is not None and done.status == "done"
     fetcher = ev.committed.connect("fetcher", autocommit=True)
     fresh = "INSERT INTO workflow_pendingaction (kind, subject_type, subject_id, input_ref, idempotency_key, status," \
-            " due_at, attempts, max_attempts, last_error, created_at, updated_at) VALUES (%s, 'application', %s, '', %s," \
+            " due_at, attempts, max_attempts, last_error, created_at, updated_at) VALUES (%s, 'application', %s, %s, %s," \
             " 'queued', now(), 0, 3, '', now(), now())"
-    _refused(fetcher, fresh, ["send_message", app.public_ref, "forged-send"])  # no other kind, ever
-    _refused(fetcher, fresh, ["run_assessment", app.public_ref, "forged-run"])
-    fetcher.execute(fresh, ["complete_evidence_collection", app.public_ref, "a-completion-request"])  # its one insert
+    [item] = items(app)
+    version, real_key = str(item.adopted_version_id), f"complete_evidence_collection:{item.public_id}"
+    _refused(fetcher, fresh, ["send_message", app.public_ref, "", "forged-send"])  # no other kind, ever
+    _refused(fetcher, fresh, ["run_assessment", app.public_ref, "", "forged-run"])
+    # A completion request must be exactly the real one: a squat with another key or version, or junk, is refused.
+    _refused(fetcher, fresh, ["complete_evidence_collection", app.public_ref, version, "complete_evidence_collection:x"])
+    _refused(fetcher, fresh, ["complete_evidence_collection", app.public_ref, "999999", real_key])
+    _refused(fetcher, fresh, ["complete_evidence_collection", app.public_ref, "not-a-number", real_key])
+    with pytest.raises(errors.UniqueViolation):  # the real shape passes the trigger; it was already requested
+        fetcher.execute(fresh, ["complete_evidence_collection", app.public_ref, version, real_key])
+    _refused(fetcher, "SELECT email FROM applications_application")  # three columns only, never contact details
+    assert fetcher.execute("SELECT stage FROM applications_application WHERE id = %s", [app.pk]).fetchone()[0] == "assessing"
     _refused(fetcher, "UPDATE workflow_pendingaction SET status = 'queued', attempts = 0 WHERE id = %s", [done.pk])
     _refused(fetcher, "UPDATE workflow_pendingaction SET status = 'queued' WHERE kind = 'fetch_evidence'"
                       " AND status = 'done'")  # not even its own finished fetch
