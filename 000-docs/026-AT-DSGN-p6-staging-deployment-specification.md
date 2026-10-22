@@ -529,4 +529,3 @@ specification text; nothing is built.
   - the cookie and HSTS values, read from a staging process;
   - a production link host refused in staging;
   - local environments keep plain cookies but still time out.
-
