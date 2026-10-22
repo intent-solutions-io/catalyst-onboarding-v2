@@ -114,6 +114,16 @@ def main() -> int:
                 database, sql.SQL(", ").join(sql.Identifier(name) for name in roles)))
             conn.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
         problems = check(conn, list(roles), next(iter(roles)) if environment != "staging" else None)
+        if environment == "staging":  # read the database grants back (PR #72 review)
+            name, owner = os.environ["CATALYST_DB_NAME"], next(iter(roles))
+            if conn.execute("SELECT has_database_privilege('public', %s, 'CONNECT')", [name]).fetchone()[0]:
+                problems.append("PUBLIC may still connect")
+            if not all(conn.execute("SELECT has_database_privilege(%s, %s, 'CONNECT')", [role, name]).fetchone()[0]
+                       for role in roles):
+                problems.append("a Catalyst role cannot connect")
+            if any(conn.execute("SELECT has_schema_privilege(%s, 'public', 'CREATE')", [role]).fetchone()[0]
+                   for role in roles if role != owner):
+                problems.append("a role other than the owner may create in public")
         if problems:
             print("provision_db_roles: " + "; ".join(problems), file=sys.stderr)
             return 3

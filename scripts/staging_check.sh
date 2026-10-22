@@ -89,7 +89,7 @@ mounted() { docker exec "$("${compose[@]}" ps -q "$1")" ls /run/secrets | sort |
 check "web mounts only its own secrets" test "$(mounted web)" = "db_password secret_key verification_key "
 check "fetcher mounts only its own secrets" test "$(mounted fetcher)" = "db_password secret_key "
 check "/run/catalyst is 0750 and the socket 0660, both group 10001" test "$(docker exec "$("${compose[@]}" ps -q web)" stat -c '%a %g' /run/catalyst /run/catalyst/web.sock | tr '\n' ' ')" = "750 10001 660 10001 "
-check "the proxy cannot replace the socket" bash -c "! docker exec $("${compose[@]}" ps -q proxy) rm -f /run/catalyst/web.sock 2>/dev/null"
+check "the proxy cannot replace the socket" bash -c "! docker exec $("${compose[@]}" ps -q proxy) rm -f /run/catalyst/web.sock 2>/dev/null && docker exec $("${compose[@]}" ps -q web) test -S /run/catalyst/web.sock"
 check "the mail sink is 0700" test "$(docker exec "$("${compose[@]}" ps -q worker)" stat -c '%a' /var/lib/catalyst/mail)" = 700
 
 code() {  # code <host> <address> <port> <path>: the HTTP status, or 000 when there was no HTTP answer
