@@ -876,3 +876,27 @@ specification text; nothing is built.
   - the break-glass reset leaves nothing from before it working;
   - the requirement holds in staging (a fresh staging process), is fixed in code, and the middleware order is
     pinned.
+
+**9kg.24, the fetcher's own database role (026 P6-D-14).**
+
+- **Role:** a fifth login role, `catalyst_fetcher`, provisioned like the others by `scripts/provision_db_roles.py`
+  (staging reads `fetcher_password` from the secrets directory).
+- **Connection check:** a worker started with `CATALYST_PROCESS_ROLE=fetcher` must connect as exactly that role, and
+  may not be a member of the application, owner or retention role. An ordinary worker may not borrow the fetcher's
+  login.
+- **Kinds:** the fetcher runs only `fetch_evidence` and refuses to start with any other kind selected.
+- **Grants** (`assessments` 0009), traced from every statement the fetch handler issued across the evidence and
+  assessment suites (138 tests):
+  - reads of the application, its adopted submission, the sources, and the confirmed answers (questions, their
+    reply links and inbound messages), which freezing the assessment snapshot reads;
+  - writes to the evidence item's status, new captures, history events and staff items;
+  - the application's stage, and a new assessment run, when the last fetch completes collection;
+  - its own pending actions.
+  - Nothing else: no staff, session, two-factor, agreement, provisioning or outbound-mail table, and no change to
+    history.
+- **Evidence:** `tests/test_fetcher_role.py`:
+  - real fetches through the worker command, connected as the fetcher role: success with collection completed and
+    the assessment queued, plus a retried 503, a 403 and a 404;
+  - the role refused on ten statements outside its grant;
+  - a fetcher process refused as the application role, or with another kind selected, and an ordinary worker refused
+    as the fetcher role.

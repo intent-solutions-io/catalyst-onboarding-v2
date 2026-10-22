@@ -56,6 +56,7 @@ jobs:
       CATALYST_DB_APP_PASSWORD: synthetic-ci-app-only
       CATALYST_DB_RETENTION_PASSWORD: synthetic-ci-retention-only
       CATALYST_DB_BACKUP_PASSWORD: synthetic-ci-backup-only
+      CATALYST_DB_FETCHER_PASSWORD: synthetic-ci-fetcher-only
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

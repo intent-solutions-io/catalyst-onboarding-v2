@@ -25,6 +25,7 @@ PASSWORDS = {
     "app": os.environ["CATALYST_DB_APP_PASSWORD"],
     "retention": os.environ["CATALYST_DB_RETENTION_PASSWORD"],
     "backup": os.environ["CATALYST_DB_BACKUP_PASSWORD"],
+    "fetcher": os.environ["CATALYST_DB_FETCHER_PASSWORD"],
 }
 SECRETS = [*PASSWORDS.values(), os.environ["CATALYST_DB_ADMIN_PASSWORD"]]
 # Trigger inventory (003 ADR-14): append-only on versions and events (2), no-truncate on versions, events,
@@ -756,13 +757,13 @@ def test_6b6_the_backup_role_can_read_but_never_change_history(connect):
     refused(backup, "SELECT session_key FROM django_session")
 
 
-NO_PASSWORDS = {f"CATALYST_DB_{k}_PASSWORD": None for k in ("OWNER", "APP", "RETENTION", "BACKUP", "ADMIN")}
+NO_PASSWORDS = {f"CATALYST_DB_{k}_PASSWORD": None for k in ("OWNER", "APP", "RETENTION", "BACKUP", "FETCHER", "ADMIN")}
 
 
 def staging_secret_files(tmp_path):
     directory = tmp_path / "secrets"
     directory.mkdir()
-    for key in ("owner", "app", "retention", "backup", "admin"):
+    for key in ("owner", "app", "retention", "backup", "fetcher", "admin"):
         (directory / f"{key}_password").write_text(os.environ[f"CATALYST_DB_{key.upper()}_PASSWORD"] + "\n")
     return directory
 
@@ -786,13 +787,13 @@ def test_6b6_staging_provisioning_succeeds_from_files_and_stores_only_password_h
         result = run(script, CATALYST_ENV="staging", CATALYST_SECRETS_DIR=str(staging_secret_files(tmp_path)),
                      **NO_PASSWORDS, **admin)
         assert result.returncode == 0, result.stderr
-        assert "4 roles ready" in result.stdout
+        assert "5 roles ready" in result.stdout
         with psycopg.connect(host=connection.settings_dict["HOST"], port=connection.settings_dict["PORT"],
                              dbname=connection.settings_dict["NAME"], user=os.environ["CATALYST_DB_ADMIN_USER"],
                              password=os.environ["CATALYST_DB_ADMIN_PASSWORD"], autocommit=True) as conn:
             stored = conn.execute("SELECT rolname, rolpassword, rolcreatedb FROM pg_authid WHERE rolname = ANY(%s)",
                                   [list(ROLES.values())]).fetchall()
-        assert len(stored) == 4 and all(p.startswith("SCRAM-SHA-256$") for _, p, _ in stored)  # never the clear text
+        assert len(stored) == 5 and all(p.startswith("SCRAM-SHA-256$") for _, p, _ in stored)  # never the clear text
         assert not any(createdb for *_, createdb in stored)  # staging's owner creates no databases
     finally:  # back to the test cluster's own provisioning (the owner needs CREATEDB for the restore rehearsal)
         restored = run(script, CATALYST_ENV="test", **admin, CATALYST_DB_ADMIN_PASSWORD=os.environ["CATALYST_DB_ADMIN_PASSWORD"])

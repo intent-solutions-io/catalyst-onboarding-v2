@@ -58,6 +58,7 @@ APPROVED_MIGRATIONS = {
     ("otp_totp", "0001_initial"), ("otp_totp", "0002_auto_20190420_0723"), ("otp_totp", "0003_add_timestamps"),
     ("otp_static", "0001_initial"), ("otp_static", "0002_throttling"), ("otp_static", "0003_add_timestamps"),
     ("accounts", "0004_login_throttle"), ("accounts", "0005_two_factor_grants"),
+    ("assessments", "0009_fetcher_role_grants"),  # 9kg.24: the evidence fetcher's own narrower role
 }
 
 

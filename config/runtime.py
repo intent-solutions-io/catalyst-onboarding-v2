@@ -29,22 +29,28 @@ def process_kind() -> str:
 
 def role_problems(cursor, kind: str, roles) -> list[str]:
     """No process may connect as a superuser; a web or worker process must connect as exactly the
-    application role, which must not be a member of the owner or retention role. `cursor` is any DB-API
-    cursor with %s parameters (Django's or psycopg's)."""
+    application role, and the fetcher (a worker with CATALYST_PROCESS_ROLE=fetcher, 9kg.24) as exactly the fetcher
+    role; neither may be a member of the owner or retention role, nor the fetcher of the application role. `cursor`
+    is any DB-API cursor with %s parameters (Django's or psycopg's)."""
+    from django.conf import settings
+
+    fetcher = kind == "worker" and getattr(settings, "CATALYST_PROCESS_ROLE", "") == "fetcher"
+    expected_key = "fetcher" if fetcher else "app"
     cursor.execute(
-        "SELECT current_user, rolsuper, pg_has_role(current_user, %s, 'MEMBER'), pg_has_role(current_user, %s, 'MEMBER')"
-        " FROM pg_catalog.pg_roles WHERE rolname = current_user",
-        [roles["owner"], roles["retention"]],
+        "SELECT current_user, rolsuper, pg_has_role(current_user, %s, 'MEMBER'), pg_has_role(current_user, %s, 'MEMBER'),"
+        " pg_has_role(current_user, %s, 'MEMBER') FROM pg_catalog.pg_roles WHERE rolname = current_user",
+        [roles["owner"], roles["retention"], roles["app"]],
     )
-    user, is_superuser, owner_member, retention_member = cursor.fetchone()
+    user, is_superuser, owner_member, retention_member, app_member = cursor.fetchone()
     problems = []
     if is_superuser:
         problems.append(f"connects as superuser {user!r}")
     if kind in ENFORCED_KINDS:
-        if user != roles["app"]:
-            problems.append(f"{kind} process connects as {user!r}, not the application role {roles['app']!r}")
-        elif owner_member or retention_member:
-            problems.append(f"the application role {user!r} is a member of the owner or retention role")
+        name = "the fetcher role" if fetcher else "the application role"
+        if user != roles[expected_key]:
+            problems.append(f"{kind} process connects as {user!r}, not {name} {roles[expected_key]!r}")
+        elif owner_member or retention_member or (fetcher and app_member):
+            problems.append(f"{name} {user!r} is a member of a broader role")
     return problems
 
 

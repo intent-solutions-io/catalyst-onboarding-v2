@@ -222,7 +222,7 @@ def protection_state(conn):
         " has_table_privilege(r.role, t.oid, 'DELETE'), has_table_privilege(r.role, t.oid, 'TRUNCATE')"
         " FROM (SELECT tablename, ('public.' || quote_ident(tablename))::regclass AS oid FROM pg_tables"
         "       WHERE schemaname = 'public') t CROSS JOIN unnest(%s::text[]) AS r(role) ORDER BY 1, 2",
-        [[roles["app"], roles["retention"], roles["backup"]]],
+        [[roles["app"], roles["retention"], roles["backup"], roles["fetcher"]]],
     ).fetchall()
     return triggers, privileges
 
