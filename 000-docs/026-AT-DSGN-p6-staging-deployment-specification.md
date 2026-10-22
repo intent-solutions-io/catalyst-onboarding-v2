@@ -573,9 +573,19 @@ specification text; nothing is built.
   - the oldest due action still queued (moved here from readiness, 6B.3), and running actions whose lease expired
     long ago;
   - agreements in an uncertain or failed state, and custody failures;
-  - provisioning requests needing attention, uncertain credential setups and open revocation obligations;
+  - provisioning still settling (an uncertain create or verify, a found mailbox), any open provisioning staff item
+    (it clears when staff resolve it), and a revocation round that never ran;
   - hard bounces unresolved past a target.
 - The thresholds are configurable placeholders until POL-16 (P6-D-9).
+- After the QA review of PR #64 (two HIGH, four MEDIUM):
+  - terminal provisioning states no longer alert forever; the open staff item is the signal, and it clears when
+    staff resolve it;
+  - every failure of the check itself, including a malformed report, exits 2 and never 1;
+  - the heartbeat also beats on every lease renewal, so a long action is not reported dead;
+  - staging requires a heartbeat file;
+  - tests now cover each signal both firing and clearing, with a real leak check on seeded applicant data.
+- **Runbook note:** a stopped worker (a deploy, for example) leaves the heartbeat to age; the alert fires only past
+  twice the lease.
 - **Evidence:** `tests/test_system_health.py`:
   - the heartbeat's atomic write and failure tolerance, and the worker beating;
   - a quiet system reported healthy, with counts only;

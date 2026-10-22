@@ -163,6 +163,9 @@ def fence(claim: Claim) -> None:
     fenced = PendingAction.objects.filter(pk=claim.id, status=Status.RUNNING, lease_token=claim.lease_token)
     if fenced.update(lease_expires_at=Now() + lease, updated_at=Now()) != 1:
         raise LeaseLost
+    from workflow import heartbeat
+
+    heartbeat.beat(settings.CATALYST_WORKER_HEARTBEAT_FILE)  # a long action that renews its lease is alive (6B.4)
 
 
 def fail_or_retry(claim: Claim, handler, error: str, write=None) -> bool:

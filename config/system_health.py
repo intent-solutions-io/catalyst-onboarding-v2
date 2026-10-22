@@ -58,21 +58,25 @@ def agreement_health() -> dict:
     return {"uncertain": uncertain, "failed": failed, "custody_failed": custody_failed, "anomalies": anomalies}
 
 
-PROVISIONING_ATTENTION = ("create_uncertain", "verify_uncertain", "found_by_evidence", "failed_needs_staff", "conflict",
-                          "recovered_after_stop")
-SETUP_ATTENTION = ("invitation_uncertain", "invitation_failed", "set_uncertain")
+# In-flight states only: an outcome the system is still settling. Terminal states (a conflict, a failure, a mailbox
+# recovered after a stop) are not counted here: staff see them as open provisioning items, which close when staff
+# resolve them, so the alert clears too (PR #64 review).
+PROVISIONING_IN_FLIGHT = ("create_uncertain", "verify_uncertain", "found_by_evidence")
 
 
 def provisioning_health() -> dict:
-    from provisioning.models import AccessRevocation, CredentialSetup, ProvisioningRequest
+    from correspondence.models import StaffItem
+    from provisioning.models import AccessRevocation, ProvisioningRequest
 
-    requests = ProvisioningRequest.objects.filter(status__in=PROVISIONING_ATTENTION).count()
-    setups = CredentialSetup.objects.filter(state__in=SETUP_ATTENTION).count()
-    revocations = AccessRevocation.objects.filter(state__in=("pending", "unsupported")).count()
-    anomalies = [name for name, count in (("provisioning_needs_attention", requests), ("credential_setup_uncertain", setups),
-                                          ("revocation_open", revocations)) if count]
-    return {"requests_needing_attention": requests, "setups_uncertain": setups, "revocations_open": revocations,
-            "anomalies": anomalies}
+    settling = ProvisioningRequest.objects.filter(status__in=PROVISIONING_IN_FLIGHT).count()
+    items = StaffItem.objects.filter(status=StaffItem.Status.OPEN, reason_code__startswith="provisioning_").count()
+    # A revocation round that never ran: an obligation still "requested" long after it was created. ("pending" and
+    # "unsupported" rows keep a staff item open, counted above; "applied_unverified" is final by design, 023 11.6.)
+    stalled_cutoff = timezone.now() - timedelta(seconds=settings.CATALYST_HEALTH_PENDING_AGE_SECONDS)
+    stalled = AccessRevocation.objects.filter(state="requested", created_at__lt=stalled_cutoff).count()
+    anomalies = [name for name, count in (("provisioning_settling", settling), ("provisioning_items_open", items),
+                                          ("revocation_stalled", stalled)) if count]
+    return {"requests_settling": settling, "items_open": items, "revocations_stalled": stalled, "anomalies": anomalies}
 
 
 def bounce_health() -> dict:

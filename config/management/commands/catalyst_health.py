@@ -12,16 +12,18 @@ from config import system_health
 
 class Command(BaseCommand):
     help = "Report Catalyst health; exit status 1 on any anomaly, 2 when the check itself fails."
+    requires_system_checks = []  # a failing system check must surface as exit 2 from this command, not as exit 1
 
     def handle(self, *args, **options):
-        try:
+        try:  # everything, so any failure of the check itself is exit 2, never a finding (PR #64 review)
             report = system_health.report()
-        except Exception as exc:  # the check failed: never reported as a finding
+            anomalies = sorted(f"{part}.{name}" for part, values in report.items() for name in values["anomalies"])
+            report["anomalies"] = anomalies
+            report["generated_at"] = datetime.now(timezone.utc).isoformat()
+            output = json.dumps(report, sort_keys=True, default=str)
+        except Exception as exc:
             self.stderr.write(f"health check failed: {type(exc).__name__}")
             raise SystemExit(2) from None
-        anomalies = sorted(f"{part}.{name}" for part, values in report.items() for name in values["anomalies"])
-        report["anomalies"] = anomalies
-        report["generated_at"] = datetime.now(timezone.utc).isoformat()
-        self.stdout.write(json.dumps(report, sort_keys=True, default=str))
+        self.stdout.write(output)
         if anomalies:
             raise SystemExit(1)
