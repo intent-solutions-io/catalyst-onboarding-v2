@@ -691,6 +691,25 @@ specification text; nothing is built.
     manifest, and restores the custody files into an empty directory.
   - It records the **restore hold**: a database row the worker ledger honours by claiming nothing until the
     post-restore step lifts it.
+- **After the security review of PR #67** (one BLOCKER, three HIGH, six MEDIUM):
+  - **A restore never touches a database in use or not named.** It requires `--confirm-database` to match, refuses
+    while another session is connected or the core tables hold rows, and sets a lock timeout.
+  - **A tampered set cannot write elsewhere.** Every custody key must have the safe shape. The set's tables must
+    equal the target's. The set must be private with no links. The manifest can also be checked against a digest
+    given on the command line.
+  - **A database error prints only its class and code,** never the row it quoted.
+  - **The hold is checked inside the claim query, and a trigger refuses the application role any change to it.**
+    Tests show that nothing is claimed while it is present, at the worker level and for a staff-initiated kind,
+    and that it is claimable once the owner lifts it.
+  - **The custody copy and restore are safer:**
+    - the custody files are copied after the snapshot, with an idle-transaction timeout and a wall-clock deadline;
+    - every file and directory is fsynced before the rename;
+    - the restore stages and verifies the files before the load and moves them after the commit;
+    - every loaded table is re-checked before the hold is written;
+    - a hold already in the set is tolerated.
+  - **The receipt carries no counts.** The command prints only the set's name and the manifest digest.
+  - **Recorded:** the hold does not gate the web process. A restored database serves no web traffic until the
+    post-restore step has run.
 - **Not in 6B.7a:**
   - the post-restore step itself (6B.7b): invalidating links and sessions, revocation rounds, reconciliation, and
     lifting the hold;

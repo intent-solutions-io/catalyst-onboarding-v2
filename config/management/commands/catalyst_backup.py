@@ -43,4 +43,7 @@ class Command(BaseCommand):
         except backup.BackupError as exc:
             self.stderr.write(f"backup refused: {exc}")
             raise SystemExit(1) from None
-        self.stdout.write(json.dumps(receipt, sort_keys=True))
+        except psycopg.Error as exc:  # its detail can quote a row: only the class and the code (PR #67 review)
+            self.stderr.write(f"backup failed: {type(exc).__name__} {exc.sqlstate or ''}".rstrip())
+            raise SystemExit(1) from None
+        self.stdout.write(json.dumps({"name": receipt["name"], "manifest_sha256": receipt["manifest_sha256"]}))

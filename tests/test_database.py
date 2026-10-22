@@ -24,6 +24,7 @@ APPROVED_MIGRATIONS = {
     ("auth", "0011_update_proxy_permissions"), ("auth", "0012_alter_user_first_name_max_length"),
     ("accounts", "0001_initial"), ("accounts", "0002_role_grants"),
     ("workflow", "0001_initial"), ("workflow", "0002_role_grants"), ("workflow", "0003_backup_role_reads"),  # 6B.6
+    ("workflow", "0004_restore_hold_protection"),  # 6B.7a
     ("applications", "0001_initial"), ("applications", "0002_history_protection"),
     ("applications", "0003_protect_version_adoption"),
     ("correspondence", "0001_initial"), ("correspondence", "0002_role_grants"),
