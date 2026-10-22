@@ -18,16 +18,36 @@ def tables(schema_editor):
         return [name for (name,) in cursor.fetchall() if name not in EXCLUDED]
 
 
+def sequences(schema_editor):
+    """pg_dump reads each sequence's value, so the backup role needs SELECT on them too (PR #66 review)."""
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute("SELECT sequencename FROM pg_sequences WHERE schemaname = current_schema() ORDER BY 1")
+        return [name for (name,) in cursor.fetchall()]
+
+
+def backup_role(schema_editor) -> str:
+    name = settings.CATALYST_DB_ROLES["backup"]
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", [name])
+        if cursor.fetchone() is None:
+            raise RuntimeError(f"the backup role {name!r} does not exist: run scripts/provision_db_roles.py, then migrate")
+    return schema_editor.quote_name(name)
+
+
 def grant(apps, schema_editor):
-    role = schema_editor.quote_name(settings.CATALYST_DB_ROLES["backup"])
+    role = backup_role(schema_editor)
     for table in tables(schema_editor):
         schema_editor.execute(f"GRANT SELECT ON TABLE {schema_editor.quote_name(table)} TO {role}")
+    for sequence in sequences(schema_editor):  # SELECT only: no USAGE or UPDATE, so it can never draw or set one
+        schema_editor.execute(f"GRANT SELECT ON SEQUENCE {schema_editor.quote_name(sequence)} TO {role}")
 
 
 def revoke(apps, schema_editor):
-    role = schema_editor.quote_name(settings.CATALYST_DB_ROLES["backup"])
+    role = backup_role(schema_editor)
     for table in tables(schema_editor):
         schema_editor.execute(f"REVOKE ALL ON TABLE {schema_editor.quote_name(table)} FROM {role}")
+    for sequence in sequences(schema_editor):
+        schema_editor.execute(f"REVOKE ALL ON SEQUENCE {schema_editor.quote_name(sequence)} FROM {role}")
 
 
 class Migration(migrations.Migration):

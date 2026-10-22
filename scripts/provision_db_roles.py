@@ -51,11 +51,33 @@ def password(key: str, environment: str) -> str:
     return value
 
 
+def check(conn, names: list[str], createdb_role: str | None) -> list[str]:
+    """What the docstring promises, read back from the catalogue (PR #66 review): no superuser, no role creation, no
+    replication, no RLS bypass, every role can log in, CREATEDB only for the test owner, and no memberships."""
+    problems = []
+    rows = conn.execute("SELECT rolname, rolsuper, rolcreaterole, rolreplication, rolbypassrls, rolcanlogin, rolcreatedb"
+                        " FROM pg_roles WHERE rolname = ANY(%s)", [names]).fetchall()
+    for name, superuser, createrole, replication, bypassrls, login, createdb in rows:
+        if superuser or createrole or replication or bypassrls or not login or createdb != (name == createdb_role):
+            problems.append(f"role {name} has unexpected attributes")
+    members = conn.execute("SELECT count(*) FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.member"
+                           " WHERE r.rolname = ANY(%s)", [names]).fetchone()[0]
+    if members:
+        problems.append("a Catalyst role is a member of another role")
+    return problems
+
+
 def main() -> int:
     environment = os.environ.get("CATALYST_ENV", "")
     if environment not in ENVIRONMENTS:
         print(f"provision_db_roles: only for CATALYST_ENV in {', '.join(ENVIRONMENTS)}", file=sys.stderr)
         return 2
+    if environment == "staging":  # refuse every password in the environment before reading any file
+        named = [f"CATALYST_DB_{k.upper()}_PASSWORD" for k in (*KEYS, "admin")]
+        present = [name for name in named if name in os.environ]
+        if present:
+            print(f"provision_db_roles: {', '.join(present)} may not be in the environment in staging", file=sys.stderr)
+            return 2
     roles = {
         os.environ.get(f"CATALYST_DB_{key.upper()}_ROLE", DEFAULT_NAMES[key]): (
             password(key, environment), ["CREATEDB"] if key == "owner" and environment != "staging" else [])
@@ -66,6 +88,9 @@ def main() -> int:
         dbname=os.environ["CATALYST_DB_NAME"], user=os.environ["CATALYST_DB_ADMIN_USER"],
         password=password("admin", environment), autocommit=True,
     ) as conn:
+        # The statements below carry password hashes; keep them out of the server log either way (PR #66 review).
+        conn.execute("SET log_statement = 'none'")
+        conn.execute("SET log_min_error_statement = 'panic'")
         for name, (secret, extra) in roles.items():
             exists = conn.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", [name]).fetchone()
             attributes = sql.SQL(" ").join(
@@ -73,7 +98,13 @@ def main() -> int:
                 + [sql.SQL(a) for a in (extra or ["NOCREATEDB"])]
             )
             verb = sql.SQL("ALTER ROLE") if exists else sql.SQL("CREATE ROLE")
-            conn.execute(sql.SQL("{} {} WITH {} PASSWORD {}").format(verb, sql.Identifier(name), attributes, sql.Literal(secret)))
+            # Hashed here, so the clear password never reaches the server, its log or pg_stat_activity (PR #66 review).
+            verifier = conn.pgconn.encrypt_password(secret.encode(), name.encode(), b"scram-sha-256").decode()
+            conn.execute(sql.SQL("{} {} WITH {} PASSWORD {}").format(verb, sql.Identifier(name), attributes, sql.Literal(verifier)))
+        problems = check(conn, list(roles), next(iter(roles)) if environment != "staging" else None)
+        if problems:
+            print("provision_db_roles: " + "; ".join(problems), file=sys.stderr)
+            return 3
         print(f"provision_db_roles: {len(roles)} roles ready: {', '.join(sorted(roles))}")
     return 0
 

@@ -753,13 +753,66 @@ def test_6b6_the_backup_role_can_read_but_never_change_history(connect):
     refused(backup, "SELECT session_key FROM django_session")
 
 
+NO_PASSWORDS = {f"CATALYST_DB_{k}_PASSWORD": None for k in ("OWNER", "APP", "RETENTION", "BACKUP", "ADMIN")}
+
+
+def staging_secret_files(tmp_path):
+    directory = tmp_path / "secrets"
+    directory.mkdir()
+    for key in ("owner", "app", "retention", "backup", "admin"):
+        (directory / f"{key}_password").write_text(os.environ[f"CATALYST_DB_{key.upper()}_PASSWORD"] + "\n")
+    return directory
+
+
 def test_6b6_staging_provisioning_takes_passwords_only_from_files(tmp_path):
-    env = {"CATALYST_ENV": "staging", "CATALYST_SECRETS_DIR": str(tmp_path)}
-    refused_env = run([sys.executable, "scripts/provision_db_roles.py"], **env, CATALYST_DB_APP_PASSWORD="in-the-env")
-    assert refused_env.returncode != 0 and "may not be in the environment in staging" in refused_env.stderr + refused_env.stdout
-    missing = run([sys.executable, "scripts/provision_db_roles.py"], **env, CATALYST_DB_OWNER_PASSWORD=None,
-                  CATALYST_DB_APP_PASSWORD=None, CATALYST_DB_RETENTION_PASSWORD=None, CATALYST_DB_BACKUP_PASSWORD=None)
+    script = [sys.executable, "scripts/provision_db_roles.py"]
+    env = {"CATALYST_ENV": "staging", "CATALYST_SECRETS_DIR": str(tmp_path), **NO_PASSWORDS}
+    refused_env = run(script, **{**env, "CATALYST_DB_APP_PASSWORD": "in-the-env"})  # only the app password is set
+    output = refused_env.stderr + refused_env.stdout
+    assert refused_env.returncode != 0 and "CATALYST_DB_APP_PASSWORD may not be in the environment in staging" in output
+    missing = run(script, **env)
     assert missing.returncode != 0 and "owner_password cannot be read" in missing.stderr + missing.stdout
-    production = run([sys.executable, "scripts/provision_db_roles.py"], CATALYST_ENV="production")
+    production = run(script, CATALYST_ENV="production")
     assert production.returncode == 2 and "only for CATALYST_ENV in development, test, staging" in production.stderr
 
+
+def test_6b6_staging_provisioning_succeeds_from_files_and_stores_only_password_hashes(tmp_path):
+    script = [sys.executable, "scripts/provision_db_roles.py"]
+    admin = {"CATALYST_DB_ADMIN_USER": os.environ["CATALYST_DB_ADMIN_USER"]}
+    try:
+        result = run(script, CATALYST_ENV="staging", CATALYST_SECRETS_DIR=str(staging_secret_files(tmp_path)),
+                     **NO_PASSWORDS, **admin)
+        assert result.returncode == 0, result.stderr
+        assert "4 roles ready" in result.stdout
+        with psycopg.connect(host=connection.settings_dict["HOST"], port=connection.settings_dict["PORT"],
+                             dbname=connection.settings_dict["NAME"], user=os.environ["CATALYST_DB_ADMIN_USER"],
+                             password=os.environ["CATALYST_DB_ADMIN_PASSWORD"], autocommit=True) as conn:
+            stored = conn.execute("SELECT rolname, rolpassword, rolcreatedb FROM pg_authid WHERE rolname = ANY(%s)",
+                                  [list(ROLES.values())]).fetchall()
+        assert len(stored) == 4 and all(p.startswith("SCRAM-SHA-256$") for _, p, _ in stored)  # never the clear text
+        assert not any(createdb for *_, createdb in stored)  # staging's owner creates no databases
+    finally:  # back to the test cluster's own provisioning (the owner needs CREATEDB for the restore rehearsal)
+        restored = run(script, CATALYST_ENV="test", **admin, CATALYST_DB_ADMIN_PASSWORD=os.environ["CATALYST_DB_ADMIN_PASSWORD"])
+        assert restored.returncode == 0, restored.stderr
+
+
+@pytest.mark.django_db
+def test_6b6_the_backup_role_reads_every_sequence_and_can_never_draw_or_set_one():
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT sequencename, has_sequence_privilege(%s, schemaname || '.' || sequencename, 'SELECT'),"
+                       " has_sequence_privilege(%s, schemaname || '.' || sequencename, 'USAGE'),"
+                       " has_sequence_privilege(%s, schemaname || '.' || sequencename, 'UPDATE')"
+                       " FROM pg_sequences WHERE schemaname = 'public'", [ROLES["backup"]] * 3)
+        rows = cursor.fetchall()
+    assert rows and all(select and not usage and not update for _, select, usage, update in rows)
+
+
+def test_6b6_reversing_the_grant_migration_revokes_and_reapplying_restores_it(connect):
+    owner = connect("owner", autocommit=True)
+    can = lambda: owner.execute("SELECT has_table_privilege(%s, 'applications_application', 'SELECT')",
+                                [ROLES["backup"]]).fetchone()[0]
+    assert can()
+    manage_as_owner("migrate", "workflow", "0002", "--verbosity", "0")
+    assert not can()
+    manage_as_owner("migrate", "--verbosity", "0")
+    assert can()
