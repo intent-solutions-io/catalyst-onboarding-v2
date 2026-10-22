@@ -1106,3 +1106,22 @@ specification text; nothing is built.
   - the deploy force-command, which accepts a commit, runs the verification and then predeploy;
   - the wrapper's stack entry;
   - wiring a failed receipt into the alert floor.
+
+**6B.10a, the secret rotation runbook (026 section 5; P6-D-15).**
+
+- **The runbook** is `027`: per secret class, the routine procedure, the leak procedure and what users notice; the
+  rules (a leaked key is never a fallback, one class at a time, a record without values); intervals are the owner's.
+- **Leak tooling:** `manage.py catalyst_close_links --confirm-database <name>` (owner) closes every outstanding
+  applicant link record and opens a staff item for each applicant left waiting, labelled as a rotation. It reuses the
+  post-restore step's link closing (`config.post_restore.close_outstanding_links`, now shared), and it refuses while
+  any fallback key is configured, so the leak procedure cannot be finished half-way.
+- **Evidence:** `tests/test_secret_rotation.py`:
+  - a routine link-key rotation keeps links in hand working while the old key is a fallback, and ends them when it
+    goes;
+  - after a leak, links signed with the leaked key fail at once, and every outstanding one is closed with a staff
+    item to reissue, so not even the leaked key opens it again;
+  - closing refuses while a fallback remains, or for another database;
+  - rotating the Django key ends every staff session;
+  - a rotated role password takes effect, and the old one stops working.
+
+  The webhook secrets' two-secret overlap is tested in `tests/test_agreement_completion.py`.
