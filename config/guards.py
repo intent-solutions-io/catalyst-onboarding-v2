@@ -323,6 +323,9 @@ def host_problems(settings) -> list[str]:
             host = host.lower().rstrip(".")
             if host in ("*", "") or host.startswith(".") or (public and host == public):
                 problems.append(f"{name} may not be a wildcard, a domain pattern or the public host")
+    local = {h.lower().rstrip(".") for h in getattr(settings, "CATALYST_LOCAL_HOSTS", []) or []}
+    if staff and staff in local:  # health would then answer on the staff host (PR #63 review)
+        problems.append("CATALYST_STAFF_HOST may not also be one of CATALYST_LOCAL_HOSTS")
     return problems
 
 

@@ -298,3 +298,8 @@ def test_6b5_review_the_web_process_never_runs_as_the_fetcher_or_without_a_signi
     unknown = run(CHECK, **{**STAGING, "CATALYST_PROCESS_ROLE": "superuser"})
     assert unknown.returncode != 0 and "CATALYST_PROCESS_ROLE must be one of" in unknown.stderr
 
+
+def test_6b8_the_staff_host_is_never_also_a_local_health_host():
+    result = run(CHECK, **{**STAGING, "CATALYST_LOCAL_HOSTS": "localhost,staff.staging.test"})
+    assert result.returncode != 0 and "may not also be one of CATALYST_LOCAL_HOSTS" in result.stderr
+
