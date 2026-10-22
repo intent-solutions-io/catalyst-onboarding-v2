@@ -42,6 +42,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "config.redaction.PrivateConfirmationResponses",  # outermost: covers responses built outside the view
     "django.middleware.security.SecurityMiddleware",
+    "config.security_headers.ContentSecurityPolicy",  # 6B.2: Django has no CSP of its own
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -50,6 +51,12 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 SECURE_REFERRER_POLICY = "no-referrer"  # no page needs to tell another site where a visitor came from
+# Pinned rather than left to Django's defaults, so an upgrade cannot loosen them (PR #61 review).
+X_FRAME_OPTIONS = "DENY"
+SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SESSION_COOKIE_SAMESITE = CSRF_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_HTTPONLY = True
 ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {

@@ -524,7 +524,18 @@ specification text; nothing is built.
     deliberately (P6-D-3);
   - CSRF trusted origins limited to the public base URL.
 - Staging links may not name a production host (`intentsolutions.io` or a subdomain), closing the PR #59 LOW item.
-- **Evidence:** `tests/test_startup.py`:
+- **After the security review of PR #61** (no blocker or high; five medium):
+  - every response gets a Content-Security-Policy (`config/security_headers.py`): same-origin only, inline styles
+    but no inline script, no framing, plugins, base rewriting or cross-site form posts; the audited PDF download
+    keeps its stricter sandbox;
+  - framing, opener, no-sniff and SameSite values are pinned rather than left to Django's defaults;
+  - staging refuses a wildcard or production entry in `ALLOWED_HOSTS` and any host name that is not plain ASCII;
+  - behaviour tests read real responses (`tests/test_web_security.py`);
+  - moved to their tasks: proof that the proxy header cannot be forged (6B.5 and 6B.8), and an absolute session
+    lifetime with scheduled session clean-up (6B.9).
+- **Evidence:** `tests/test_web_security.py` (redirects and exempt health paths, HSTS only over https, cookie
+  attributes, CSP and framing headers, no session for an anonymous page, an idle session refused) and
+  `tests/test_startup.py`:
   - `manage.py check --deploy --fail-level WARNING` is clean under staging settings;
   - the cookie and HSTS values, read from a staging process;
   - a production link host refused in staging;

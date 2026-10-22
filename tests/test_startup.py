@@ -165,3 +165,12 @@ def test_6b2_local_environments_keep_plain_cookies_but_still_idle_out():
     assert result.returncode == 0, result.stderr
     assert result.stdout.split() == ["sessionid", "False", "1800"]
 
+
+
+def test_6b2_review_staging_refuses_wildcard_production_and_look_alike_hosts():
+    for hosts in ("*", ".intentsolutions.io", "catalyst.staging.test,learn.intentsolutions.io"):
+        result = run(CHECK, **{**STAGING, "CATALYST_ALLOWED_HOSTS": hosts})
+        assert result.returncode != 0 and "ALLOWED_HOSTS in staging may not include" in result.stderr, hosts
+    look_alike = "https://learn.intentsolutions。io"  # an ideographic full stop for the last dot
+    result = run(CHECK, **{**STAGING, "CATALYST_PUBLIC_BASE_URL": look_alike})
+    assert result.returncode != 0
