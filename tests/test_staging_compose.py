@@ -79,8 +79,11 @@ def test_6b5b_the_socket_is_shared_only_with_the_proxy_and_only_the_proxy_has_an
     s = definition["services"]
     sharing = [name for name, svc in s.items() if any(v.startswith("catalyst-run:") for v in svc.get("volumes", []))]
     assert sorted(sharing) == ["proxy", "web"]
-    assert s["proxy"]["group_add"] == ["10001"] and s["proxy"]["cap_drop"] == ["ALL"]
-    assert s["proxy"]["cap_add"] == ["NET_BIND_SERVICE"] and s["proxy"]["read_only"] is True
+    proxy = s["proxy"]
+    assert proxy["user"] == "10001:10001" and proxy["cap_drop"] == ["ALL"] and proxy["cap_add"] == ["NET_BIND_SERVICE"]
+    assert proxy["read_only"] is True  # no-new-privileges would stop the binary's file capability from running it
+    assert "catalyst-run:/run/catalyst:ro" in proxy["volumes"]  # it connects to the socket, never replaces it
+    assert s["fetcher"]["networks"] == ["backend"]  # internal only: its egress is the host proxy's (6B.11), never a bridge
     assert definition["networks"]["backend"] == {"internal": True}  # web, worker, fetcher and db reach nothing outside
     assert [n for n, svc in s.items() if "edge" in svc.get("networks", [])] == ["proxy"]
     assert s["collect-static"]["network_mode"] == "none"
@@ -90,17 +93,32 @@ def test_6b5b_the_socket_is_shared_only_with_the_proxy_and_only_the_proxy_has_an
 def test_6b5b_the_staff_site_is_published_only_on_a_named_private_address():
     proxy = services()["proxy"]
     public, staff = proxy["ports"]
-    assert public == "${CATALYST_PUBLIC_PUBLISH:?}:${CATALYST_PUBLIC_PORT:-443}:443"
+    assert public == "${CATALYST_PUBLIC_PUBLISH:?}:${CATALYST_PUBLIC_PORT:-443}:8443"
     assert staff.startswith("${CATALYST_STAFF_PUBLISH:?") and staff.endswith("}:${CATALYST_STAFF_PORT:-443}:8444")  # no default address
     caddyfile = (ROOT / "deploy" / "staging" / "Caddyfile").read_text()
     assert "{$CATALYST_STAFF_HOST:staff.staging.test}:{$CATALYST_STAFF_PORT:8444}" in caddyfile
-    assert ":443, :{$CATALYST_STAFF_PORT:8444} {\n\ttls internal\n\tabort\n}" in caddyfile  # unknown hosts: no answer
+    assert ":{$CATALYST_HTTPS_PORT:443} {\n\ttls internal\n\tabort\n}" in caddyfile
+    assert ":{$CATALYST_STAFF_PORT:8444} {\n\tbind {$CATALYST_STAFF_BIND:127.0.0.1}\n\ttls internal\n\tabort\n}" in caddyfile
+    assert "https_port {$CATALYST_HTTPS_PORT:443}" in caddyfile and proxy["environment"]["CATALYST_HTTPS_PORT"] == "8443"
     assert proxy["environment"]["CATALYST_STAFF_PORT"] == "8444"
+
+
+def test_6b5b_each_port_is_exactly_one_caddy_server():
+    """Two servers on one port share it at random (6B.5b staging check): every site on a port binds the same way."""
+    import re
+
+    caddyfile = (ROOT / "deploy" / "staging" / "Caddyfile").read_text()
+    blocks = re.findall(r"^(\S[^\n]*) \{\n(.*?)^\}", caddyfile, flags=re.M | re.S)
+    staff_port = [body for address, body in blocks if "CATALYST_STAFF_PORT" in address]
+    assert len(staff_port) == 2 and all("bind {$CATALYST_STAFF_BIND:127.0.0.1}" in body for body in staff_port)
+    assert all("bind" not in body for address, body in blocks
+               if "CATALYST_HTTPS_PORT" in address or "CATALYST_PUBLIC_HOST" in address)
 
 
 def test_6b5b_the_database_never_logs_statements_or_parameters():
     command = services()["db"]["command"]
-    for setting in ("log_statement=none", "log_parameter_max_length=0", "log_parameter_max_length_on_error=0"):
+    for setting in ("log_statement=none", "log_parameter_max_length=0", "log_parameter_max_length_on_error=0",
+                    "log_min_error_statement=panic"):
         assert setting in command
 
 

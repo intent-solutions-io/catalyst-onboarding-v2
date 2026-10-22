@@ -13,8 +13,10 @@ The rules the definition encodes (each pinned by a test):
 - **Every Catalyst container** runs as 10001, with a read-only root, every capability dropped, no new privileges,
   tmpfs at /tmp and /dev/shm, `CATALYST_ENV=staging` fixed, and a fixed command (no GUNICORN_CMD_ARGS).
 - **The web socket** lives on a volume shared only with the proxy, which joins group 10001 to reach the 0660 socket.
-- **The proxy** drops every capability except binding a low port. The staff site listens on its own container port,
-  published only on the private staff address (CATALYST_STAFF_PUBLISH, never all interfaces).
+- **The proxy** runs as 10001 on high container ports with the socket volume read-only, keeping only the bind
+  capability its binary's file capability needs in order to run.
+  The staff site listens on its own container port, published only on the private staff address
+  (CATALYST_STAFF_PUBLISH, never all interfaces).
 - **The fetcher** runs only `fetch_evidence`, as the fetcher role, on a network that reaches the database alone; its
   egress to approved evidence hosts goes through the host-level egress proxy and deny (a host task, 6B.11).
 """
@@ -32,6 +34,7 @@ IMAGE = "${CATALYST_IMAGE:?the attested staging image digest}"
 SECRET_FILES = ("secret_key", "verification_key", "admin_password", "owner_password", "app_password",
                 "retention_password", "backup_password", "fetcher_password")
 STAFF_PORT = 8444
+PUBLIC_PORT = 8443
 
 
 def mount(source: str, target: str | None = None) -> dict:
@@ -124,10 +127,12 @@ def definition() -> dict:
                                 "POSTGRES_PASSWORD_FILE": "/run/secrets/admin_password"},
                 "secrets": [mount("admin_password")],
                 "command": ["postgres", "-c", "log_statement=none", "-c", "log_parameter_max_length=0",
-                            "-c", "log_parameter_max_length_on_error=0"],
+                            "-c", "log_parameter_max_length_on_error=0", "-c", "log_min_error_statement=panic"],
+                "security_opt": ["no-new-privileges:true"],
                 "volumes": ["catalyst-db:/var/lib/postgresql/data"],
                 "networks": ["backend"],
-                "healthcheck": {"test": ["CMD", "pg_isready", "-U", "catalyst_admin", "-d", "catalyst"],
+                # -h: over TCP, so the image's temporary init-time server (socket only) never looks ready.
+                "healthcheck": {"test": ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "catalyst_admin", "-d", "catalyst"],
                                 "interval": "2s", "timeout": "5s", "retries": 30},
                 "restart": "unless-stopped",
             },
@@ -139,23 +144,30 @@ def definition() -> dict:
             "fetcher": fetcher,
             "proxy": {
                 "image": CADDY,
+                # Not root: group 10001 reaches the 0660 socket, and it listens on high ports (6B.5b review). The
+                # official binary carries the file capability cap_net_bind_service, and the kernel refuses to run a
+                # binary whose file capability it cannot grant, so that one capability stays in the bounding set
+                # and no-new-privileges is off for this container alone. It binds no low port.
+                "user": "10001:10001",
                 "read_only": True,
                 "cap_drop": ["ALL"],
                 "cap_add": ["NET_BIND_SERVICE"],
-                "group_add": ["10001"],
-                "environment": {"CATALYST_PUBLIC_HOST": "${CATALYST_PUBLIC_HOST:?}",
+                "environment": {"CATALYST_HTTPS_PORT": str(PUBLIC_PORT),
+                                "CATALYST_PUBLIC_HOST": "${CATALYST_PUBLIC_HOST:?}",
                                 "CATALYST_STAFF_HOST": "${CATALYST_STAFF_HOST:?}",
                                 "CATALYST_STAFF_PORT": str(STAFF_PORT),
                                 # Inside the container every interface is the container's own: the host publish
                                 # address below is what keeps the staff site private.
                                 "CATALYST_STAFF_BIND": "0.0.0.0"},
                 # The host port defaults to 443; a host whose own proxy holds 443 (the dev box) publishes elsewhere.
-                "ports": ["${CATALYST_PUBLIC_PUBLISH:?}:${CATALYST_PUBLIC_PORT:-443}:443",
+                "ports": [f"${{CATALYST_PUBLIC_PUBLISH:?}}:${{CATALYST_PUBLIC_PORT:-443}}:{PUBLIC_PORT}",
                           f"${{CATALYST_STAFF_PUBLISH:?a private address, never all interfaces}}:${{CATALYST_STAFF_PORT:-443}}:{STAFF_PORT}"],
-                "volumes": ["./Caddyfile:/etc/caddy/Caddyfile:ro", "catalyst-run:/run/catalyst",
-                            "catalyst-static:/srv/catalyst/static:ro", "catalyst-proxy-data:/data",
-                            "catalyst-proxy-config:/config"],
-                "tmpfs": ["/tmp:mode=1777,size=16m"],
+                "volumes": ["./Caddyfile:/etc/caddy/Caddyfile:ro", "catalyst-run:/run/catalyst:ro",
+                            "catalyst-static:/srv/catalyst/static:ro"],
+                # Caddy's state in tmpfs it owns: the internal CA is re-created at each start (dev-box staging uses
+                # curl -k; a persistent, host-owned directory is a 6B.11 deploy-unit item).
+                "tmpfs": ["/tmp:mode=1777,size=16m", "/data:uid=10001,gid=10001,mode=0700,size=16m",
+                          "/config:uid=10001,gid=10001,mode=0700,size=4m"],
                 "depends_on": {"web": {"condition": "service_started"},
                                "collect-static": {"condition": "service_completed_successfully"}},
                 "networks": ["edge"],
@@ -163,8 +175,7 @@ def definition() -> dict:
             },
         },
         "networks": {"backend": {"internal": True}, "edge": {}},
-        "volumes": {name: {} for name in ("catalyst-db", "catalyst-run", "catalyst-static", "catalyst-mail",
-                                          "catalyst-proxy-data", "catalyst-proxy-config")},
+        "volumes": {name: {} for name in ("catalyst-db", "catalyst-run", "catalyst-static", "catalyst-mail")},
         "secrets": {name: {"file": f"${{CATALYST_STAGING_SECRETS:?}}/{name}"} for name in SECRET_FILES},
     }
 

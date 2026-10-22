@@ -938,24 +938,48 @@ specification text; nothing is built.
   tmpfs at `/tmp` and `/dev/shm`, `CATALYST_ENV=staging` fixed, the attested image named by digest, and a fixed
   command.
 - **Networks:** web, worker, fetcher and the database share an internal network that reaches nothing outside. Only
-  the proxy publishes ports. The web socket's volume is shared with the proxy alone, which joins group 10001 to reach
-  the 0660 socket and keeps only the capability to bind a low port.
+  the proxy publishes ports.
+- **The proxy** runs as 10001, which reaches the 0660 socket through its group, on high container ports (8443 and
+  8444). The socket volume is mounted read-only. Caddy's state is in tmpfs, so its internal CA is re-created at each
+  start; a persistent, host-owned directory is a 6B.11 item. The official Caddy binary carries the file capability
+  `cap_net_bind_service`, and the kernel refuses to run a binary whose file capability it cannot grant. That one
+  capability therefore stays, and no-new-privileges is off for this container alone; it binds no low port.
 - **The staff site** has its own container port (8444), published only on a named private address
   (`CATALYST_STAFF_PUBLISH`, required, with no default). Inside a container every interface is the container's own,
   so the publish address is the control.
 - **Unknown hosts:** an explicit catch-all on both listeners closes the connection for any other host name (an
   unknown name, the staff name on the public port, `localhost`). Caddy otherwise answers an unmatched host with an
   empty 200, which the live check found.
+- **After the security review of PR #72** (four HIGH, seven MEDIUM):
+  - the live checks now read each container's real state: a read-only root from the engine, the effective
+    capabilities and no-new-privileges from `/proc`, the directory modes, `CATALYST_ENV`, tmpfs, and the database's
+    own environment;
+  - each "no answer" is proven by curl's exact exit status: 52 when the TLS handshake succeeded and the connection
+    was then closed unanswered, 35 when the handshake was refused, and never 7 (nothing listening);
+  - the log check first proves the proxy logged those requests with the token redacted;
+  - the database stops logging failing statement text, and its health check uses TCP so the image's init-time
+    server never looks ready;
+  - staging provisioning revokes database access from `PUBLIC`, grants it to the Catalyst roles only, and revokes
+    `CREATE` on `public`;
+  - a test pins the fetcher to the internal network.
+- **Carried to 6B.11, from the same review:**
+  - the deploy unit refuses to start unless the secrets directory is 0700 and the files are not writable;
+  - a preflight refuses a staff publish address of `0.0.0.0` or `::`;
+  - the bootstrap administrator should be accepted only from the provisioning container (`pg_hba`);
+  - the provisioning script might move to the staging image only.
 - **Found by bringing the stack up:**
   - PostgreSQL 15 and later let only a database's owner create tables in `public`, so staging provisioning hands the
     database to the owner role;
   - every staging process needs the heartbeat setting;
   - `localhost` must be an allowed host for the health paths through the socket (`HostGuard` serves it nothing else);
   - the image now creates its mount points with their owners and modes, and carries the provisioning script.
+  - two sites on the staff port that bound differently became two Caddy servers on one port, and the kernel
+    spread connections between them at random. The staff port's catch-all now binds like the staff site, and a
+    test requires one server per port.
 - **Evidence:**
   - `tests/test_staging_compose.py` (the definition);
-  - `scripts/staging_check.sh`, run on the dev box, 28 of 28 PASS twice: it builds the staging image, provisions
-    with random synthetic secrets, brings the stack up and checks that:
+  - `scripts/staging_check.sh`, run on the dev box, 50 of 50 PASS in five consecutive runs: it builds the staging
+    image, provisions with random synthetic secrets, brings the stack up and checks that:
     - `docker inspect` of every container and `docker exec env` of every Catalyst process show no secret value
       (TEST-P6-04, 11);
     - each process runs as 10001 on a read-only root and mounts only its own secrets;

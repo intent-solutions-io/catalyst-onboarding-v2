@@ -106,8 +106,13 @@ def main() -> int:
         if environment == "staging":
             # PostgreSQL 15 and later let only the database's owner create in `public`; the bootstrap administrator
             # created this database, so the migration owner takes it over (6B.5b; tests create their own database).
-            conn.execute(sql.SQL("ALTER DATABASE {} OWNER TO {}").format(
-                sql.Identifier(os.environ["CATALYST_DB_NAME"]), sql.Identifier(next(iter(roles)))))
+            database = sql.Identifier(os.environ["CATALYST_DB_NAME"])
+            conn.execute(sql.SQL("ALTER DATABASE {} OWNER TO {}").format(database, sql.Identifier(next(iter(roles)))))
+            # Only the Catalyst roles may connect, and none but the owner may create in `public` (6B.5b review).
+            conn.execute(sql.SQL("REVOKE CONNECT, TEMPORARY ON DATABASE {} FROM PUBLIC").format(database))
+            conn.execute(sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
+                database, sql.SQL(", ").join(sql.Identifier(name) for name in roles)))
+            conn.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
         problems = check(conn, list(roles), next(iter(roles)) if environment != "staging" else None)
         if problems:
             print("provision_db_roles: " + "; ".join(problems), file=sys.stderr)

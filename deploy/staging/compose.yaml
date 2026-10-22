@@ -23,7 +23,12 @@
         "-c",
         "log_parameter_max_length=0",
         "-c",
-        "log_parameter_max_length_on_error=0"
+        "log_parameter_max_length_on_error=0",
+        "-c",
+        "log_min_error_statement=panic"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
       ],
       "volumes": [
         "catalyst-db:/var/lib/postgresql/data"
@@ -35,6 +40,8 @@
         "test": [
           "CMD",
           "pg_isready",
+          "-h",
+          "127.0.0.1",
           "-U",
           "catalyst_admin",
           "-d",
@@ -375,6 +382,7 @@
     },
     "proxy": {
       "image": "caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d",
+      "user": "10001:10001",
       "read_only": true,
       "cap_drop": [
         "ALL"
@@ -382,28 +390,26 @@
       "cap_add": [
         "NET_BIND_SERVICE"
       ],
-      "group_add": [
-        "10001"
-      ],
       "environment": {
+        "CATALYST_HTTPS_PORT": "8443",
         "CATALYST_PUBLIC_HOST": "${CATALYST_PUBLIC_HOST:?}",
         "CATALYST_STAFF_HOST": "${CATALYST_STAFF_HOST:?}",
         "CATALYST_STAFF_PORT": "8444",
         "CATALYST_STAFF_BIND": "0.0.0.0"
       },
       "ports": [
-        "${CATALYST_PUBLIC_PUBLISH:?}:${CATALYST_PUBLIC_PORT:-443}:443",
+        "${CATALYST_PUBLIC_PUBLISH:?}:${CATALYST_PUBLIC_PORT:-443}:8443",
         "${CATALYST_STAFF_PUBLISH:?a private address, never all interfaces}:${CATALYST_STAFF_PORT:-443}:8444"
       ],
       "volumes": [
         "./Caddyfile:/etc/caddy/Caddyfile:ro",
-        "catalyst-run:/run/catalyst",
-        "catalyst-static:/srv/catalyst/static:ro",
-        "catalyst-proxy-data:/data",
-        "catalyst-proxy-config:/config"
+        "catalyst-run:/run/catalyst:ro",
+        "catalyst-static:/srv/catalyst/static:ro"
       ],
       "tmpfs": [
-        "/tmp:mode=1777,size=16m"
+        "/tmp:mode=1777,size=16m",
+        "/data:uid=10001,gid=10001,mode=0700,size=16m",
+        "/config:uid=10001,gid=10001,mode=0700,size=4m"
       ],
       "depends_on": {
         "web": {
@@ -429,9 +435,7 @@
     "catalyst-db": {},
     "catalyst-run": {},
     "catalyst-static": {},
-    "catalyst-mail": {},
-    "catalyst-proxy-data": {},
-    "catalyst-proxy-config": {}
+    "catalyst-mail": {}
   },
   "secrets": {
     "secret_key": {

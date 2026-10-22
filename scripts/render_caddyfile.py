@@ -73,6 +73,9 @@ def render() -> str:
 # Never import it into the shared estate Caddyfile: its global options (admin off, the default log) are its own.
 {{
 	admin off
+	# A non-root proxy listens on high ports inside its container (6B.5b review); the host maps 443 to them.
+	https_port {{$CATALYST_HTTPS_PORT:443}}
+	auto_https disable_redirects
 	# Every log line, the error log included, has the token segment of a private path redacted.
 	log default {{
 		output stderr
@@ -152,7 +155,15 @@ def render() -> str:
 
 # Any other host name on either listener (an unknown name, the staff name on the public port, `localhost`) gets no
 # answer at all: Caddy would otherwise reply with an empty 200 (6B.5b staging check). Named sites take precedence.
-:443, :{{$CATALYST_STAFF_PORT:8444}} {{
+# The staff port's catch-all binds exactly as the staff site does, so the two share one server: with different binds
+# Caddy runs two servers on that port and the kernel spreads connections between them (6B.5b staging check).
+:{{$CATALYST_HTTPS_PORT:443}} {{
+	tls internal
+	abort
+}}
+
+:{{$CATALYST_STAFF_PORT:8444}} {{
+	bind {{$CATALYST_STAFF_BIND:127.0.0.1}}
 	tls internal
 	abort
 }}
