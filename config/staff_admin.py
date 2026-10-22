@@ -51,10 +51,22 @@ def configure_site(site=admin.site):
     # Staff accounts and groups are managed by the owner outside the application (D-23), never here.
     if site.is_registered(Group):
         site.unregister(Group)
+    # django-otp registers its device models; staff must never browse TOTP keys or recovery codes (6B.9).
+    from django_otp.plugins.otp_static.models import StaticDevice
+    from django_otp.plugins.otp_totp.models import TOTPDevice
+
+    for model in (TOTPDevice, StaticDevice):
+        if site.is_registered(model):
+            site.unregister(model)
     # Passwords too: the owner sets them (`manage.py add_readonly_staff`, `manage.py changepassword`). The
     # admin's own form saves the whole user row, which the application role may not do.
     site.password_change = refuse_password_change
     site.password_change_done = refuse_password_change
+    # 6B.9 (026 section 8, P6-D-3): the login asks for a second factor where one is required (accounts.staff_access).
+    from accounts.staff_access import StaffLoginForm
+
+    site.login_form = StaffLoginForm
+    site.login_template = "otp/admin111/login.html"
 
 
 def refuse_password_change(request, extra_context=None):

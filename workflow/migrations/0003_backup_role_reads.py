@@ -9,7 +9,9 @@ migration grants it, and tests/test_db_roles.py fails until it does.
 from django.conf import settings
 from django.db import migrations
 
-EXCLUDED = ("django_session",)
+# config.backup.EXCLUDED_TABLES: staff sessions and the two-factor tables (6B.9), whichever order the apps migrate in
+# (django-otp's tables can exist before this runs; a credential table must never be readable by the backup role).
+from config.backup import EXCLUDED_TABLES as EXCLUDED  # noqa: E402
 
 
 def tables(schema_editor):

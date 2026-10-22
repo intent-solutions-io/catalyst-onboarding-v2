@@ -65,6 +65,10 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",  # 6B.5: the admin's stylesheets, collected into the image, served by the proxy
+    # 6B.9 (026 section 8, P6-D-3): staff two-factor, TOTP devices and single-use recovery codes (accounts.staff_access).
+    "django_otp",
+    "django_otp.plugins.otp_totp",
+    "django_otp.plugins.otp_static",
     "accounts",
     "workflow",
     "applications",
@@ -82,6 +86,8 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django_otp.middleware.OTPMiddleware",  # 6B.9: request.user.is_verified()
+    "accounts.staff_access.StaffAccess",  # 6B.9: two-factor and the absolute lifetime for everything under /staff/
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -231,6 +237,7 @@ CATALYST_ACTION_HANDLERS = {
     # P5 5B.3 (023 sections 6 and 11.6)
     "provision_revoke": "provisioning.closure.RevokeAccess",
     "provision_withdraw_send": "provisioning.closure.SendWithdrawalLink",
+    "clear_sessions": "accounts.staff_access.ClearSessions",  # 6B.9: expired staff sessions, hourly
 }
 # P5 provisioning (023; D-47). Synthetic only: the adapter is a local fake set by tests, the domain a `.test` domain
 # (P5-D-1), and the limits labelled synthetic defaults (P5-D-2), never unlimited. A live adapter, a provider key and
@@ -418,6 +425,15 @@ LOGIN_URL = "admin:login"
 SESSION_COOKIE_AGE = 30 * 60
 SESSION_SAVE_EVERY_REQUEST = True
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+# 6B.9 (026 section 8, P6-D-3; accounts.staff_access). Fixed in code, not read from the environment: two-factor is
+# required everywhere but the local environments, where tests sign staff in directly.
+CATALYST_STAFF_TWO_FACTOR = CATALYST_ENV not in ("test", "development")
+CATALYST_STAFF_SESSION_MAX_SECONDS = 8 * 3600  # absolute lifetime from login, however active (PR #61 review)
+CATALYST_STAFF_LOGIN_FAILURE_LIMIT = 5
+CATALYST_STAFF_LOGIN_LOCK_SECONDS = 15 * 60
+CATALYST_SESSION_CLEANUP_SECONDS = 3600  # the clear_sessions action's interval
+AUTHENTICATION_BACKENDS = ["accounts.staff_access.ThrottledModelBackend"]
+OTP_TOTP_ISSUER = "Catalyst " + CATALYST_ENV
 CSRF_COOKIE_HTTPONLY = True  # every form carries its token in the page; no script reads the cookie
 
 # Web security outside the local environments (026 section 8, 6B.2). Staging and anything later run only behind the
