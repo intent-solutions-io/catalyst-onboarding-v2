@@ -1396,3 +1396,21 @@ specification text; nothing is built.
   - confirm the import is a glob, which tolerates the removal of R1;
   - confirm the site's `log` can be replaced by the log snippet, and the error log given the same filter;
   - confirm the live Caddy version, and that no `trusted_proxies` setting lets a client's forwarded headers through.
+
+**6C, the GATE-STAGING evidence map and the after-action report (026 sections 11 and 12, task 14).**
+
+- **The map:** `tests/acceptance.py` `P6_CASES` maps 37 of the 38 cases to the tests that prove them. The 38th,
+  TEST-P6-27, is shown only live (`P6_LIVE_ONLY`). `P6_SUPPORTING` holds the one P6 design rule that is not a case.
+- **The gate:** `tests/conftest.py` reports GATE-STAGING and gates it in a full run like GATE-S1 to GATE-P5.
+- **Two new tests:**
+  - every case in this section is gated or live-only, never both and never neither;
+  - every test written for P6 is mapped here or in an earlier gate.
+- **Per-case status:** in `000-aars/028-AA-AACR-p6-staging.md` section 4. 21 cases are proven (one on a stand-in) and
+  17 are partly proven, each with what is not yet shown and the bead that carries it (`9kg.27` holds the new ones).
+  - Joining the unit and live evidence moves TEST-P6-05, 06, 07 and 14 from partly to proven; the report names the
+    clause each one gained.
+  - The QA review of PR #80 moved TEST-P6-10, 25, 28 and 35 from proven to partly. TEST-P6-10's receipt is a record,
+    not a gate. TEST-P6-25's drill never reverts a migrated release. TEST-P6-28's fetcher proxy admits any public
+    name. TEST-P6-35 has no check over committed evidence.
+  - For TEST-P6-08, 24, 25, 26 and 31, a gate PASS pins the code's shape; the drills carry the behaviour.
+- **GATE-STAGING sign-off:** left for the owner, on the statement in that report's section 9.
