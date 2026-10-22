@@ -1,5 +1,6 @@
-"""Write one coherent backup set (026 section 6; 6B.7a): run it with the backup role's login. Prints the receipt
-(counts, digests, versions; never personal data). Exit 0 on success, 1 when refused."""
+"""Write one coherent backup set (026 section 6; 6B.7a): run it with the backup role's login. Prints only the set's
+name and its manifest digest (record the digest with the set: a restore checks it). Exit 0 on success, 1 when
+refused."""
 
 import json
 import os

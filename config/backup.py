@@ -206,7 +206,7 @@ def check_target(admin_conn, database: str, confirm_database: str, manifest: dic
     if not confirm_database or confirm_database != current or current != database:
         raise BackupError("--confirm-database must name the target database")
     others = admin_conn.execute("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()"
-                                " AND pid <> pg_backend_pid()").fetchone()[0]
+                                " AND pid <> pg_backend_pid() AND backend_type = 'client backend'").fetchone()[0]
     if others:
         raise BackupError("other sessions are connected to the target database; stop them first")
     for table in CORE_TABLES:
@@ -260,6 +260,7 @@ def restore(admin_conn, backup_dir: Path, storage_dir: Path, *, database: str, c
                 " VALUES (%s, %s, %s, 'catalyst_restore', now()) ON CONFLICT (subject_type, subject_id) DO NOTHING",
                 [*RESTORE_HOLD, HOLD_REASON])
         storage_dir.mkdir(mode=0o700, exist_ok=True)
+        os.chmod(storage_dir, 0o700)
         for document in manifest["documents"]:  # into place only after the commit
             os.rename(staging / document["key"], storage_dir / document["key"])
         _fsync_dir(storage_dir)

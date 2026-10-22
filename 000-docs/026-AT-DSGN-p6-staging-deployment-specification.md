@@ -722,3 +722,38 @@ specification text; nothing is built.
   - a truncated table copy, a mismatched receipt and a missing custody file are each refused before anything loads;
   - a target at other migrations is refused;
   - a failed backup leaves nothing that looks usable.
+
+**6B.7b, the post-restore step (026 section 6 steps 4 and 5).**
+
+- **`manage.py catalyst_post_restore`** (`config/post_restore.py`) runs as the owner after `catalyst_restore` and
+  before any worker or web process starts. It refuses unless the restore hold is present and `--confirm-database`
+  names the database. In one transaction it:
+  - closes every outstanding applicant link: unused confirmation links, open password links (a password set in
+    flight becomes "outcome unknown", never replayed) and open withdrawal links;
+  - ends every staff session;
+  - lets every action that was running expire its lease, so the ledger recovers it through its own path, where a
+    non-repeatable action is reconciled, never repeated;
+  - queues a revocation round for every stopped request whose access removal is not complete;
+  - reports, as counts per kind, the queued actions that reach the outside world (the handlers that are not
+    redeliverable).
+
+  A person checks those against the providers, then runs it again with `--lift` to remove the hold.
+- **Not here: erasure replay** (P6-D-13 option d). Erasure itself does not exist yet (POL-10). The bead
+  "Replay erasures after a restore before any real personal data is backed up" must land before the pilot.
+- **Carried from the review of PR #67:**
+  - the session check counts only client sessions, so autovacuum cannot refuse a restore;
+  - an existing custody directory is set to 0700;
+  - the backup prints only the set's name and digest.
+- **Runbook rules** (for 6B.13 and production):
+  - **Record the digest.** Keep the printed manifest digest with the set, and always restore with
+    `--expect-manifest-sha256`. Whether this is mandatory for production is the owner's decision; it is the default
+    here.
+  - **If moving files into place fails after the commit,** the database is loaded and held. Copy the remaining
+    files from the set's `custody/` directory and run `verify_custody_restore --manifest` before the post-restore
+    step.
+- **Evidence:** `tests/test_post_restore.py`:
+  - links, sessions and running actions reset (a password link from before the restore now gets 404);
+  - unused confirmation links closed and staff signed out;
+  - a new revocation round for unfinished access removal;
+  - the outward-action report, with work resuming only after `--lift`;
+  - a refusal without a hold or a named database.
