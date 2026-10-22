@@ -85,7 +85,10 @@ def test_6b5b_the_socket_is_shared_only_with_the_proxy_and_only_the_proxy_has_an
     assert proxy["user"] == "10001:10001" and proxy["cap_drop"] == ["ALL"] and proxy["cap_add"] == ["NET_BIND_SERVICE"]
     assert proxy["read_only"] is True  # no-new-privileges would stop the binary's file capability from running it
     assert "catalyst-run:/run/catalyst:ro" in proxy["volumes"]  # it connects to the socket, never replaces it
-    assert s["fetcher"]["networks"] == ["backend"]  # internal only: its way out is the egress proxy, never a bridge
+    assert s["fetcher"]["networks"] == ["backend", "fetch"]  # internal only: its way out is the egress proxy
+    assert [n for n, svc in s.items() if "fetch" in svc.get("networks", [])] == ["fetcher", "egress"]
+    assert "backend" not in s["egress"]["networks"]  # no other process can use the proxy (PR #76 review)
+    assert renderer().definition()["networks"]["fetch"] == {"internal": True}
     assert s["fetcher"]["environment"]["CATALYST_EVIDENCE_PROXY"] == "egress:3128"
     assert [n for n, svc in s.items() if "egress" in svc.get("networks", [])] == ["egress"]  # alone on the way out
     assert s["egress"]["command"] == ["python", "-m", "assessments.egress"] and "ports" not in s["egress"]

@@ -33,10 +33,9 @@ def test_6b11_the_fixture_address_is_admitted_only_in_a_synthetic_environment():
     synthetic = egress.Policy({"CATALYST_ENV": "staging", "CATALYST_EVIDENCE_FIXTURE_ADDRESS": "127.0.0.1",
                                "CATALYST_EGRESS_FIXTURE_PORT": "8443"})
     assert synthetic.target(b"CONNECT 127.0.0.1:8443 HTTP/1.1\r\n\r\n")[2:] == (["127.0.0.1"], frozenset({"127.0.0.1"}))
-    production_like = egress.Policy({"CATALYST_ENV": "production", "CATALYST_EVIDENCE_FIXTURE_ADDRESS": "127.0.0.1",
-                                     "CATALYST_EGRESS_FIXTURE_PORT": "8443"})
-    with pytest.raises(egress.Refusal):
-        production_like.target(b"CONNECT 127.0.0.1:8443 HTTP/1.1\r\n\r\n")  # neither the address nor the port
+    with pytest.raises(SystemExit):  # outside test and staging the proxy refuses to start with a fixture at all
+        egress.Policy({"CATALYST_ENV": "production", "CATALYST_EVIDENCE_FIXTURE_ADDRESS": "127.0.0.1",
+                       "CATALYST_EGRESS_FIXTURE_PORT": "8443"})
 
 
 @pytest.fixture
@@ -96,3 +95,38 @@ def test_6b11_a_proxy_refusal_is_a_refusal_and_never_retried(ev, settings, proxy
     [item] = items(app)
     assert item.status == "refused" and item.reason_code == "port_not_allowed"  # the fixture's port is not admitted
     assert not ev.site.requests
+
+
+def test_6b11_the_proxy_refuses_to_start_with_a_fixture_outside_a_synthetic_environment():
+    for environ in ({"CATALYST_ENV": "production", "CATALYST_EVIDENCE_FIXTURE_ADDRESS": "10.0.0.5"},
+                    {"CATALYST_ENV": "", "CATALYST_EGRESS_FIXTURE_PORT": "8443"}):
+        with pytest.raises(SystemExit):
+            egress.Policy(environ)
+    with pytest.raises(SystemExit):  # a privileged or malformed fixture port
+        egress.Policy({"CATALYST_ENV": "test", "CATALYST_EVIDENCE_FIXTURE_ADDRESS": "127.0.0.1",
+                       "CATALYST_EGRESS_FIXTURE_PORT": "22"})
+
+
+@pytest.mark.parametrize("authority", ["0x7f.0.0.01:443", "127.0.0.1.:443", "1.2.3.4.5:443"])
+def test_6b11_numeric_names_are_never_names(authority):
+    with pytest.raises(egress.Refusal):
+        egress.Policy(TEST_ENV).target(f"CONNECT {authority} HTTP/1.1\r\n\r\n".encode())
+
+
+def test_6b11_a_tunnel_whose_peer_stops_reading_is_bounded(monkeypatch):
+    monkeypatch.setattr(egress, "IDLE_SECONDS", 1)
+    left, right = socket.socketpair()
+    far, near = socket.socketpair()
+    for sock in (left, near):
+        sock.settimeout(1)
+    started = __import__("time").monotonic()
+    worker = threading.Thread(target=egress.splice, args=(left, near), daemon=True)
+    worker.start()
+    right.settimeout(5)
+    try:  # nobody ever reads `far`, so the copy towards it blocks; this side stops being read once the splice ends
+        right.sendall(b"x" * 65536 * 8)
+    except TimeoutError:
+        pass
+    worker.join(10)
+    assert not worker.is_alive() and __import__("time").monotonic() - started < 10
+

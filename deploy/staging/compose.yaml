@@ -384,7 +384,8 @@
         "fetch_evidence"
       ],
       "networks": [
-        "backend"
+        "backend",
+        "fetch"
       ],
       "restart": "unless-stopped",
       "depends_on": {
@@ -417,7 +418,7 @@
         "assessments.egress"
       ],
       "networks": [
-        "backend",
+        "fetch",
         "egress"
       ],
       "restart": "unless-stopped"
@@ -469,6 +470,9 @@
   },
   "networks": {
     "backend": {
+      "internal": true
+    },
+    "fetch": {
       "internal": true
     },
     "edge": {},

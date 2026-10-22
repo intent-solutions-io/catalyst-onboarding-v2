@@ -27,7 +27,8 @@ import time
 from assessments.fetch import classify
 
 logger = logging.getLogger("assessments.egress")
-NAME = re.compile(r"(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}")
+# A dotted DNS name whose last label has a letter, so no numeric form (`0x7f.0.0.01`) is ever a name.
+NAME = re.compile(r"(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]*[a-z][a-z0-9-]*")
 HEAD_LIMIT, HEAD_SECONDS, CONNECT_SECONDS, IDLE_SECONDS, TUNNEL_SECONDS = 4096, 10, 10, 30, 120
 SYNTHETIC = ("test", "staging")
 
@@ -41,11 +42,16 @@ class Refusal(Exception):
 class Policy:
     def __init__(self, environ=os.environ):
         self.synthetic = environ.get("CATALYST_ENV", "") in SYNTHETIC
-        fixture = environ.get("CATALYST_EVIDENCE_FIXTURE_ADDRESS", "") if self.synthetic else ""
+        fixture, fixture_port = environ.get("CATALYST_EVIDENCE_FIXTURE_ADDRESS", ""), environ.get("CATALYST_EGRESS_FIXTURE_PORT", "")
+        if (fixture or fixture_port) and not self.synthetic:
+            # Fail closed at start, never quietly ignore: a fixture outside test and staging is a misconfiguration.
+            raise SystemExit("egress: a fixture address or port may be set only in a synthetic environment")
         self.fixture = str(ipaddress.ip_address(fixture)) if fixture else ""
         ports = {443}
-        if self.fixture and environ.get("CATALYST_EGRESS_FIXTURE_PORT", ""):
-            ports.add(int(environ["CATALYST_EGRESS_FIXTURE_PORT"]))
+        if self.fixture and fixture_port:
+            if not fixture_port.isdigit() or not 1024 <= int(fixture_port) <= 65535:
+                raise SystemExit("egress: the fixture port must be an unprivileged port number")
+            ports.add(int(fixture_port))
         self.ports = frozenset(ports)
 
     def target(self, head: bytes):
@@ -113,16 +119,27 @@ def reply(client, status: int, code: str, peer: str = "") -> None:
 
 
 def splice(client, upstream) -> None:
-    sockets, started = [client, upstream], time.monotonic()
-    while time.monotonic() - started < TUNNEL_SECONDS:
-        readable, _, _ = select.select(sockets, [], [], IDLE_SECONDS)
-        if not readable:
-            return
-        for sock in readable:
-            data = sock.recv(65536)
-            if not data:
+    """Copy both ways until either side closes, IDLE_SECONDS pass with nothing to read, or TUNNEL_SECONDS pass in
+    all. Each send is bounded too (the sockets keep a timeout), so a peer that stops reading cannot pin the tunnel."""
+    started, poller = time.monotonic(), select.poll()
+    by_fd = {client.fileno(): (client, upstream), upstream.fileno(): (upstream, client)}
+    for fd in by_fd:
+        poller.register(fd, select.POLLIN)
+    try:
+        while time.monotonic() - started < TUNNEL_SECONDS:
+            events = poller.poll(IDLE_SECONDS * 1000)
+            if not events:
                 return
-            (upstream if sock is client else client).sendall(data)
+            for fd, _ in events:
+                source, sink = by_fd[fd]
+                data = source.recv(65536)
+                if not data:
+                    return
+                sink.sendall(data)
+                if time.monotonic() - started >= TUNNEL_SECONDS:
+                    return
+    except (TimeoutError, OSError):
+        return
 
 
 def handle(client, policy: Policy) -> str:
@@ -131,16 +148,20 @@ def handle(client, policy: Policy) -> str:
         host, port, addresses, extra = policy.target(read_head(client))
         if not addresses or not all(classify(ip, extra) for ip in addresses):
             raise Refusal(403, "address_not_allowed")
-        try:
-            upstream = socket.create_connection((addresses[0], port), timeout=CONNECT_SECONDS)
-        except OSError:
-            raise Refusal(502, "connect_failed") from None
+        for address in addresses:  # every answer already passed classify; try each until one connects
+            try:
+                upstream = socket.create_connection((address, port), timeout=CONNECT_SECONDS)
+                break
+            except OSError:
+                continue
+        if upstream is None:
+            raise Refusal(502, "connect_failed")
         peer = upstream.getpeername()[0]
         if not classify(peer, extra):
             raise Refusal(403, "peer_not_allowed")
         reply(client, 200, "ok", peer)
-        upstream.settimeout(None)
-        client.settimeout(None)
+        upstream.settimeout(IDLE_SECONDS)
+        client.settimeout(IDLE_SECONDS)
         splice(client, upstream)
         return "tunnelled"
     except Refusal as refusal:

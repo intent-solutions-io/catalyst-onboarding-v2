@@ -310,7 +310,7 @@ def test_6b11_a_staging_fetcher_refuses_to_start_without_the_egress_proxy(tmp_pa
     directory = secrets_dir(tmp_path)
     fetcher = {**STAGING, "CATALYST_SECRETS_DIR": directory, "CATALYST_PROCESS_ROLE": "fetcher"}
     missing = run(CHECK, **fetcher)
-    assert missing.returncode != 0 and "a staging fetcher needs CATALYST_EVIDENCE_PROXY" in missing.stderr
+    assert missing.returncode != 0 and "a fetcher outside test and development needs CATALYST_EVIDENCE_PROXY" in missing.stderr
     malformed = run(CHECK, **{**fetcher, "CATALYST_EVIDENCE_PROXY": "http://egress:3128"})
     assert malformed.returncode != 0 and "CATALYST_EVIDENCE_PROXY must be host:port" in malformed.stderr
 

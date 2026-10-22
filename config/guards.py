@@ -362,8 +362,9 @@ def process_role_problems(settings, kind: str) -> list[str]:
     proxy = str(getattr(settings, "CATALYST_EVIDENCE_PROXY", "") or "")
     if proxy and not re.fullmatch(r"[a-z0-9.-]+:\d{1,5}", proxy):
         problems.append("CATALYST_EVIDENCE_PROXY must be host:port")
-    if role == "fetcher" and getattr(settings, "CATALYST_ENV", "") == "staging" and not proxy:
-        problems.append("a staging fetcher needs CATALYST_EVIDENCE_PROXY: it reaches nothing but the egress proxy")
+    if role == "fetcher" and getattr(settings, "CATALYST_ENV", "") not in ("test", "development") and not proxy:
+        # Every environment past the local ones (PR #76 review): the fetcher reaches nothing but the egress proxy.
+        problems.append("a fetcher outside test and development needs CATALYST_EVIDENCE_PROXY (the egress proxy)")
     key = getattr(settings, "CATALYST_VERIFICATION_KEY", None)
     if role != "fetcher" and key is not None and not key:
         problems.append("CATALYST_VERIFICATION_KEY may be empty only for the fetcher")

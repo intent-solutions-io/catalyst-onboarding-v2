@@ -211,21 +211,33 @@ check "TEST-P6-28 names do not resolve from the backend network" test "$(probe w
 # TEST-P6-30: the fetcher's only way out is the egress proxy, which refuses every denied range. Names on a public
 # wildcard DNS service resolve to the denied addresses themselves, so the proxy's own lookup is what is tested.
 check "TEST-P6-30 control: the fetcher reaches the egress proxy" test "$(probe fetcher "socket.create_connection(('egress',3128),3)")" = 0
+for service in web worker; do  # only the fetcher shares a network with the proxy
+  check "TEST-P6-30 $service cannot reach the egress proxy" test "$(probe "$service" "socket.create_connection(('egress',3128),3)")" = 42
+done
 via_proxy() {  # via_proxy <authority>: the egress proxy's status and refusal code for CONNECT <authority>, from the fetcher
   docker exec "$("${compose[@]}" ps -q fetcher)" python -c "import socket,sys
 s=socket.create_connection(('egress',3128),5);s.settimeout(15);s.sendall(('CONNECT '+sys.argv[1]+' HTTP/1.1\r\n\r\n').encode())
 head=s.recv(1024).decode().split('\r\n');refusal=[l.split(': ')[1] for l in head if l.startswith('X-Catalyst-Refusal')]
 print(head[0].split(' ')[1], refusal[0] if refusal else '-')" "$1" 2>/dev/null || echo "none -"
 }
-check "TEST-P6-30 control: through the proxy, a public name is tunnelled" test "$(via_proxy example.com:443)" = "200 -"
+via_proxy_settled() {  # a policy answer (200 or 403) is final; a transient one (502, none) is retried, at most 3 times
+  local answer
+  for _ in 1 2 3; do
+    answer="$(via_proxy "$1")"
+    case "$answer" in 200\ *|403\ *|400\ *) break ;; esac
+    sleep 2
+  done
+  printf '%s\n' "$answer"
+}
+check "TEST-P6-30 control: through the proxy, a public name is tunnelled" test "$(via_proxy_settled example.com:443)" = "200 -"
 for authority in 127.0.0.1.nip.io:443 10.0.0.1.nip.io:443 172.17.0.1.nip.io:443 192.168.0.1.nip.io:443 \
                  169.254.169.254.nip.io:443 100.64.0.1.nip.io:443; do
-  check "TEST-P6-30 the proxy refuses a name resolving into a denied range ($authority)" test "$(via_proxy "$authority")" = "403 address_not_allowed"
+  check "TEST-P6-30 the proxy refuses a name resolving into a denied range ($authority)" test "$(via_proxy_settled "$authority")" = "403 address_not_allowed"
 done
 for authority in 10.0.0.1:443 169.254.169.254:443 "[::1]:443"; do
   check "TEST-P6-30 the proxy refuses an IP literal ($authority)" test "$(via_proxy "$authority")" = "403 ip_literal_refused"
 done
-check "TEST-P6-30 the proxy refuses a port other than 443" test "$(via_proxy example.com:22)" = "403 port_not_allowed"
+check "TEST-P6-30 the proxy refuses a port other than 443" test "$(via_proxy_settled example.com:22)" = "403 port_not_allowed"
 check "TEST-P6-30 the proxy refuses a single-label name (the database's)" test "$(via_proxy db:443)" = "400 bad_host"
 check "TEST-P6-30 the egress proxy mounts no secret" test -z "$(docker exec "$("${compose[@]}" ps -q egress)" ls /run/secrets 2>/dev/null)"
 
