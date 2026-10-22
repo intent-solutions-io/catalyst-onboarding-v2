@@ -119,7 +119,10 @@ def test_p3_01_a_valid_output_is_stored_with_provenance_and_the_stage_moves_for_
     assert run.status == "succeeded" and seen["calls"] == 1 and run.requests_used == 1
     assert run.output["criteria"][0]["citations"][0]["quote"] == QUOTE
     assert (run.prompt_pack, run.prompt_pack_sha256, run.schema_version) == (pack.CURRENT, pack.PINNED[pack.CURRENT], "3")
-    assert (run.provider, run.output_mode, run.library_version) == ("test", "tool", "2.55.0")
+    from importlib.metadata import version
+
+    # the version actually installed (a dependency bump must not need a test edit), recorded as provenance
+    assert (run.provider, run.output_mode, run.library_version) == ("test", "tool", version("pydantic-ai-slim"))
     assert run.request_sha256 and run.output_sha256
     assert app.stage == "awaiting_decision"  # staff own the next step; nothing is decided
     invocation = AssessmentInvocation.objects.get(run=run)
@@ -166,7 +169,7 @@ def test_p3_02_25_malformed_output_gets_one_repair_then_staff_and_never_a_third_
     app, run, seen = assessed(a, monkeypatch, bad, bad, bad)
     assert run.status == "invalid_output" and seen["calls"] == 2
     assert run.validation_codes == ["quote_not_found_verbatim"]  # reason codes only, never model text
-    assert run.error_code == "invalid_output_after_repair"  # pins the 2.55.0 exhausted-retries message the code matches
+    assert run.error_code == "invalid_output_after_repair"  # pins the pinned library's exhausted-retries message the code matches
     assert app.stage == "assessing" and run.output is None  # nothing partial is stored
     assert open_items(app, "assessment_failed") == 1
 
