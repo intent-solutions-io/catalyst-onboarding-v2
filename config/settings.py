@@ -41,6 +41,7 @@ INSTALLED_APPS = [
 ]
 MIDDLEWARE = [
     "config.redaction.PrivateConfirmationResponses",  # outermost: covers responses built outside the view
+    "config.health.HostGuard",  # 6B.3: no staff, admin or health path on the public host
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",

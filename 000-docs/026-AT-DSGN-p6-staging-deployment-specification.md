@@ -511,3 +511,15 @@ specification text; nothing is built.
     in development.
 - **Evidence:** `tests/test_guards.py` (6B.1 tests), the staging leg of the TEST-P3-05 fetch test and the updated
   TEST-P5-23 test.
+
+**6B.3, liveness, readiness and the public-host guard (P6-D-12).**
+
+- `/healthz` answers `ok` with no database call. `/readyz` answers `ready`, or `not-ready` with status 503. It
+  checks that the database login is the application role (the strict web check from ADR-14) and that every
+  migration is applied. Neither ever returns a version, commit or reason; the reason goes to the log as a short code.
+- **Deviation from section 4:** the oldest pending-action age is not part of readiness. A backlog must not mark a
+  process unready, because the deploy wrapper would then revert a healthy release. It belongs to the health command
+  and alerting (6B.4).
+- `config.health.HostGuard` refuses staff, admin and health paths on the public host name (case and trailing dot
+  included), independently of the proxy (TEST-P6-32).
+- **Evidence:** `tests/test_health.py`.
