@@ -53,16 +53,21 @@ chmod 0444 "$work/secrets"/*
 
 good="$(docker build -q --target staging --build-arg "CATALYST_COMMIT=$(git rev-parse HEAD)" -t "$(tag good)" .)" || exit 1
 images+=("$good")
-export CATALYST_BACKUP_CMD="echo synthetic-staging-drill-no-backup"  # staging data is synthetic; 6B.11 wires the job
+# Staging data is synthetic, so the drill's backup stand-in writes a receipt file only; 6B.11 wires the real job.
+export CATALYST_BACKUP_CMD="f=$work/backup-receipt.json; echo '{\"synthetic\": true}' > \$f && echo \$f"
 export CATALYST_IMAGE="$good"
 compose up -d --wait db >/dev/null 2>&1
 compose --profile provision run --rm provision-roles >/dev/null 2>&1
 compose up -d --wait collect-static >/dev/null 2>&1 || true
 
 # 1. The first release: migrate, deploy, start the proxy, smoke, receipt. The wrapper is not used yet.
-check "the first release migrates after the (synthetic) pre-deploy backup" "$adapters/predeploy.sh" "$good"
+check "a backup that prints no receipt is refused, and nothing is migrated" bash -c \
+  "! CATALYST_BACKUP_CMD=true '$adapters/predeploy.sh' '$good' 2>/dev/null && ! CATALYST_IMAGE='$good' docker compose --project-name '$project' -f deploy/staging/compose.yaml ps -a --format '{{.Service}}' | grep -q migrate"
+export CATALYST_BACKUP_RECEIPT="$("$adapters/predeploy.sh" "$good")"
+check "the first release migrates after the (synthetic) pre-deploy backup" test -e "$CATALYST_BACKUP_RECEIPT"
 check "the first release deploys" "$adapters/deploy.sh" "$good"
 compose up -d --no-deps proxy >/dev/null 2>&1
+unset CATALYST_IMAGE  # from here the adapters name the image from their own state, as on the host
 check "the first release passes the smoke" "$adapters/smoke.sh"
 check "the first release's receipt reads back as intended" "$adapters/receipt.sh"
 check "capture reports the first release" test "$("$adapters/capture.sh")" = "$good"
@@ -84,6 +89,20 @@ check "the reverted stack passes the smoke" "$adapters/smoke.sh"
 check "the wrapper audited the revert" grep -q '"revert' "$work/audit.ndjson"
 rm -f "$work/wrapper/HOLD"  # the wrapper holds after a revert, by design; the drill releases it for the next case
 
+# 3b. A release whose worker and fetcher crash-loop: readiness alone would pass; the stability check reverts it.
+crashing="$(derive next crashing "rm /app/workflow/management/commands/run_worker.py")"
+"$DW_WRAPPER" "$crashing" >/dev/null 2>&1; rc=$?
+check "the wrapper reverts a release whose worker crash-loops (exit 3)" test "$rc" = 3
+check "the previous release is serving after the crash-loop revert" test "$("$adapters/capture.sh")" = "$next"
+rm -f "$work/wrapper/HOLD"
+
+# 3c. A release deployed without its migrations: the smoke refuses it (pending migrations), so it is reverted.
+unmigrated="$(derive next unmigrated "printf 'from django.db import migrations\\n\\n\\nclass Migration(migrations.Migration):\\n    dependencies = [(\"workflow\", \"0004_restore_hold_protection\")]\\n    operations = [migrations.RunSQL(\"SELECT 1\", migrations.RunSQL.noop)]\\n' > /app/workflow/migrations/0005_drill.py")"
+"$DW_WRAPPER" "$unmigrated" >/dev/null 2>&1; rc=$?
+check "the wrapper reverts a release whose migrations did not run (exit 3)" test "$rc" = 3
+check "the previous release is serving after the unmigrated revert" test "$("$adapters/capture.sh")" = "$next"
+rm -f "$work/wrapper/HOLD"
+
 # 4. A forward-only migration applied: switching to an image that does not know it is refused before anything changes.
 fwd="$(derive next fwd "sed -i 's/^FORWARD_ONLY: frozenset\[str\] = frozenset()/FORWARD_ONLY: frozenset[str] = frozenset({\"workflow.0004_restore_hold_protection\"})/' /app/config/release.py")"
 older="$(derive next older "rm /app/workflow/migrations/0004_restore_hold_protection.py")"
@@ -93,5 +112,25 @@ check "switching to an image that lacks an applied forward-only migration is ref
 check "the refusal names the migration and says restore" grep -q "workflow.0004_restore_hold_protection.*restore instead" <<<"$out"
 check "nothing changed: the forward-only release is still serving" test "$("$adapters/capture.sh")" = "$fwd"
 check "a tag is refused as an image reference" bash -c "! '$adapters/deploy.sh' catalyst:latest 2>/dev/null"
+check "the forward-only list is recorded in the deploy state, not read from the serving image" \
+  grep -q "workflow.0004_restore_hold_protection" "$CATALYST_DEPLOY_STATE/forward-only.json"
+
+# 4b. A forward-only migration applied by the predeploy step of a release whose deploy then never happens: it was
+# recorded before migrating, so switching to any image that does not know it is still refused.
+staged="$(derive next staged "printf 'from django.db import migrations\\n\\n\\nclass Migration(migrations.Migration):\\n    dependencies = [(\"workflow\", \"0004_restore_hold_protection\")]\\n    operations = [migrations.RunSQL(\"SELECT 1\", migrations.RunSQL.noop)]\\n' > /app/workflow/migrations/0005_staged.py && sed -i 's/^FORWARD_ONLY: frozenset\\[str\\] = frozenset()/FORWARD_ONLY: frozenset[str] = frozenset({\"workflow.0005_staged\"})/' /app/config/release.py")"
+check "the predeploy step applies a forward-only migration" "$adapters/predeploy.sh" "$staged"
+out="$("$adapters/deploy.sh" "$fwd" 2>&1)"; rc=$?
+check "after an aborted deploy, an image without that migration is refused" bash -c "[ $rc != 0 ] && grep -q 'workflow.0005_staged' <<<'$out'"
+
+# 4c. With a release serving, a lost forward-only record is refused, never read as "nothing is forward-only".
+mv "$CATALYST_DEPLOY_STATE/forward-only.json" "$work/forward-only.saved"
+out="$("$adapters/deploy.sh" "$fwd" 2>&1)"; rc=$?
+check "a missing forward-only record is refused while a release serves" bash -c "[ $rc != 0 ] && grep -q 'record is missing' <<<'$out'"
+mv "$work/forward-only.saved" "$CATALYST_DEPLOY_STATE/forward-only.json"
+
+# 5. The host check refuses a tarball with no attestation from this repository's main-branch workflow.
+docker save "$(tag good)" -o "$work/unattested.tar"
+check "an unattested image tarball is refused before it is loaded" bash -c \
+  "! scripts/verify_image_attestation.sh '$work/unattested.tar' '$(git rev-parse HEAD)' 2>/dev/null"
 
 exit "$fail"
