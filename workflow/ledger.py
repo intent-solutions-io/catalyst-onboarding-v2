@@ -11,7 +11,8 @@ code) supplies the domain side.
    (all others) without running the handler, with a history event.
 3. The handler runs outside any transaction and never calls a sink or provider while holding row locks.
    A database outage propagates to the worker loop, which reconnects; the claim is then recovered by lease
-   expiry. There is no heartbeat: a handler that outlives its lease can be reclaimed while still running
+   expiry. Nothing renews the lease while a handler runs (the worker's liveness file, 6B.4, is separate and only
+   reports that the process is alive): a handler that outlives its lease can be reclaimed while still running
    (and, on the final attempt, finished by the poison rule); the fence then discards its result.
 4. Result: `finish` is one fenced transaction. It first locks the subject through the handler (domain
    rows before the action row, the order intake and confirmation use), then updates the action only where

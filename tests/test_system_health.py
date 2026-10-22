@@ -108,21 +108,75 @@ def test_6b4_a_conflict_alerts_until_staff_resolve_it_then_the_system_is_healthy
     request.refresh_from_db()
     assert request.status == "conflict"
     code, report = health()
-    assert "provisioning.provisioning_items_open" in report["anomalies"]
+    assert "provisioning.provisioning_problem" in report["anomalies"]
     services.supersede(request.pk, pv.op1, "A new address will be chosen")  # staff handle it
     code, report = health()
     assert report["provisioning"]["anomalies"] == [], report["provisioning"]  # a handled conflict never alerts again
 
 
-def test_6b4_an_aged_hard_bounce_alerts_and_a_fresh_one_does_not(p2, settings):
+def backdate(env, table: str, row_id: int, column: str, seconds: int) -> None:
+    """Test-only: the migration owner moves a timestamp into the past (no service ages a row on demand)."""
+    owner = env.committed.connect("owner", autocommit=True)
+    owner.execute(f"UPDATE {table} SET {column} = {column} - make_interval(secs => %s) WHERE id = %s", [seconds, row_id])
+
+
+def test_6b4_an_aged_hard_bounce_alerts_and_a_fresh_one_does_not(pv, monkeypatch):
     from correspondence.staff_items import open_item
 
-    settings.CATALYST_HEALTH_HARD_BOUNCE_AGE_SECONDS = 1
-    open_item("hard_bounce", "health-probe-bounce", application=p2.app if hasattr(p2, "app") else None)
+    app = complete(pv, monkeypatch)
+    item = open_item("hard_bounce", "health-probe-bounce", application=app)
     assert health()[1]["bounces"]["anomalies"] == []  # younger than the target
-    time.sleep(1.2)
+    backdate(pv, "correspondence_staffitem", item.pk, "opened_at", 2 * 86400)
     code, report = health()
     assert code == 1 and "bounces.hard_bounce_unresolved" in report["anomalies"]
+
+
+def test_6b4_routine_staff_waiting_alerts_only_when_overdue(pv, monkeypatch, settings):
+    from correspondence.models import StaffItem
+
+    settings.CATALYST_PROVISIONING_METHOD = "checklist"  # a checklist item opens on approval: ordinary staff work
+    app, request = approved(pv, monkeypatch)
+    item = StaffItem.objects.get(application=app, reason_code="provisioning_checklist", status="open")
+    assert health()[1]["provisioning"]["anomalies"] == []  # a fresh checklist is not a problem
+    backdate(pv, "correspondence_staffitem", item.pk, "opened_at", 2 * 3600)
+    assert "provisioning.provisioning_waiting_too_long" in health()[1]["anomalies"]
+
+
+def test_6b4_a_revocation_round_that_never_ran_is_reported(pv, monkeypatch):
+    from provisioning import closure
+    from provisioning.models import AccessRevocation
+
+    app, request = approved(pv, monkeypatch)
+    run_worker()
+    closure.ensure_revocations(request, f"user:{pv.approver.pk}")  # obligations created; their round has not run
+    assert AccessRevocation.objects.filter(request=request, state="requested").exists()
+    assert "provisioning.revocation_stalled" not in health()[1]["anomalies"]
+    # An obligation's timestamps are fixed in the database, so the health check's clock moves forward instead.
+    later = timezone.now() + timedelta(hours=2)
+    monkeypatch.setattr(system_health.timezone, "now", lambda: later)
+    assert "provisioning.revocation_stalled" in health()[1]["anomalies"]
+
+
+def test_6b4_a_lease_renewal_also_beats_the_heartbeat(p2, settings, tmp_path):
+    import uuid
+
+    from django.db import transaction
+
+    from workflow import ledger
+
+    settings.CATALYST_WORKER_HEARTBEAT_FILE = str(tmp_path / "worker.beat")
+    action = PendingAction.objects.create(kind="health_probe", subject_type="application", subject_id=uuid.uuid4(),
+                                          idempotency_key="health-probe-fence")
+
+    class Probe:
+        automated, redeliverable = True, True
+
+    claim = ledger.claim_next({"health_probe": Probe()})
+    assert claim is not None and claim.id == action.pk
+    assert heartbeat.age_seconds(settings.CATALYST_WORKER_HEARTBEAT_FILE) is None
+    with transaction.atomic():
+        ledger.fence(claim)
+    assert heartbeat.age_seconds(settings.CATALYST_WORKER_HEARTBEAT_FILE) < 5
 
 
 @pytest.mark.parametrize(("column", "value", "anomaly"), [

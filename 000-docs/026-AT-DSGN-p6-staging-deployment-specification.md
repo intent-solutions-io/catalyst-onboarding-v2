@@ -573,15 +573,19 @@ specification text; nothing is built.
   - the oldest due action still queued (moved here from readiness, 6B.3), and running actions whose lease expired
     long ago;
   - agreements in an uncertain or failed state, and custody failures;
-  - provisioning still settling (an uncertain create or verify, a found mailbox), any open provisioning staff item
-    (it clears when staff resolve it), and a revocation round that never ran;
+  - provisioning still settling (an uncertain create or verify, a found mailbox);
+  - provisioning staff items that mean something went wrong (alert at once; they clear when staff resolve them),
+    and routine waiting items (checklist, name review, blocked) only once overdue;
+  - a revocation round that never ran;
   - hard bounces unresolved past a target.
 - The thresholds are configurable placeholders until POL-16 (P6-D-9).
 - After the QA review of PR #64 (two HIGH, four MEDIUM):
   - terminal provisioning states no longer alert forever; the open staff item is the signal, and it clears when
     staff resolve it;
   - every failure of the check itself, including a malformed report, exits 2 and never 1;
-  - the heartbeat also beats on every lease renewal, so a long action is not reported dead;
+  - the heartbeat also beats on every lease renewal (in the write phase, after the external call); a handler that
+    makes several slow calls before its first renewal can still look quiet for longer, which twice the lease allows
+    for one call each of at most half the lease;
   - staging requires a heartbeat file;
   - tests now cover each signal both firing and clearing, with a real leak check on seeded applicant data.
 - **Runbook note:** a stopped worker (a deploy, for example) leaves the heartbeat to age; the alert fires only past
