@@ -738,10 +738,13 @@ def test_6b6_the_backup_role_reads_every_table_but_sessions_and_writes_nothing()
             " FROM (SELECT tablename, ('public.' || quote_ident(tablename))::regclass AS oid FROM pg_tables"
             "       WHERE schemaname = 'public') t ORDER BY 1", [ROLES["backup"]] * 5)
         rows = cursor.fetchall()
-    unreadable = [table for table, readable, _ in rows if not readable and table != "django_session"]
+    from config.backup import EXCLUDED_TABLES
+
+    unreadable = [table for table, readable, _ in rows if not readable and table not in EXCLUDED_TABLES]
     assert unreadable == [], "a new table needs a backup grant in its migration (config.db_roles, role 'backup')"
     assert [table for table, _, writes in rows if writes] == []
-    assert dict((t, r) for t, r, _ in rows)["django_session"] is False  # staff session keys stay out of backups
+    for excluded in EXCLUDED_TABLES:  # staff session keys and two-factor secrets stay out of backups (6B.9)
+        assert dict((t, r) for t, r, _ in rows)[excluded] is False, excluded
 
 
 def test_6b6_the_backup_role_can_read_but_never_change_history(connect):

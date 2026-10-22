@@ -82,7 +82,8 @@ def test_6b7_a_backup_restores_elsewhere_byte_for_byte_with_its_files_and_a_hold
     printed = json.loads(result.stdout.strip().splitlines()[-1])
     assert set(printed) == {"name", "manifest_sha256"}  # only the name and the digest reach the log
     receipt = json.loads((out / "set" / "receipt.json").read_text())
-    assert receipt["excluded_tables"] == ["django_session"] and "rows" not in receipt and "documents" not in receipt
+    assert receipt["excluded_tables"] == ["django_session", "otp_static_staticdevice", "otp_static_statictoken",
+                                          "otp_totp_totpdevice"] and "rows" not in receipt and "documents" not in receipt
     assert backup_module.private_set(out / "set") and not (out / "set.pending").exists()
     assert not (out / "set" / "django_session.copy").exists()  # staff sessions are never backed up
     target = new_database()

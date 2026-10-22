@@ -101,10 +101,20 @@ def bounce_health() -> dict:
     return {"aged_hard_bounces": aged, "anomalies": ["hard_bounce_unresolved"] if aged else []}
 
 
+def session_health() -> dict:
+    """Outside the local environments the hourly removal of expired staff sessions must be scheduled (6B.9)."""
+    from accounts.staff_access import CLEAR_SESSIONS
+
+    scheduled = PendingAction.objects.filter(kind=CLEAR_SESSIONS, status__in=(PendingAction.Status.QUEUED,
+                                                                              PendingAction.Status.RUNNING)).exists()
+    required = settings.CATALYST_STAFF_TWO_FACTOR
+    return {"cleanup_scheduled": scheduled, "anomalies": ["session_cleanup_unscheduled"] if required and not scheduled else []}
+
+
 def report() -> dict:
     from correspondence.health import collector_health, mail_behaviour_health, reminder_health, reply_health, send_health
 
     return {"worker": worker_health(), "queue": queue_health(), "agreements": agreement_health(),
             "provisioning": provisioning_health(), "bounces": bounce_health(), "sends": send_health(),
             "collector": collector_health(), "replies": reply_health(), "reminders": reminder_health(),
-            "mail": mail_behaviour_health()}
+            "mail": mail_behaviour_health(), "sessions": session_health()}

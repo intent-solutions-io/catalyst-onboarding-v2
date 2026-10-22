@@ -38,7 +38,9 @@ from pathlib import Path
 
 from psycopg import sql
 
-EXCLUDED_TABLES = ("django_session",)
+# Staff sessions, and the two-factor tables (TOTP keys and recovery codes are credentials): a restore means staff
+# sign in again and re-enrol (6B.9).
+EXCLUDED_TABLES = ("django_session", "otp_static_staticdevice", "otp_static_statictoken", "otp_totp_totpdevice")
 SNAPSHOT_TIMEOUT_MS = 15 * 60 * 1000  # a long snapshot holds back vacuum (6A review)
 RESTORE_HOLD = ("system", "00000000-0000-0000-0000-00000000aaaa")  # the AutomationPause row the ledger honours
 HOLD_REASON = "restore hold: lifted only by catalyst_post_restore (6B.7b) after links, sessions and reconciliation"

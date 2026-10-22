@@ -817,3 +817,62 @@ specification text; nothing is built.
 - **Evidence:** `tests/test_staging_proxy.py` (the rendering, the log skip matching `PRIVATE_PATHS`, the public
   allow-list, the staff site, the headers and the absence of a webhook) and the overlap test in
   `tests/test_startup.py`.
+
+**6B.9, staff two-factor (026 section 8; P6-D-3, POL-13, POL-14).**
+
+- **Package:** `django-otp` 1.7.5 alone (TOTP devices and single-use recovery codes; it depends only on Django),
+  chosen over `django-two-factor-auth`, which adds phone, QR and form-wizard dependencies. The lock's wheel hash was
+  checked against the downloaded wheel, and the one change from 1.7.4 was read (a session whose device is no longer
+  confirmed loses its verification).
+- **Scope:** outside the local environments every request under `/staff/` (the admin and every focused staff view,
+  including any added later) needs a session verified by a second factor (`accounts.staff_access.StaffAccess`, after
+  django-otp's middleware). An unverified session is signed out and sent to the login page, which asks for the token.
+  The requirement is fixed in code (`CATALYST_STAFF_TWO_FACTOR`), never read from the environment.
+- **No self-service:** the owner enrols a device (`manage.py enroll_staff_two_factor`, which prints the
+  authenticator URI and ten recovery codes once, to the terminal only). There is no password-reset path: the admin's
+  password change is refused and no reset view is mounted.
+- **Break-glass** for a lost or compromised device: the owner runs `manage.py reset_staff_two_factor`, which removes
+  the devices and codes, makes the password unusable and ends that account's sessions. The owner then confirms the
+  person out of band (never by email alone), sets a new password and enrols again.
+- **Throttling:** password failures are counted per username in PostgreSQL, shared by every web process. After five
+  failures the username is refused for 15 minutes, even with the right password. Only a hash of the username is
+  stored. Token failures are throttled per device by django-otp. A deliberate lock-out of a staff username is
+  possible, and accepted because the staff host is reachable only from named staff devices (option A).
+- **Lifetimes:** the idle timeout stays the 30-minute sliding session (6B.2). An absolute lifetime of eight hours
+  from login is checked from the login time recorded in the session (from the PR #61 review).
+- **Session clean-up:** `clear_sessions` is a ledger action that deletes expired session rows hourly and queues its
+  successor, even after a final failure. `manage.py schedule_session_cleanup` (idempotent) starts the chain at
+  deployment, and `catalyst_health` reports `session_cleanup_unscheduled` where two-factor is required.
+- **Database:** django-otp saves a whole device row when a token is verified, so the application role has UPDATE on
+  the device tables. A trigger refuses any change by that role except the counters and timestamps. The role cannot
+  add or remove a device; it may delete a recovery code, which is how a used code is spent.
+- **Backups:** the two-factor tables are excluded (TOTP keys and recovery codes are credentials), so after a restore
+  every staff member is enrolled again, alongside the new password the post-restore step already requires.
+- **After the security review of this task** (no BLOCKER or HIGH; six MEDIUM, all fixed here):
+  - an anonymous request reaches only the login page under `/staff/`, so a staff view added later without its
+    own check is still closed; the gate matches on the path without the script prefix;
+  - throttle rows are removed by the hourly clean-up, and the break-glass reset clears that username's lock;
+  - each enrolment and reset logs one line naming the account id, never the username: the record of each use,
+    beside this documented procedure;
+  - a locked username still costs one password hash, so the lock state cannot be timed;
+  - the tests below were extended.
+- **Found by the full suite:** django-otp registers its device models with the admin. They are unregistered, so staff
+  never browse TOTP keys or recovery codes. The backup role's grant migration (6B.6) now takes its exclusions from
+  `config.backup.EXCLUDED_TABLES`, and a later migration revokes the two-factor tables explicitly, so whichever order
+  the apps migrate in, the backup role never reads a credential table.
+- **Evidence:** `tests/test_staff_two_factor.py`:
+  - an anonymous request reaches only the login page, including a path no view serves yet;
+  - a session without a recorded login time is ended;
+  - an unverified session reaches no staff page (the admin and one screen of each staff app), and is signed out;
+  - the login refuses the password alone, a wrong token and a replayed token; a verified session reaches every
+    staff page;
+  - a recovery code signs in once;
+  - the application role may count failures but never change, add or remove a device;
+  - repeated password failures lock the username, even for the right password, until the lock runs out, and the
+    login page locks a username that does not exist in the same way;
+  - a session older than its absolute lifetime is ended;
+  - expired sessions are removed by a self-renewing action;
+  - health reports an unscheduled clean-up where two-factor is required;
+  - the break-glass reset leaves nothing from before it working;
+  - the requirement holds in staging (a fresh staging process), is fixed in code, and the middleware order is
+    pinned.

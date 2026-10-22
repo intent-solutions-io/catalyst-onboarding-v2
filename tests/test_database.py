@@ -54,6 +54,10 @@ APPROVED_MIGRATIONS = {
     ("correspondence", "0016_welcome_kind"),  # 5B.2
     ("provisioning", "0003_credential_setup"), ("provisioning", "0004_credential_setup_protection"),
     ("provisioning", "0005_revocation_and_withdrawal"), ("provisioning", "0006_revocation_and_withdrawal_protection"),  # 5B.3
+    # 6B.9: django-otp's TOTP and recovery-code tables, the login throttle, their grants and device protection.
+    ("otp_totp", "0001_initial"), ("otp_totp", "0002_auto_20190420_0723"), ("otp_totp", "0003_add_timestamps"),
+    ("otp_static", "0001_initial"), ("otp_static", "0002_throttling"), ("otp_static", "0003_add_timestamps"),
+    ("accounts", "0004_login_throttle"), ("accounts", "0005_two_factor_grants"),
 }
 
 
