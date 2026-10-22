@@ -540,3 +540,24 @@ specification text; nothing is built.
   - the cookie and HSTS values, read from a staging process;
   - a production link host refused in staging;
   - local environments keep plain cookies but still time out.
+
+**6B.3, liveness, readiness and the public-host guard (P6-D-12).**
+
+- `/healthz` answers `ok` with no database call. `/readyz` answers `ready`, or `not-ready` with status 503. It
+  checks that the database login is the application role (the strict web check from ADR-14) and that every
+  migration is applied. Neither ever returns a version, commit or reason; the reason goes to the log as a short code.
+- **Deviation from section 4:** the oldest pending-action age is not part of readiness. A backlog must not mark a
+  process unready, because the deploy wrapper would then revert a healthy release. It belongs to the health command
+  and alerting (6B.4).
+- `config.health.HostGuard` is an allow-list by host name, independent of the proxy (TEST-P6-32):
+  - the health paths answer only on `CATALYST_LOCAL_HOSTS` (the proxy's socket);
+  - the staff screens and the admin answer only on `CATALYST_STAFF_HOST`, which staging requires;
+  - in test and development with no staff host, staff and admin answer on any host but the public one;
+  - paths are normalised first (repeated slashes, dot segments, case), and every refusal is a 404.
+
+  The guards refuse a staff or local host that is a wildcard, a domain pattern or the public host.
+- After the security review of the first version (one HIGH: it denied only the public host and so failed open for
+  every other allowed host), the guard became the allow-list above. `/readyz` reuses its answer for five seconds,
+  so probes cannot load the database, and the header test asserts the full header set. The WSGI server's own
+  `Server` header is checked on staging (NOT RUN here).
+- **Evidence:** `tests/test_health.py`.
