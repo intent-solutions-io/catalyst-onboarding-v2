@@ -91,6 +91,11 @@ def claim_next(registry=None) -> Claim | None:
     if not registry:
         return None
     automated = [kind for kind, h in registry.items() if h.automated]
+    from config.backup import RESTORE_HOLD
+
+    # After a restore nothing runs until catalyst_post_restore lifts the hold (026 section 6); checked inside the
+    # claim query, so it is atomic with the claim (PR #67 review).
+    held = AutomationPause.objects.filter(subject_type=RESTORE_HOLD[0], subject_id=RESTORE_HOLD[1])
     paused = AutomationPause.objects.filter(subject_type=OuterRef("subject_type"), subject_id=OuterRef("subject_id"))
     lease = timedelta(seconds=settings.CATALYST_WORKER_LEASE_SECONDS)
     with transaction.atomic():
@@ -98,6 +103,7 @@ def claim_next(registry=None) -> Claim | None:
             PendingAction.objects.select_for_update(skip_locked=True, of=("self",))
             .annotate(paused=Exists(paused))
             .filter(kind__in=list(registry))
+            .filter(~Exists(held))
             .filter(Q(status=Status.QUEUED, due_at__lte=Now()) | Q(status=Status.RUNNING, lease_expires_at__lte=Now()))
             .exclude(Q(paused=True) & Q(kind__in=automated))
             .order_by("due_at", "id")

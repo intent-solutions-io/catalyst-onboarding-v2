@@ -238,6 +238,7 @@ EXPECTED_TRIGGERS = {
     ("correspondence_replyinterpretation", "catalyst_interpretation_result_once"),  # P3 3B.3
     ("assessments_qualificationdecision", "catalyst_append_only"), ("assessments_qualificationdecision", "catalyst_no_truncate"),
     ("applications_application", "catalyst_decided_stage_needs_decision"),  # P3 3B.4
+    ("workflow_automationpause", "catalyst_restore_hold"),  # 6B.7a
     ("assessments_qualificationdecision", "catalyst_decision_txid"),
     ("agreements_agreementtemplateversion", "catalyst_agreement_template_frozen"),  # P4 4B.1
     ("agreements_agreementtemplateversion", "catalyst_agreement_template_draft"),
