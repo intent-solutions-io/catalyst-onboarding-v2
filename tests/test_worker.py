@@ -626,3 +626,16 @@ def test_a_recording_failure_after_the_sink_accepted_is_left_for_lease_recovery(
 def test_retry_backoff_doubles_per_attempt_and_is_capped(settings):
     settings.CATALYST_WORKER_RETRY_SECONDS = 60
     assert [ledger.retry_delay(n).total_seconds() for n in (1, 2, 3, 4, 5, 9)] == [60, 120, 240, 480, 480, 480]
+
+
+def test_6b5_a_worker_process_runs_only_the_kinds_it_is_given():
+    from django.core.management.base import CommandError
+
+    from workflow.management.commands.run_worker import select
+
+    registry = {"fetch_evidence": object(), "send_message": object(), "collect": object()}
+    assert set(select(registry, "fetch_evidence", "")) == {"fetch_evidence"}  # the fetcher
+    assert set(select(registry, "", "fetch_evidence")) == {"send_message", "collect"}  # the worker
+    with pytest.raises(CommandError, match="unknown action kinds: fetch_evidance"):
+        select(registry, "fetch_evidance", "")  # a typo never silently runs nothing
+

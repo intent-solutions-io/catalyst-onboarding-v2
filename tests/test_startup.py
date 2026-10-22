@@ -8,11 +8,28 @@ import pytest
 from tests.support import ROOT, run
 
 CHECK = [sys.executable, "manage.py", "check"]
-# A staging process: synthetic, https links on a staging name, a strong key, the private file mail sink (6B.1, 6B.2).
+def _staging_secrets() -> str:
+    """6B.5: staging reads its secrets from per-secret files, never the environment."""
+    import os
+    import tempfile
+
+    directory = tempfile.mkdtemp(prefix="catalyst-staging-secrets-")
+    for name, value in (("secret_key", "synthetic-staging-key-" + "x7Qp2LmZ9vR4tYw8NcB3hK6sJd1FgUe5aTo0" * 2),  # gitleaks:allow
+                        ("verification_key", "synthetic-staging-verification-" + "Lq8Zr3Wm6Tn1Vb4Hc7Xs" * 3),  # gitleaks:allow
+                        ("db_password", os.environ.get("CATALYST_DB_PASSWORD", "unused"))):
+        with open(os.path.join(directory, name), "w", encoding="utf-8") as handle:
+            handle.write(value)
+    return directory
+
+
+STAGING_SECRETS = _staging_secrets()
+# A staging process: synthetic, https links on a staging name, secrets from files, the private file mail sink
+# (6B.1, 6B.2, 6B.5).
 STAGING = {
     "CATALYST_ENV": "staging", "CATALYST_PUBLIC_BASE_URL": "https://catalyst.staging.test",
     "CATALYST_ALLOWED_HOSTS": "catalyst.staging.test",
-    "CATALYST_SECRET_KEY": "synthetic-staging-key-" + "x7Qp2LmZ9vR4tYw8NcB3hK6sJd1FgUe5aTo0" * 2,  # gitleaks:allow
+    "CATALYST_SECRETS_DIR": STAGING_SECRETS, "CATALYST_SECRET_KEY": None, "CATALYST_VERIFICATION_KEY": None,
+    "CATALYST_VERIFICATION_FALLBACK_KEYS": None, "CATALYST_DB_PASSWORD": None, "CATALYST_MAIL_PASSWORD": None,
     "CATALYST_EMAIL_BACKEND": None, "CATALYST_EMAIL_FILE_PATH": "/tmp/catalyst-staging-mail",
     "CATALYST_MAIL_TEST_HOST": None, "CATALYST_STAFF_HOST": "staff.staging.test", "CATALYST_LOCAL_HOSTS": "localhost",
     "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-staging-worker.beat",
@@ -188,4 +205,28 @@ def test_6b3_review_staging_needs_a_proper_staff_host_and_local_hosts():
 def test_6b4_review_staging_requires_a_worker_heartbeat_file():
     result = run(CHECK, **{**STAGING, "CATALYST_WORKER_HEARTBEAT_FILE": None})
     assert result.returncode != 0 and "CATALYST_WORKER_HEARTBEAT_FILE must be an absolute path" in result.stderr
+
+
+# --- 6B.5: secrets from per-secret files outside the local environments (026 section 5, P6-D-6) ---------------
+
+def test_6b5_staging_reads_each_secret_from_its_own_file():
+    probe = ("from django.conf import settings as s; print(len(s.SECRET_KEY) > 50, s.CATALYST_VERIFICATION_KEY[:31],"
+             " s.CATALYST_VERIFICATION_FALLBACK_KEYS)")
+    result = run([sys.executable, "-c", f"import django; django.setup(); {probe}"], **STAGING)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == ["True", "synthetic-staging-verification-", "[]"]
+
+
+@pytest.mark.parametrize("name", ["CATALYST_SECRET_KEY", "CATALYST_DB_PASSWORD", "CATALYST_MAIL_PASSWORD"])
+def test_6b5_staging_refuses_a_secret_in_the_environment(name):
+    result = run(CHECK, **{**STAGING, name: "synthetic-value-in-the-environment"})
+    assert result.returncode != 0 and f"{name} may not be in the environment" in result.stderr
+    assert "synthetic-value-in-the-environment" not in result.stderr + result.stdout
+
+
+def test_6b5_staging_refuses_a_missing_secrets_directory_or_file(tmp_path):
+    no_dir = run(CHECK, **{**STAGING, "CATALYST_SECRETS_DIR": None})
+    assert no_dir.returncode != 0
+    missing = run(CHECK, **{**STAGING, "CATALYST_SECRETS_DIR": str(tmp_path)})  # an empty directory
+    assert missing.returncode != 0 and "secret CATALYST_SECRET_KEY is missing from CATALYST_SECRETS_DIR" in missing.stderr
 

@@ -321,6 +321,22 @@ def host_problems(settings) -> list[str]:
     return problems
 
 
+SECRET_ENV_NAMES = ("CATALYST_SECRET_KEY", "CATALYST_VERIFICATION_KEY", "CATALYST_VERIFICATION_FALLBACK_KEYS",
+                    "CATALYST_DB_PASSWORD", "CATALYST_MAIL_PASSWORD")
+
+
+def secret_problems(settings, environ: Mapping[str, str]) -> list[str]:
+    """6B.5 (026 section 5, P6-D-6): outside test and development, secrets come only from per-secret files."""
+    environment = getattr(settings, "CATALYST_ENV", "")
+    if environment not in ALLOWED_ENVIRONMENTS or environment in ("test", "development"):
+        return []
+    problems = [f"{name} may not be in the environment outside test and development; use CATALYST_SECRETS_DIR"
+                for name in SECRET_ENV_NAMES if name in environ]
+    if not str(getattr(settings, "CATALYST_SECRETS_DIR", "") or "").startswith("/"):
+        problems.append("CATALYST_SECRETS_DIR must be an absolute path outside test and development")
+    return problems
+
+
 def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return (
         database_problems(settings.DATABASES)
@@ -334,4 +350,5 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + agreement_problems(settings, environ)
         + provisioning_problems(settings, environ)
         + host_problems(settings)
+        + secret_problems(settings, environ)
     )

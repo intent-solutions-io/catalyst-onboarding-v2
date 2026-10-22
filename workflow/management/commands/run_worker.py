@@ -12,7 +12,7 @@ import signal
 import threading
 
 from django.conf import settings
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import InterfaceError, OperationalError, connections
 
 from config import runtime
@@ -21,13 +21,26 @@ from workflow import heartbeat, ledger
 logger = logging.getLogger("workflow.worker")
 
 
+def select(registry: dict, only: str, exclude: str) -> dict:
+    """The handlers this process may run. An unknown kind is an error, so a typo cannot silently run nothing."""
+    wanted = {k.strip() for k in only.split(",") if k.strip()}
+    unwanted = {k.strip() for k in exclude.split(",") if k.strip()}
+    unknown = (wanted | unwanted) - set(registry)
+    if unknown:
+        raise CommandError(f"unknown action kinds: {', '.join(sorted(unknown))}")
+    return {kind: h for kind, h in registry.items() if (not wanted or kind in wanted) and kind not in unwanted}
+
+
 class Command(BaseCommand):
     help = "Run the pending-action worker (local mail sink only in this slice)."
 
     def add_arguments(self, parser):
         parser.add_argument("--exit-when-idle", action="store_true", help="stop when no action is claimable")
+        # 6B.5 (026 section 5, P6-D-14): the fetcher runs only the evidence fetch; the worker runs everything else.
+        parser.add_argument("--only", default="", help="comma-separated action kinds this process may run")
+        parser.add_argument("--exclude", default="", help="comma-separated action kinds this process never runs")
 
-    def handle(self, *args, exit_when_idle=False, **options):
+    def handle(self, *args, exit_when_idle=False, only="", exclude="", **options):
         runtime.declare_process("worker")
         connections.close_all()  # nothing opened before the declaration is reused unchecked
         stop = threading.Event()
@@ -38,7 +51,7 @@ class Command(BaseCommand):
         processed = 0
         poll = settings.CATALYST_WORKER_POLL_SECONDS
         try:
-            registry = ledger.handlers()
+            registry = select(ledger.handlers(), only, exclude)
             self.stdout.write("worker started")
             self.stdout.flush()
             while not stop.is_set():

@@ -18,8 +18,32 @@ def env(name: str, default: str | None = None) -> str:
     return value
 
 
+# 6B.5 (026 section 5, P6-D-6): outside test and development every secret is read from its own file in
+# CATALYST_SECRETS_DIR (tmpfs, mounted read-only for one process kind), never from the environment, where
+# /proc/<pid>/environ, `docker exec env`, child processes and crash dumps would expose it. config.guards refuses a
+# secret in the environment there. The file name is the setting's name, lower-case, without the CATALYST_ prefix.
+SECRET_NAMES = ("CATALYST_SECRET_KEY", "CATALYST_VERIFICATION_KEY", "CATALYST_VERIFICATION_FALLBACK_KEYS",
+                "CATALYST_DB_PASSWORD", "CATALYST_MAIL_PASSWORD")
+CATALYST_SECRETS_DIR = os.environ.get("CATALYST_SECRETS_DIR", "").strip()
+
+
+def secret(name: str, default: str | None = None) -> str:
+    if not CATALYST_SECRETS_DIR:
+        return env(name) if default is None else os.environ.get(name, default)  # an optional secret may be empty
+    try:
+        with open(os.path.join(CATALYST_SECRETS_DIR, name.removeprefix("CATALYST_").lower()), encoding="utf-8") as handle:
+            value = handle.read().strip()
+    except FileNotFoundError:
+        value = ""
+    if value:
+        return value
+    if default is not None:
+        return default
+    raise ImproperlyConfigured(f"secret {name} is missing from CATALYST_SECRETS_DIR")
+
+
 CATALYST_ENV = env("CATALYST_ENV")
-SECRET_KEY = env("CATALYST_SECRET_KEY")
+SECRET_KEY = secret("CATALYST_SECRET_KEY")
 DEBUG = False
 ALLOWED_HOSTS = [h.strip() for h in env("CATALYST_ALLOWED_HOSTS", "localhost").split(",") if h.strip()]
 # 6B.3 (026 section 8): the host names that may read the health paths (the proxy's local socket) and the one staff
@@ -35,6 +59,7 @@ INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.sessions",
     "django.contrib.messages",
+    "django.contrib.staticfiles",  # 6B.5: the admin's stylesheets, collected into the image, served by the proxy
     "accounts",
     "workflow",
     "applications",
@@ -63,6 +88,8 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 SESSION_COOKIE_SAMESITE = CSRF_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_HTTPONLY = True
 ROOT_URLCONF = "config.urls"
+STATIC_URL = "/static/"
+STATIC_ROOT = os.environ.get("CATALYST_STATIC_ROOT", "") or None  # the image collects into /app/static
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
@@ -88,7 +115,7 @@ DATABASES = {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": env("CATALYST_DB_NAME"),
         "USER": env("CATALYST_DB_USER"),
-        "PASSWORD": env("CATALYST_DB_PASSWORD"),
+        "PASSWORD": secret("CATALYST_DB_PASSWORD"),
         "HOST": env("CATALYST_DB_HOST"),
         "PORT": env("CATALYST_DB_PORT", "5432"),
         "ATOMIC_REQUESTS": False,  # services own their transactions (005 S1.4)
@@ -137,9 +164,9 @@ _base = urlsplit(env("CATALYST_PUBLIC_BASE_URL"))
 if _base.scheme not in ("http", "https") or not _base.hostname or _base.path not in ("", "/") or _base.query or _base.fragment:
     raise ImproperlyConfigured("CATALYST_PUBLIC_BASE_URL must be an http(s) origin such as https://example.test")
 CATALYST_PUBLIC_BASE_URL = f"{_base.scheme}://{_base.netloc}"
-CATALYST_VERIFICATION_KEY = env("CATALYST_VERIFICATION_KEY")
+CATALYST_VERIFICATION_KEY = secret("CATALYST_VERIFICATION_KEY")
 CATALYST_VERIFICATION_FALLBACK_KEYS = [
-    k.strip() for k in os.environ.get("CATALYST_VERIFICATION_FALLBACK_KEYS", "").split(",") if k.strip()
+    k.strip() for k in secret("CATALYST_VERIFICATION_FALLBACK_KEYS", "").split(",") if k.strip()
 ]
 if SECRET_KEY in [CATALYST_VERIFICATION_KEY, *CATALYST_VERIFICATION_FALLBACK_KEYS]:
     raise ImproperlyConfigured("the verification signing key must differ from SECRET_KEY (ADR-16)")
@@ -238,7 +265,7 @@ CATALYST_MAIL_PORT = number("CATALYST_MAIL_PORT", "25")
 CATALYST_MAIL_TEST_HOST = os.environ.get("CATALYST_MAIL_TEST_HOST", "")  # `test` only: a named test service
 CATALYST_MAIL_TLS = os.environ.get("CATALYST_MAIL_TLS", "starttls")  # "starttls", or "none" for loopback only
 CATALYST_MAIL_USER = os.environ.get("CATALYST_MAIL_USER", "")
-CATALYST_MAIL_PASSWORD = os.environ.get("CATALYST_MAIL_PASSWORD", "")
+CATALYST_MAIL_PASSWORD = secret("CATALYST_MAIL_PASSWORD", "")
 CATALYST_MAIL_DOMAIN = os.environ.get("CATALYST_MAIL_DOMAIN", "") or _base.hostname  # Message-ID right-hand side
 # A certificate authority file the transports trust instead of the system store (synthetic test servers);
 # unset means the system store. Verification itself is never switched off.
