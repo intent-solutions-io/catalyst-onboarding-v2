@@ -38,6 +38,8 @@ from urllib.parse import quote, unquote, urljoin, urlsplit
 
 from django.conf import settings
 
+from config import guards
+
 DERIVATION_VERSION = 1
 MAX_URL = 2048
 MAX_REDIRECTS = 3
@@ -237,7 +239,7 @@ def fetch(url: str, source) -> FetchResult:
             raise Transient("deadline_exceeded")
         return left
 
-    if source.fixture_only and settings.CATALYST_ENV != "test":
+    if source.fixture_only and not guards.synthetic(settings.CATALYST_ENV):
         raise Refused("fixture_source_outside_test")
     listed = set(settings.CATALYST_EVIDENCE_ALLOWED_HOSTS)  # every host, source or redirect, must be listed here too
     if source.host not in listed:

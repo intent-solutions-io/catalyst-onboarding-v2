@@ -12,8 +12,16 @@ from collections.abc import Mapping
 
 POSTGRESQL_ENGINE = "django.db.backends.postgresql"
 
-# Environments this skeleton may run in. Production settings are not authorized before phase P6.
-ALLOWED_ENVIRONMENTS = frozenset({"development", "test"})
+# Environments Catalyst may run in. `staging` (026 P6-D-2, D-49) is synthetic like `test`: the same fakes under the
+# same strict rules, never a real provider. Production settings are not authorized (a later P6 decision).
+ALLOWED_ENVIRONMENTS = frozenset({"development", "test", "staging"})
+SYNTHETIC_ENVIRONMENTS = frozenset({"test", "staging"})
+
+
+def synthetic(environment: str) -> bool:
+    """True where the synthetic fakes may be configured: `test` and `staging`, under identical rules (026 section 3:
+    the staging fakes share the worker's network namespace, so every loopback-only rule holds unchanged)."""
+    return environment in SYNTHETIC_ENVIRONMENTS
 
 # Mail backends that never leave the process or the local disk.
 SINK_EMAIL_BACKENDS = frozenset({
@@ -79,7 +87,7 @@ def is_loopback_literal(host: str) -> bool:
 
 
 def mail_host_allowed(environment: str, host: str, test_host: str) -> bool:
-    """016 section 6, A-4 (D-28, amends REQ-022): a literal loopback address in `development` and `test`,
+    """016 section 6, A-4 (D-28, amends REQ-022): a literal loopback address in `development`, `test` and `staging`,
     or, in `test` only, the one named test-service host. Names other than that one are refused, so a
     real provider can never be configured outside production."""
     if environment not in ALLOWED_ENVIRONMENTS:
@@ -106,6 +114,15 @@ def mail_problems(settings) -> list[str]:
     sent, collected = getattr(settings, "CATALYST_MAIL_SENT_FOLDER", ""), getattr(settings, "CATALYST_MAIL_COLLECT_FOLDER", "INBOX")
     if sent and sent == collected:
         problems.append("CATALYST_MAIL_SENT_FOLDER must differ from CATALYST_MAIL_COLLECT_FOLDER (016 3.6)")
+    if settings.CATALYST_ENV == "staging":
+        # 6B.1 review: messages carry bearer links, so staging never prints them (the console backend writes to
+        # stdout, which is the container log); the file sink needs a private absolute directory.
+        backend = getattr(settings, "EMAIL_BACKEND", "")
+        if backend == "django.core.mail.backends.console.EmailBackend":
+            problems.append("the console mail backend is not allowed in staging (it writes links to the logs)")
+        path = getattr(settings, "EMAIL_FILE_PATH", None) or ""
+        if backend == "django.core.mail.backends.filebased.EmailBackend" and not str(path).startswith("/"):
+            problems.append("staging's file mail sink needs an absolute EMAIL_FILE_PATH")
     tls = getattr(settings, "CATALYST_MAIL_TLS", "starttls")
     if tls not in ("starttls", "none"):
         problems.append("CATALYST_MAIL_TLS must be 'starttls' or 'none'")
@@ -144,10 +161,20 @@ def evidence_problems(settings, environ: Mapping[str, str]) -> list[str]:
     fixture address may be pinned and no custom trust store may be set; none of them may come from the
     environment."""
     problems = [f"{name} may not be set from the environment" for name in EVIDENCE_TEST_ONLY if name in environ]
-    if getattr(settings, "CATALYST_ENV", "") != "test":
+    environment = getattr(settings, "CATALYST_ENV", "")
+    if not synthetic(environment):
         for name in EVIDENCE_TEST_ONLY:
             if getattr(settings, name, None):
-                problems.append(f"{name} is allowed only in the test environment (synthetic evidence only)")
+                problems.append(f"{name} is allowed only in the test and staging environments (synthetic evidence only)")
+    elif environment == "staging":  # staging gets no wider than test's fixtures: reserved names, loopback, an absolute path
+        if any(not str(host).lower().endswith(".test") for host in getattr(settings, "CATALYST_EVIDENCE_ALLOWED_HOSTS", ()) or ()):
+            problems.append("CATALYST_EVIDENCE_ALLOWED_HOSTS may name only .test hosts in staging")
+        address = getattr(settings, "CATALYST_EVIDENCE_FIXTURE_ADDRESS", "")
+        if address and not is_loopback_literal(address):
+            problems.append("CATALYST_EVIDENCE_FIXTURE_ADDRESS must be a literal loopback address in staging")
+        ca = getattr(settings, "CATALYST_EVIDENCE_CA_FILE", "")
+        if ca and not str(ca).startswith("/"):
+            problems.append("CATALYST_EVIDENCE_CA_FILE must be an absolute path")
     return problems
 
 
@@ -158,8 +185,8 @@ def assessment_problems(settings, environ: Mapping[str, str]) -> list[str]:
     mode = getattr(settings, "CATALYST_ASSESSMENT_MODEL", "none")
     if mode not in ("none", "test"):
         problems.append("CATALYST_ASSESSMENT_MODEL must be 'none' or 'test'; live model use is not authorized")
-    elif mode == "test" and getattr(settings, "CATALYST_ENV", "") != "test":
-        problems.append("CATALYST_ASSESSMENT_MODEL 'test' is allowed only in the test environment")
+    elif mode == "test" and not synthetic(getattr(settings, "CATALYST_ENV", "")):
+        problems.append("CATALYST_ASSESSMENT_MODEL 'test' is allowed only in the test and staging environments")
     return problems
 
 
@@ -187,10 +214,10 @@ def agreement_problems(settings, environ: Mapping[str, str]) -> list[str]:
     and the token are fixed in code, never from the environment, and empty outside `test`. In `test` the URL must be
     https and the pinned address a literal loopback address, so only the local fake can answer."""
     problems = [f"{name} may not be set from the environment" for name in AGREEMENT_TEST_ONLY if name in environ]
-    if getattr(settings, "CATALYST_ENV", "") != "test":
+    if not synthetic(getattr(settings, "CATALYST_ENV", "")):
         for name in AGREEMENT_TEST_ONLY:
             if getattr(settings, name, ""):
-                problems.append(f"{name} is allowed only in the test environment (synthetic agreements only)")
+                problems.append(f"{name} is allowed only in the test and staging environments (synthetic agreements only)")
         return problems
     url = getattr(settings, "CATALYST_AGREEMENT_PROVIDER_URL", "")
     if url:
@@ -226,14 +253,15 @@ def provisioning_problems(settings, environ: Mapping[str, str]) -> list[str]:
     # belongs to the separate credential service only (security review of PR #53).
     problems += [f"{name} looks like a mail-host credential and may not be in this process's environment"
                  for name in environ if re.search(r"MXROUTE|DIRECTADMIN|X_API_KEY|MAILHOST_(API_)?(KEY|TOKEN)", name.upper())]
-    if getattr(settings, "CATALYST_ENV", "") != "test":
+    environment = getattr(settings, "CATALYST_ENV", "")
+    base = getattr(settings, "CATALYST_PUBLIC_BASE_URL", "")
+    if environment not in ("test", "development") and base and not base.startswith("https://"):
+        # Setup and confirmation tokens travel in links: outside test and development only https (5B.2 review).
+        problems.append("CATALYST_PUBLIC_BASE_URL must be https outside test and development")
+    if not synthetic(environment):
         for name in PROVISIONING_TEST_ONLY:
             if getattr(settings, name, ""):
-                problems.append(f"{name} is allowed only in the test environment (synthetic provisioning only)")
-        base = getattr(settings, "CATALYST_PUBLIC_BASE_URL", "")
-        if getattr(settings, "CATALYST_ENV", "") != "development" and base and not base.startswith("https://"):
-            # Setup and confirmation tokens travel in links: outside test and development only https (5B.2 review).
-            problems.append("CATALYST_PUBLIC_BASE_URL must be https outside test and development")
+                problems.append(f"{name} is allowed only in the test and staging environments (synthetic provisioning only)")
         return problems
     adapter = getattr(settings, "CATALYST_PROVISIONING_ADAPTER", "")
     if adapter and not adapter.startswith("tests."):

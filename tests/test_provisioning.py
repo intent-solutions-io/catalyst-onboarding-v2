@@ -377,9 +377,15 @@ def test_p5_23_a_real_adapter_domain_or_environment_value_is_refused(settings):
         settings, {"CATALYST_PROVISIONING_ADAPTER": "x"})
     settings.CATALYST_PROVISIONING_QUOTA_MB = 0
     assert any("never unlimited" in p for p in guards.provisioning_problems(settings, {}))
-    settings.CATALYST_ENV = "staging"
+    settings.CATALYST_PROVISIONING_QUOTA_MB = 1024
     settings.CATALYST_PROVISIONING_ADAPTER = "tests.mxroute_fake.FakeMailHost"
-    assert any("only in the test environment" in p for p in guards.provisioning_problems(settings, {}))
+    settings.CATALYST_PROVISIONING_DOMAIN = "team.example.test"
+    settings.CATALYST_PUBLIC_BASE_URL = "https://catalyst.example.test"
+    settings.CATALYST_ENV = "production"  # outside the synthetic environments no fake is allowed at all
+    assert any("only in the test and staging environments" in p for p in guards.provisioning_problems(settings, {}))
+    settings.CATALYST_ENV = "staging"  # staging is synthetic under the same strict rules (026 P6-D-2, D-49)
+    assert guards.provisioning_problems(settings, {}) == []
+    settings.CATALYST_ENV = "test"
     from provisioning import adapter
     settings.CATALYST_PROVISIONING_ADAPTER = ""
     with pytest.raises(adapter.AdapterError, match="no_adapter_configured"):

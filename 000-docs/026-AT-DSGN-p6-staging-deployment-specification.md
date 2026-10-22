@@ -481,3 +481,33 @@ specification text; nothing is built.
 | M8 cutover | scoped v2 mailbox with aligned sender authentication; separate Documenso secret or team; ownership flag before any R1 rollback; snippet-based rollback; privacy notice and assessment |
 | Re-review (0.1.1) | B1 cleared; remaining private file names replaced by generic references; P6-D-6 aligned with H1; the fetcher's single database destination and egress proxy; the erasure record as keyed hashes in its own durable store; stale loopback and process text corrected. Verdict: MERGEABLE-AS-PROPOSAL |
 | LOW items | image scan and bill of materials (TEST-P6-37), sentinel never reaches Buzz (TEST-P6-38), a snapshot timeout, dev-box tmpfs secrets destroyed with the gate window |
+
+## 16. The 6B records
+
+**6B.1, the staging environment (P6-D-2).**
+
+- `config.guards` allows `staging` and adds `SYNTHETIC_ENVIRONMENTS = {test, staging}` with `synthetic(env)`.
+- Every setting that was test-only for the fakes is now allowed in staging under exactly the same rules:
+  - the agreement provider: https, a `.test` host, a loopback pinned address, custody storage outside the
+    repository, at most two webhook secrets;
+  - the provisioning adapter (a test fake) and a `.test` domain;
+  - the assessment `test` model;
+  - evidence fixtures, which staging also limits to `.test` hosts, a loopback fixture address and an absolute CA
+    path.
+- Runtime code follows the same helper: evidence fixture sources (`assessments.fetch` and `collection`) and the
+  test model (`assessments.agent`).
+- Still test-only:
+  - the named test mail host (the staging sink is on loopback, since the fakes share the worker's network
+    namespace);
+  - the send-evidence source;
+  - the Documenso webhook route, which is unmounted in staging until the 6B.8 setting.
+- Staging links must be https. Every non-synthetic environment, production included, still refuses every fake, and
+  provider variables are refused everywhere.
+- **After the security review of PR #59** (no blocker or high; two medium, both fixed):
+  - staging's default mail backend is a private file sink, never the console, whose output would carry bearer links
+    into the container log; the guards refuse the console backend in staging and require an absolute
+    `EMAIL_FILE_PATH`;
+  - staging tests now cover its runtime branches: a fixture fetch, the test model, and a private mail peer refused as
+    in development.
+- **Evidence:** `tests/test_guards.py` (6B.1 tests), the staging leg of the TEST-P3-05 fetch test and the updated
+  TEST-P5-23 test.

@@ -22,6 +22,8 @@ from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.test import TestModel
 
+from config import guards
+
 from .schema import AssessmentOutput, problems
 
 _models.ALLOW_MODEL_REQUESTS = False  # 018 5.5, first layer: no request to a non-test model, in any environment
@@ -65,7 +67,7 @@ MODEL_SETTINGS = {"max_tokens": 4000, "temperature": 0.0, "timeout": 60}
 def build_model():
     if _models.ALLOW_MODEL_REQUESTS:  # nothing may switch the first layer back on
         raise ModelUnavailable("model_requests_enabled")
-    if settings.CATALYST_ASSESSMENT_MODEL == "test" and settings.CATALYST_ENV == "test":
+    if settings.CATALYST_ASSESSMENT_MODEL == "test" and guards.synthetic(settings.CATALYST_ENV):
         model = TEST_MODEL if TEST_MODEL is not None else TestModel()
         if not isinstance(model, (TestModel, FunctionModel)):
             raise ModelUnavailable("model_not_a_test_model")

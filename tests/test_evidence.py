@@ -479,6 +479,10 @@ def test_p3_05_fetch_itself_refuses_a_host_off_the_settings_list_and_fixtures_ou
     with pytest.raises(fetch.Refused, match="fixture_source_outside_test"):
         fetch.fetch(url(ev, "/w"), src)
     assert ev.site.requests == []
+    settings.CATALYST_ENV = "staging"  # synthetic: the same fixture source is fetched (6B.1, D-49)
+    fetch.fetch(url(ev, "/w"), src)
+    assert len(ev.site.requests) == 1
+    settings.CATALYST_ENV = "test"
 
 
 def test_p3_05_the_path_prefix_is_a_path_segment_prefix():
