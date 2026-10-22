@@ -722,3 +722,56 @@ specification text; nothing is built.
   - a truncated table copy, a mismatched receipt and a missing custody file are each refused before anything loads;
   - a target at other migrations is refused;
   - a failed backup leaves nothing that looks usable.
+
+**6B.7b, the post-restore step (026 section 6 steps 4, 5 and 7).**
+
+- **`manage.py catalyst_post_restore`** (`config/post_restore.py`) runs as the owner after `catalyst_restore`. It
+  refuses unless the restore hold is present and `--confirm-database` names the database. It runs in two phases,
+  and **neither the web nor the worker process starts until both have run** (this corrects step 4 above, which
+  started web first).
+- **The review run** (no `--lift`), in one transaction:
+  - closes every outstanding applicant link (unused confirmation links, open password links, open withdrawal links)
+    and opens a staff item for each applicant left without one;
+  - turns a password set that was in flight into "outcome unknown", with a staff item to send a fresh link through
+    the existing reissue path;
+  - **makes every staff password unusable and ends every staff session,** so staff disabled or re-keyed after T
+    never return. The owner checks the roster and re-issues passwords (`manage.py changepassword`) only after the
+    last review run, because each review run disables them again;
+  - lets every running action expire its lease;
+  - queues a revocation round for every stopped request whose access removal is not complete;
+  - reports every queued or running action that reaches the outside world (the non-redeliverable kinds plus the
+    redeliverable ones that still send mail, call a model or fetch), per kind and status, with action ids;
+  - records on the hold that the review happened.
+- **The lift run** (`--lift`) refuses unless a review run happened and the operator confirms `--outward-checked`
+  and `--no-closures-after-backup`.
+- **Stated limits,** which is why lifting needs those two confirmations:
+  - **Expiring a lease** makes the ledger run the action again. A handler reconciles instead of repeating only
+    where the restored record shows its exchange began. An exchange after T leaves no mark, so the operator must
+    check the reported actions against the providers and cancel any already done.
+  - **A closure after T** is not in the restored database at all, so its access removal cannot be found here. The
+    operator confirms there was none, or removes that access again by hand.
+- **Not here: erasure replay** (P6-D-13 option d). Erasure itself does not exist yet (POL-10). The bead
+  "Replay erasures after a restore before any real personal data is backed up" must land before the pilot.
+- **Carried from the review of PR #67:**
+  - the session check counts only client sessions, so autovacuum cannot refuse a restore;
+  - an existing custody directory is set to 0700;
+  - the backup prints only the set's name and digest.
+- **Runbook rules** (for 6B.13 and production):
+  - **Record the digest.** Keep the printed manifest digest with the set, and always restore with
+    `--expect-manifest-sha256`. Whether this is mandatory for production is the owner's decision; it is the default
+    here.
+  - **If moving files into place fails after the commit,** the database is loaded and held. Copy the remaining
+    files from the set's `custody/` directory and run `verify_custody_restore --manifest` before the post-restore
+    step.
+- **After the QA review of PR #68** (four HIGH, five MEDIUM): staff passwords, the two lift confirmations, staff
+  items for stranded applicants and stranded setup requests, the report's scope and ids, an accurate revocation
+  count, and the negative-control tests.
+- **Evidence:** `tests/test_post_restore.py`:
+  - the 026 section 6 step 7 negative control: a confirmation link and a password link that worked before the step
+    are refused after it, and staff items are opened;
+  - staff passwords and sessions from before the restore never return;
+  - withdrawal links close, and an in-flight password set becomes unknown;
+  - unfinished access removal gets exactly one new round, even across runs;
+  - the report lists queued and running outward actions with ids, and running ones are recovered;
+  - lifting needs a review run and both confirmations, after which work resumes;
+  - a refusal without a hold or a named database.
