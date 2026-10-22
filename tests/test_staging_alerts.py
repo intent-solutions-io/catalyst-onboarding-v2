@@ -4,6 +4,7 @@ Buzz (026 section 16)."""
 
 import os
 import subprocess
+import sys
 
 from tests.support import ROOT
 
@@ -18,10 +19,60 @@ def test_6b12_an_alert_carries_signal_codes_and_nothing_else():
     assert "CATALYST_NOTIFY_CMD:?" in health and "CATALYST_HEALTH_STATE:?" in health
 
 
-def test_6b12_the_health_check_leaves_markers_for_the_dead_man():
-    health = (ADAPTERS / "health.sh").read_text()
-    assert health.index('touch "$CATALYST_HEALTH_STATE/health.started"') < health.index("manage.py catalyst_health")
-    assert health.rstrip().endswith('touch "$CATALYST_HEALTH_STATE/health.ok"\nexit "$status"')
+def run_health(tmp_path, health_rc, health_out="", worker_running=True, notify_ok=True, form="200"):
+    """Run the real health.sh with docker and curl stubbed: `docker ... exec` prints health_out and exits health_rc."""
+    stubs = tmp_path / "bin"
+    stubs.mkdir(exist_ok=True)
+    (stubs / "docker").write_text(f"""#!/bin/sh
+case "$*" in
+  *" ps -q worker"*) {"echo worker-id" if worker_running else "true"} ;;
+  inspect*) echo {"true" if worker_running else "false"} ;;
+  exec*) printf '%s' '{health_out}'; exit {health_rc} ;;
+esac
+""")
+    (stubs / "curl").write_text(f"#!/bin/sh\nprintf '%s' '{form}'\n")
+    for stub in stubs.iterdir():
+        stub.chmod(0o755)
+    state, log = tmp_path / "health", tmp_path / "alerts.log"
+    notify = f"printf '%s %s\\n' >> {log}" if notify_ok else "false"
+    python = os.path.dirname(sys.executable)  # the host's python3 parses the report; the test image keeps it here
+    env = {"PATH": f"{stubs}:{python}:/usr/bin:/bin", "CATALYST_HEALTH_STATE": str(state), "CATALYST_NOTIFY_CMD": notify,
+           "CATALYST_DEPLOY_STATE": str(tmp_path), "CATALYST_COMPOSE_PROJECT": "p", "CATALYST_COMPOSE_FILE": "f",
+           "CATALYST_SMOKE_URL": "https://catalyst.example.test/request-access/"}
+    result = subprocess.run(["bash", str(ADAPTERS / "health.sh")], env=env, capture_output=True, text=True, timeout=30)
+    alerts = log.read_text() if log.exists() else ""
+    if log.exists():
+        log.unlink()
+    return result.returncode, alerts, (state / "health.ok").exists()
+
+
+def test_6b12_a_healthy_report_sends_nothing_and_leaves_the_marker(tmp_path):
+    assert run_health(tmp_path, 0, '{"anomalies": []}') == (0, "", True)
+
+
+def test_6b12_a_check_that_fails_without_a_report_is_never_healthy(tmp_path):
+    """Exit 1 with no JSON (a settings or import error) was silently healthy before the 6B.12 review."""
+    assert run_health(tmp_path, 1, "") == (1, "urgent catalyst staging: health.check_failed\n", True)
+    assert run_health(tmp_path, 2, "") == (1, "urgent catalyst staging: health.check_failed\n", True)
+
+
+def test_6b12_findings_are_codes_and_a_stale_heartbeat_is_urgent(tmp_path):
+    report = '{"anomalies": ["queue.backlog", "worker.heartbeat_stale", "x.Evil <b>", "bounces.hard_bounce_unresolved"]}'
+    rc, alerts, _ = run_health(tmp_path, 1, report)
+    assert rc == 1 and alerts == ("urgent catalyst staging: bounces.hard_bounce_unresolved health.unrecognised_signal "
+                                  "queue.backlog worker.heartbeat_stale\n")
+
+
+def test_6b12_a_stopped_worker_and_an_unreachable_form_are_reported(tmp_path):
+    rc, alerts, _ = run_health(tmp_path, 0, '{"anomalies": []}', worker_running=False, form="000")
+    assert rc == 1 and alerts == "urgent catalyst staging: health.worker_unreachable probe.public_form_unreachable\n"
+
+
+def test_6b12_recovery_is_noted_once_and_retried_if_the_note_failed(tmp_path):
+    run_health(tmp_path, 1, '{"anomalies": ["queue.backlog"]}')
+    assert run_health(tmp_path, 0, '{"anomalies": []}', notify_ok=False)[0] == 3  # the recovery note failed
+    assert run_health(tmp_path, 0, '{"anomalies": []}') == (0, "info catalyst staging: recovered\n", True)  # retried
+    assert run_health(tmp_path, 0, '{"anomalies": []}') == (0, "", True)  # and only once
 
 
 def run_sweep(tmp_path, age_minutes, stale="900"):

@@ -17,7 +17,11 @@ else
   rc=0; report="$(docker exec "$worker" python manage.py catalyst_health 2>/dev/null)" || rc=$?
   case "$rc" in
     0) ;;
-    1) mapfile -t found < <(python3 -c 'import json,sys;[print(a) for a in json.loads(sys.argv[1]).get("anomalies",[])]' "$report" 2>/dev/null)
+    1) found=()
+       mapfile -t found < <(python3 -c 'import json,sys;[print(a) for a in json.loads(sys.argv[1]).get("anomalies",[])]' "$report" 2>/dev/null)
+       # Exit 1 with no readable finding is a check that failed before it could report (a settings or import error,
+       # an unknown command), never "healthy" (6B.12 review).
+       [ "${#found[@]}" -gt 0 ] || found=("health.check_failed")
        codes+=("${found[@]}") ;;
     *) codes+=("health.check_failed") ;;
   esac
@@ -30,15 +34,18 @@ safe=()
 for c in "${codes[@]}"; do [[ "$c" =~ ^[a-z_]+\.[a-z_]+$ ]] && safe+=("$c") || safe+=("health.unrecognised_signal"); done
 mapfile -t safe < <(printf '%s\n' "${safe[@]}" | sort -u | sed '/^$/d')
 previous="$(cat "$CATALYST_HEALTH_STATE/last-findings" 2>/dev/null || true)"
-printf '%s\n' "${safe[@]}" > "$CATALYST_HEALTH_STATE/last-findings"
 status=0
 if [ "${#safe[@]}" -gt 0 ]; then
   level=high
-  [[ " ${safe[*]} " == *" health.worker_unreachable "* || " ${safe[*]} " == *" health.check_failed "* ]] && level=urgent
-  bash -c "$CATALYST_NOTIFY_CMD \"\$1\" \"\$2\"" _ "$level" "catalyst staging: ${safe[*]}" || status=3
-  [ "$status" = 3 ] || status=1
+  # A worker that is gone, or alive but no longer making progress, and a check that cannot run, are urgent.
+  for urgent in health.worker_unreachable health.check_failed worker.heartbeat_stale worker.heartbeat_missing; do
+    [[ " ${safe[*]} " == *" $urgent "* ]] && level=urgent
+  done
+  if bash -c "$CATALYST_NOTIFY_CMD \"\$1\" \"\$2\"" _ "$level" "catalyst staging: ${safe[*]}"; then status=1; else status=3; fi
 elif [ -n "$previous" ]; then
   bash -c "$CATALYST_NOTIFY_CMD \"\$1\" \"\$2\"" _ info "catalyst staging: recovered" || status=3
 fi
+# The findings are recorded only once they were handed over, so a failed recovery note is retried next run.
+[ "$status" = 3 ] || printf '%s\n' "${safe[@]}" > "$CATALYST_HEALTH_STATE/last-findings"
 touch "$CATALYST_HEALTH_STATE/health.ok"
 exit "$status"
