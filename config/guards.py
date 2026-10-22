@@ -342,6 +342,25 @@ def secret_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return problems
 
 
+PROCESS_ROLES = ("", "web", "worker", "fetcher")
+
+
+def process_role_problems(settings, kind: str) -> list[str]:
+    """PR #65 re-check: the fetcher alone may run without the link-signing key, so the role must be one Catalyst knows,
+    may never be claimed by the web process (whose kind is declared in code before Django loads), and any other process
+    must hold a key: links signed with an empty key could be forged by anyone."""
+    role = getattr(settings, "CATALYST_PROCESS_ROLE", "") or ""
+    if role not in PROCESS_ROLES:
+        return [f"CATALYST_PROCESS_ROLE must be one of {', '.join(r for r in PROCESS_ROLES if r)}"]
+    problems = []
+    if role == "fetcher" and kind == "web":
+        problems.append("the web process may not run as CATALYST_PROCESS_ROLE=fetcher")
+    key = getattr(settings, "CATALYST_VERIFICATION_KEY", None)
+    if role != "fetcher" and key is not None and not key:
+        problems.append("CATALYST_VERIFICATION_KEY may be empty only for the fetcher")
+    return problems
+
+
 def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return (
         database_problems(settings.DATABASES)
@@ -356,4 +375,11 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + provisioning_problems(settings, environ)
         + host_problems(settings)
         + secret_problems(settings, environ)
+        + process_role_problems(settings, _process_kind())
     )
+
+
+def _process_kind() -> str:
+    from config import runtime
+
+    return runtime.process_kind()

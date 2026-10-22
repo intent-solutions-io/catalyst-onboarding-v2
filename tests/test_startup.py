@@ -287,3 +287,14 @@ def test_6b5_staging_refuses_a_missing_secrets_directory_or_file(tmp_path):
     missing = run(CHECK, **{**STAGING, "CATALYST_SECRETS_DIR": str(tmp_path)})  # an empty directory
     assert missing.returncode != 0 and "secret CATALYST_SECRET_KEY is missing from CATALYST_SECRETS_DIR" in missing.stderr
 
+
+def test_6b5_review_the_web_process_never_runs_as_the_fetcher_or_without_a_signing_key(tmp_path):
+    directory = secrets_dir(tmp_path)
+    (tmp_path / "secrets" / "verification_key").unlink()
+    fetcher = {**STAGING, "CATALYST_SECRETS_DIR": directory, "CATALYST_PROCESS_ROLE": "fetcher"}
+    web = run(WSGI, **fetcher)  # config.wsgi declares the web kind before Django loads
+    assert web.returncode != 0 and "the web process may not run as CATALYST_PROCESS_ROLE=fetcher" in web.stderr
+    assert run(CHECK, **fetcher).returncode == 0  # a management or worker process may be the fetcher
+    unknown = run(CHECK, **{**STAGING, "CATALYST_PROCESS_ROLE": "superuser"})
+    assert unknown.returncode != 0 and "CATALYST_PROCESS_ROLE must be one of" in unknown.stderr
+
