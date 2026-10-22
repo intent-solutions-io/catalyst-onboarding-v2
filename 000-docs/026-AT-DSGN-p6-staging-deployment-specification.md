@@ -511,3 +511,32 @@ specification text; nothing is built.
     in development.
 - **Evidence:** `tests/test_guards.py` (6B.1 tests), the staging leg of the TEST-P3-05 fetch test and the updated
   TEST-P5-23 test.
+
+**6B.2, web security settings.**
+
+- Every environment: a 30-minute idle session timeout (the expiry slides on every request; Django has none built
+  in), sessions end when the browser closes, and the CSRF cookie is not readable by scripts.
+- Outside test and development (staging and anything later):
+  - secure `__Host-` session and CSRF cookies;
+  - the proxy's https header trusted (the web process listens only on the proxy's local socket);
+  - https redirects, except the two health paths reached through that socket;
+  - HSTS of 300 seconds without subdomains or preload, with Django's two warnings about that silenced
+    deliberately (P6-D-3);
+  - CSRF trusted origins limited to the public base URL.
+- Staging links may not name a production host (`intentsolutions.io` or a subdomain), closing the PR #59 LOW item.
+- **After the security review of PR #61** (no blocker or high; five medium):
+  - every response gets a Content-Security-Policy (`config/security_headers.py`): same-origin only, inline styles
+    but no inline script, no framing, plugins, base rewriting or cross-site form posts; the audited PDF download
+    keeps its stricter sandbox;
+  - framing, opener, no-sniff and SameSite values are pinned rather than left to Django's defaults;
+  - staging refuses a wildcard or production entry in `ALLOWED_HOSTS` and any host name that is not plain ASCII;
+  - behaviour tests read real responses (`tests/test_web_security.py`);
+  - moved to their tasks: proof that the proxy header cannot be forged (6B.5 and 6B.8), and an absolute session
+    lifetime with scheduled session clean-up (6B.9).
+- **Evidence:** `tests/test_web_security.py` (redirects and exempt health paths, HSTS only over https, cookie
+  attributes, CSP and framing headers, no session for an anonymous page, an idle session refused) and
+  `tests/test_startup.py`:
+  - `manage.py check --deploy --fail-level WARNING` is clean under staging settings;
+  - the cookie and HSTS values, read from a staging process;
+  - a production link host refused in staging;
+  - local environments keep plain cookies but still time out.

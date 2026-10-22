@@ -258,6 +258,14 @@ def provisioning_problems(settings, environ: Mapping[str, str]) -> list[str]:
     if environment not in ("test", "development") and base and not base.startswith("https://"):
         # Setup and confirmation tokens travel in links: outside test and development only https (5B.2 review).
         problems.append("CATALYST_PUBLIC_BASE_URL must be https outside test and development")
+    if environment == "staging":
+        # PR #59 and #61 reviews: staging must never answer for, or link to, a production host (its links would reach
+        # real applicants). Hosts are compared in ASCII form, so look-alike characters cannot slip past.
+        if base and _production_host(urlsplit(base).hostname or ""):
+            problems.append("CATALYST_PUBLIC_BASE_URL in staging may not name a production host")
+        for host in getattr(settings, "ALLOWED_HOSTS", []) or []:
+            if host.strip() in ("*", ".") or _production_host(host.strip().lstrip(".")):
+                problems.append(f"ALLOWED_HOSTS in staging may not include {host!r}")
     if not synthetic(environment):
         for name in PROVISIONING_TEST_ONLY:
             if getattr(settings, name, ""):
@@ -277,6 +285,18 @@ def provisioning_problems(settings, environ: Mapping[str, str]) -> list[str]:
     if not (isinstance(limit, int) and 1 <= limit <= 9600):
         problems.append("CATALYST_PROVISIONING_SEND_LIMIT must be between 1 and 9600")
     return problems
+
+
+PRODUCTION_DOMAINS = ("intentsolutions.io",)
+
+
+def _production_host(host: str) -> bool:
+    """True for a production domain or any name under it. A name that is not plain ASCII counts as production:
+    look-alike characters (a full-width dot, an ideographic full stop) would map onto the real name."""
+    if not host.isascii():
+        return True
+    host = host.lower().rstrip(".")
+    return any(host == domain or host.endswith("." + domain) for domain in PRODUCTION_DOMAINS)
 
 
 def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
