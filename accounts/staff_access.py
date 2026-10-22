@@ -4,7 +4,7 @@ scheduled removal of expired sessions.
 - **Two-factor** (django-otp, TOTP plus single-use recovery codes). Outside the local environments every request under
   `/staff/` (the admin and every focused staff view, today's and any added later) needs a session verified by a
   second factor; an unverified or expired session is signed out and sent to the login page. The login form asks for
-  the token. There is no self-service: the owner enrols a device (`manage.py enroll_staff_two_factor`) and, for a
+  the token. A superuser account is refused there too: the owner works through manage.py. There is no self-service: the owner enrols a device (`manage.py enroll_staff_two_factor`) and, for a
   lost device, runs the break-glass reset (`manage.py reset_staff_two_factor`), exactly as the owner already sets
   passwords. There is no password-reset path at all (the admin's is refused in config.staff_admin).
 - **Throttling:** password failures are counted per username in PostgreSQL (shared by every web process); after
@@ -85,6 +85,10 @@ class StaffAccess:
             return "absolute_lifetime"
         if two_factor_required() and not request.user.is_verified():
             return "not_verified"
+        if two_factor_required() and request.user.is_superuser:
+            # Outside test and development a superuser account has no web session at all (TEST-P6-15): the owner's
+            # tooling is manage.py, and every staff screen is reachable with the staff groups' permissions.
+            return "superuser"
         return None
 
 

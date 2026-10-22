@@ -1146,3 +1146,35 @@ specification text; nothing is built.
   - a rotated role password takes effect, and the old one stops working.
 
   The webhook secrets' two-secret overlap is tested in `tests/test_agreement_completion.py`.
+
+**6B.11 (part 1), the live GATE-STAGING cases on the dev box (026 section 11; host go recorded on bead `9kg.20`).**
+
+- **`scripts/staging_check.sh`** now also runs these cases against the live stack:
+  - **TEST-P6-02:** `check --deploy` is clean under staging settings.
+  - **TEST-P6-05:** a second `migrate` applies nothing.
+  - **TEST-P6-06:** a second provisioning run succeeds and reads its five roles back.
+  - **TEST-P6-07:** with the database stopped, liveness answers 200 and readiness 503; readiness recovers when it
+    returns.
+  - **TEST-P6-12 and 32:** case, repeated-slash, encoded and dot-segment variants of the staff, admin and health
+    paths are refused by the public site.
+  - **TEST-P6-14:** the response carries HSTS, the content security policy, and the `__Host-` CSRF cookie with
+    Secure, HttpOnly and SameSite=Lax; a token path answers with `no-store`; a spoofed `X-Forwarded-Proto: http` is
+    overwritten.
+  - **TEST-P6-15:** an enrolled staff account is refused with the password alone and with a wrong token, and signed
+    in with both factors. A superuser is refused a session even with both factors. Outside test and development a
+    superuser account has no web session at all; the owner works through `manage.py`. This rule is new in
+    `accounts.staff_access`, with unit tests.
+  - **TEST-P6-16:** the Documenso webhook is mounted neither at the proxy nor in Django.
+  - **TEST-P6-28:** web, worker and fetcher reach nothing outside the backend network, and names do not resolve
+    there.
+- **Earlier checks in the same script** cover TEST-P6-01 (in part), 04, 11, 12, 13 and 33. TEST-P6-08 to 10, 24 and
+  25 are covered by `scripts/deploy_drill.sh` with the estate wrapper; TEST-P6-36 by the rotation tests, and
+  TEST-P6-37 by the image workflow.
+- **Result:** 82 of 82 PASS, in two consecutive runs.
+- **Still to come in 6B.11 to 6B.13:**
+  - the fetcher's egress proxy (TEST-P6-30);
+  - alerts and the dead man to Buzz (TEST-P6-17 to 20, 38);
+  - the backup and restore drill (TEST-P6-21 to 23, 29, 35);
+  - a dark deploy with data (TEST-P6-27);
+  - the cutover rehearsal (TEST-P6-26);
+  - the webhook enabled, and its replay (TEST-P6-16 and 34, at the unit level today).

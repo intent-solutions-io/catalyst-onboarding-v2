@@ -136,4 +136,89 @@ logs="$("${compose[@]}" logs --no-color 2>&1)"
 check "the proxy logged the requests, redacted" bash -c "grep -q '/confirm/REDACTED' <<<\"\$1\" && grep -q '/%63onfirm/REDACTED' <<<\"\$1\"" _ "$logs"
 check "no token in any container log" bash -c "[ -n \"\$1\" ] && ! grep -q '$sentinel' <<<\"\$1\"" _ "$logs"
 
+# --- GATE-STAGING live cases (6B.11; 026 section 11) ------------------------------------------------------------
+web="$("${compose[@]}" ps -q web)"
+socket_get() {  # socket_get <path>: the HTTP status code through the web socket, with the proxy's forwarded scheme
+  docker exec "$web" python -c "import socket,sys;s=socket.socket(socket.AF_UNIX);s.settimeout(5);s.connect('/run/catalyst/web.sock');s.sendall(('GET '+sys.argv[1]+' HTTP/1.0\r\nHost: localhost\r\nX-Forwarded-Proto: https\r\n\r\n').encode());print(s.recv(64).decode().split(' ')[1])" "$1" 2>/dev/null || echo none
+}
+owner_run() { "${compose[@]}" run --rm --no-deps -T "$@" 2>/dev/null; }  # the migrate service: the owner role
+
+check "TEST-P6-02 check --deploy is clean under staging settings" \
+  docker exec "$web" python manage.py check --deploy --fail-level WARNING
+check "TEST-P6-05 migrate is idempotent (a second run applies nothing)" \
+  bash -c "\"\$@\" | grep -q 'No migrations to apply'" _ "${compose[@]}" run --rm --no-deps -T migrate python manage.py migrate --noinput
+check "TEST-P6-06 role provisioning is idempotent and reads its roles back" \
+  bash -c "\"\$@\" | grep -q '5 roles ready'" _ "${compose[@]}" --profile provision run --rm -T provision-roles
+
+# TEST-P6-07: liveness needs no database; readiness fails while it is down and recovers after.
+"${compose[@]}" stop db >/dev/null 2>&1
+sleep 6  # past the readiness cache
+check "TEST-P6-07 with the database down, liveness answers 200" test "$(socket_get /healthz)" = 200
+check "TEST-P6-07 with the database down, readiness answers 503" test "$(socket_get /readyz)" = 503
+"${compose[@]}" start db >/dev/null 2>&1
+for _ in $(seq 40); do [ "$(socket_get /readyz)" = 200 ] && break; sleep 1; done
+check "TEST-P6-07 readiness recovers when the database returns" test "$(socket_get /readyz)" = 200
+
+# TEST-P6-12, 32: path-normalization variants of staff, admin and health paths never pass the public site.
+for path in /STAFF/ //staff/ /%73taff/ /staff/../staff/ /admin/ /healthz /%68ealthz /readyz; do
+  check "TEST-P6-12 the public site refuses $path" test "$(code catalyst.staging.test 127.0.0.1 18443 "$path")" = 404
+done
+
+# TEST-P6-14: cookies, HSTS, CSP, no-store on token paths, and a spoofed forwarded header ignored.
+headers="$(curl -sk -D - -o /dev/null --resolve catalyst.staging.test:18443:127.0.0.1 https://catalyst.staging.test:18443/request-access/)"
+check "TEST-P6-14 HSTS is sent" grep -qi '^strict-transport-security: max-age=300' <<<"$headers"
+check "TEST-P6-14 a content security policy is sent" grep -qi "^content-security-policy: default-src 'self'; script-src 'self'" <<<"$headers"
+check "TEST-P6-14 the CSRF cookie is __Host-, Secure, HttpOnly and SameSite=Lax" bash -c \
+  "grep -i '^set-cookie: __Host-catalyst-csrf=' <<<\"\$1\" | grep -i 'secure' | grep -i 'httponly' | grep -qi 'samesite=lax'" _ "$headers"
+check "TEST-P6-14 a token path answers with no-store" bash -c "curl -sk -D - -o /dev/null --resolve catalyst.staging.test:18443:127.0.0.1 https://catalyst.staging.test:18443/confirm/not-a-token/ | grep -i '^cache-control:' | grep -qi 'no-store'"
+check "TEST-P6-14 a spoofed X-Forwarded-Proto is overwritten (no redirect to http)" test \
+  "$(curl -sk -o /dev/null -w '%{http_code}' -H 'X-Forwarded-Proto: http' --resolve catalyst.staging.test:18443:127.0.0.1 https://catalyst.staging.test:18443/request-access/)" = 200
+
+# TEST-P6-16: the Documenso webhook is not mounted, at the proxy or in Django.
+check "TEST-P6-16 the webhook is not mounted at the proxy" test \
+  "$(curl -sk -o /dev/null -w '%{http_code}' -X POST --resolve catalyst.staging.test:18443:127.0.0.1 https://catalyst.staging.test:18443/hooks/documenso/)" = 404
+check "TEST-P6-16 the webhook is not mounted in Django" test "$(socket_get /hooks/documenso/)" = 404
+
+# TEST-P6-28: no route out of the backend network (no production host, no provider, nothing on the internet).
+for service in web worker fetcher; do
+  check "TEST-P6-28 $service reaches nothing outside" bash -c "! docker exec $("${compose[@]}" ps -q "$service") python -c \"import socket;socket.create_connection(('1.1.1.1',443),3)\" 2>/dev/null"
+done
+check "TEST-P6-28 names do not resolve from the backend network" bash -c "! docker exec $web python -c \"import socket;socket.getaddrinfo('example.com',443)\" 2>/dev/null"
+
+# TEST-P6-15: the staff login needs the second factor, and a superuser gets no session at all.
+staff_url=https://staff.staging.test:18444
+jar="$work/jar"
+totp() {  # totp <base32 secret>: the current 6-digit code (RFC 6238, SHA-1, 30 s)
+  python3 -c "import base64,hmac,struct,sys,time;k=base64.b32decode(sys.argv[1]+'='*(-len(sys.argv[1])%8));h=hmac.new(k,struct.pack('>Q',int(time.time()//30)),'sha1').digest();o=h[-1]&15;print('%06d'%((struct.unpack('>I',h[o:o+4])[0]&0x7fffffff)%1000000))" "$1"
+}
+staff_post() {  # staff_post <user> <password> [device] [token]: the login POST's status, with a fresh CSRF pair
+  rm -f "$jar"
+  local page csrf
+  page="$(curl -sk -c "$jar" --resolve staff.staging.test:18444:127.0.0.2 "$staff_url/staff/login/")"
+  csrf="$(grep -oE 'name="csrfmiddlewaretoken" value="[^"]+"' <<<"$page" | head -1 | sed 's/.*value="//; s/"$//')"
+  curl -sk -b "$jar" -c "$jar" -o "$work/login.html" -w '%{http_code}' --resolve staff.staging.test:18444:127.0.0.2 \
+    -H "Referer: $staff_url/staff/login/" -H "Origin: $staff_url" \
+    --data-urlencode "csrfmiddlewaretoken=$csrf" --data-urlencode "username=$1" --data-urlencode "password=$2" \
+    --data-urlencode "otp_device=${3:-}" --data-urlencode "otp_token=${4:-}" "$staff_url/staff/login/?next=/staff/"
+}
+staff_index() { curl -sk -b "$jar" -o /dev/null -w '%{http_code}' --resolve staff.staging.test:18444:127.0.0.2 "$staff_url/staff/"; }
+staff_password="synthetic-staff-$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"
+owner_run -e GATE_PW="$staff_password" migrate python manage.py add_readonly_staff gate-staff --password-env GATE_PW >/dev/null
+owner_run -e DJANGO_SUPERUSER_PASSWORD="$staff_password" migrate python manage.py createsuperuser --noinput \
+  --username gate-super --email gate-super@example.test >/dev/null
+secret_of() { owner_run migrate python manage.py enroll_staff_two_factor "$1" | grep -oE 'secret=[A-Z2-7]+' | cut -d= -f2; }
+staff_secret="$(secret_of gate-staff)"; super_secret="$(secret_of gate-super)"
+check "TEST-P6-15 the staff accounts were enrolled" test -n "$staff_secret" -a -n "$super_secret"
+check "TEST-P6-15 the password alone does not sign in" test "$(staff_post gate-staff "$staff_password")" = 200
+device="$(grep -oE 'value="otp_totp\.totpdevice/[0-9]+"' "$work/login.html" | head -1 | cut -d'"' -f2)"
+check "TEST-P6-15 the login then offers the enrolled device" test -n "$device"
+check "TEST-P6-15 a wrong token does not sign in" test "$(staff_post gate-staff "$staff_password" "$device" 000000)" = 200
+sleep 2  # the wrong token's throttle delay
+check "TEST-P6-15 the password and the current token sign in" test "$(staff_post gate-staff "$staff_password" "$device" "$(totp "$staff_secret")")" = 302
+check "TEST-P6-15 the verified session reaches the staff site" test "$(staff_index)" = 200
+staff_post gate-super "$staff_password" >/dev/null
+super_device="$(grep -oE 'value="otp_totp\.totpdevice/[0-9]+"' "$work/login.html" | head -1 | cut -d'"' -f2)"
+staff_post gate-super "$staff_password" "$super_device" "$(totp "$super_secret")" >/dev/null
+check "TEST-P6-15 a superuser, even with both factors, gets no staff session" test "$(staff_index)" = 302
+
 exit "$fail"

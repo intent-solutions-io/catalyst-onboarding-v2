@@ -57,7 +57,7 @@ def sign_in(client, username, device_model, token, password=PASSWORD):
 
 
 def test_6b9_an_unverified_staff_session_reaches_no_staff_page(required):
-    staff(required, "no-second-factor", superuser=True)
+    staff(required, "no-second-factor")
     for page in STAFF_PAGES:
         client = Client()
         assert client.login(username="no-second-factor", password=PASSWORD)  # password alone, as a test may
@@ -84,7 +84,7 @@ def test_6b9_a_session_without_a_recorded_login_time_is_ended(p2):
 
 
 def test_6b9_the_login_needs_the_token_and_a_verified_session_reaches_every_staff_page(required):
-    staff(required, "two-factor-staff", superuser=True)
+    staff(required, "two-factor-staff")
     enrol("two-factor-staff")
     client = Client()
     refused = client.post("/staff/login/?next=/staff/", {"username": "two-factor-staff", "password": PASSWORD})
@@ -107,7 +107,7 @@ def test_6b9_the_login_needs_the_token_and_a_verified_session_reaches_every_staf
 
 
 def test_6b9_a_recovery_code_signs_in_once(required):
-    staff(required, "recovery-staff", superuser=True)
+    staff(required, "recovery-staff")
     _, codes = enrol("recovery-staff")
     assert len(codes) == 10
     assert sign_in(Client(), "recovery-staff", StaticDevice, codes[0]).status_code == 302
@@ -122,7 +122,7 @@ def test_6b9_a_recovery_code_signs_in_once(required):
 def test_6b9_the_application_role_may_count_failures_but_never_change_or_add_a_device(required):
     from django.db import connection
 
-    staff(required, "device-guard", superuser=True)
+    staff(required, "device-guard")
     enrol("device-guard")
     device = TOTPDevice.objects.get(user__username="device-guard")
     TOTPDevice.objects.filter(pk=device.pk).update(throttling_failure_count=3)  # counters: allowed
@@ -204,7 +204,7 @@ def test_6b9_health_reports_an_unscheduled_clean_up_where_two_factor_is_required
 def test_6b9_the_break_glass_reset_leaves_nothing_from_before_it_working(required):
     from accounts.models import User
 
-    staff(required, "lost-device", superuser=True)
+    staff(required, "lost-device")
     _, codes = enrol("lost-device")
     client = Client()
     assert sign_in(client, "lost-device", StaticDevice, codes[0]).status_code == 302
@@ -246,3 +246,21 @@ def test_6b9_two_factor_is_required_outside_the_local_environments():
 
     source = (ROOT / "config" / "settings.py").read_text()
     assert 'CATALYST_STAFF_TWO_FACTOR = CATALYST_ENV not in ("test", "development")' in source  # fixed in code
+
+
+def test_6b9_a_superuser_account_gets_no_staff_session_where_two_factor_is_required(required):
+    staff(required, "super-staff", superuser=True)
+    enrol("super-staff")
+    client = Client()
+    assert sign_in(client, "super-staff", TOTPDevice, current_token("super-staff")).status_code == 302  # password + token
+    response = client.get("/staff/")
+    assert response.status_code == 302 and response["Location"].startswith("/staff/login/")  # then refused
+    assert "_auth_user_id" not in client.session
+
+
+def test_6b9_superusers_keep_their_local_sessions_in_test_and_development(p2):
+    staff(p2, "local-super", superuser=True)
+    client = Client()
+    assert client.login(username="local-super", password=PASSWORD)
+    assert client.get("/staff/").status_code == 200
+
