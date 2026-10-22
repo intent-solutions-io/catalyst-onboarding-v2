@@ -735,7 +735,8 @@ specification text; nothing is built.
   - turns a password set that was in flight into "outcome unknown", with a staff item to send a fresh link through
     the existing reissue path;
   - **makes every staff password unusable and ends every staff session,** so staff disabled or re-keyed after T
-    never return. The owner checks the roster and re-issues passwords (`manage.py changepassword`);
+    never return. The owner checks the roster and re-issues passwords (`manage.py changepassword`) only after the
+    last review run, because each review run disables them again;
   - lets every running action expire its lease;
   - queues a revocation round for every stopped request whose access removal is not complete;
   - reports every queued or running action that reaches the outside world (the non-redeliverable kinds plus the

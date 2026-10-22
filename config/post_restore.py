@@ -69,7 +69,10 @@ def review() -> dict:
         raise PostRestoreError("there is no restore hold: this database was not just restored")
     report = {}
     challenges = ContactChallenge.objects.filter(used_at__isnull=True, superseded_at__isnull=True).select_related("application")
-    stranded = {c.application for c in challenges}
+    # A staff item only for an applicant genuinely left waiting: a live link, an unconfirmed contact, still at the
+    # first stage. Expired links and settled applications need nothing (PR #68 re-check).
+    stranded = {c.application for c in challenges.filter(expires_at__gt=Now(), application__contact_verified_at__isnull=True,
+                                                          application__stage="submitted")}
     report["confirmation_links_closed"] = challenges.update(superseded_at=Now())
     for application in stranded:
         open_item(ITEM_CONFIRMATION, f"restore:confirmation:{application.public_ref}", application=application)
