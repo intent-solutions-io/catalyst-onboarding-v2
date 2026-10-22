@@ -47,6 +47,9 @@ apply() {  # apply <port> <email>: one synthetic applicant through the public fo
 offered() {  # offered <port> <path>: whether the confirmation page offers its form (the link still opens)
   curl -sk --resolve "catalyst.staging.test:$1:127.0.0.1" "https://catalyst.staging.test:$1$2" | grep -q 'name="version"'
 }
+closed() {  # closed <port> <path>: the application's own "not valid" answer for the link, not any failure or outage
+  curl -sk --resolve "catalyst.staging.test:$1:127.0.0.1" "https://catalyst.staging.test:$1$2" | grep -q 'This link is not valid'
+}
 
 install -d -m 0700 "$work/secrets" "$archive"
 for name in secret_key verification_key admin_password owner_password app_password retention_password \
@@ -89,6 +92,7 @@ check "TEST-P6-35 the archived set is 0700 and its files 0600" bash -c "[ \"\$(d
 a down -v >/dev/null 2>&1  # the source is gone: only the archive remains
 
 # --- the target: a separate, migrated, empty stack ------------------------------------------------------------
+recovery_started=$(date +%s)  # the RTO clock starts with an empty host: the target is part of the recovery
 b up -d --wait db >/dev/null 2>&1
 b --profile provision run --rm provision-roles >/dev/null 2>&1
 b run --rm --no-deps -T migrate python manage.py migrate --noinput >/dev/null 2>&1
@@ -136,16 +140,20 @@ done
 restore_finished=$(date +%s)
 check "TEST-P6-22 the restored stack serves the form" test -n "$ready"
 check "TEST-P6-22 the restored data is the backup's (three applications, not the later one)" test "$(count_applications b)" = 3
-check_not "TEST-P6-29 the confirmation link from before the backup is closed on the restored stack" offered 19443 "$link"
+check "TEST-P6-29 the confirmation link from before the backup is closed on the restored stack" closed 19443 "$link"
 check "the restored stack takes a new applicant" test "$(apply 19443 after-restore@example.test)" = 302
 
-echo "MEASURED backup: $((backup_finished - backup_started)) s; restore to serving: $((restore_finished - restore_started)) s (RTO, synthetic scale)"
-echo "MEASURED RPO: the backup's point; the applicant accepted after it is absent from the restored stack (as designed)"
+# The drill's own checks between restore_started and restore_finished (the refused second restore, the control probe)
+# add a few seconds; the figure is an upper bound for this step at synthetic scale.
+echo "MEASURED backup: $((backup_finished - backup_started)) s"
+echo "MEASURED recovery from an empty host to serving (target prepared, negative controls, restore, post-restore, start): $((restore_finished - recovery_started)) s"
+echo "MEASURED restore, post-restore and start alone: $((restore_finished - restore_started)) s"
+echo "BY DESIGN RPO: the backup's point (checked: the applicant accepted after the backup is absent from the restore)"
 if [ -n "${CATALYST_DRILL_RECEIPTS:-}" ]; then  # the drill receipt the health check watches (overdue after 35 days)
   install -d -m 0700 "$CATALYST_DRILL_RECEIPTS"
-  printf '{"at": "%s", "commit": "%s", "result": "%s", "backup_seconds": %d, "restore_to_serving_seconds": %d}\n' \
+  printf '{"at": "%s", "commit": "%s", "result": "%s", "backup_seconds": %d, "recovery_seconds": %d}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(git rev-parse HEAD)" "$([ "$fail" = 0 ] && echo pass || echo fail)" \
-    "$((backup_finished - backup_started))" "$((restore_finished - restore_started))" \
+    "$((backup_finished - backup_started))" "$((restore_finished - recovery_started))" \
     > "$CATALYST_DRILL_RECEIPTS/$(date -u +%Y%m%dT%H%M%SZ).json"
 fi
 exit "$fail"

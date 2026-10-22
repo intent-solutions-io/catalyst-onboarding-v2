@@ -1305,23 +1305,42 @@ specification text; nothing is built.
 
     and those refusals change nothing. The real restore then succeeds from the archive with its digest, and a second
     restore into the now non-empty target is refused;
-  - the control: restored as it was, the pre-backup link still opens. After the post-restore review and lift it is
-    closed;
+  - the control: restored as it was, the pre-backup link still opens. After the post-restore review and lift the
+    application answers "This link is not valid" for it, a specific answer rather than any failure;
   - the restored stack serves the form, holds exactly the backup's three applications (not the later one), and
     takes a new applicant.
-- **Measured, synthetic scale, for the owner's targets (P6-D-7):** the backup takes 3 to 4 seconds; from the start
-  of the restore to the form answering again, including the post-restore step, takes 27 to 29 seconds. The RPO is the
-  backup's point by design: the applicant accepted after it is absent from the restored stack. The drill writes a
-  receipt (date, commit, result, timings, no personal data) when `CATALYST_DRILL_RECEIPTS` names a directory.
+- **Measured, synthetic scale, for the owner's targets (P6-D-7):**
+  - the backup takes 4 seconds;
+  - recovery from an empty host to a serving stack takes 62 to 63 seconds. This covers preparing the target, the
+    negative controls, the restore, the post-restore step and the start;
+  - the restore, post-restore step and start alone take 27 to 28 seconds, an upper bound that includes the drill's
+    own checks;
+  - the RPO is the backup's point by design (checked: the applicant accepted after it is absent from the restored
+    stack).
+
+  The owner decides which of these the RTO target means. The drill writes a receipt (date, commit, result, timings,
+  no personal data) when `CATALYST_DRILL_RECEIPTS` names a directory.
 - **Health:** the health check now also reports `backup.stale` (no backup receipt within 26 hours) and
-  `restore_drill.overdue` (no drill receipt within 35 days) when the host names those directories. Both are tested.
+  `restore_drill.overdue` (no *passing* drill receipt within 35 days; a failed drill never counts, from the review of
+  PR #78) when the host names those directories. A missing or empty directory counts as stale. Both are tested at
+  their boundaries. Nothing writes backup receipts to that directory yet: the scheduled backup job does (bead
+  `9kg.22`).
 - **Case status:**
   - **TEST-P6-22:** proven.
   - **TEST-P6-23:** proven for the five negative controls above.
-  - **TEST-P6-29:** shown for links. Sessions, staff passwords, revocations and erasure replay (bead `9kg.25`) are
-    covered by the post-restore unit tests.
-  - **TEST-P6-21:** partly; the snapshot's isolation from a mid-backup write and a failed backup keeping the previous
-    set are unit-tested in `test_backup_commands`.
+  - **TEST-P6-29:** shown for an unused link from before the backup. Sessions, staff passwords, revocations and
+    links used after the restore point are covered by the post-restore unit tests; erasure replay is bead `9kg.25`.
+  - **TEST-P6-21:** partly.
+    - Shown: the set and its manifest are written; a failed backup keeps the previous good set intact and verifiable
+      (`test_backup_commands`, added with this task).
+    - Not separately tested: the snapshot's isolation from a write made during the backup, which holds by design
+      (one REPEATABLE READ snapshot), and the failed run's alert, which belongs to the scheduled backup job.
   - **TEST-P6-35:** shown for the receipt and the set's modes.
-- **Not yet:** a scheduled backup job and the archive on the host's own backup fabric come with the first persistent
-  staging stack (bead `9kg.22`).
+- **Deviations and limits:**
+  - The staging backup service connects over TCP with a password. Sections 6 and the controls table ask for a backup
+    login on the local socket only, which is host configuration for the pilot (`pg_hba`, bead `9kg.20`).
+  - The backup service mounts the link keys, because staging settings refuse to load without them.
+  - Custody is not exercised: staging holds no custody files until the pilot. The restore writes into a directory
+    inside the custody volume, which the pilot's storage setting must point at.
+- **Not yet:** a scheduled backup job writing its receipts, and the archive on the host's own backup fabric. These
+  come with the first persistent staging stack (bead `9kg.22`).

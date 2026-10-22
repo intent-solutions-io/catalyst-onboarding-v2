@@ -99,17 +99,39 @@ def test_6b12_the_sweep_alerts_when_the_health_check_is_stale_or_never_ran(tmp_p
     assert run_sweep(tmp_path, None) == (1, "urgent catalyst staging: health.check_stale\n")
 
 
+def aged(path, hours, text=""):
+    path.write_text(text)
+    old = path.stat().st_mtime - hours * 3600
+    os.utime(path, (old, old))
+
+
 def test_6b13_a_stale_backup_and_an_overdue_restore_drill_are_reported(tmp_path):
     backups, drills = tmp_path / "backups", tmp_path / "drills"
     backups.mkdir()
     drills.mkdir()
-    (backups / "receipt.json").touch()
-    old = (backups / "receipt.json").stat().st_mtime - 27 * 3600
-    os.utime(backups / "receipt.json", (old, old))
-    extra = {"CATALYST_BACKUP_RECEIPTS": str(backups), "CATALYST_DRILL_RECEIPTS": str(drills)}  # no drill at all
+    extra = {"CATALYST_BACKUP_RECEIPTS": str(backups), "CATALYST_DRILL_RECEIPTS": str(drills)}
+    aged(backups / "receipt.json", 26.1)
+    aged(drills / "drill.json", 24 * 34, '{"result": "pass"}')
+    rc, alerts, _ = run_health(tmp_path, 0, '{"anomalies": []}', extra=extra)
+    assert rc == 1 and alerts == "high catalyst staging: backup.stale\n"  # 26 h 6 min old; the drill 34 days
+    aged(backups / "receipt.json", 25.9)
+    aged(drills / "drill.json", 24 * 36, '{"result": "pass"}')
+    rc, alerts, _ = run_health(tmp_path, 0, '{"anomalies": []}', extra=extra)
+    assert rc == 1 and alerts == "high catalyst staging: restore_drill.overdue\n"  # the drill 36 days
+
+
+def test_6b13_a_failed_drill_never_counts_as_a_drill_done(tmp_path):
+    drills = tmp_path / "drills"
+    drills.mkdir()
+    aged(drills / "old-pass.json", 24 * 36, '{"result": "pass"}')
+    aged(drills / "new-fail.json", 1, '{"result": "fail"}')  # newest, but failed
+    rc, alerts, _ = run_health(tmp_path, 0, '{"anomalies": []}', extra={"CATALYST_DRILL_RECEIPTS": str(drills)})
+    assert rc == 1 and alerts == "high catalyst staging: restore_drill.overdue\n"
+    aged(drills / "newer-pass.json", 0, '{"result": "pass"}')
+    assert run_health(tmp_path, 0, '{"anomalies": []}', extra={"CATALYST_DRILL_RECEIPTS": str(drills)})[0] == 0
+
+
+def test_6b13_a_missing_or_empty_receipt_directory_counts_as_stale(tmp_path):
+    extra = {"CATALYST_BACKUP_RECEIPTS": str(tmp_path / "missing"), "CATALYST_DRILL_RECEIPTS": str(tmp_path)}
     rc, alerts, _ = run_health(tmp_path, 0, '{"anomalies": []}', extra=extra)
     assert rc == 1 and alerts == "high catalyst staging: backup.stale restore_drill.overdue\n"
-    (backups / "fresh.json").touch()
-    (drills / "drill.json").touch()
-    assert run_health(tmp_path, 0, '{"anomalies": []}', extra=extra)[:2] == (0, "info catalyst staging: recovered\n")
-
