@@ -1344,3 +1344,36 @@ specification text; nothing is built.
     inside the custody volume, which the pilot's storage setting must point at.
 - **Not yet:** a scheduled backup job writing its receipts, and the archive on the host's own backup fabric. These
   come with the first persistent staging stack (bead `9kg.22`).
+
+**6B.11 (part 3), the dark deploy and the cutover rehearsal (026 sections 9 and 11; TEST-P6-26, 27).**
+
+- **TEST-P6-27, the dark deploy** (`scripts/staging_check.sh`): on the live staging stack:
+  - an applicant goes through the real form;
+  - the verification mail reaches the private file sink, not a provider;
+  - the applicant confirms through the emailed link;
+  - the evidence collection that follows stays held until the owner's activation command (the held count is the
+    control);
+  - no action that reaches a provider (evidence fetch, assessment, agreements, messages, reminders, provisioning)
+    exists in any state but held.
+- **The cutover's route snippets** (`deploy/cutover/`), imported into the Learn site at cutover:
+  - `catalyst-r1.caddy` holds the entry pages (the request form and its received page);
+  - `catalyst-r2.caddy` holds the token return paths (confirmation, password setup, withdrawal).
+
+  Removing R1 alone is the R1 rollback; R2 stays while any v2 applicant holds a live link. `tests/test_cutover.py`
+  keeps R2 equal to `PRIVATE_PATHS`, R1 equal to the staging proxy's entry pages, and the two together equal to every
+  applicant route, with no staff or health path.
+- **TEST-P6-26, the rehearsal** (`scripts/cutover_rehearsal.sh`), 14 of 14 PASS twice. A stand-in Learn site in the
+  pinned Caddy fronts stand-in LMS and v2 upstreams, and the rehearsal shows:
+  - **before the switch**, every path is the LMS's;
+  - **after the switch:**
+    - R1 and R2, with case and repeated-slash variants, reach v2;
+    - every LMS path, including near misses such as `/confirmation/`, `/setupwizard/` and `/request-accessible/`,
+      is still the LMS's and answers byte-identically;
+  - **after the R1 rollback:** R1 is the LMS's again, R2 stays on v2, and the LMS paths are still byte-identical;
+  - **with both removed**, the site is exactly as before.
+
+  Each change is a reload, never a restart.
+- **Stated limit:** the Learn site in the rehearsal is a synthetic stand-in. The live Learn configuration is read
+  (read-only), its hash recorded and its R2 paths checked for collisions only under the cutover plan, with the
+  owner's go, because it lives on the production host. The live site's log redaction for R2's token paths is part of
+  that plan.

@@ -241,6 +241,40 @@ check "TEST-P6-30 the proxy refuses a port other than 443" test "$(via_proxy_set
 check "TEST-P6-30 the proxy refuses a single-label name (the database's)" test "$(via_proxy db:443)" = "400 bad_host"
 check "TEST-P6-30 the egress proxy mounts no secret" test -z "$(docker exec "$("${compose[@]}" ps -q egress)" ls /run/secrets 2>/dev/null)"
 
+# TEST-P6-27: a dark deploy. An applicant goes through the real form and confirmation link; the evidence collection that
+# follows is held until the owner's activation command, and no action that reaches a provider exists in any other state.
+jar="$work/dark-jar"
+form="$(curl -sk -c "$jar" --resolve catalyst.staging.test:18443:127.0.0.1 https://catalyst.staging.test:18443/request-access/)"
+csrf="$(grep -oE 'name="csrfmiddlewaretoken" value="[^"]+"' <<<"$form" | head -1 | sed 's/.*value="//; s/"$//')"
+check "TEST-P6-27 an applicant is accepted through the form" test "$(curl -sk -b "$jar" -o /dev/null -w '%{http_code}' \
+  --resolve catalyst.staging.test:18443:127.0.0.1 -H 'Referer: https://catalyst.staging.test:18443/request-access/' \
+  -H 'Origin: https://catalyst.staging.test:18443' --data-urlencode "csrfmiddlewaretoken=$csrf" \
+  --data-urlencode 'name=Dark Deploy' --data-urlencode 'email=dark-deploy@example.test' \
+  --data-urlencode 'reason=Synthetic reason for access.' https://catalyst.staging.test:18443/request-access/)" = 302
+dark_link=""
+for _ in $(seq 30); do
+  dark_link="$(docker exec "$("${compose[@]}" ps -q worker)" sh -c 'grep -l dark-deploy@example.test /var/lib/catalyst/mail/* 2>/dev/null | xargs -r cat' | grep -oE '/confirm/[^/[:space:]]+/' | head -1 || true)"
+  [ -n "$dark_link" ] && break; sleep 1
+done
+check "TEST-P6-27 the verification mail reached the private file sink, not a provider" test -n "$dark_link"
+page="$(curl -sk -c "$jar" -b "$jar" --resolve catalyst.staging.test:18443:127.0.0.1 "https://catalyst.staging.test:18443$dark_link")"
+version="$(grep -oE 'name="version" value="[^"]+"' <<<"$page" | head -1 | sed 's/.*value="//; s/"$//' || true)"
+csrf="$(grep -oE 'name="csrfmiddlewaretoken" value="[^"]+"' <<<"$page" | head -1 | sed 's/.*value="//; s/"$//' || true)"
+check "TEST-P6-27 the applicant confirms" bash -c "curl -sk -b '$jar' --resolve catalyst.staging.test:18443:127.0.0.1 \
+  -H 'Referer: https://catalyst.staging.test:18443$dark_link' -H 'Origin: https://catalyst.staging.test:18443' \
+  --data-urlencode 'csrfmiddlewaretoken=$csrf' --data-urlencode 'version=$version' \
+  https://catalyst.staging.test:18443$dark_link | grep -qi 'confirmed'"
+sleep 3  # the worker loop has had its turn: anything not held would have started
+dark="$(owner_run migrate python manage.py shell -c "
+from workflow.models import PendingAction as P
+outward = ['start_evidence_collection', 'fetch_evidence', 'run_assessment', 'interpret_message', 'issue_nda',
+           'create_agreement', 'distribute_agreement', 'send_message', 'send_staff_message', 'remind',
+           'provision_create', 'provision_invite', 'provision_revoke']
+print(P.objects.filter(kind='start_evidence_collection', status='held').count(),
+      P.objects.filter(kind__in=outward).exclude(status='held').count())" | tail -1 || true)"
+check "TEST-P6-27 the evidence collection is held until activation" test "${dark%% *}" = 1
+check "TEST-P6-27 no action that reaches a provider exists outside the held state" test "${dark##* }" = 0
+
 # TEST-P6-15: the staff login needs the second factor, and a superuser gets no session at all.
 staff_url=https://staff.staging.test:18444
 jar="$work/jar"

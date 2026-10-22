@@ -1,0 +1,7 @@
+# R1, the entry routes (026 section 9): the access-request form and its received page go to Catalyst v2. Imported into
+# the Learn site for the cutover; removing this file alone is the R1 rollback. {$CATALYST_UPSTREAM} is the v2 web
+# process as the Learn site's proxy reaches it.
+@catalyst_r1 path /request-access/ /request-access/received/
+handle @catalyst_r1 {
+	reverse_proxy {$CATALYST_UPSTREAM}
+}

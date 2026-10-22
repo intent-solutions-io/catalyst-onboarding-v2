@@ -1,0 +1,7 @@
+# R2, the return routes (026 section 9): confirmation, password-setup and withdrawal links go to Catalyst v2. Once v2
+# has applicants their emailed links point here, so R2 stays imported through any R1 rollback until no v2 applicant
+# holds a live link. Token paths: the Learn site's log must redact them (026 section 8), as the staging proxy does.
+@catalyst_r2 path /confirm/* /setup/* /withdraw/*
+handle @catalyst_r2 {
+	reverse_proxy {$CATALYST_UPSTREAM}
+}
