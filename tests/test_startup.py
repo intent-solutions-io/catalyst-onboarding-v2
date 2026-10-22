@@ -217,11 +217,68 @@ def test_6b5_staging_reads_each_secret_from_its_own_file():
     assert result.stdout.split() == ["True", "synthetic-staging-verification-", "[]"]
 
 
-@pytest.mark.parametrize("name", ["CATALYST_SECRET_KEY", "CATALYST_DB_PASSWORD", "CATALYST_MAIL_PASSWORD"])
-def test_6b5_staging_refuses_a_secret_in_the_environment(name):
-    result = run(CHECK, **{**STAGING, name: "synthetic-value-in-the-environment"})
+@pytest.mark.parametrize("value", ["synthetic-value-in-the-environment", ""])  # an empty variable counts too
+@pytest.mark.parametrize("name", ["CATALYST_SECRET_KEY", "CATALYST_VERIFICATION_KEY", "CATALYST_VERIFICATION_FALLBACK_KEYS",
+                                  "CATALYST_DB_PASSWORD", "CATALYST_MAIL_PASSWORD"])
+def test_6b5_staging_refuses_a_secret_in_the_environment(name, value):
+    result = run(CHECK, **{**STAGING, name: value})
     assert result.returncode != 0 and f"{name} may not be in the environment" in result.stderr
     assert "synthetic-value-in-the-environment" not in result.stderr + result.stdout
+
+
+def test_6b5_every_secret_name_is_both_read_and_guarded():
+    from config import guards, settings
+
+    assert settings.SECRET_NAMES is guards.SECRET_ENV_NAMES
+
+
+def secrets_dir(tmp_path, **files):
+    import shutil
+
+    directory = tmp_path / "secrets"
+    shutil.copytree(STAGING_SECRETS, directory)
+    for name, content in files.items():
+        target = directory / name
+        if content is None:
+            target.unlink(missing_ok=True)
+            target.mkdir()
+        else:
+            target.write_bytes(content)
+    return str(directory)
+
+
+def test_6b5_secret_files_keep_their_own_spaces_and_lose_only_the_line_ending(tmp_path):
+    directory = secrets_dir(tmp_path, verification_key=b"  synthetic-verification-with-spaces-0123456789  \n")
+    probe = "from django.conf import settings as s; print(repr(s.CATALYST_VERIFICATION_KEY))"
+    result = run([sys.executable, "-c", f"import django; django.setup(); {probe}"],
+                 **{**STAGING, "CATALYST_SECRETS_DIR": directory})
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "'  synthetic-verification-with-spaces-0123456789  '"
+
+
+@pytest.mark.parametrize(("files", "message"), [
+    ({"secret_key": b""}, "secret CATALYST_SECRET_KEY is missing"),  # an empty file is a missing secret
+    ({"secret_key": None}, "secret CATALYST_SECRET_KEY cannot be read"),  # a directory where the file should be
+    ({"secret_key": b"\xff\xfe-not-utf8"}, "secret CATALYST_SECRET_KEY cannot be read"),
+])
+def test_6b5_an_unreadable_secret_stops_start_up_without_showing_its_bytes(tmp_path, files, message):
+    result = run(CHECK, **{**STAGING, "CATALYST_SECRETS_DIR": secrets_dir(tmp_path, **files)})
+    assert result.returncode != 0 and message in result.stderr
+    assert "not-utf8" not in result.stderr
+
+
+def test_6b5_the_fetcher_starts_without_the_link_signing_key(tmp_path):
+    directory = secrets_dir(tmp_path)
+    (tmp_path / "secrets" / "verification_key").unlink()
+    result = run(CHECK, **{**STAGING, "CATALYST_SECRETS_DIR": directory, "CATALYST_PROCESS_ROLE": "fetcher"})
+    assert result.returncode == 0, result.stderr
+    web = run(CHECK, **{**STAGING, "CATALYST_SECRETS_DIR": directory})
+    assert web.returncode != 0 and "CATALYST_VERIFICATION_KEY is missing" in web.stderr
+
+
+def test_6b5_a_deployment_cannot_call_itself_development():
+    result = run(CHECK, **{**STAGING, "CATALYST_ENV": "development"})
+    assert result.returncode != 0 and "CATALYST_ENV=development may not be used with CATALYST_SECRETS_DIR" in result.stderr
 
 
 def test_6b5_staging_refuses_a_missing_secrets_directory_or_file(tmp_path):

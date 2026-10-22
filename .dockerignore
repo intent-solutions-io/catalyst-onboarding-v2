@@ -15,3 +15,11 @@
 !tests/documenso_fake.py
 **/__pycache__
 **/*.pyc
+# Never in a layer, even inside an allowed directory (PR #65 review):
+**/*.env
+**/.env*
+**/*.sops*
+**/*.pem
+**/*.key
+**/*.sqlite3
+**/*.log

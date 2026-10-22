@@ -12,6 +12,11 @@ from collections.abc import Mapping
 
 POSTGRESQL_ENGINE = "django.db.backends.postgresql"
 
+# The secrets Catalyst reads (6B.5, 026 section 5): one list, used by settings to read them and by the guards to refuse
+# them in the environment outside test and development.
+SECRET_ENV_NAMES = ("CATALYST_SECRET_KEY", "CATALYST_VERIFICATION_KEY", "CATALYST_VERIFICATION_FALLBACK_KEYS",
+                    "CATALYST_DB_PASSWORD", "CATALYST_MAIL_PASSWORD")
+
 # Environments Catalyst may run in. `staging` (026 P6-D-2, D-49) is synthetic like `test`: the same fakes under the
 # same strict rules, never a real provider. Production settings are not authorized (a later P6 decision).
 ALLOWED_ENVIRONMENTS = frozenset({"development", "test", "staging"})
@@ -321,13 +326,13 @@ def host_problems(settings) -> list[str]:
     return problems
 
 
-SECRET_ENV_NAMES = ("CATALYST_SECRET_KEY", "CATALYST_VERIFICATION_KEY", "CATALYST_VERIFICATION_FALLBACK_KEYS",
-                    "CATALYST_DB_PASSWORD", "CATALYST_MAIL_PASSWORD")
-
-
 def secret_problems(settings, environ: Mapping[str, str]) -> list[str]:
     """6B.5 (026 section 5, P6-D-6): outside test and development, secrets come only from per-secret files."""
     environment = getattr(settings, "CATALYST_ENV", "")
+    if environment == "development" and getattr(settings, "CATALYST_SECRETS_DIR", ""):
+        # A process with mounted secrets is a deployment; "development" would switch the guards and the safe mail sink
+        # off (PR #65 review).
+        return ["CATALYST_ENV=development may not be used with CATALYST_SECRETS_DIR (a deployment must say staging)"]
     if environment not in ALLOWED_ENVIRONMENTS or environment in ("test", "development"):
         return []
     problems = [f"{name} may not be in the environment outside test and development; use CATALYST_SECRETS_DIR"

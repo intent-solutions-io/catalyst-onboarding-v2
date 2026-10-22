@@ -638,4 +638,6 @@ def test_6b5_a_worker_process_runs_only_the_kinds_it_is_given():
     assert set(select(registry, "", "fetch_evidence")) == {"send_message", "collect"}  # the worker
     with pytest.raises(CommandError, match="unknown action kinds: fetch_evidance"):
         select(registry, "fetch_evidance", "")  # a typo never silently runs nothing
+    with pytest.raises(CommandError, match="no action kinds left to run"):
+        select(registry, "", "fetch_evidence,send_message,collect")
 

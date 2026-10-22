@@ -28,7 +28,10 @@ def select(registry: dict, only: str, exclude: str) -> dict:
     unknown = (wanted | unwanted) - set(registry)
     if unknown:
         raise CommandError(f"unknown action kinds: {', '.join(sorted(unknown))}")
-    return {kind: h for kind, h in registry.items() if (not wanted or kind in wanted) and kind not in unwanted}
+    selected = {kind: h for kind, h in registry.items() if (not wanted or kind in wanted) and kind not in unwanted}
+    if not selected:  # a process with nothing to run is a misconfiguration, never a quiet idle loop (PR #65 review)
+        raise CommandError("no action kinds left to run")
+    return selected
 
 
 class Command(BaseCommand):

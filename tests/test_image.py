@@ -24,9 +24,11 @@ def test_6b5_dependencies_are_hash_locked_and_the_process_is_not_root():
     assert "chmod -R a-w /app" in text  # the application files are read-only at run time
 
 
-def test_6b5_the_web_process_writes_no_access_log_and_listens_only_on_a_unix_socket():
-    command = re.search(r'^CMD \[(.*)\]$', dockerfile(), flags=re.M).group(1)
+def test_6b5_the_web_process_writes_no_access_log_and_listens_only_on_a_private_unix_socket():
+    command = re.search(r'^CMD \[(.*?)\]$', dockerfile().replace("\\\n", ""), flags=re.M | re.S).group(1)
     assert '"unix:/run/catalyst/web.sock"' in command and "access-log" not in command
+    assert '"--umask", "0o117"' in command  # a 0660 socket: the proxy's group only
+    assert '"--worker-tmp-dir", "/dev/shm"' in command  # the root filesystem is read-only
     assert "0.0.0.0" not in dockerfile() and "EXPOSE" not in dockerfile()
 
 
@@ -46,3 +48,7 @@ def test_6b5_the_build_context_excludes_tests_history_and_the_tracker():
                                                             "tests/documenso_fake.py"]  # the staging fakes only
     production = dockerfile().split("FROM base AS production")[1]
     assert "tests" not in production  # the production target adds no test code
+    base = dockerfile().split("FROM base AS staging")[0]
+    assert not re.search(r"^COPY .*tests", base, flags=re.M)  # nor does the shared base stage
+    for pattern in ("**/*.env", "**/.env*", "**/*.sops*", "**/*.pem", "**/*.key", "**/*.sqlite3"):
+        assert pattern in ignore  # secret-shaped files never enter a layer, even inside an allowed directory

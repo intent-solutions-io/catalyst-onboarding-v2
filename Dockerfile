@@ -29,7 +29,10 @@ LABEL org.opencontainers.image.revision=$CATALYST_COMMIT \
 RUN echo "$CATALYST_COMMIT" > /app/COMMIT && chmod -R a-w /app
 USER catalyst
 # No --access-logfile: gunicorn writes no access log unless told to, and links carry bearer tokens (026 section 8).
-CMD ["gunicorn", "config.wsgi:application", "--bind", "unix:/run/catalyst/web.sock", "--workers", "3", "--timeout", "30"]
+# --umask 0o117 (octal: gunicorn reads a bare 117 as decimal) makes the socket 0660 (the proxy's group only, 026 section 4); --worker-tmp-dir /dev/shm because the
+# root filesystem is read-only; errors go to stderr at warning level (PR #65 review).
+CMD ["gunicorn", "config.wsgi:application", "--bind", "unix:/run/catalyst/web.sock", "--umask", "0o117", \
+     "--worker-tmp-dir", "/dev/shm", "--workers", "3", "--timeout", "30", "--error-logfile", "-", "--log-level", "warning"]
 
 FROM base AS staging
 USER root

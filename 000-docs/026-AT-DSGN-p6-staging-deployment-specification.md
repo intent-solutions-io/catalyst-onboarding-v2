@@ -623,4 +623,20 @@ specification text; nothing is built.
 
   Building and inspecting the images needs Docker, which the test containers lack; they were built and inspected
   locally (the pull request records it), and staging (6B.11) runs them.
+- **After the security review of PR #65** (no blocker, two HIGH, seven MEDIUM):
+  - gunicorn gets `--umask 0o117`, so the socket is `0660` (the proxy's group only), plus `--worker-tmp-dir
+    /dev/shm` for the read-only root and an explicit error log. A run with a read-only root, tmpfs mounts and
+    secrets mounted as files, with no database, showed the socket at `660`, `/healthz` answering 200 over it, and
+    no secret value in the process environment or `docker inspect`.
+  - The fetcher (`CATALYST_PROCESS_ROLE=fetcher`) no longer needs the link-signing key.
+  - A worker with nothing to run refuses to start.
+  - Secret-shaped files are excluded from the build at any depth.
+  - A secret file loses only its line ending. An empty file is missing, and an unreadable one (a directory, the
+    wrong permissions, non-UTF-8) stops start-up, naming the secret but never its bytes.
+  - Settings and the guards share one list of secret names.
+  - A process with mounted secrets may not call itself `development`.
+  - `pip-audit` of the locked dependencies found no known vulnerability.
+  - Carried to 6B.5b (recorded on its bead): per-kind secret mounts, the fetcher's database role and egress, the
+    pinned environment and worker arguments, the tmpfs and socket-directory mounts, and tests against the running
+    stack.
 - **6B.5b** (next): the staging compose stack.
