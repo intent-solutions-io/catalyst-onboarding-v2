@@ -359,6 +359,11 @@ def process_role_problems(settings, kind: str) -> list[str]:
     problems = []
     if role == "fetcher" and kind == "web":
         problems.append("the web process may not run as CATALYST_PROCESS_ROLE=fetcher")
+    proxy = str(getattr(settings, "CATALYST_EVIDENCE_PROXY", "") or "")
+    if proxy and not re.fullmatch(r"[a-z0-9.-]+:\d{1,5}", proxy):
+        problems.append("CATALYST_EVIDENCE_PROXY must be host:port")
+    if role == "fetcher" and getattr(settings, "CATALYST_ENV", "") == "staging" and not proxy:
+        problems.append("a staging fetcher needs CATALYST_EVIDENCE_PROXY: it reaches nothing but the egress proxy")
     key = getattr(settings, "CATALYST_VERIFICATION_KEY", None)
     if role != "fetcher" and key is not None and not key:
         problems.append("CATALYST_VERIFICATION_KEY may be empty only for the fetcher")

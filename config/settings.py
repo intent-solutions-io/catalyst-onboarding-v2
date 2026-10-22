@@ -325,6 +325,9 @@ CATALYST_REMINDER_STALE_RETRY_SECONDS = number("CATALYST_REMINDER_STALE_RETRY_SE
 CATALYST_EVIDENCE_ALLOWED_HOSTS: list = []
 CATALYST_EVIDENCE_FIXTURE_ADDRESS = ""
 CATALYST_EVIDENCE_CA_FILE = ""
+# 6B.11 (026 section 5, H5): "host:port" of the egress proxy (assessments.egress). When set, every fetch is a CONNECT
+# tunnel through it: the fetcher's own network reaches nothing else. Required for a staging fetcher (config.guards).
+CATALYST_EVIDENCE_PROXY = os.environ.get("CATALYST_EVIDENCE_PROXY", "").strip()
 CATALYST_EVIDENCE_FETCH_ATTEMPTS = number("CATALYST_EVIDENCE_FETCH_ATTEMPTS", "3")
 # Unset, the per-fetch deadline is half the worker lease, at most 10 s (as for the SMTP exchange).
 CATALYST_EVIDENCE_DEADLINE_SECONDS = number("CATALYST_EVIDENCE_DEADLINE_SECONDS",

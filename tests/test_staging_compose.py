@@ -6,7 +6,7 @@ import json
 
 from tests.support import ROOT
 
-CATALYST = ("web", "worker", "fetcher", "migrate", "provision-roles", "collect-static")
+CATALYST = ("web", "worker", "fetcher", "migrate", "provision-roles", "collect-static", "egress")
 SECRET_WORDS = ("PASSWORD", "SECRET_KEY", "VERIFICATION_KEY", "TOKEN", "API_KEY")
 
 
@@ -51,7 +51,7 @@ def test_6b5b_each_process_mounts_only_its_own_secrets_and_its_own_database_pass
                                         "db_password": "owner_password"}
     assert secrets_of(s["db"]) == {"admin_password": "admin_password"}
     assert "admin_password" in secrets_of(s["provision-roles"]) and s["provision-roles"]["profiles"] == ["provision"]
-    assert "secrets" not in s["collect-static"] and "secrets" not in s["proxy"]
+    assert "secrets" not in s["collect-static"] and "secrets" not in s["proxy"] and "secrets" not in s["egress"]
     holders = [name for name, svc in s.items() if "admin_password" in secrets_of(svc).values()]
     assert sorted(holders) == ["db", "provision-roles"]  # the bootstrap credential reaches nothing else
     assert [n for n, svc in s.items() if "backup_password" in secrets_of(svc).values()] == ["provision-roles"]
@@ -85,7 +85,10 @@ def test_6b5b_the_socket_is_shared_only_with_the_proxy_and_only_the_proxy_has_an
     assert proxy["user"] == "10001:10001" and proxy["cap_drop"] == ["ALL"] and proxy["cap_add"] == ["NET_BIND_SERVICE"]
     assert proxy["read_only"] is True  # no-new-privileges would stop the binary's file capability from running it
     assert "catalyst-run:/run/catalyst:ro" in proxy["volumes"]  # it connects to the socket, never replaces it
-    assert s["fetcher"]["networks"] == ["backend"]  # internal only: its egress is the host proxy's (6B.11), never a bridge
+    assert s["fetcher"]["networks"] == ["backend"]  # internal only: its way out is the egress proxy, never a bridge
+    assert s["fetcher"]["environment"]["CATALYST_EVIDENCE_PROXY"] == "egress:3128"
+    assert [n for n, svc in s.items() if "egress" in svc.get("networks", [])] == ["egress"]  # alone on the way out
+    assert s["egress"]["command"] == ["python", "-m", "assessments.egress"] and "ports" not in s["egress"]
     assert definition["networks"]["backend"] == {"internal": True}  # web, worker, fetcher and db reach nothing outside
     assert [n for n, svc in s.items() if "edge" in svc.get("networks", [])] == ["proxy"]
     assert s["collect-static"]["network_mode"] == "none"

@@ -17,8 +17,9 @@ The rules the definition encodes (each pinned by a test):
   capability its binary's file capability needs in order to run.
   The staff site listens on its own container port, published only on the private staff address
   (CATALYST_STAFF_PUBLISH, never all interfaces).
-- **The fetcher** runs only `fetch_evidence`, as the fetcher role, on a network that reaches the database alone; its
-  egress to approved evidence hosts goes through the host-level egress proxy and deny (a host task, 6B.11).
+- **The fetcher** runs only `fetch_evidence`, as the fetcher role, on a network that reaches the database and the
+  egress proxy alone; every fetch is a CONNECT tunnel through that proxy (assessments.egress), which refuses every
+  address outside global unicast. The proxy holds no secret and alone joins the outbound network.
 """
 
 import json
@@ -100,6 +101,12 @@ def definition() -> dict:
                        [mount("secret_key"), mount("fetcher_password", "db_password")], process_role="fetcher",
                        depends=migrated)
     fetcher["environment"]["CATALYST_WORKER_HEARTBEAT_FILE"] = "/tmp/catalyst-fetcher.beat"
+    fetcher["environment"]["CATALYST_EVIDENCE_PROXY"] = "egress:3128"  # its only way out (6B.11)
+    # The egress proxy (assessments.egress): no secret, no database login. It alone joins the outbound network; it
+    # resolves names and refuses every address outside global unicast, as the fetcher's own classify does.
+    egress = catalyst(["python", "-m", "assessments.egress"], "", [], networks=("backend", "egress"))
+    egress["environment"] = {"CATALYST_ENV": "staging", "CATALYST_EGRESS_LISTEN": "0.0.0.0:3128"}
+    del egress["secrets"]
     migrate = catalyst(["sh", "-c", "python manage.py migrate --noinput && python manage.py schedule_session_cleanup"],
                        "catalyst_owner", [*keys, mount("owner_password", "db_password")],
                        depends={"db": {"condition": "service_healthy"}})
@@ -143,6 +150,7 @@ def definition() -> dict:
             "web": web,
             "worker": worker,
             "fetcher": fetcher,
+            "egress": egress,
             "proxy": {
                 "image": CADDY,
                 # Not root: group 10001 reaches the 0660 socket, and it listens on high ports (6B.5b review). The
@@ -175,7 +183,7 @@ def definition() -> dict:
                 "restart": "unless-stopped",
             },
         },
-        "networks": {"backend": {"internal": True}, "edge": {}},
+        "networks": {"backend": {"internal": True}, "edge": {}, "egress": {}},
         "volumes": {name: {} for name in ("catalyst-db", "catalyst-run", "catalyst-static", "catalyst-mail")},
         "secrets": {name: {"file": f"${{CATALYST_STAGING_SECRETS:?}}/{name}"} for name in SECRET_FILES},
     }

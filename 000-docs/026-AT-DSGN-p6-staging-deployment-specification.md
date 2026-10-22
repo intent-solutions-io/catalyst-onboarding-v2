@@ -1176,9 +1176,44 @@ specification text; nothing is built.
   by the image workflow.
 - **Result:** 98 of 98 PASS, in three consecutive runs.
 - **Still to come in 6B.11 to 6B.13:**
-  - the fetcher's egress proxy (TEST-P6-30);
   - alerts and the dead man to Buzz (TEST-P6-17 to 20, 38);
   - the backup and restore drill (TEST-P6-21 to 23, 29, 35);
   - a dark deploy with data (TEST-P6-27);
   - the cutover rehearsal (TEST-P6-26);
   - the webhook enabled, and its replay (TEST-P6-16 and 34, at the unit level today).
+
+**6B.11 (part 2), the fetcher's egress proxy (026 section 5, H5; TEST-P6-30).**
+
+- **`assessments/egress.py`** is an HTTP CONNECT proxy, run from the same image as its own service, `egress`. It
+  holds no secret and no database login, and it alone joins the outbound network. The fetcher sits on the internal
+  network, with no DNS and no other route, so every fetch goes through the proxy. The proxy:
+  - accepts CONNECT only, to port 443 (and, in a synthetic environment, the fixture's port), with a deadline for the
+    request head;
+  - takes a DNS name, never an IP literal, except the one pinned fixture address of a synthetic environment;
+  - refuses unless every address the name resolves to passes `assessments.fetch.classify`, the fetcher's own pure
+    function: global unicast only, so no loopback, private, shared (the tailnet range), link-local or metadata
+    address, and not the proxy's own host;
+  - checks the connected peer again and reports it, and the fetcher checks it a third time before its TLS
+    handshake;
+  - leaves TLS end to end, verified against the real host name, so the proxy never sees the path or the content;
+  - bounds tunnels in number (16) and time, and logs outcome codes only.
+- **The fetcher** (`assessments.fetch`) uses the tunnel whenever `CATALYST_EVIDENCE_PROXY` is set. A refusal from
+  the proxy is a refusal and is never retried; a proxy that cannot connect is transient. The guards refuse a staging
+  fetcher without the proxy, and refuse a malformed proxy setting.
+- **Evidence:**
+  - `tests/test_egress.py`:
+    - the policy refuses anything but a CONNECT to a name on an allowed port;
+    - the fixture address is admitted only in a synthetic environment;
+    - a name resolving to loopback, private, metadata, tailnet or bridge addresses, or to a mix with a private one,
+      is refused by the live proxy, and so is a single-label name;
+    - evidence is fetched through the proxy end to end, with the reported peer recorded;
+    - a proxy refusal ends the item as refused, with nothing fetched;
+  - `tests/test_startup.py`: the staging fetcher's guard;
+  - `scripts/staging_check.sh` (TEST-P6-30), 118 of 118 PASS in three consecutive runs, shows that:
+    - the fetcher reaches the database and the proxy, and nothing else;
+    - through the proxy a public name is tunnelled (the control);
+    - names on a public wildcard DNS service that resolve into each denied range are refused, as are IP literals,
+      other ports and the database's single-label name;
+    - the proxy mounts no secret, runs as 10001 with no capability, and holds no secret in its environment.
+- **Stated limit:** the public wildcard DNS service is an outside dependency of the check. If it cannot be reached,
+  those checks fail, never pass.
