@@ -147,6 +147,12 @@ if SECRET_KEY in [CATALYST_VERIFICATION_KEY, *CATALYST_VERIFICATION_FALLBACK_KEY
 # Worker (ADR-03, D-16; 005 S1.4). Times are compared with the database clock; these are only lengths.
 # The mail timeout must stay well below the lease, so a slow send cannot outlive its claim.
 CATALYST_WORKER_LEASE_SECONDS = number("CATALYST_WORKER_LEASE_SECONDS", "300")
+# 6B.4 (026 section 7): the worker's heartbeat file (empty: none) and the health command's thresholds, placeholders
+# until POL-16 (P6-D-9). A stale heartbeat is twice the lease: one action may legitimately run that long.
+CATALYST_WORKER_HEARTBEAT_FILE = os.environ.get("CATALYST_WORKER_HEARTBEAT_FILE", "").strip()
+CATALYST_HEALTH_HEARTBEAT_STALE_SECONDS = number("CATALYST_HEALTH_HEARTBEAT_STALE_SECONDS", str(2 * CATALYST_WORKER_LEASE_SECONDS))
+CATALYST_HEALTH_PENDING_AGE_SECONDS = number("CATALYST_HEALTH_PENDING_AGE_SECONDS", "3600")
+CATALYST_HEALTH_HARD_BOUNCE_AGE_SECONDS = number("CATALYST_HEALTH_HARD_BOUNCE_AGE_SECONDS", "86400")
 CATALYST_WORKER_POLL_SECONDS = number("CATALYST_WORKER_POLL_SECONDS", "5", cast=float, minimum=0.05)
 CATALYST_WORKER_RETRY_SECONDS = number("CATALYST_WORKER_RETRY_SECONDS", "60", minimum=0)  # doubles per attempt
 EMAIL_TIMEOUT = number("CATALYST_EMAIL_TIMEOUT_SECONDS", "10")

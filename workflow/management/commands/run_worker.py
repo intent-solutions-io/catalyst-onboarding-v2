@@ -16,7 +16,7 @@ from django.core.management.base import BaseCommand
 from django.db import InterfaceError, OperationalError, connections
 
 from config import runtime
-from workflow import ledger
+from workflow import heartbeat, ledger
 
 logger = logging.getLogger("workflow.worker")
 
@@ -42,6 +42,7 @@ class Command(BaseCommand):
             self.stdout.write("worker started")
             self.stdout.flush()
             while not stop.is_set():
+                heartbeat.beat(settings.CATALYST_WORKER_HEARTBEAT_FILE)  # 6B.4: alive, even while the database is down
                 try:
                     worked = ledger.run_one(registry)
                 except (OperationalError, InterfaceError) as exc:
