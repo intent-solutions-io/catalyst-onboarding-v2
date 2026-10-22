@@ -22,6 +22,10 @@ CATALYST_ENV = env("CATALYST_ENV")
 SECRET_KEY = env("CATALYST_SECRET_KEY")
 DEBUG = False
 ALLOWED_HOSTS = [h.strip() for h in env("CATALYST_ALLOWED_HOSTS", "localhost").split(",") if h.strip()]
+# 6B.3 (026 section 8): the host names that may read the health paths (the proxy's local socket) and the one staff
+# host that may serve the staff screens and the admin. Staging and later must name a staff host (config.guards).
+CATALYST_LOCAL_HOSTS = [h.strip() for h in os.environ.get("CATALYST_LOCAL_HOSTS", "localhost").split(",") if h.strip()]
+CATALYST_STAFF_HOST = os.environ.get("CATALYST_STAFF_HOST", "").strip()
 
 INSTALLED_APPS = [
     "config.apps.CatalystConfig",
@@ -41,6 +45,7 @@ INSTALLED_APPS = [
 ]
 MIDDLEWARE = [
     "config.redaction.PrivateConfirmationResponses",  # outermost: covers responses built outside the view
+    "config.health.HostGuard",  # 6B.3: no staff, admin or health path on the public host
     "django.middleware.security.SecurityMiddleware",
     "config.security_headers.ContentSecurityPolicy",  # 6B.2: Django has no CSP of its own
     "django.contrib.sessions.middleware.SessionMiddleware",

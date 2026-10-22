@@ -4,11 +4,14 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 
+from config import health
 from config.staff_admin import configure_site
 
 configure_site()
 
 urlpatterns = [
+    path("healthz", health.healthz, name="healthz"),  # 6B.3: through the proxy's local socket only (HostGuard)
+    path("readyz", health.readyz, name="readyz"),
     path("staff/p2/", include("correspondence.staff_urls")),
     path("staff/p3/", include("assessments.staff_urls")),
     path("staff/p4/", include("agreements.staff_urls")),

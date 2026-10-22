@@ -20,7 +20,7 @@ STAGING = dict(
     SESSION_COOKIE_SECURE=True, CSRF_COOKIE_SECURE=True, SESSION_COOKIE_NAME="__Host-catalyst-session",
     CSRF_COOKIE_NAME="__Host-catalyst-csrf", SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https"),
     SECURE_SSL_REDIRECT=True, SECURE_REDIRECT_EXEMPT=[r"^healthz$", r"^readyz$"], SECURE_HSTS_SECONDS=300,
-    SECURE_HSTS_INCLUDE_SUBDOMAINS=False, SECURE_HSTS_PRELOAD=False, ALLOWED_HOSTS=[HOST, "testserver"],
+    SECURE_HSTS_INCLUDE_SUBDOMAINS=False, SECURE_HSTS_PRELOAD=False, ALLOWED_HOSTS=[HOST, "testserver", "localhost"],
 )
 HTTPS = {"HTTP_X_FORWARDED_PROTO": "https", "HTTP_HOST": HOST}
 
@@ -35,15 +35,16 @@ def staging_web(settings):
 def test_6b2_plain_http_is_redirected_to_https_except_the_health_paths(staging_web, db):
     response = staging_web.get("/request-access/", HTTP_HOST=HOST)
     assert response.status_code == 301 and response["Location"] == f"https://{HOST}/request-access/"
-    for path in ("/healthz", "/readyz"):  # exempt: reached only through the proxy's local socket (6B.3)
-        assert staging_web.get(path, HTTP_HOST=HOST).status_code != 301
-    assert staging_web.get("/healthz/", HTTP_HOST=HOST).status_code == 301  # the exemption is exact
+    for path in ("/healthz", "/readyz"):  # exempt, on the proxy's local socket host (6B.3)
+        assert staging_web.get(path, HTTP_HOST="localhost").status_code != 301
+        assert staging_web.get(path, HTTP_HOST=HOST).status_code == 404  # never on the public host (6B.3)
+    assert staging_web.get("/healthz/", HTTP_HOST="localhost").status_code == 301  # the exemption is exact
 
 
 def test_6b2_hsts_is_sent_only_over_https_and_covers_no_subdomains(staging_web, db):
     secure = staging_web.get("/request-access/", **HTTPS)
     assert secure.status_code == 200 and secure["Strict-Transport-Security"] == "max-age=300"
-    assert "Strict-Transport-Security" not in staging_web.get("/healthz", HTTP_HOST=HOST)
+    assert "Strict-Transport-Security" not in staging_web.get("/healthz", HTTP_HOST="localhost")
 
 
 def test_6b2_the_csrf_cookie_is_host_only_secure_and_hidden_from_scripts(staging_web, db):

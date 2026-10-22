@@ -14,7 +14,7 @@ STAGING = {
     "CATALYST_ALLOWED_HOSTS": "catalyst.staging.test",
     "CATALYST_SECRET_KEY": "synthetic-staging-key-" + "x7Qp2LmZ9vR4tYw8NcB3hK6sJd1FgUe5aTo0" * 2,  # gitleaks:allow
     "CATALYST_EMAIL_BACKEND": None, "CATALYST_EMAIL_FILE_PATH": "/tmp/catalyst-staging-mail",
-    "CATALYST_MAIL_TEST_HOST": None,
+    "CATALYST_MAIL_TEST_HOST": None, "CATALYST_STAFF_HOST": "staff.staging.test", "CATALYST_LOCAL_HOSTS": "localhost",
 }
 WSGI = [sys.executable, "-c", "import config.wsgi"]
 
@@ -166,7 +166,6 @@ def test_6b2_local_environments_keep_plain_cookies_but_still_idle_out():
     assert result.stdout.split() == ["sessionid", "False", "1800"]
 
 
-
 def test_6b2_review_staging_refuses_wildcard_production_and_look_alike_hosts():
     for hosts in ("*", ".intentsolutions.io", "catalyst.staging.test,learn.intentsolutions.io"):
         result = run(CHECK, **{**STAGING, "CATALYST_ALLOWED_HOSTS": hosts})
@@ -174,3 +173,12 @@ def test_6b2_review_staging_refuses_wildcard_production_and_look_alike_hosts():
     look_alike = "https://learn.intentsolutions。io"  # an ideographic full stop for the last dot
     result = run(CHECK, **{**STAGING, "CATALYST_PUBLIC_BASE_URL": look_alike})
     assert result.returncode != 0
+
+
+def test_6b3_review_staging_needs_a_proper_staff_host_and_local_hosts():
+    no_staff = run(CHECK, **{**STAGING, "CATALYST_STAFF_HOST": None})
+    assert no_staff.returncode != 0 and "CATALYST_STAFF_HOST is required" in no_staff.stderr
+    for name, value in (("CATALYST_STAFF_HOST", "catalyst.staging.test"), ("CATALYST_STAFF_HOST", "*"),
+                        ("CATALYST_LOCAL_HOSTS", "localhost,catalyst.staging.test"), ("CATALYST_LOCAL_HOSTS", ".staging.test")):
+        result = run(CHECK, **{**STAGING, name: value})
+        assert result.returncode != 0 and "may not be a wildcard" in result.stderr, (name, value)

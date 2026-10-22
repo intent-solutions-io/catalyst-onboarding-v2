@@ -299,6 +299,25 @@ def _production_host(host: str) -> bool:
     return any(host == domain or host.endswith("." + domain) for domain in PRODUCTION_DOMAINS)
 
 
+def host_problems(settings) -> list[str]:
+    """PR #62 review: outside the local environments the staff screens need their own host, and neither it nor the
+    local health hosts (the proxy's socket) may be the public host, a wildcard or a domain pattern."""
+    environment = getattr(settings, "CATALYST_ENV", "")
+    if environment not in ALLOWED_ENVIRONMENTS or environment in ("test", "development"):
+        return []
+    base = getattr(settings, "CATALYST_PUBLIC_BASE_URL", "")
+    public = (urlsplit(base).hostname or "").lower().rstrip(".") if base else ""
+    staff = (getattr(settings, "CATALYST_STAFF_HOST", "") or "").lower().rstrip(".")
+    problems = [] if staff else ["CATALYST_STAFF_HOST is required outside test and development"]
+    for name, hosts in (("CATALYST_STAFF_HOST", [staff] if staff else []),
+                        ("CATALYST_LOCAL_HOSTS", getattr(settings, "CATALYST_LOCAL_HOSTS", []) or [])):
+        for host in hosts:
+            host = host.lower().rstrip(".")
+            if host in ("*", "") or host.startswith(".") or (public and host == public):
+                problems.append(f"{name} may not be a wildcard, a domain pattern or the public host")
+    return problems
+
+
 def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return (
         database_problems(settings.DATABASES)
@@ -311,4 +330,5 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + decision_problems(settings, environ)
         + agreement_problems(settings, environ)
         + provisioning_problems(settings, environ)
+        + host_problems(settings)
     )
