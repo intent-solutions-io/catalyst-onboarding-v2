@@ -94,7 +94,7 @@ check "the proxy cannot replace the socket" bash -c "! docker exec $("${compose[
 check "the mail sink is 0700" test "$(docker exec "$("${compose[@]}" ps -q worker)" stat -c '%a' /var/lib/catalyst/mail)" = 700
 
 code() {  # code <host> <address> <port> <path>: the HTTP status, or 000 when there was no HTTP answer
-  curl -sk -o /dev/null -w '%{http_code}' --resolve "$1:$3:$2" "https://$1:$3$4"
+  curl -sk --path-as-is -o /dev/null -w '%{http_code}' --resolve "$1:$3:$2" "https://$1:$3$4"
 }
 exits() {  # exits <code> <host> <address> <port> <path> [curl args]: curl's exit status is exactly <code>
   local want="$1" host="$2" address="$3" port="$4" path="$5"; shift 5
@@ -138,8 +138,9 @@ check "no token in any container log" bash -c "[ -n \"\$1\" ] && ! grep -q '$sen
 
 # --- GATE-STAGING live cases (6B.11; 026 section 11) ------------------------------------------------------------
 web="$("${compose[@]}" ps -q web)"
-socket_get() {  # socket_get <path>: the HTTP status code through the web socket, with the proxy's forwarded scheme
-  docker exec "$web" python -c "import socket,sys;s=socket.socket(socket.AF_UNIX);s.settimeout(5);s.connect('/run/catalyst/web.sock');s.sendall(('GET '+sys.argv[1]+' HTTP/1.0\r\nHost: localhost\r\nX-Forwarded-Proto: https\r\n\r\n').encode());print(s.recv(64).decode().split(' ')[1])" "$1" 2>/dev/null || echo none
+socket_get() {  # socket_get <path> [host]: the HTTP status straight from Django through the web socket (no proxy),
+  # with the forwarded scheme the proxy always sets; the host defaults to the local health name.
+  docker exec "$web" python -c "import socket,sys;s=socket.socket(socket.AF_UNIX);s.settimeout(5);s.connect('/run/catalyst/web.sock');s.sendall(('GET '+sys.argv[1]+' HTTP/1.0\r\nHost: '+sys.argv[2]+'\r\nX-Forwarded-Proto: https\r\n\r\n').encode());print(s.recv(64).decode().split(' ')[1])" "$1" "${2:-localhost}" 2>/dev/null || echo none
 }
 owner_run() { "${compose[@]}" run --rm --no-deps -T "$@" 2>/dev/null; }  # the migrate service: the owner role
 
@@ -155,13 +156,25 @@ check "TEST-P6-06 role provisioning is idempotent and reads its roles back" \
 sleep 6  # past the readiness cache
 check "TEST-P6-07 with the database down, liveness answers 200" test "$(socket_get /healthz)" = 200
 check "TEST-P6-07 with the database down, readiness answers 503" test "$(socket_get /readyz)" = 503
-"${compose[@]}" start db >/dev/null 2>&1
-for _ in $(seq 40); do [ "$(socket_get /readyz)" = 200 ] && break; sleep 1; done
-check "TEST-P6-07 readiness recovers when the database returns" test "$(socket_get /readyz)" = 200
+"${compose[@]}" up -d --wait db >/dev/null 2>&1  # back, and healthy by its own check
+for _ in $(seq 60); do [ "$(socket_get /readyz)" = 200 ] && break; sleep 1; done  # at most a minute (3-5 s seen)
+# Each web worker caches its readiness answer for up to 5 s, so one may still hold the outage's 503: wait that out,
+# then every answer must be 200.
+sleep 6
+recovered() { for _ in 1 2 3; do [ "$(socket_get /readyz)" = 200 ] || return 1; done; }
+check "TEST-P6-07 readiness recovers when the database returns (three answers in a row)" recovered
 
-# TEST-P6-12, 32: path-normalization variants of staff, admin and health paths never pass the public site.
-for path in /STAFF/ //staff/ /%73taff/ /staff/../staff/ /admin/ /healthz /%68ealthz /readyz; do
+# TEST-P6-12: path variants of staff, admin and health paths never pass the public site. The last two match the
+# applicant pattern, so the proxy forwards them and Django refuses them.
+check "TEST-P6-12 control: a listed applicant path is forwarded" test "$(code catalyst.staging.test 127.0.0.1 18443 /request-access/)" = 200
+for path in /STAFF/ //staff/ /%73taff/ /staff/../staff/ /admin/ /healthz /%68ealthz /readyz \
+            /confirm/../staff/login/ /confirm/..%2fstaff/login/; do
   check "TEST-P6-12 the public site refuses $path" test "$(code catalyst.staging.test 127.0.0.1 18443 "$path")" = 404
+done
+# TEST-P6-32: Django itself, with no proxy in front, refuses staff, admin and health paths on the public host name.
+check "TEST-P6-32 control: Django serves the staff login on the staff host" test "$(socket_get /staff/login/ staff.staging.test)" = 200
+for path in /staff/ /staff/login/ /STAFF/ //staff/ /admin/ /healthz /readyz; do
+  check "TEST-P6-32 Django refuses $path on the public host" test "$(socket_get "$path" catalyst.staging.test)" = 404
 done
 
 # TEST-P6-14: cookies, HSTS, CSP, no-store on token paths, and a spoofed forwarded header ignored.
@@ -180,10 +193,20 @@ check "TEST-P6-16 the webhook is not mounted at the proxy" test \
 check "TEST-P6-16 the webhook is not mounted in Django" test "$(socket_get /hooks/documenso/)" = 404
 
 # TEST-P6-28: no route out of the backend network (no production host, no provider, nothing on the internet).
+probe() {  # probe <service> <python>: the exit status of a network probe that exits 42 when the network refuses it
+  docker exec "$("${compose[@]}" ps -q "$1")" python -c "import socket,sys
+try:
+    $2
+except OSError:
+    sys.exit(42)" 2>/dev/null
+  echo $?
+}
 for service in web worker fetcher; do
-  check "TEST-P6-28 $service reaches nothing outside" bash -c "! docker exec $("${compose[@]}" ps -q "$service") python -c \"import socket;socket.create_connection(('1.1.1.1',443),3)\" 2>/dev/null"
+  # The control proves the probe itself runs: the database, on the same network, is reachable.
+  check "TEST-P6-28 control: $service reaches the database" test "$(probe "$service" "socket.create_connection(('db',5432),3)")" = 0
+  check "TEST-P6-28 $service reaches nothing outside (refused, not errored)" test "$(probe "$service" "socket.create_connection(('1.1.1.1',443),3)")" = 42
 done
-check "TEST-P6-28 names do not resolve from the backend network" bash -c "! docker exec $web python -c \"import socket;socket.getaddrinfo('example.com',443)\" 2>/dev/null"
+check "TEST-P6-28 names do not resolve from the backend network" test "$(probe web "socket.getaddrinfo('example.com',443)")" = 42
 
 # TEST-P6-15: the staff login needs the second factor, and a superuser gets no session at all.
 staff_url=https://staff.staging.test:18444
@@ -216,9 +239,8 @@ check "TEST-P6-15 a wrong token does not sign in" test "$(staff_post gate-staff 
 sleep 2  # the wrong token's throttle delay
 check "TEST-P6-15 the password and the current token sign in" test "$(staff_post gate-staff "$staff_password" "$device" "$(totp "$staff_secret")")" = 302
 check "TEST-P6-15 the verified session reaches the staff site" test "$(staff_index)" = 200
-staff_post gate-super "$staff_password" >/dev/null
-super_device="$(grep -oE 'value="otp_totp\.totpdevice/[0-9]+"' "$work/login.html" | head -1 | cut -d'"' -f2)"
-staff_post gate-super "$staff_password" "$super_device" "$(totp "$super_secret")" >/dev/null
-check "TEST-P6-15 a superuser, even with both factors, gets no staff session" test "$(staff_index)" = 302
+check "TEST-P6-15 a superuser with the right password is refused at the login form" test "$(staff_post gate-super "$staff_password")" = 200
+check "TEST-P6-15 the refusal names the superuser rule" grep -q "cannot sign in to the staff site" "$work/login.html"
+check "TEST-P6-15 the refused superuser has no staff session" test "$(staff_index)" = 302
 
 exit "$fail"

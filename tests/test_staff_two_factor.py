@@ -249,12 +249,24 @@ def test_6b9_two_factor_is_required_outside_the_local_environments():
 
 
 def test_6b9_a_superuser_account_gets_no_staff_session_where_two_factor_is_required(required):
+    from django_otp import login as otp_login
+    from django.test import RequestFactory
+
     staff(required, "super-staff", superuser=True)
     enrol("super-staff")
     client = Client()
-    assert sign_in(client, "super-staff", TOTPDevice, current_token("super-staff")).status_code == 302  # password + token
+    response = client.post("/staff/login/?next=/staff/", {"username": "super-staff", "password": PASSWORD})
+    assert response.status_code == 200 and b"cannot sign in to the staff site" in response.content  # refused at the form
+    assert "_auth_user_id" not in client.session
+    # The backstop: a superuser session that is somehow verified is still ended on its next staff request.
+    from accounts.models import User
+
+    client.force_login(User.objects.get(username="super-staff"))
+    session = client.session
+    session["otp_device_id"] = TOTPDevice.objects.get(user__username="super-staff").persistent_id
+    session.save()
     response = client.get("/staff/")
-    assert response.status_code == 302 and response["Location"].startswith("/staff/login/")  # then refused
+    assert response.status_code == 302 and response["Location"].startswith("/staff/login/")
     assert "_auth_user_id" not in client.session
 
 

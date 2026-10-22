@@ -93,7 +93,16 @@ class StaffAccess:
 
 
 class StaffLoginForm(OTPAdminAuthenticationForm):
-    """The admin login form: password, then the token from an enrolled device, where two-factor is required."""
+    """The admin login form: password, then the token from an enrolled device, where two-factor is required. A
+    superuser is refused here, with a message and no session (StaffAccess also refuses one, as a backstop)."""
+
+    def confirm_login_allowed(self, user):
+        super().confirm_login_allowed(user)
+        if two_factor_required() and user.is_superuser:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError("A superuser account cannot sign in to the staff site; the owner uses manage.py.",
+                                  code="superuser")
 
     def clean(self):
         if two_factor_required():
