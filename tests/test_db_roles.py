@@ -24,6 +24,7 @@ PASSWORDS = {
     "owner": os.environ["CATALYST_DB_OWNER_PASSWORD"],
     "app": os.environ["CATALYST_DB_APP_PASSWORD"],
     "retention": os.environ["CATALYST_DB_RETENTION_PASSWORD"],
+    "backup": os.environ["CATALYST_DB_BACKUP_PASSWORD"],
 }
 SECRETS = [*PASSWORDS.values(), os.environ["CATALYST_DB_ADMIN_PASSWORD"]]
 # Trigger inventory (003 ADR-14): append-only on versions and events (2), no-truncate on versions, events,
@@ -723,4 +724,42 @@ def test_a_reset_refuses_while_another_session_is_connected(privileged_reset):
             reset_test_database(settle_seconds=0.5)
     finally:
         straggler.close()
+
+
+# --- 6B.6: the backup role (026 section 6, P6-D-7) -----------------------------------------------------------
+
+@pytest.mark.django_db
+def test_6b6_the_backup_role_reads_every_table_but_sessions_and_writes_nothing():
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT t.tablename, has_table_privilege(%s, t.oid, 'SELECT'),"
+            " has_table_privilege(%s, t.oid, 'INSERT') OR has_any_column_privilege(%s, t.oid, 'UPDATE')"
+            " OR has_table_privilege(%s, t.oid, 'DELETE') OR has_table_privilege(%s, t.oid, 'TRUNCATE')"
+            " FROM (SELECT tablename, ('public.' || quote_ident(tablename))::regclass AS oid FROM pg_tables"
+            "       WHERE schemaname = 'public') t ORDER BY 1", [ROLES["backup"]] * 5)
+        rows = cursor.fetchall()
+    unreadable = [table for table, readable, _ in rows if not readable and table != "django_session"]
+    assert unreadable == [], "a new table needs a backup grant in its migration (config.db_roles, role 'backup')"
+    assert [table for table, _, writes in rows if writes] == []
+    assert dict((t, r) for t, r, _ in rows)["django_session"] is False  # staff session keys stay out of backups
+
+
+def test_6b6_the_backup_role_can_read_but_never_change_history(connect):
+    app_id, _, event_id = new_application(connect("owner"), "backup-probe@example.test")
+    backup = connect("backup")
+    assert backup.execute("SELECT count(*) FROM applications_applicationevent WHERE id = %s", [event_id]).fetchone()[0] == 1
+    backup.rollback()
+    refused(backup, "UPDATE applications_application SET stage = 'closed' WHERE id = %s", [app_id])
+    refused(backup, "SELECT session_key FROM django_session")
+
+
+def test_6b6_staging_provisioning_takes_passwords_only_from_files(tmp_path):
+    env = {"CATALYST_ENV": "staging", "CATALYST_SECRETS_DIR": str(tmp_path)}
+    refused_env = run([sys.executable, "scripts/provision_db_roles.py"], **env, CATALYST_DB_APP_PASSWORD="in-the-env")
+    assert refused_env.returncode != 0 and "may not be in the environment in staging" in refused_env.stderr + refused_env.stdout
+    missing = run([sys.executable, "scripts/provision_db_roles.py"], **env, CATALYST_DB_OWNER_PASSWORD=None,
+                  CATALYST_DB_APP_PASSWORD=None, CATALYST_DB_RETENTION_PASSWORD=None, CATALYST_DB_BACKUP_PASSWORD=None)
+    assert missing.returncode != 0 and "owner_password cannot be read" in missing.stderr + missing.stdout
+    production = run([sys.executable, "scripts/provision_db_roles.py"], CATALYST_ENV="production")
+    assert production.returncode == 2 and "only for CATALYST_ENV in development, test, staging" in production.stderr
 

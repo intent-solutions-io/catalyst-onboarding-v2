@@ -640,3 +640,23 @@ specification text; nothing is built.
     pinned environment and worker arguments, the tmpfs and socket-directory mounts, and tests against the running
     stack.
 - **6B.5b** (next): the staging compose stack.
+
+**6B.6, database roles for staging and the backup role (P6-D-7).**
+
+- `scripts/provision_db_roles.py` provisions in test, development and staging; production stays refused. In
+  staging every password comes from a file in `CATALYST_SECRETS_DIR` (`owner_password`, `app_password`,
+  `retention_password`, `backup_password`, `admin_password`), never the environment, and the owner gets no
+  `CREATEDB` (only test needs it).
+- **A fourth role, `backup`** (`CATALYST_DB_ROLES["backup"]`): a login with no other attribute, which reads every
+  table except `django_session` and writes nothing (`workflow/migrations/0003_backup_role_reads.py`). Grants stay
+  explicit per table: a later table gets nothing until its own migration grants it, and
+  `tests/test_db_roles.py` fails until it does.
+- **Deviation:** the narrower fetcher database role (P6-D-14) is deferred to before the pilot. Staging fetches only
+  local fixture sites, and the exact grant set needs tracing every table the fetch path writes. Its bead blocks
+  the staging bring-up (6B.11).
+- **Evidence:** `tests/test_db_roles.py`:
+  - the backup role reads every table but sessions and writes none;
+  - it reads history but cannot change it, and cannot read sessions;
+  - staging provisioning refuses passwords in the environment, needs the files, and production stays refused.
+
+  The protection inventory in `tests/conftest.py` now covers the backup role's privileges too.
