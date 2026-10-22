@@ -45,10 +45,17 @@ def private_matcher() -> str:
     return " ".join(f"{prefix}*" for prefix in PRIVATE_PATHS)
 
 
+def _encodable(char: str) -> str:
+    """One character as itself or percent-encoded in either case: Caddy's path matcher decodes before matching, but the
+    logged URI is the raw request target, so `/%63onfirm/<token>` must be redacted too (PR #69 re-check)."""
+    forms = {char, *(f"%{ord(c):02x}" for c in {char.lower(), char.upper()})}
+    return "(?:" + "|".join(sorted(forms)) + ")"
+
+
 def redaction_pattern() -> str:
-    """The token segment after any private prefix, in any letter case (Caddy's path matching ignores case)."""
-    names = "|".join(prefix.strip("/") for prefix in PRIVATE_PATHS)
-    return f"(?i)^/+({names})/+[^/?#]+"
+    """The token segment after any private prefix: any letter case, encoded letters and slashes, repeated slashes."""
+    names = "|".join("".join(_encodable(c) for c in prefix.strip("/")) for prefix in PRIVATE_PATHS)
+    return f"(?i)^/+({names})(?:/|%2f)+[^/?#]+"
 
 
 def log_format() -> str:

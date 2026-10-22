@@ -39,7 +39,11 @@ def test_6b8_token_segments_are_redacted_in_every_log_including_errors():
     assert text.count(f"request>uri regexp {pattern} /$1/REDACTED") == 2  # the default (error) log and each site's
     assert "log default {" in text and "log_skip" not in text  # lines kept for the audit trail, tokens removed
     for path in PRIVATE_PATHS:
-        for variant in (f"{path}SENTINEL-TOKEN", f"/{path}SENTINEL-TOKEN", f"{path.upper()}SENTINEL-TOKEN"):
+        name = path.strip("/")
+        encoded = "".join(f"%{ord(ch):02X}" for ch in name)
+        for variant in (f"{path}SENTINEL-TOKEN", f"/{path}SENTINEL-TOKEN", f"{path.upper()}SENTINEL-TOKEN",
+                        f"/{encoded}/SENTINEL-TOKEN", f"/%{ord(name[0]):02x}{name[1:]}/SENTINEL-TOKEN",
+                        f"/{name}%2FSENTINEL-TOKEN", f"/{name}/SENTINEL-TOKEN?x=1"):
             redacted = re.sub(pattern.replace("(?i)", ""), r"/\1/REDACTED", variant, flags=re.I)
             assert "SENTINEL-TOKEN" not in redacted, variant
 

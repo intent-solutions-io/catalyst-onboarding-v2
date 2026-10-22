@@ -282,9 +282,9 @@ site). A source allowlist is weak where Documenso's traffic arrives through a sh
 not the control. If the proxy has no rate-limit module, the application's own coalescing (P4) is the fallback.
 
 **Logs (M6):** the application's redaction covers only Django's request loggers (`config/redaction.py` says so). At
-the proxy, the token paths are skipped from every access log, including the shared learn site's existing log and the
-error log, by a matcher **generated from `PRIVATE_PATHS`** so the two cannot drift, covering encoded, case and
-double-slash variants. No WSGI access log; the WSGI error log and the container log driver are checked. PostgreSQL
+the proxy, the token segment of every private path is redacted in every log, including the shared learn site's
+existing log and the error log (a skip alone covers only an access log), by a pattern **generated from
+`PRIVATE_PATHS`** so the two cannot drift, covering case, percent-encoded and repeated-slash variants. No WSGI access log; the WSGI error log and the container log driver are checked. PostgreSQL
 is pinned to `log_statement=none` and `log_parameter_max_length=0` (also on error). Staging asserts the settings and
 then searches every log for sentinel tokens.
 
@@ -784,8 +784,8 @@ specification text; nothing is built.
   confirmation, password and withdrawal links. Every other path on the public host is a 404, so the staff screens,
   the admin, the health paths and any webhook never answer there; `HostGuard` refuses them too.
 - **Logs:** in every log line, the error log and the default logger included, the token segment of a private path
-  (generated from `config.redaction.PRIVATE_PATHS`) is replaced with `REDACTED`. The pattern ignores case and repeated
-  slashes. Lines are kept for the audit trail.
+  (generated from `config.redaction.PRIVATE_PATHS`) is replaced with `REDACTED`. The pattern ignores case, percent-encoding
+  and repeated slashes. Lines are kept for the audit trail.
 - **Request size:** request bodies are capped (128 KB public, 1 MB staff).
 - **Headers:** Caddy is the edge and trusts no proxy. It sets `X-Forwarded-Proto` and `X-Forwarded-For` (the real
   peer address, for throttling) itself and drops the client's `X-Forwarded-Host`. Its own responses carry
