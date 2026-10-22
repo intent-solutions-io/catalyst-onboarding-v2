@@ -511,3 +511,22 @@ specification text; nothing is built.
     in development.
 - **Evidence:** `tests/test_guards.py` (6B.1 tests), the staging leg of the TEST-P3-05 fetch test and the updated
   TEST-P5-23 test.
+
+**6B.2, web security settings.**
+
+- Every environment: a 30-minute idle session timeout (the expiry slides on every request; Django has none built
+  in), sessions end when the browser closes, and the CSRF cookie is not readable by scripts.
+- Outside test and development (staging and anything later):
+  - secure `__Host-` session and CSRF cookies;
+  - the proxy's https header trusted (the web process listens only on the proxy's local socket);
+  - https redirects, except the two health paths reached through that socket;
+  - HSTS of 300 seconds without subdomains or preload, with Django's two warnings about that silenced
+    deliberately (P6-D-3);
+  - CSRF trusted origins limited to the public base URL.
+- Staging links may not name a production host (`intentsolutions.io` or a subdomain), closing the PR #59 LOW item.
+- **Evidence:** `tests/test_startup.py`:
+  - `manage.py check --deploy --fail-level WARNING` is clean under staging settings;
+  - the cookie and HSTS values, read from a staging process;
+  - a production link host refused in staging;
+  - local environments keep plain cookies but still time out.
+

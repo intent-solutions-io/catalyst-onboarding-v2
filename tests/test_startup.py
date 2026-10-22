@@ -8,6 +8,14 @@ import pytest
 from tests.support import ROOT, run
 
 CHECK = [sys.executable, "manage.py", "check"]
+# A staging process: synthetic, https links on a staging name, a strong key, the private file mail sink (6B.1, 6B.2).
+STAGING = {
+    "CATALYST_ENV": "staging", "CATALYST_PUBLIC_BASE_URL": "https://catalyst.staging.test",
+    "CATALYST_ALLOWED_HOSTS": "catalyst.staging.test",
+    "CATALYST_SECRET_KEY": "synthetic-staging-key-" + "x7Qp2LmZ9vR4tYw8NcB3hK6sJd1FgUe5aTo0" * 2,  # gitleaks:allow
+    "CATALYST_EMAIL_BACKEND": None, "CATALYST_EMAIL_FILE_PATH": "/tmp/catalyst-staging-mail",
+    "CATALYST_MAIL_TEST_HOST": None,
+}
 WSGI = [sys.executable, "-c", "import config.wsgi"]
 
 
@@ -64,13 +72,14 @@ def test_unreachable_database_fails_loudly_when_a_command_needs_it():
 
 @pytest.mark.parametrize(
     ("environment", "backend"),
-    [("test", "locmem"), ("development", "console")],
+    [("test", "locmem"), ("development", "console"), ("staging", "filebased")],
 )
 def test_configured_default_mail_backend_is_a_local_sink(environment, backend):
     probe = "from django.conf import settings; print(settings.EMAIL_BACKEND)"
+    extra = STAGING if environment == "staging" else {}
     result = run(
         [sys.executable, "-c", f"import django; django.setup(); {probe}"],
-        CATALYST_ENV=environment, CATALYST_EMAIL_BACKEND=None,
+        **{**extra, "CATALYST_ENV": environment, "CATALYST_EMAIL_BACKEND": None},
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == f"django.core.mail.backends.{backend}.EmailBackend"
@@ -121,3 +130,38 @@ def test_a_plain_pass_still_passes(tmp_path):
     result = run([sys.executable, "-m", "pytest", "-p", "tests.conftest", "-q", "-p", "no:cacheprovider", str(probe)])
     assert "1 passed" in result.stdout
     assert result.returncode == 0
+
+
+# --- 6B.2: web security outside the local environments (026 section 8) ----------------------------------------
+
+def test_6b2_staging_passes_django_deploy_checks():
+    result = run([sys.executable, "manage.py", "check", "--deploy", "--fail-level", "WARNING"], **STAGING)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "System check identified no issues" in result.stdout
+
+
+def test_6b2_staging_cookies_are_secure_host_only_and_sessions_idle_out():
+    probe = ("from django.conf import settings as s; print(s.SESSION_COOKIE_NAME, s.CSRF_COOKIE_NAME, s.SESSION_COOKIE_SECURE,"
+             " s.CSRF_COOKIE_SECURE, s.CSRF_COOKIE_HTTPONLY, s.SESSION_COOKIE_AGE, s.SESSION_SAVE_EVERY_REQUEST,"
+             " s.SECURE_PROXY_SSL_HEADER, s.SECURE_SSL_REDIRECT, s.SECURE_HSTS_SECONDS, s.SECURE_HSTS_INCLUDE_SUBDOMAINS,"
+             " s.SECURE_HSTS_PRELOAD, s.CSRF_TRUSTED_ORIGINS, s.SECURE_REDIRECT_EXEMPT)")
+    result = run([sys.executable, "-c", f"import django; django.setup(); {probe}"], **STAGING)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == [
+        "__Host-catalyst-session", "__Host-catalyst-csrf", "True", "True", "True", "1800", "True",
+        "('HTTP_X_FORWARDED_PROTO',", "'https')", "True", "300", "False", "False",
+        "['https://catalyst.staging.test']", "['^healthz$',", "'^readyz$']"]
+
+
+def test_6b2_staging_refuses_a_production_link_host():
+    result = run(CHECK, **{**STAGING, "CATALYST_PUBLIC_BASE_URL": "https://learn.intentsolutions.io"})
+    assert result.returncode != 0
+    assert "may not name a production host" in result.stderr
+
+
+def test_6b2_local_environments_keep_plain_cookies_but_still_idle_out():
+    probe = "from django.conf import settings as s; print(s.SESSION_COOKIE_NAME, s.SESSION_COOKIE_SECURE, s.SESSION_COOKIE_AGE)"
+    result = run([sys.executable, "-c", f"import django; django.setup(); {probe}"])
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == ["sessionid", "False", "1800"]
+

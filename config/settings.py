@@ -357,10 +357,34 @@ if CATALYST_AGREEMENT_MAX_BYTES > 16 * 1024 * 1024 or CATALYST_AGREEMENT_LIST_PA
 
 # ADR-18 (D-19): the custom user model exists before the first migration.
 AUTH_USER_MODEL = "accounts.User"
-# Staff sessions (S1-T7) live in PostgreSQL. Production cookie flags (secure, lifetime) and MFA belong to
-# the staging gate (POL-13, catalyst-v2-9kg); ADMINS stays unset so no error mail carries request data.
+# Staff sessions (S1-T7) live in PostgreSQL. ADMINS stays unset so no error mail carries request data.
 SESSION_ENGINE = "django.contrib.sessions.backends.db"
 LOGIN_URL = "admin:login"
+# Idle timeout for every environment (026 section 8, 6B.2): a session lasts 30 minutes from its last request and
+# ends when the browser closes. Django has no idle timeout of its own; saving on every request makes the expiry slide.
+SESSION_COOKIE_AGE = 30 * 60
+SESSION_SAVE_EVERY_REQUEST = True
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+CSRF_COOKIE_HTTPONLY = True  # every form carries its token in the page; no script reads the cookie
+
+# Web security outside the local environments (026 section 8, 6B.2). Staging and anything later run only behind the
+# proxy, over https: secure host-only cookies, the proxy's https header trusted (the web process listens only on the
+# proxy's local socket, so the proxy is the one hop that sets it), redirects to https except the local health paths,
+# and a short HSTS without subdomains or preload, because the parent domain is shared with other estate sites.
+LOCAL_ENVIRONMENTS = ("test", "development")
+if CATALYST_ENV not in LOCAL_ENVIRONMENTS:
+    SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_NAME = "__Host-catalyst-session"  # __Host-: secure, path /, no Domain, so no sibling host gets it
+    CSRF_COOKIE_NAME = "__Host-catalyst-csrf"
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = True
+    SECURE_REDIRECT_EXEMPT = [r"^healthz$", r"^readyz$"]  # reached only through the local socket (6B.3)
+    SECURE_HSTS_SECONDS = 300
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+    SECURE_HSTS_PRELOAD = False
+    CSRF_TRUSTED_ORIGINS = [CATALYST_PUBLIC_BASE_URL]
+    # Deliberate (026 P6-D-3, section 8): HSTS stays short and covers no subdomains and no preload list.
+    SILENCED_SYSTEM_CHECKS = ["security.W005", "security.W021"]
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
