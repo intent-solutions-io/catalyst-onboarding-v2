@@ -10,6 +10,7 @@
 !correspondence/
 !provisioning/
 !workflow/
+!scripts/provision_db_roles.py
 !tests/__init__.py
 !tests/mxroute_fake.py
 !tests/documenso_fake.py

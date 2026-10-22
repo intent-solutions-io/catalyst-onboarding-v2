@@ -11,7 +11,8 @@ creates, idempotently:
   backup     LOGIN, no other attribute; reads every table but the session table, for the backup job (6B.7)
   fetcher    LOGIN, no other attribute; only what the evidence fetch touches (9kg.24)
 
-None is a superuser, none can create roles, and no role is a member of another.
+None is a superuser, none can create roles, and no role is a member of another. In staging the owner role also
+becomes the database's owner, which PostgreSQL 15 and later require for creating tables in `public`.
 
 Where the passwords come from:
 - test and development: CATALYST_DB_OWNER_PASSWORD, CATALYST_DB_APP_PASSWORD, CATALYST_DB_RETENTION_PASSWORD,
@@ -102,7 +103,27 @@ def main() -> int:
             # Hashed here, so the clear password never reaches the server, its log or pg_stat_activity (PR #66 review).
             verifier = conn.pgconn.encrypt_password(secret.encode(), name.encode(), b"scram-sha-256").decode()
             conn.execute(sql.SQL("{} {} WITH {} PASSWORD {}").format(verb, sql.Identifier(name), attributes, sql.Literal(verifier)))
+        if environment == "staging":
+            # PostgreSQL 15 and later let only the database's owner create in `public`; the bootstrap administrator
+            # created this database, so the migration owner takes it over (6B.5b; tests create their own database).
+            database = sql.Identifier(os.environ["CATALYST_DB_NAME"])
+            conn.execute(sql.SQL("ALTER DATABASE {} OWNER TO {}").format(database, sql.Identifier(next(iter(roles)))))
+            # Only the Catalyst roles may connect, and none but the owner may create in `public` (6B.5b review).
+            conn.execute(sql.SQL("REVOKE CONNECT, TEMPORARY ON DATABASE {} FROM PUBLIC").format(database))
+            conn.execute(sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
+                database, sql.SQL(", ").join(sql.Identifier(name) for name in roles)))
+            conn.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
         problems = check(conn, list(roles), next(iter(roles)) if environment != "staging" else None)
+        if environment == "staging":  # read the database grants back (PR #72 review)
+            name, owner = os.environ["CATALYST_DB_NAME"], next(iter(roles))
+            if conn.execute("SELECT has_database_privilege('public', %s, 'CONNECT')", [name]).fetchone()[0]:
+                problems.append("PUBLIC may still connect")
+            if not all(conn.execute("SELECT has_database_privilege(%s, %s, 'CONNECT')", [role, name]).fetchone()[0]
+                       for role in roles):
+                problems.append("a Catalyst role cannot connect")
+            if any(conn.execute("SELECT has_schema_privilege(%s, 'public', 'CREATE')", [role]).fetchone()[0]
+                   for role in roles if role != owner):
+                problems.append("a role other than the owner may create in public")
         if problems:
             print("provision_db_roles: " + "; ".join(problems), file=sys.stderr)
             return 3
