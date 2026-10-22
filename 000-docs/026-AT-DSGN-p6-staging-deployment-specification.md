@@ -1230,3 +1230,53 @@ specification text; nothing is built.
 - **Stated limit:** the public wildcard DNS service and the control's public name are outside dependencies of the
   check. A policy answer (200 or 403) is final; a transient one (no answer, or a lookup failure) is retried at most
   three times. If they cannot be reached, those checks fail, never pass.
+
+**6B.12, staging alerts to Buzz (026 sections 7 and 11; host go recorded on bead `9kg.21`).**
+
+- **`deploy/staging/adapters/health.sh`** is run by a host timer every five minutes. It runs `catalyst_health` in the
+  worker container (which holds the heartbeat), probes the public form from outside, and hands any finding to
+  `$CATALYST_NOTIFY_CMD <level> <message>`, which the host wires to the estate alert floor. Its rules:
+  - **the message is built from signal codes alone;** every word must match `part.name`, and anything else is
+    replaced by `health.unrecognised_signal`, so no content of any kind can reach an alert;
+  - **severity:** urgent for a worker that is gone, or alive with a stale or missing heartbeat, and for a health check
+    that itself failed. A check that exits without a readable report counts as failed, never healthy (from the
+    review of PR #77). Other findings are high;
+  - **recovery:** a recovery after findings sends one info note, which the alert floor records without paging. The
+    findings are recorded only once handed over, so a failed note is retried;
+  - **repeats:** a finding that persists is sent every run, and the alert floor suppresses exact duplicates;
+  - **markers:** it writes `health.started` before and `health.ok` after every completed run.
+- **`deploy/staging/adapters/sweep.sh`**, the dead man, is run by a separate timer. It sends an urgent
+  `health.check_stale` when the health check has not completed for 15 minutes (three missed runs), so a stopped
+  timer, a stopped host and a hanging check are caught the same way.
+- **Stated limit:** both scripts share the notify command, so a broken notify path is invisible to both. The host
+  timers must surface exit 3 themselves (an `OnFailure` unit), which is part of their installation.
+- **Where it runs:** the check runs in the worker container, not the web image as section 7 says, because the
+  heartbeat lives there.
+- **Deferred to 6B.13:** the backup-freshness and restore-drill-overdue signals of section 7.
+- **Evidence:**
+  - `tests/test_staging_alerts.py` runs the real scripts against stubbed `docker` and `curl`:
+    - a healthy report sends nothing and leaves the marker;
+    - a check that fails without a report is never healthy;
+    - findings are codes, an unrecognised one is replaced, and a stale heartbeat is urgent;
+    - a stopped worker and an unreachable form are reported;
+    - recovery is noted once, and retried if the note failed;
+    - the sweep is quiet when fresh, and alerts when stale or never run;
+  - `scripts/alert_drill.sh` on the dev box, against a live synthetic stack with a recording stub, 15 of 15 PASS
+    twice:
+
+    | Case | Shown live |
+    |---|---|
+    | TEST-P6-17 | a stopped worker raises an urgent alert naming it; recovery sends no alert and exactly one recovery note |
+    | TEST-P6-19 (partly) | a planted unresolved hard bounce and a planted overdue backlog raise their signals. The uncertain-send and custody signals are unit-tested (`test_system_health`) |
+    | TEST-P6-20 | a stopped health timer, alone or with the worker stopped, and a health check that never completed, are each caught by the sweep |
+    | TEST-P6-38 | a sentinel planted in the stored data never reaches the alert, and every word of the alert is a signal code |
+
+  - **one real delivery:** a drill alert was dry-run through the estate alert floor, then sent for real at high
+    severity to the `sys-health` channel. It was read back from Buzz itself, signed by the notifier bot: the only
+    message in that window, created at Unix time 1792672504, beginning "catalyst staging drill (6B.12): alert
+    delivery check". TEST-P6-18
+    (the collector alert) needs staging's inbound mail, which is configured only from the pilot (P6-D-6), so it is
+    unit-tested here.
+- **Not yet installed:** the host timers for the health check and the sweep. Staging on the dev box runs as
+  disposable drills, so a permanent timer would page `worker_unreachable` every five minutes. The timers are
+  installed with the first persistent staging stack, using the same adapters and notify command (bead `9kg.21`).
