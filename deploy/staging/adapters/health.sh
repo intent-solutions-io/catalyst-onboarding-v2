@@ -26,6 +26,22 @@ else
     *) codes+=("health.check_failed") ;;
   esac
 fi
+# 026 section 7: the newest backup receipt must be under 26 hours old, and the newest *passing* restore-drill receipt
+# under 35 days (6B.13): a failed drill never counts as a drill done (6B.13 review). Each is checked only when the
+# host names its directory; an empty or missing directory counts as stale.
+newest_age() {  # newest_age <dir> [required text]: seconds since the newest file (containing the text), or a large number
+  local f
+  for f in $(ls -t "$1" 2>/dev/null); do
+    if [ -z "${2:-}" ] || grep -q "$2" "$1/$f" 2>/dev/null; then echo $(( $(date +%s) - $(stat -c %Y "$1/$f") )); return; fi
+  done
+  echo 999999999
+}
+if [ -n "${CATALYST_BACKUP_RECEIPTS:-}" ] && [ "$(newest_age "$CATALYST_BACKUP_RECEIPTS")" -gt $((26 * 3600)) ]; then
+  codes+=("backup.stale")
+fi
+if [ -n "${CATALYST_DRILL_RECEIPTS:-}" ] && [ "$(newest_age "$CATALYST_DRILL_RECEIPTS" '"result": "pass"')" -gt $((35 * 86400)) ]; then
+  codes+=("restore_drill.overdue")
+fi
 if [ -n "${CATALYST_SMOKE_URL:-}" ]; then
   code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 ${CATALYST_SMOKE_RESOLVE:+--resolve "$CATALYST_SMOKE_RESOLVE"} "$CATALYST_SMOKE_URL" || true)"
   [ "$code" = 200 ] || codes+=("probe.public_form_unreachable")

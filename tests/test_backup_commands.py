@@ -247,6 +247,22 @@ def test_6b7_a_failed_backup_leaves_no_set_that_looks_usable(signed, tmp_path):
     assert list(out.iterdir()) == []  # neither the set nor its .pending directory remains
 
 
+def test_6b13_a_failed_backup_keeps_the_previous_good_set_intact(signed, tmp_path):
+    """TEST-P6-21 (6B.13 review): a failed run leaves the last good set exactly as it was, still verifiable."""
+    from agreements.models import StoredDocument
+    from config import backup
+
+    out = tmp_path / "sets"
+    out.mkdir()
+    assert run_backup(out, signed.storage, name="good").returncode == 0
+    before = backup.check_set(out / "good")["tables"]
+    (signed.storage / StoredDocument.objects.first().storage_key).unlink()  # the next run will fail
+    failed = run_backup(out, signed.storage, name="later")
+    assert failed.returncode == 1 and "custody file missing" in failed.stderr
+    assert sorted(p.name for p in out.iterdir()) == ["good"]  # nothing from the failed run, the good set untouched
+    assert backup.check_set(out / "good")["tables"] == before  # and still verifies against its manifest
+
+
 def test_6b7_a_database_error_reports_only_its_class_and_code_never_the_row(p2, monkeypatch, tmp_path):
     from io import StringIO
 

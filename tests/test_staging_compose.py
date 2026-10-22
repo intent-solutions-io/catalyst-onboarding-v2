@@ -6,7 +6,7 @@ import json
 
 from tests.support import ROOT
 
-CATALYST = ("web", "worker", "fetcher", "migrate", "provision-roles", "collect-static", "egress")
+CATALYST = ("web", "worker", "fetcher", "migrate", "provision-roles", "collect-static", "egress", "backup", "restore")
 SECRET_WORDS = ("PASSWORD", "SECRET_KEY", "VERIFICATION_KEY", "TOKEN", "API_KEY")
 
 
@@ -53,8 +53,11 @@ def test_6b5b_each_process_mounts_only_its_own_secrets_and_its_own_database_pass
     assert "admin_password" in secrets_of(s["provision-roles"]) and s["provision-roles"]["profiles"] == ["provision"]
     assert "secrets" not in s["collect-static"] and "secrets" not in s["proxy"] and "secrets" not in s["egress"]
     holders = [name for name, svc in s.items() if "admin_password" in secrets_of(svc).values()]
-    assert sorted(holders) == ["db", "provision-roles"]  # the bootstrap credential reaches nothing else
-    assert [n for n, svc in s.items() if "backup_password" in secrets_of(svc).values()] == ["provision-roles"]
+    assert sorted(holders) == ["db", "provision-roles", "restore"]  # the bootstrap credential reaches nothing else
+    assert sorted(n for n, svc in s.items() if "backup_password" in secrets_of(svc).values()) == ["backup", "provision-roles"]
+    assert secrets_of(s["backup"])["db_password"] == "backup_password"  # the backup reads as the backup role only
+    assert s["backup"]["profiles"] == s["restore"]["profiles"] == ["ops"]  # operator-run, never started by `up`
+    assert "catalyst-custody:/var/lib/catalyst/custody:ro" in s["backup"]["volumes"]
 
 
 def test_6b5b_every_catalyst_container_is_locked_down_and_pinned_to_staging():

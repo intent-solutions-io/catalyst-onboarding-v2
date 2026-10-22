@@ -121,6 +121,24 @@ def definition() -> dict:
                                 "CATALYST_DB_ADMIN_USER": "catalyst_admin"}
     provision["restart"] = "no"
     provision["profiles"] = ["provision"]  # operator-run, once per database (026 section 4)
+    # Operator-run (profile `ops`, 6B.13): the backup as the backup role, the restore as the owner with the bootstrap
+    # administrator's credential, which the restore alone uses. Sets are 0700 in their own volume.
+    # The restore stages custody files beside its target directory, so its target lives inside the custody volume
+    # (--storage-dir /var/lib/catalyst/custody/<name>): the image root is read-only. Staging holds no custody files
+    # until the pilot connects Documenso.
+    backup = catalyst(["python", "manage.py", "catalyst_backup", "--out", "/var/lib/catalyst/backups",
+                       "--storage-dir", "/var/lib/catalyst/custody"], "catalyst_backup",
+                      [*keys, mount("backup_password", "db_password")],
+                      volumes=["catalyst-backups:/var/lib/catalyst/backups", "catalyst-custody:/var/lib/catalyst/custody:ro"],
+                      depends={"db": {"condition": "service_healthy"}})
+    restore = catalyst(["python", "manage.py", "catalyst_restore", "--help"], "catalyst_owner",
+                       [*keys, mount("owner_password", "db_password"), mount("admin_password")],
+                       volumes=["catalyst-custody:/var/lib/catalyst/custody"],
+                       depends={"db": {"condition": "service_healthy"}})
+    restore["environment"]["CATALYST_DB_ADMIN_USER"] = "catalyst_admin"
+    for service in (backup, restore):
+        service["restart"] = "no"
+        service["profiles"] = ["ops"]
     static = catalyst(["sh", "-c", "cp -a /app/static/. /srv/static/"], "catalyst_app", [],
                       volumes=["catalyst-static:/srv/static"], networks=())
     static["restart"] = "no"
@@ -148,6 +166,8 @@ def definition() -> dict:
             "provision-roles": provision,
             "migrate": migrate,
             "collect-static": static,
+            "backup": backup,
+            "restore": restore,
             "web": web,
             "worker": worker,
             "fetcher": fetcher,
@@ -185,7 +205,8 @@ def definition() -> dict:
             },
         },
         "networks": {"backend": {"internal": True}, "fetch": {"internal": True}, "edge": {}, "egress": {}},
-        "volumes": {name: {} for name in ("catalyst-db", "catalyst-run", "catalyst-static", "catalyst-mail")},
+        "volumes": {name: {} for name in ("catalyst-db", "catalyst-run", "catalyst-static", "catalyst-mail",
+                                          "catalyst-backups", "catalyst-custody")},
         "secrets": {name: {"file": f"${{CATALYST_STAGING_SECRETS:?}}/{name}"} for name in SECRET_FILES},
     }
 
