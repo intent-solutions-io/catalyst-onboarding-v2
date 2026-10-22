@@ -1,0 +1,25 @@
+# The image carries the application only (026 section 4, TEST-P6-37): no tests, history, tracker or local state.
+*
+!manage.py
+!requirements/base.txt
+!accounts/
+!agreements/
+!applications/
+!assessments/
+!config/
+!correspondence/
+!provisioning/
+!workflow/
+!tests/__init__.py
+!tests/mxroute_fake.py
+!tests/documenso_fake.py
+**/__pycache__
+**/*.pyc
+# Never in a layer, even inside an allowed directory (PR #65 review):
+**/*.env
+**/.env*
+**/*.sops*
+**/*.pem
+**/*.key
+**/*.sqlite3
+**/*.log

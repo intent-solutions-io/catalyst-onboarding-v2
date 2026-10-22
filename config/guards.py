@@ -12,6 +12,11 @@ from collections.abc import Mapping
 
 POSTGRESQL_ENGINE = "django.db.backends.postgresql"
 
+# The secrets Catalyst reads (6B.5, 026 section 5): one list, used by settings to read them and by the guards to refuse
+# them in the environment outside test and development.
+SECRET_ENV_NAMES = ("CATALYST_SECRET_KEY", "CATALYST_VERIFICATION_KEY", "CATALYST_VERIFICATION_FALLBACK_KEYS",
+                    "CATALYST_DB_PASSWORD", "CATALYST_MAIL_PASSWORD")
+
 # Environments Catalyst may run in. `staging` (026 P6-D-2, D-49) is synthetic like `test`: the same fakes under the
 # same strict rules, never a real provider. Production settings are not authorized (a later P6 decision).
 ALLOWED_ENVIRONMENTS = frozenset({"development", "test", "staging"})
@@ -321,6 +326,41 @@ def host_problems(settings) -> list[str]:
     return problems
 
 
+def secret_problems(settings, environ: Mapping[str, str]) -> list[str]:
+    """6B.5 (026 section 5, P6-D-6): outside test and development, secrets come only from per-secret files."""
+    environment = getattr(settings, "CATALYST_ENV", "")
+    if environment == "development" and getattr(settings, "CATALYST_SECRETS_DIR", ""):
+        # A process with mounted secrets is a deployment; "development" would switch the guards and the safe mail sink
+        # off (PR #65 review).
+        return ["CATALYST_ENV=development may not be used with CATALYST_SECRETS_DIR (a deployment must say staging)"]
+    if environment not in ALLOWED_ENVIRONMENTS or environment in ("test", "development"):
+        return []
+    problems = [f"{name} may not be in the environment outside test and development; use CATALYST_SECRETS_DIR"
+                for name in SECRET_ENV_NAMES if name in environ]
+    if not str(getattr(settings, "CATALYST_SECRETS_DIR", "") or "").startswith("/"):
+        problems.append("CATALYST_SECRETS_DIR must be an absolute path outside test and development")
+    return problems
+
+
+PROCESS_ROLES = ("", "web", "worker", "fetcher")
+
+
+def process_role_problems(settings, kind: str) -> list[str]:
+    """PR #65 re-check: the fetcher alone may run without the link-signing key, so the role must be one Catalyst knows,
+    may never be claimed by the web process (whose kind is declared in code before Django loads), and any other process
+    must hold a key: links signed with an empty key could be forged by anyone."""
+    role = getattr(settings, "CATALYST_PROCESS_ROLE", "") or ""
+    if role not in PROCESS_ROLES:
+        return [f"CATALYST_PROCESS_ROLE must be one of {', '.join(r for r in PROCESS_ROLES if r)}"]
+    problems = []
+    if role == "fetcher" and kind == "web":
+        problems.append("the web process may not run as CATALYST_PROCESS_ROLE=fetcher")
+    key = getattr(settings, "CATALYST_VERIFICATION_KEY", None)
+    if role != "fetcher" and key is not None and not key:
+        problems.append("CATALYST_VERIFICATION_KEY may be empty only for the fetcher")
+    return problems
+
+
 def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return (
         database_problems(settings.DATABASES)
@@ -334,4 +374,12 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + agreement_problems(settings, environ)
         + provisioning_problems(settings, environ)
         + host_problems(settings)
+        + secret_problems(settings, environ)
+        + process_role_problems(settings, _process_kind())
     )
+
+
+def _process_kind() -> str:
+    from config import runtime
+
+    return runtime.process_kind()

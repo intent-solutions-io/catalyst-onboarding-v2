@@ -597,3 +597,46 @@ specification text; nothing is built.
   - a backlog and an expired lease;
   - an unknown mailbox create reported (TEST-P6-19);
   - a failing check exits 2 without leaking its message.
+
+**6B.5a, the image, secrets from files and the fetcher split (P6-D-6, P6-D-14).**
+
+- **`Dockerfile`:**
+  - It builds from the same Python image digest the tests run on, with dependencies installed only from the
+    hash-locked requirements.
+  - It runs as a non-root user (uid 10001) with read-only application files, records the commit as an image label
+    and a file, and collects the admin's static files at build time using throwaway values.
+  - The web command is gunicorn on the proxy's unix socket, with no access log.
+  - The `production` target carries the application only. The `staging` target adds only the two synthetic fakes.
+- **`.dockerignore`** denies by default, so tests, history, the tracker and the docs never enter the build context.
+- **Secrets:** outside test and development, `config/settings.py` reads each secret from its own file in
+  `CATALYST_SECRETS_DIR`, named after the setting in lower case without the prefix, and never exports it. The
+  guards refuse a secret in the environment there, and a missing directory or file stops start-up.
+- **Worker split:** `run_worker --only` and `--exclude` split the process kinds. The fetcher runs only
+  `fetch_evidence`, and the worker runs everything else. An unknown kind is an error.
+- **WSGI server:** gunicorn 23.0.0 is added to the hash-locked requirements.
+- **Evidence:**
+  - `tests/test_image.py`: the base digest, hash locking, the non-root user, no access log and only a socket, no
+    secret in any layer, and the build context;
+  - `tests/test_startup.py`: secrets from files, a secret in the environment refused, a missing directory or file
+    refused;
+  - `tests/test_worker.py`: kind selection.
+
+  Building and inspecting the images needs Docker, which the test containers lack; they were built and inspected
+  locally (the pull request records it), and staging (6B.11) runs them.
+- **After the security review of PR #65** (no blocker, two HIGH, seven MEDIUM):
+  - gunicorn gets `--umask 0o117`, so the socket is `0660` (the proxy's group only), plus `--worker-tmp-dir
+    /dev/shm` for the read-only root and an explicit error log. A run with a read-only root, tmpfs mounts and
+    secrets mounted as files, with no database, showed the socket at `660`, `/healthz` answering 200 over it, and
+    no secret value in the process environment or `docker inspect`.
+  - The fetcher (`CATALYST_PROCESS_ROLE=fetcher`) no longer needs the link-signing key.
+  - A worker with nothing to run refuses to start.
+  - Secret-shaped files are excluded from the build at any depth.
+  - A secret file loses only its line ending. An empty file is missing, and an unreadable one (a directory, the
+    wrong permissions, non-UTF-8) stops start-up, naming the secret but never its bytes.
+  - Settings and the guards share one list of secret names.
+  - A process with mounted secrets may not call itself `development`.
+  - `pip-audit` of the locked dependencies found no known vulnerability.
+  - Carried to 6B.5b (recorded on its bead): per-kind secret mounts, the fetcher's database role and egress, the
+    pinned environment and worker arguments, the tmpfs and socket-directory mounts, and tests against the running
+    stack.
+- **6B.5b** (next): the staging compose stack.
