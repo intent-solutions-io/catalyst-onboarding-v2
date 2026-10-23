@@ -84,6 +84,14 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   (`oc4.12`; `oc4.10` items 1 to 3; `018` section 20, `011` section 4.1)
 - Staff screens for the shell-only agreement states: the decisions on an unknown Documenso create, distribute and
   cancel on the agreements screen, and the agreement template approval screen (`9kg.47`, `021` section 20)
+- Internal-launch batch 5 (`029` section 13.3): the GATE-STAGING evidence register, read by the per-gate report,
+  which prints proof types, completeness, residual beads and the approval boundary per case and counts partial and
+  live-only cases apart from PASS (`9kg.44`); the personal-data scan over committed evidence, receipts, alert text and
+  the deployment receipt, with positive controls, run by the suite and by the host's receipt step, which withholds a
+  receipt on a hit (`9kg.40`, TEST-P6-35); the automation pause row cleared only together with a same-transaction
+  staff resume event (`automation_resumed`, with an actor reference, and a ten-character note for a system pause),
+  enforced in PostgreSQL for every role by a deferred constraint trigger, with UPDATE and TRUNCATE refused;
+  authorization and open-cause checks remain in code (`9kg.6`; applications migration 0006, workflow migration 0005)
 - Internal launch, PL batch 2 (`029` section 13.3; beads `9kg.37`, `9kg.38`): the deploy operation (`CATALYST_DEPLOY_ID`)
   binds the pre-deploy backup to the deploy by id, digest and time, and the deployment receipt is a gate, built on
   D-I's recommended default: `deploy.sh` refuses an image other than the approved one, an unapproved commit label and

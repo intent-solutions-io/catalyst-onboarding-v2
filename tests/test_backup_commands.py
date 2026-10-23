@@ -133,7 +133,10 @@ def test_6b7_the_application_role_cannot_lift_the_restore_hold(p2):
     assert isinstance(caught.value.__cause__, psycopg.errors.InsufficientPrivilege)
     application_pause = AutomationPause.objects.create(subject_type="application", subject_id=uuid.uuid4(),
                                                        reason="staff pause (test)", actor_ref="test")
-    AutomationPause.objects.filter(pk=application_pause.pk).delete()  # ordinary pauses are unaffected
+    # An ordinary pause is not the restore hold's business: its own guard (9kg.6) answers, with its own reason.
+    with pytest.raises(Exception, match="automation_resumed") as caught, transaction.atomic():
+        AutomationPause.objects.filter(pk=application_pause.pk).delete()
+    assert isinstance(caught.value.__cause__, psycopg.errors.InsufficientPrivilege) and "restore hold" not in str(caught.value)
 
 
 @pytest.mark.parametrize("damage", ["table_copy", "receipt", "custody_file"])
