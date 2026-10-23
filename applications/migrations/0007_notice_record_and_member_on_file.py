@@ -1,6 +1,6 @@
 # 9kg.52 (030 Q4 and Q8, D-51): the data notice an invitation mail carried, recorded on the invitation (a nullable
 # column and a database-defaulted one), and the member-on-file record. Expand-only: the previous image runs unchanged
-# (config.release). Grants and protection follow in 0007.
+# (config.release). Grants and protection follow in 0008.
 
 import django.db.models.functions.datetime
 import uuid
@@ -10,7 +10,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("applications", "0005_invitation_protection"),
+        ("applications", "0006_event_txid"),
     ]
 
     operations = [

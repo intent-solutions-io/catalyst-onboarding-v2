@@ -2,7 +2,7 @@
 #
 # The member-on-file record: only the owner-run command inserts one (the application role gets SELECT for the dossier
 # and nothing else; the retention and backup roles read it). Every column is fixed, supersession is written once,
-# nothing is ever deleted and the table cannot be truncated. The invitation's notice record (0006) joins the columns
+# nothing is ever deleted and the table cannot be truncated. The invitation's notice record (0007) joins the columns
 # its trigger fixes: the function from 0005 is replaced with the two new columns in its list and restored on reverse.
 from django.conf import settings
 from django.db import migrations
@@ -95,6 +95,6 @@ def unprotect(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("applications", "0006_notice_record_and_member_on_file")]
+    dependencies = [("applications", "0007_notice_record_and_member_on_file")]
     operations = [migrations.RunPython(grant_forward, grant_reverse), migrations.RunPython(backup_sequence, no_backup_sequence),
                   migrations.RunPython(protect, unprotect)]

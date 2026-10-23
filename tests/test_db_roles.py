@@ -13,6 +13,8 @@ import uuid
 
 import psycopg
 import pytest
+
+from tests import support
 from django.conf import settings
 from django.db import ProgrammingError, connection, transaction
 from psycopg import errors
@@ -32,13 +34,15 @@ SECRETS = [*PASSWORDS.values(), superuser_login()[1]]
 # Trigger inventory (003 ADR-14): append-only on versions and events (2), no-truncate on versions, events,
 # audit and adoptions (4), audit immutability (1), adoption immutability (1).
 TRIGGERS = ("catalyst_append_only", "catalyst_no_truncate", "catalyst_audit_immutable", "catalyst_adoption_immutable")
-TRIGGER_COUNT = 42  # 8 from S1, 2 on evidence captures (P3 3B.1), 2 on qualification decisions (P3 3B.4),
+TRIGGER_COUNT = 45  # 8 from S1, 2 on evidence captures (P3 3B.1), 2 on qualification decisions (P3 3B.4),
 # 2 on agreement recipients (P4 4B.1), 2 on provider observations (P4 4B.2), 5 on custody and details (4B.3),
 # 8 on correspondence evidence (9kg.1), 3 no-truncate on inbound messages, outbound attempts and reply links (9kg.5),
 # 5 on provisioning records (P5 5B.1), 1 on credential setups (5B.2),
 # 2 on revocations and withdrawals (5B.3),
 # 1 no-truncate on invitations (9kg.43; applications 0005, after the baseline),
-# 1 no-truncate on member-on-file records (9kg.52; applications 0007)
+# 1 no-truncate on automation pauses (9kg.6; workflow 0005, after the baseline),
+# 2 on staff role grants (9kg.30; accounts 0007, after the baseline),
+# 1 no-truncate on member-on-file records (9kg.52; applications 0008)
 SLICE_TABLES = [
     "applications_application", "applications_submissionversion", "applications_contactchallenge",
     "applications_versionadoption", "applications_applicationevent", "applications_retentionaudit",
@@ -168,8 +172,11 @@ def test_application_role_performs_ordinary_operations(connect):
         [uuid.uuid4(), f"sv:{uuid.uuid4()}"],
     ).fetchone()[0]
     app.execute("UPDATE workflow_pendingaction SET status = 'done', completed_at = now() WHERE id = %s", [action_id])
-    subject = uuid.uuid4()
+    subject = app.execute("SELECT public_ref FROM applications_application WHERE id = %s", [app_id]).fetchone()[0]
     app.execute("INSERT INTO workflow_automationpause (subject_type, subject_id, reason, actor_ref) VALUES ('application', %s, 'r', 'staff:1')", [subject])
+    # 9kg.6: the delete is allowed with the resume event in the same transaction (tests/test_pause_guard.py has the refusals)
+    app.execute("INSERT INTO applications_applicationevent (application_id, kind, actor_type, actor_ref, data)"
+                " VALUES (%s, 'automation_resumed', 'staff', 'user:1', '{\"note\": \"r\"}')", [app_id])
     app.execute("DELETE FROM workflow_automationpause WHERE subject_id = %s", [subject])
     app.execute(
         "INSERT INTO correspondence_outboundmessage (application_id, pending_action_id, attempt_number, template_key,"
@@ -332,19 +339,26 @@ def test_a_temporary_table_cannot_divert_the_audit_record(connect):
 
 
 @pytest.mark.django_db
-def test_privileged_trigger_function_has_a_fixed_search_path_and_no_public_execute():
+def test_every_catalyst_function_has_a_fixed_search_path_an_owner_and_no_application_execute():
+    """Catalog-driven (9kg.6 review): every function named catalyst_* in public, whoever added it, is owned by the
+    migration owner, runs with the trusted search_path and grants the application role no EXECUTE. SECURITY DEFINER
+    may differ per function (the audited retention path needs it; a plain guard does not)."""
     with connection.cursor() as cursor:
         cursor.execute(
-            "SELECT p.prosecdef, p.proconfig, pg_get_userbyid(p.proowner),"
+            "SELECT p.proname, p.prosecdef, p.proconfig, pg_get_userbyid(p.proowner),"
             " has_function_privilege(%s, p.oid, 'EXECUTE')"
-            " FROM pg_proc p WHERE p.oid = 'public.catalyst_history_append_only()'::regprocedure",
+            " FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
+            " WHERE n.nspname = 'public' AND p.proname LIKE 'catalyst\\_%%' ORDER BY 1",
             [ROLES["app"]],
         )
-        security_definer, config, owner, app_can_execute = cursor.fetchone()
-    assert security_definer is True
-    assert "search_path=public, pg_temp" in config
-    assert owner == ROLES["owner"]
-    assert app_can_execute is False
+        functions = cursor.fetchall()
+    assert len(functions) >= 20 and {"catalyst_history_append_only", "catalyst_pause_resume_guard", "catalyst_event_txid",
+                                     "catalyst_restore_hold_fixed"} <= {f[0] for f in functions}
+    for name, security_definer, config, owner, app_can_execute in functions:
+        assert config and "search_path=public, pg_temp" in config, name
+        assert owner == ROLES["owner"], name
+        assert app_can_execute is False, name
+    assert dict((f[0], f[1]) for f in functions)["catalyst_history_append_only"] is True  # the audited retention path
 
 
 # --- the ORM through the application role ---------------------------------------------------------------
@@ -399,17 +413,20 @@ def test_history_protection_migrations_reverse_and_reapply_and_keep_data(connect
     assert count() == 0
     manage_as_owner("migrate", "applications", "0003", "--verbosity", "0")
     # assessments (P3: captures and decisions) and agreements (P4: recipients) depend on applications 0003, so they
-    # stayed reversed, as did the invitation and member-on-file tables (applications 0005 and 0007; 9kg.43, 9kg.52)
-    assert count() == TRIGGER_COUNT - 34  # correspondence (9kg.1, 9kg.5), provisioning (5B.1) and applications 0005, 0007 stayed reversed
+    # stayed reversed, as did the invitation table (applications 0005, 9kg.43), the staff role grants (accounts 0007,
+    # 9kg.30), the pause guard (workflow 0005, on applications 0006) and the member-on-file table (applications 0008)
+    assert count() == TRIGGER_COUNT - 37  # correspondence (9kg.1, 9kg.5), provisioning (5B.1), the invitation and member-on-file tables, the grant record and the pause guard stayed reversed
     manage_as_owner("migrate", "assessments", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 30
+    assert count() == TRIGGER_COUNT - 33
     manage_as_owner("migrate", "agreements", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 21
+    assert count() == TRIGGER_COUNT - 24
     manage_as_owner("migrate", "correspondence", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 10
-    manage_as_owner("migrate", "provisioning", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 2  # the invitation (0005) and member-on-file (0007) no-truncates are still reversed
+    assert count() == TRIGGER_COUNT - 13
+    manage_as_owner("migrate", "provisioning", "--verbosity", "0")  # provisioning 0007 brings the grant record (accounts 0007)
+    assert count() == TRIGGER_COUNT - 3  # the invitation, member-on-file and pause no-truncates (applications 0005, 0008, workflow 0005) remain
     manage_as_owner("migrate", "applications", "--verbosity", "0")
+    assert count() == TRIGGER_COUNT - 1  # applications 0006 to 0008 are back; the pause guard waits on workflow
+    manage_as_owner("migrate", "workflow", "--verbosity", "0")  # the pause guard (9kg.6)
     assert count() == TRIGGER_COUNT
     assert {state for _, _, state in trigger_states(owner)} == {"O"}
     assert owner.execute("SELECT count(*) FROM applications_submissionversion WHERE id = %s AND application_id = %s",

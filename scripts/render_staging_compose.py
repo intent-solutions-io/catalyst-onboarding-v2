@@ -59,6 +59,12 @@ COMMON_ENV = {
     "CATALYST_EMAIL_FILE_PATH": "/var/lib/catalyst/mail",
     # Staging requires the setting in every process; only the worker and the fetcher write it, each in its own /tmp.
     "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-worker.beat",
+    # 9kg.30, 9kg.50, 9kg.51 (PR #87 review): the launch values the host sets without a release. Unset keeps the
+    # code defaults: the authority unset (everyone refused), three resends, the three paging wait classes.
+    "CATALYST_QUALIFICATION_AUTHORITY": "${CATALYST_QUALIFICATION_AUTHORITY:-}",
+    "CATALYST_VERIFICATION_RESEND_LIMIT": "${CATALYST_VERIFICATION_RESEND_LIMIT:-3}",
+    "CATALYST_HEALTH_AGED_WAITS_PAGE": "${CATALYST_HEALTH_AGED_WAITS_PAGE:-replies_awaiting_processing,issued_agreements,provisioning_activation}",
+    "CATALYST_HEALTH_PENDING_AGE_SECONDS": "${CATALYST_HEALTH_PENDING_AGE_SECONDS:-3600}",
 }
 
 

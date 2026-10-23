@@ -131,17 +131,30 @@ def _reusable(challenge) -> bool:
     ).exists()
 
 
-def _issue_challenge(application) -> bool:
-    """Reuse the active challenge or supersede it and queue a new one. Returns True if one was issued."""
-    active = (
+def _active_challenge(application):
+    return (
         ContactChallenge.objects.select_for_update(of=("self",))
         .filter(application=application, used_at__isnull=True, superseded_at__isnull=True)
         .annotate(unexpired=Q(expires_at__gt=Now()))
         .first()
     )
+
+
+def _issue_challenge(application) -> bool:
+    """Reuse the active challenge or supersede it and queue a new one. Returns True if one was issued."""
+    active = _active_challenge(application)
+    if active is not None and _reusable(active):
+        return False
+    reissue_challenge(application, active)
+    return True
+
+
+def reissue_challenge(application, active=None) -> ContactChallenge:
+    """Inside the caller's transaction with the application locked: supersede the active challenge, if any, and issue
+    a new one with its queued send, exactly as intake does (the same lifetime, template and action). The staff resend
+    (9kg.50, correspondence.staff_actions.resend_verification) uses this, so a resend never differs from issuance."""
+    active = active if active is not None else _active_challenge(application)
     if active is not None:
-        if _reusable(active):
-            return False
         ContactChallenge.objects.filter(pk=active.pk).update(superseded_at=Now())
     lifetime = timedelta(seconds=settings.CATALYST_CHALLENGE_LIFETIME_SECONDS)
     challenge = ContactChallenge.objects.create(
@@ -155,7 +168,7 @@ def _issue_challenge(application) -> bool:
         idempotency_key=send_verification_key(challenge.public_id),
         status=PendingAction.Status.QUEUED,
     )
-    return True
+    return challenge
 
 
 def accept_submission(data) -> Outcome:

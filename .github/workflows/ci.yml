@@ -104,7 +104,7 @@ jobs:
       - name: Agent definitions stay read-only and well formed
         run: |
           set -e
-          python3 -m pip install --quiet --disable-pip-version-check pyyaml==6.0.2
+          python3 -m pip install --quiet --disable-pip-version-check --require-hashes --no-deps -r requirements/docs.txt
           python3 - <<'EOF'
           import glob, sys, yaml
           REQUIRED = {"name", "description", "tools", "disallowedTools", "model", "color", "version",

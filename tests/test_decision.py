@@ -70,7 +70,7 @@ def test_p3_04_no_decision_authority_refuses_everyone_including_superusers(c, mo
     assert not QualificationDecision.objects.exists() and Application.objects.get(pk=app.pk).stage == "awaiting_decision"
 
 
-def test_p3_53_after_pol05_a_superuser_or_ungranted_staff_is_refused_and_the_setting_is_code_only(d, monkeypatch):
+def test_p3_53_after_pol05_a_superuser_or_ungranted_staff_is_refused_and_the_setting_takes_one_rule(d, monkeypatch):
     app = ready_app(d, monkeypatch)
     for user in (staff(d, "root-p3", superuser=True), staff(d, "operator-p3", "Assessment operator")):
         with pytest.raises(PermissionDenied):
@@ -79,7 +79,12 @@ def test_p3_53_after_pol05_a_superuser_or_ungranted_staff_is_refused_and_the_set
     class Fake:
         CATALYST_QUALIFICATION_AUTHORITY = "anyone"
     assert guards.decision_problems(Fake, {})
-    assert guards.decision_problems(type("S", (), {})(), {"CATALYST_QUALIFICATION_AUTHORITY": "explicit_permission"})
+    # 9kg.30: the authority is configuration (the launch host sets it once 211.7.8 names the holders), but it takes
+    # only the one rule the code implements; the selection policy stays code-only.
+    environ = {"CATALYST_QUALIFICATION_AUTHORITY": "explicit_permission"}
+    assert not guards.decision_problems(type("S", (), {"CATALYST_QUALIFICATION_AUTHORITY": "explicit_permission"})(), environ)
+    assert guards.decision_problems(type("S", (), {"CATALYST_QUALIFICATION_AUTHORITY": "anyone"})(), {"CATALYST_QUALIFICATION_AUTHORITY": "anyone"})
+    assert guards.decision_problems(type("S", (), {})(), {"CATALYST_SELECTION_POLICY": "SP-L2-1"})
 
 
 # --- TEST-P3-44, 45, 46, 52: the decision, its follow-on, races, history, the backstop -----------------------------
@@ -295,9 +300,9 @@ def _decision_sql(conn, app_id, outcome="hold"):
     version = conn.execute("SELECT id FROM applications_submissionversion WHERE application_id = %s ORDER BY id LIMIT 1",
                            [app_id]).fetchone()[0]
     conn.execute("INSERT INTO assessments_qualificationdecision (public_id, application_id, adopted_version_id, outcome, basis,"
-                 " human_only_reason, reason_code, reason_text, rationale, snapshot_sha256, decision_digest, policy_ref,"
-                 " actor_ref, second_actor_ref) VALUES (gen_random_uuid(), %s, %s, %s, 'human_only', 'synthetic', 'synthetic',"
-                 " '', '{}', 'x', 'x', 'x', 'test', '')", [app_id, version, outcome])
+                 " human_only_reason, human_only_code, reason_code, reason_text, rationale, snapshot_sha256, decision_digest,"
+                 " policy_ref, actor_ref, second_actor_ref) VALUES (gen_random_uuid(), %s, %s, %s, 'human_only', 'synthetic',"
+                 " 'run_failed', 'synthetic', '', '{}', 'x', 'x', 'x', 'test', '')", [app_id, version, outcome])  # oc4.12: a code
 
 
 def test_review_the_backstop_needs_a_matching_decision_from_this_very_transaction(d, monkeypatch):
@@ -347,10 +352,10 @@ def test_review_a_supplied_transaction_marker_is_overwritten_and_truncate_is_ref
     app = ready_app(d, monkeypatch)
     conn = d.committed.connect("app", autocommit=True)
     conn.execute("INSERT INTO assessments_qualificationdecision (public_id, application_id, adopted_version_id, outcome,"
-                 " basis, human_only_reason, reason_code, reason_text, rationale, snapshot_sha256, decision_digest,"
-                 " policy_ref, actor_ref, second_actor_ref, created_txid) SELECT gen_random_uuid(), %s, id, 'hold',"
-                 " 'human_only', 'x', 'x', '', '{}', 'x', 'x', 'x', 'x', '', 1 FROM applications_submissionversion"
-                 " WHERE application_id = %s LIMIT 1", [app.pk, app.pk])
+                 " basis, human_only_reason, human_only_code, reason_code, reason_text, rationale, snapshot_sha256,"
+                 " decision_digest, policy_ref, actor_ref, second_actor_ref, created_txid) SELECT gen_random_uuid(), %s, id,"
+                 " 'hold', 'human_only', 'x', 'run_failed', 'x', '', '{}', 'x', 'x', 'x', 'x', '', 1"
+                 " FROM applications_submissionversion WHERE application_id = %s LIMIT 1", [app.pk, app.pk])
     assert conn.execute("SELECT created_txid FROM assessments_qualificationdecision WHERE application_id = %s",
                         [app.pk]).fetchone()[0] != 1
     with pytest.raises((errors.InsufficientPrivilege, errors.RaiseException)):
@@ -443,10 +448,14 @@ def test_review_a_group_grant_never_confers_the_decision(d, monkeypatch):
     owner = d.committed.connect("owner", autocommit=True)
     owner.execute("INSERT INTO auth_group_permissions (group_id, permission_id) SELECT g.id, p.id FROM auth_group g,"
                   " auth_permission p WHERE g.name = 'Assessment operator' AND p.codename = 'record_qualification_decision'")
-    member = staff(d, "group-member-p3", "Assessment operator")
-    assert member.has_perm("assessments.record_qualification_decision")  # Django would say yes
-    with pytest.raises(PermissionDenied):
-        decide(d, app, user=member)
+    try:
+        member = staff(d, "group-member-p3", "Assessment operator")
+        assert member.has_perm("assessments.record_qualification_decision")  # Django would say yes
+        with pytest.raises(PermissionDenied):
+            decide(d, app, user=member)
+    finally:  # group permissions are not reset between tests: leave the matrix as the migrations made it (9kg.30)
+        owner.execute("DELETE FROM auth_group_permissions WHERE group_id = (SELECT id FROM auth_group WHERE name = 'Assessment operator')"
+                      " AND permission_id = (SELECT id FROM auth_permission WHERE codename = 'record_qualification_decision')")
 
 
 def test_review_hostile_claim_text_is_escaped_and_nothing_is_preselected(d, monkeypatch):
@@ -469,7 +478,10 @@ def test_review_the_selection_policy_setting_is_validated():
         CATALYST_SELECTION_POLICY = "anything goes"
     assert guards.decision_problems(Fake, {})
     Fake.CATALYST_SELECTION_POLICY = "SP-L2-1"
-    assert guards.decision_problems(Fake, {}) == []
+    # oc4.12 (oc4.10 item 1): a well-formed policy is refused until it is bound to the pack it was approved with, and
+    # while that pack's rubric is synthetic; tests/test_human_only.py has the bound cases.
+    [problem] = guards.decision_problems(Fake, {})
+    assert "does not bind it to a prompt pack" in problem
 
 
 def test_recheck_human_only_after_the_run_cap_in_assessing(d, monkeypatch, settings):

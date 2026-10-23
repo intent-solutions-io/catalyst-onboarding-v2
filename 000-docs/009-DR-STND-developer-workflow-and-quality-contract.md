@@ -110,7 +110,7 @@ This is the single source for how work is authorized. `CLAUDE.md` and `AGENTS.md
 | Agent definitions | **CI:** the step "Agent definitions stay read-only and well formed" in `ci.yml` (frontmatter parses, 14 fields, name matches file, no Write/Edit/Bash/Agent/Task/NotebookEdit/Skill granted, Agent denied, model allowed, no permission bypass). **Local, when definitions change:** `claude plugin validate .claude/agents` plus the Intent Solutions validator behind `/validate-agent` (maintainer's tooling, not vendored here) | malformed or over-privileged specialists | CI step 0.09 s locally; IS validator 2.4 s for eleven (owner-local) |
 | Runtime tests | `scripts/test.sh` locally (a unique Compose project per run; it provisions the three database roles, then runs the suite; cleanup removes only that run's resources); CI job "Runtime checks (Python 3.14.8, PostgreSQL 16.15)" with the same digest-pinned images, aggregated into the required check | settings, start-up guards, data-model constraints, database roles and append-only protection, migrations; a skip, xfail or xpass fails the run | 130 tests, 61.2 s of tests, 88 s wall locally (2026-10-10, 1B.2 branch) |
 | Secrets | **CI:** gitleaks 8.30.1 (checksum-verified download) over full Git history, redacted output | credentials in the public repository | 0.32 s locally over history; 1.1 s over the working tree |
-| Sensitive content beyond secrets | manual diff review for personal data, private paths, internal access details, agreement text | public exposure | NOT MEASURED; manual only (gitleaks finds credentials, not personal data) |
+| Sensitive content beyond secrets | `python3 -m config.personal_data_scan --class evidence` over the committed evidence set (run by the suite, so in CI; `026` section 11.2) plus manual diff review for private paths, internal access details and agreement text elsewhere | public exposure | scan 0.1 s locally; the rest manual (gitleaks finds credentials, not personal data) |
 | Links and cross-references | manual check that every referenced `000-docs` file exists | dangling references | NOT MEASURED; local only |
 
 `ci.yml` pins the action by commit (`markdownlint-cli2-action` v24.2.0 since PR #1), not the tool; the
@@ -243,8 +243,8 @@ No smaller lane is selected by change type yet. The lane table above is the desi
   - **Proposed** (needs the owner): a protected `release` environment limited to `main` with a required reviewer.
     That is the only control that enforces this against someone with write access.
   - `dry_run` defaults to true, and the checkout action is pinned to a commit.
-  - Today `pyproject.toml` says 0.0.0 while `version.txt` says 0.1.0 and `v0.1.0` is tagged. The next prepared
-    release aligns both.
+  - `pyproject.toml` said 0.0.0 while `version.txt` said 0.1.0 and `v0.1.0` was tagged; the two were aligned at 0.1.0 on
+    2026-10-23 (a LOW finding of the 2026-10-22 audit), without a release, so the gate's two sources agree.
 
 ### 5.6 Test integrity
 

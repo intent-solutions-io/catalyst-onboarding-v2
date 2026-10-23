@@ -1,6 +1,6 @@
 """Record that an invited member's first-generation agreement is on file (9kg.52; 030 Q4, D-51). Owner only.
 
-Run as the migration owner: the application role may not insert the record (migration applications 0007), so no
+Run as the migration owner: the application role may not insert the record (migration applications 0008), so no
 model, web request or routine operator can set the flag. The row is the audit record (the agreement version as a
 plain label, that completion was verified, who recorded it, when); a repeat for the same address supersedes the live
 row. `--completion-verified` is required: without it nothing is recorded, because a member without a verified

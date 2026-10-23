@@ -129,6 +129,11 @@ class VersionAdoption(models.Model):
         # keys added by migration 0001 (Django has no composite foreign key field).
 
 
+class CurrentTransactionId(models.Func):
+    template = "pg_current_xact_id()::text::bigint"
+    output_field = models.BigIntegerField()
+
+
 class ApplicationEvent(models.Model):
     class ActorType(models.TextChoices):
         SYSTEM = "system"
@@ -141,6 +146,10 @@ class ApplicationEvent(models.Model):
     actor_ref = models.CharField(max_length=200, blank=True, default="")
     occurred_at = models.DateTimeField(db_default=Now())
     data = models.JSONField(default=dict)  # never secrets or tokens
+    # The top-level transaction that inserted the row (the same inside a savepoint), always the database's own
+    # value (migration 0006 overwrites a supplied one). The pause guard (workflow 0005; 9kg.6) compares it with
+    # the current transaction, as the decision backstop does (assessments 0008).
+    created_txid = models.BigIntegerField(db_default=CurrentTransactionId())
 
     class Meta:
         indexes = [
@@ -162,7 +171,7 @@ class Invitation(models.Model):
     trigger; use, supersession and the consuming application are written once. The row is the audit record of the
     issuance: who, when, until when, and which data notice the invitation mail carried (9kg.52: the version and
     content digest of the `data_notice` template rendered into the mail; null and empty for a row issued before the
-    notice existed). Fixed by trigger like the rest of the issuance (migration 0007).
+    notice existed). Fixed by trigger like the rest of the issuance (migration 0008).
     """
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
@@ -193,7 +202,7 @@ class Invitation(models.Model):
 class MemberAgreementOnFile(models.Model):
     """An invited member whose first-generation agreement is on file (9kg.52; 030 Q4, D-51): "referenced, not
     re-signed". The owner records it by hand from the private roster through the owner-run `catalyst_member_on_file`
-    (the application role may not insert, migration 0007), naming the agreement version as a plain label and that
+    (the application role may not insert, migration 0008), naming the agreement version as a plain label and that
     completion was verified; no legacy identifier and no document copy enters v2, and a member without a verified
     completion gets no row (a new participant). Keyed on the email key like Invitation, so it exists before any
     application does. The row is the audit record: everything is fixed by trigger, a correction supersedes the live

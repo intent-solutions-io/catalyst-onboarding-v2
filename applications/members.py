@@ -4,7 +4,7 @@ The owner records the fact by hand from the private roster through the owner-run
 agreement version as a plain label and that completion was verified. No legacy identifier and no document copy enter
 v2, so the command refuses a value that looks like a reference (a link, a path, an identifier) rather than a label,
 and a member without a verified completion gets no row at all (a new participant signs the current versions on v2's
-own templates). The row is the audit record (migration 0007 fixes it; a correction supersedes the live row), and the
+own templates). The row is the audit record (migration 0008 fixes it; a correction supersedes the live row), and the
 staff dossier shows the state per applicant. The decision form's refusal of a v2 decline for a member on file is
 built with the decision policy identifier after PR #87 (030 Q8, Legacy seat); `on_file` is what it will read.
 """

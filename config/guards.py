@@ -207,15 +207,31 @@ def assessment_problems(settings, environ: Mapping[str, str]) -> list[str]:
 
 
 def decision_problems(settings, environ: Mapping[str, str]) -> list[str]:
-    """018 section 7 (P3 3B.4): the decision authority and the selection policy are fixed in code, never taken from
-    the environment; the authority is None (POL-05 undecided) or the one rule the code implements."""
-    problems = [f"{name} may not be set from the environment" for name in
-                ("CATALYST_QUALIFICATION_AUTHORITY", "CATALYST_SELECTION_POLICY") if name in environ]
+    """018 section 7 (P3 3B.4): the selection policy is fixed in code, never taken from the environment; the decision
+    authority is configuration (9kg.30) but takes only "explicit_permission", the one rule the code implements, or
+    stays unset (POL-05 undecided: everyone refused)."""
+    problems = ["CATALYST_SELECTION_POLICY may not be set from the environment"] if "CATALYST_SELECTION_POLICY" in environ else []
     if getattr(settings, "CATALYST_QUALIFICATION_AUTHORITY", None) not in (None, "explicit_permission"):
         problems.append("CATALYST_QUALIFICATION_AUTHORITY must be None or 'explicit_permission'")
     policy = getattr(settings, "CATALYST_SELECTION_POLICY", "")
     if policy and not re.fullmatch(r"SP-[A-Z0-9]{1,8}-[0-9]{1,4}", policy):
         problems.append("CATALYST_SELECTION_POLICY must be empty or an SP-<role>-<n> identifier (019 section 6)")
+    elif policy:
+        # oc4.12 (oc4.10 item 1): a policy labels decisions only when it is bound to the pack it was approved with,
+        # and never while that pack's rubric is the synthetic one.
+        pack_name = (getattr(settings, "CATALYST_SELECTION_POLICY_PACKS", None) or {}).get(policy)
+        if not pack_name:
+            problems.append("CATALYST_SELECTION_POLICY is set but CATALYST_SELECTION_POLICY_PACKS does not bind it to a prompt pack")
+        else:
+            from assessments import pack as packs
+
+            try:
+                synthetic = packs.load(pack_name).rubric.get("synthetic", True)
+            except packs.PackRefused as exc:
+                problems.append(f"CATALYST_SELECTION_POLICY is bound to an unusable prompt pack ({exc})")
+            else:
+                if synthetic:
+                    problems.append("CATALYST_SELECTION_POLICY is bound to a prompt pack whose rubric is synthetic (POL-04)")
     return problems
 
 

@@ -25,6 +25,7 @@ from agreements.models import (NOT_LIVE, AgreementInstance, AgreementRecipient, 
 from applications.models import Application
 from config import guards
 from correspondence.models import StaffItem
+from tests import support
 from tests.documenso_fake import TOKEN, FakeDocumenso
 from tests.test_assessment import a  # noqa: F401  (fixture chain)
 from tests.test_clarification import c  # noqa: F401
@@ -77,7 +78,7 @@ def g(d, tls, settings):
 
 
 def approve(env):
-    return services.approve_template_version(env.template.pk, env.template_owner, env.template.pdf_sha256)
+    return services.approve_template_version(env.template.pk, env.template_owner, services.template_digest(env.template))[0]
 
 
 def admitted(env, monkeypatch):
@@ -122,7 +123,7 @@ def test_p4_09_activation_releases_only_eligible_held_issue_nda(g, monkeypatch):
     approve(g)
     AutomationPause.objects.create(subject_type="application", subject_id=app.public_ref, reason="synthetic", actor_ref="t")
     assert '"paused": 1' in activate() and PendingAction.objects.get(pk=action.pk).status == "held"
-    AutomationPause.objects.all().delete()
+    support.resume_pauses()
     assert '"released": 1' in activate("--dry-run") and PendingAction.objects.get(pk=action.pk).status == "held"
     assert '"released": 1' in activate()
     assert app.events.filter(kind="agreements_activated", data__approval_ref="D-38").exists()
@@ -360,7 +361,7 @@ def test_p4_22_a_pause_stops_create_and_distribute(g, monkeypatch):
                                            actor_ref="t")
     run_worker()
     assert not g.fake.requests and PendingAction.objects.get(kind="issue_nda").status == "queued"
-    pause.delete()
+    support.resume_pauses(app)  # the guard's shape (9kg.6)
     run_worker()
     instance = nda(Application.objects.get(pk=app.pk))
     assert instance.issue_status == "issued" and instance.attempts.filter(step="create").count() == 1
@@ -377,7 +378,7 @@ def test_p4_22_a_pause_after_create_holds_the_distribute(g, monkeypatch):
     run_worker()
     instance = nda(Application.objects.get(pk=app.pk))
     assert instance.issue_status == "distribute_pending" and not g.fake.calls("POST", "/envelope/distribute")
-    AutomationPause.objects.all().delete()
+    support.resume_pauses()
     monkeypatch.setattr(handlers.CreateAgreement, "after_call", lambda self, claim, result: None)
     run_worker()
     assert nda(Application.objects.get(pk=app.pk)).issue_status == "issued"
@@ -409,7 +410,7 @@ def ua_template(env):
     version = AgreementTemplateVersion.objects.create(
         agreement_type=AgreementType.objects.get(key="user_agreement"), version=1, provider_template_ref="envelope_template_ua",
         provider_template_number=102, recipient_slots={"SIGNER:1": 7002}, pdf_sha256=hashlib.sha256(PDF).hexdigest())
-    return services.approve_template_version(version.pk, env.template_owner, version.pdf_sha256)
+    return services.approve_template_version(version.pk, env.template_owner, services.template_digest(version))[0]
 
 
 INSERT = ("INSERT INTO agreements_agreementinstance (public_id, application_id, agreement_type_id, template_version_id,"

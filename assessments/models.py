@@ -255,12 +255,21 @@ class QualificationDecision(models.Model):
     outcome = models.CharField(max_length=16, choices=Outcome.choices)
     basis = models.CharField(max_length=16, choices=Basis.choices)
     human_only_reason = models.CharField(max_length=300, blank=True, default="")
+    # oc4.12: the structured reason for a human-only assessment (decisions.HUMAN_ONLY_CODES), never free text alone;
+    # `advice_suspended` cites the suspension record in `decision_inputs`.
+    human_only_code = models.CharField(max_length=40, blank=True, default="", db_default="")
     reason_code = models.CharField(max_length=40)
     reason_text = models.TextField(blank=True, default="")
     rationale = models.JSONField(default=dict)  # {criterion: {capability, evidence_strength, note}}
     snapshot_sha256 = models.CharField(max_length=64)
     decision_digest = models.CharField(max_length=64)  # what the decision-maker saw (snapshot, questions, run)
     policy_ref = models.CharField(max_length=100)  # the selection policy, or the synthetic rubric until one exists
+    # oc4.12 (oc4.10 item 3): the pack and rubric relied on, recorded whatever the policy reference says.
+    prompt_pack = models.CharField(max_length=64, blank=True, default="", db_default="")
+    prompt_pack_sha256 = models.CharField(max_length=64, blank=True, default="", db_default="")
+    rubric_version = models.PositiveIntegerField(default=0, db_default=0)
+    # oc4.12 (oc4.10 item 2): everything the decision digest binds, kept with the decision (decisions.decision_state).
+    decision_inputs = models.JSONField(default=dict, db_default="{}")
     actor_ref = models.CharField(max_length=200)
     second_actor_ref = models.CharField(max_length=200, blank=True, default="")  # P3-D-9: optional, not required
     created_at = models.DateTimeField(db_default=Now())
@@ -278,4 +287,6 @@ class QualificationDecision(models.Model):
                                    name="decision_basis_matches_run"),
             models.UniqueConstraint(fields=["application"], condition=Q(outcome__in=["admit", "decline"]),
                                     name="decision_one_final_per_application"),
+            models.CheckConstraint(condition=Q(basis="model_assisted") | ~Q(human_only_code=""),
+                                   name="decision_human_only_has_code"),  # oc4.12: a structured reason, never text alone
         ]

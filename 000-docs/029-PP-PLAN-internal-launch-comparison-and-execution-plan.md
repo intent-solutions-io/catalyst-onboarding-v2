@@ -237,28 +237,31 @@ three exist in v2 but stay disabled at launch by default (mailbox provisioning, 
 
 | Wait state | Who owes | Bound or escalation | Staff recovery without a shell | Status |
 |---|---|---|---|---|
-| Verification sent, unconfirmed | applicant | challenge lifetime (POL-02 value open); expiry prompts nothing today | **missing**: no staff resend exists (a failed send is not retried; a new submission issues a new link) (`9kg.50`) | gap |
+| Verification sent, unconfirmed | applicant | challenge lifetime (POL-02 value open); expiry prompts nothing today | staff resend on the correspondence screen, bounded (`9kg.50`, built in PR #87) | built; no age bound (the lifetime is the bound) |
 | Question sent, awaiting reply | applicant | reminder cadence and maximum (POL-06 synthetic values), then `escalate_unanswered` to staff; after escalation, the staff item's age (`9kg.51`) | staff item | built; the post-escalation bound is `9kg.51` |
-| Reply awaiting staff processing | staff | none today (reminders and escalation are held while a reply is pending, so the case stalls silently) | staff item | **missing** bound (`9kg.51`) |
-| Reply unmatched, unverified, sender-mismatched, or on a closed application | staff | none today | staff exception item (the unmatched rule for a misdirected first-generation reply is `dy7.2`) | built; bound `9kg.51` |
+| Reply awaiting staff processing | staff | `aged_waits.replies_awaiting_processing` (`9kg.51`, built in PR #87; pages by default) | staff item | built |
+| Reply unmatched, unverified, sender-mismatched, or on a closed application | staff | `aged_waits.open_staff_items` (`9kg.51`, built; audit only until the owner lists it) | staff exception item (the unmatched rule for a misdirected first-generation reply is `dy7.2`) | built |
 | Uncertain send | worker, then staff | reconcile by Sent-folder read; unknown goes to a staff item | staff decide resend or abandon (decision-maker) | built against the fake; **the live Sent reader is not built** (`9kg.49`) |
 | Mailbox cursor in resync, recovery or blocked; SMTP transport blocked | worker | health anomaly codes | staff item; the owner for a transport block | built; live proof in the mail canary |
 | Hard bounce | staff | immediate block of every send | decision-maker recovery after the cause is addressed | built (`9kg.3`) |
-| Paused (staff or system) | staff | shown with reason; age bound `9kg.51` | resume by the right role; system pauses need review | built; database guard open (`9kg.6`) |
-| Refused or capped assessment snapshot (at launch: refused by suspension) | staff | none today | **missing**: the route to the human-only decision form (`oc4.12`, `9kg.50`; default from `oc4.8`) | gap |
-| Awaiting decision | decision-maker | **no age signal today** (the health report has no stage-based part) | decision screen | built; the authority value must be configuration-driven and granted (`9kg.30`); the age bound is `9kg.51` |
+| Paused (staff or system) | staff | shown with reason; `aged_waits.pauses` (`9kg.51`, built; application pauses only, audit only until listed) | resume by the right role; system pauses need review | built; database guard open (`9kg.6`) |
+| Refused or capped assessment snapshot (at launch: refused by suspension) | staff | `aged_waits.assessing` (`9kg.51`) | the human-only decision form (`oc4.12`, built in PR #87 on `oc4.8`'s default; `CATALYST_CAPPED_EXIT`) | built |
+| Awaiting decision | decision-maker | `aged_waits.awaiting_decision` (`9kg.51`, built; audit only until listed); the dossier flags it | decision screen | built; the authority is configuration and granted by the command (`9kg.30`, built in PR #87) |
 | Declined | none | terminal | **no notice** today (`oc4.11`) | gap |
-| Agreement sent, awaiting signature or countersignature | applicant, then the owner (countersignature) | none today | staff see the age; the decision-maker cancels | **missing** bound and visibility (`9kg.51`) |
+| Agreement sent, awaiting signature or countersignature | applicant, then the owner (countersignature) | `aged_waits.issued_agreements` (`9kg.51`, built; pages by default; ages from the last status change) | the decision-maker cancels | built as a health bound; the agreements screen shows no age yet |
 | Agreement held (recipient change, custody failure, expiry, rejection) | staff | staff item, pause | decision-maker reissues as a new instance | built |
 | Provisioning held | the owner | released only by `activate_provisioning` | the command | built (disabled at launch) |
-| Provisioning unknown outcome, or provider unavailable at activation | worker, then staff | reconcile by read; never create again; the unavailable case has no bound | staff item | built against the fake; bound `9kg.51` |
+| Provisioning unknown outcome, or provider unavailable at activation | worker, then staff | reconcile by read; never create again; `aged_waits.provisioning_activation` for the unavailable case (`9kg.51`, built; pages by default) | staff item | built against the fake |
 | Withdrawal racing provisioning | worker | the withdrawal services cancel and revoke; unsupported checks stay unresolved | staff item | built against the fake |
-| On hold | staff | none | **missing**: no path back to a decision except closure (`9kg.50`, through the decision service) | gap |
-| Uncertain Documenso create, distribute or cancel; template approval | decision-maker | staff item | **shell only** today (`9kg.47`) | gap |
+| On hold | staff | `aged_waits.on_hold` (`9kg.51`, built; audit only until listed); the dossier flags it | the decision form: admit or decline (`9kg.50`, built in PR #87) | built |
+| Uncertain Documenso create, distribute or cancel; template approval | decision-maker | staff item (links the agreements screen) | the agreements screen and the template screen (`9kg.47`, built in PR #87) | built |
 | Restore hold | the owner | nothing runs until reconciliation | `catalyst_post_restore` review and lift | built; erasure replay and effect reconciliation open (`9kg.25`, `9kg.33`) |
 
 The bounds and whether each pages are the owner's values (`211.7.2`, `211.7.7`); the health part that counts aged
-waits is `9kg.51`.
+waits is `9kg.51` (`026` section 17). **Still unbounded after PR #87:** verification sent and unconfirmed (the
+challenge lifetime is its only bound), provisioning held (released only by the owner's command) and the restore
+hold (lifted only by `catalyst_post_restore`); the agreement-sent row gained the health bound but the agreements
+screen shows no age; the stage, item and pause classes are counted but page only once the owner lists them.
 
 **Found by the code inventory (2026-10-23, `45f8b93`), each a VERIFY turned into a task:**
 
@@ -650,44 +653,6 @@ the placeholders without redesign.
   rate-limit module (`9kg.42`), which would add a second, outer layer and replaces nothing above; the live staging
   check (`scripts/staging_check.sh`), which is a dev-box drill, not a CI test.
 
-### 13.5 The data notice and the member-on-file flag as built (`9kg.52`, first pass)
-
-Built 2026-10-23 from the council record `030` (Q8: a plain data notice is not deferred; Q4: existing members are
-referenced, not re-signed); repo-only, synthetic data, nothing deployed. The decline refusal for a member on file and
-the decision policy identifier `none: internal cohort, D-M` wait for the decision form of PR #87 and are not here.
-
-- **One template, two surfaces** (`applications.notices`; correspondence migration 0018): the notice is the message
-  template `data_notice` and the invitation mail the template `invitation`, whose one variable is the notice. Both
-  are seeded as unapproved placeholders (status draft, synthetic) and approved by the owner on the template screen
-  like every other template (211.7.7, D-29); the wording is a template the owner approves, never a constant in code,
-  and a test proves the placeholder phrase appears in the seed migration alone. The request-access page in
-  invitation mode renders the newest approved version with its version and content digest in the markup; the open
-  intake is the S1 page unchanged. The templates are read and rendered by `correspondence.notices`, reached only through the
-  `CATALYST_NOTICE_SOURCE` seam (`003` ADR-01: `applications` never imports `correspondence`).
-- **Unapproved wording**: in `development`, `test` and `staging` (`config.guards.DRAFT_WORDING_ENVIRONMENTS`, listed
-  by name) the newest draft renders with a visible draft marker so the page and the mail can be exercised before
-  approval; anywhere else the page is withheld with the one 503 try-again page, no invitation is issued, the log
-  carries a reason code and the health report names `data_notice_unapproved`. The health report and the release
-  path see the notice's state (approved, draft or missing, with version and digest), never its wording.
-- **The invitation mail**: v2 contacts nobody on an invitation (section 5.1), so `catalyst_invite` renders the mail
-  before any write and prints it for the owner to send by hand, with the notice's version and digest; the invitation
-  row records them (two columns fixed by the 0005 trigger, replaced in 0007). A live environment refuses to issue
-  while either wording is unapproved.
-- **Agreement on file, first-generation** (`applications.members`, `applications.MemberAgreementOnFile`, `manage.py
-  catalyst_member_on_file`): keyed on the email key like the invitation, so it exists before any application does;
-  only the owner-run command inserts (the application role has SELECT for the dossier and nothing else); the row is
-  the audit record (the agreement version as a plain label, that completion was verified, who recorded it, when),
-  fixed by trigger, a correction supersedes the live row, nothing is deleted or truncated. `--completion-verified` is
-  required (a member without a verified completion is a new participant: nothing recorded), and a value that reads
-  as a link, a path, a long identifier or a pasted record is refused, so no legacy identifier and no document copy
-  enter v2. The dossier shows the state per applicant as one line.
-- **Evidence**: `tests/test_intake_notice.py`, mapped as a P6 design rule in `tests/acceptance.py`; the migration
-  round trip and the role, trigger and constraint inventories updated (`tests/test_db_roles.py`,
-  `tests/test_database.py`, `tests/test_acceptance.py`); the health assertion in `tests/test_invitation.py`.
-- **Not done here**: the real wording (the owner approves it with the templates, 211.7.7; counsel's POL-10 answer
-  may change the erasure sentence); the decline refusal and the policy identifier (after PR #87); the private
-  roster itself stays outside the repository.
-
 ## 14. Decision brief (recommended choice, alternative, consequence, first task blocked)
 
 **Council record (2026-10-23).** Every row below was put to the seven-seat council in `030` under the owner's
@@ -791,6 +756,81 @@ their production values are the decisions above.
   supports" to a separate team by default. Whether the installed instance matches stays an account unknown (U3) for
   the canary. No other research was needed: the GitHub questions were answered by the readback above, and the
   retention, legal and provider-account questions are the owner's.
+
+## 17. Records of the repo-only batch (section 13.3), 2026-10-23
+
+Each record states the recommended default it built on; the owner's later decision changes a value, not a design.
+
+### 17.1 Staff roles and the grant command (`9kg.30`)
+
+**Built:** `accounts/roles.py` (the role matrix), `manage.py grant_staff_role` (grant or revoke one role for one
+account, owner-run as the migration owner), the append-only record `accounts.StaffRoleGrant` (migration accounts
+0007) and the P4 and P5 role groups (agreements 0009, provisioning 0007). Tests: `tests/test_staff_roles.py`.
+
+- **Default built on:** D-D4 (section 14): the owner is the decision group; the role names are the ones the designs
+  use (`016` F; `018` section 7; `021` section 9; `023` sections 8 and 15). `211.7.8` names the production holders;
+  that changes no code.
+- **Groups and permission sets are defined by migration, membership by the command.** Group roles: the S1 read-only
+  group; the three P2 groups; the P3 `Assessment operator` and `Evidence source owner`; new P4 groups `Agreement
+  operator` (view, operate), `Agreement decision-maker` (view, uncertain decisions, cancel and reissue and stop,
+  integrity holds, document retrieval, required details) and `Agreement template owner`; new P5 groups
+  `Provisioning operator` (view, operate) and `Provisioning decision-maker` (the same plus `close_application`,
+  POL-12). The command refuses a group whose permissions differ from the matrix, so a role never quietly carries more
+  than it says.
+- **Direct roles, never a group:** `qualification-decision-maker` (`assessments.record_qualification_decision`, which
+  `decisions.can_decide` accepts only as a direct grant) and `provisioning-approver` (`provisioning.approve_provisioning`,
+  P5-D-3). The qualification grant is refused until the authority is configured.
+- **The qualification authority is configuration, not code:** `CATALYST_QUALIFICATION_AUTHORITY` is read from the
+  environment (unset: everyone refused, POL-05 undecided) and the start-up guard accepts only `explicit_permission`,
+  the one rule the code implements; `CATALYST_SELECTION_POLICY` stays code-only (TEST-P3-53 amended accordingly). The
+  launch host sets the value when `211.7.8` is recorded, with no release.
+- **The grant record's home (a design decision):** its own table in `accounts`, not the application history (a grant
+  is about a staff account, not an applicant) and not the admin log (which the application role may not write).
+  Every grant and revocation inserts one row naming the account, the role, the group or permission, the approval
+  reference the owner cites (`--approval-ref`, required) and the command actor; the strict append-only and
+  no-truncate triggers protect it for every role, the application role reads it, and the backup role reads it.
+  A no-op (already held, not held) writes nothing.
+- **Superusers** hold no role (refused by the command, as on the staff site). **No raw SQL** in any filed step: a test
+  scans `000-docs` for grant statements and for instructions to open a shell session.
+- **Reviewer:** `catalyst-django-operator` (the roster in `008`); the owner approves the role names.
+
+### 17.2 The data notice, the member-on-file record and the decline refusal (`9kg.52`)
+
+Built 2026-10-23 from the council record `030` (Q8: a plain data notice is not deferred; Q4: existing members are
+referenced, not re-signed); repo-only, synthetic data, nothing deployed. The decline refusal for a member on file and
+the decision policy identifier `none: internal cohort, D-M` wait for the decision form of PR #87 and are not here.
+
+- **One template, two surfaces** (`applications.notices`; correspondence migration 0018): the notice is the message
+  template `data_notice` and the invitation mail the template `invitation`, whose one variable is the notice. Both
+  are seeded as unapproved placeholders (status draft, synthetic) and approved by the owner on the template screen
+  like every other template (211.7.7, D-29); the wording is a template the owner approves, never a constant in code,
+  and a test proves the placeholder phrase appears in the seed migration alone. The request-access page in
+  invitation mode renders the newest approved version with its version and content digest in the markup; the open
+  intake is the S1 page unchanged. The templates are read and rendered by `correspondence.notices`, reached only through the
+  `CATALYST_NOTICE_SOURCE` seam (`003` ADR-01: `applications` never imports `correspondence`).
+- **Unapproved wording**: in `development`, `test` and `staging` (`config.guards.DRAFT_WORDING_ENVIRONMENTS`, listed
+  by name) the newest draft renders with a visible draft marker so the page and the mail can be exercised before
+  approval; anywhere else the page is withheld with the one 503 try-again page, no invitation is issued, the log
+  carries a reason code and the health report names `data_notice_unapproved`. The health report and the release
+  path see the notice's state (approved, draft or missing, with version and digest), never its wording.
+- **The invitation mail**: v2 contacts nobody on an invitation (section 5.1), so `catalyst_invite` renders the mail
+  before any write and prints it for the owner to send by hand, with the notice's version and digest; the invitation
+  row records them (two columns fixed by the 0005 trigger, replaced in 0008). A live environment refuses to issue
+  while either wording is unapproved.
+- **Agreement on file, first-generation** (`applications.members`, `applications.MemberAgreementOnFile`, `manage.py
+  catalyst_member_on_file`): keyed on the email key like the invitation, so it exists before any application does;
+  only the owner-run command inserts (the application role has SELECT for the dossier and nothing else); the row is
+  the audit record (the agreement version as a plain label, that completion was verified, who recorded it, when),
+  fixed by trigger, a correction supersedes the live row, nothing is deleted or truncated. `--completion-verified` is
+  required (a member without a verified completion is a new participant: nothing recorded), and a value that reads
+  as a link, a path, a long identifier or a pasted record is refused, so no legacy identifier and no document copy
+  enter v2. The dossier shows the state per applicant as one line.
+- **Evidence**: `tests/test_intake_notice.py`, mapped as a P6 design rule in `tests/acceptance.py`; the migration
+  round trip and the role, trigger and constraint inventories updated (`tests/test_db_roles.py`,
+  `tests/test_database.py`, `tests/test_acceptance.py`); the health assertion in `tests/test_invitation.py`.
+- **Not done here**: the real wording (the owner approves it with the templates, 211.7.7; counsel's POL-10 answer
+  may change the erasure sentence); the decline refusal and the policy identifier (after PR #87); the private
+  roster itself stays outside the repository.
 
 ## Appendix A. Reconciliation of the 2026-10-22 audit findings
 
