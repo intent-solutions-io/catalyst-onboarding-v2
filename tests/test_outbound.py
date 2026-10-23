@@ -811,7 +811,7 @@ def test_p2_05_a_paused_application_sends_nothing_until_resumed(ready):
     _, message = ask(ready)
     run_worker()
     assert sends(message)[0].status == "queued" and ready.server.messages == [] and attempts(message) == []
-    pause.delete()
+    support.resume_pauses(ready.app)  # staff resume, in the guard's shape (9kg.6)
     run_worker()
     message.refresh_from_db()
     assert message.disposition == "accepted_by_server" and len(ready.server.messages) == 1
