@@ -31,7 +31,7 @@ from tests.test_agreement_custody import (  # noqa: F401  (fixture chain and hel
 
 
 def login_args(role_key, dbname):
-    names = {"admin": (os.environ["CATALYST_DB_ADMIN_USER"], os.environ["CATALYST_DB_ADMIN_PASSWORD"]),
+    names = {"admin": support.superuser_login(),  # the probe-only pair (6hl.10)
              "owner": (settings.CATALYST_DB_ROLES["owner"], os.environ["CATALYST_DB_OWNER_PASSWORD"]),
              "app": (settings.CATALYST_DB_ROLES["app"], os.environ["CATALYST_DB_APP_PASSWORD"])}
     user, password = names[role_key]

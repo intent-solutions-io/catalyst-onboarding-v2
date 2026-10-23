@@ -1535,6 +1535,25 @@ P6_SUPPORTING = {
         "test_invitation::test_9kg_43_with_the_mode_off_the_public_intake_is_unchanged",
         "test_invitation::test_9kg_43_the_dossier_the_health_report_and_the_release_receipt_show_the_mode",
     ],
+    "9kg.5 the database freezes inbound provenance and outbound and reply-link identity for every role (internal-launch batch item 6)": [
+        "test_provenance_freezes::test_9kg5_a_frozen_inbound_column_refuses_an_update_for_every_role",
+        "test_provenance_freezes::test_9kg5_the_updatable_inbound_columns_still_update_through_the_application_role_and_the_owner",
+        "test_provenance_freezes::test_9kg5_no_role_deletes_or_truncates_inbound_messages",
+        "test_provenance_freezes::test_9kg5_the_audited_retention_path_anonymizes_the_personal_inbound_columns_and_nothing_else",
+        "test_provenance_freezes::test_9kg5_a_frozen_outbound_identity_column_refuses_an_update_for_every_role",
+        "test_provenance_freezes::test_9kg5_an_outbound_message_id_is_set_once",
+        "test_provenance_freezes::test_9kg5_the_outbound_delivery_columns_still_update_and_the_owner_still_ages_an_attempt",
+        "test_provenance_freezes::test_9kg5_no_role_deletes_or_truncates_outbound_attempts",
+        "test_provenance_freezes::test_9kg5_the_audited_retention_path_anonymizes_an_outbound_recipient",
+        "test_provenance_freezes::test_9kg5_a_reply_link_keeps_its_question_and_message_and_is_never_deleted",
+        "test_provenance_freezes::test_9kg5_the_freeze_functions_are_owned_fixed_and_not_executable_by_the_application_role",
+        "test_provenance_freezes::test_9kg5_the_freeze_migration_reverses_and_reapplies_and_keeps_the_rows",
+    ],
+    "6hl.10 the administrator login reaches only the role-provisioning step (internal-launch batch item 6)": [
+        "test_db_roles::test_6hl10_the_test_process_holds_no_administrator_login",
+        "test_db_roles::test_6hl10_the_probe_login_is_read_by_the_test_support_module_only",
+        "test_db_roles::test_child_processes_do_not_receive_the_administrator_login",
+    ],
 }
 
 # Cases with no pytest evidence of their own: shown only by a live script (026 section 16).

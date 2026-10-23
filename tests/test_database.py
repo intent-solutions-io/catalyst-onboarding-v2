@@ -52,6 +52,7 @@ APPROVED_MIGRATIONS = {
     ("correspondence", "0015_evidence_protection"),  # 9kg.1
     ("provisioning", "0001_provisioning_records"), ("provisioning", "0002_provisioning_protection"),  # P5 5B.1
     ("correspondence", "0016_welcome_kind"),  # 5B.2
+    ("correspondence", "0017_provenance_freezes"),  # 9kg.5 (internal-launch batch item 6)
     ("provisioning", "0003_credential_setup"), ("provisioning", "0004_credential_setup_protection"),
     ("provisioning", "0005_revocation_and_withdrawal"), ("provisioning", "0006_revocation_and_withdrawal_protection"),  # 5B.3
     # 6B.9: django-otp's TOTP and recovery-code tables, the login throttle, their grants and device protection.
