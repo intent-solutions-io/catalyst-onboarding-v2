@@ -33,7 +33,7 @@ STAGING = {
     "CATALYST_EMAIL_BACKEND": None, "CATALYST_EMAIL_FILE_PATH": "/tmp/catalyst-staging-mail",
     "CATALYST_MAIL_TEST_HOST": None, "CATALYST_STAFF_HOST": "staff.staging.test", "CATALYST_LOCAL_HOSTS": "localhost",
     "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-staging-worker.beat",
-    "CATALYST_EFFECT_JOURNAL_DIR": "/tmp/catalyst-staging-effects",  # 9kg.33
+    "CATALYST_EFFECT_JOURNAL_DIR": __import__("tempfile").mkdtemp(prefix="catalyst-staging-effects-"),  # 9kg.33: 0700
 }
 WSGI = [sys.executable, "-c", "import config.wsgi"]
 
@@ -216,6 +216,16 @@ def test_9kg_33_a_deployment_needs_an_effect_journal_directory_outside_the_repos
     result = run(CHECK, **{**STAGING, "CATALYST_EFFECT_JOURNAL_DIR": str(ROOT / "effects")})
     assert result.returncode != 0 and "outside the repository" in result.stderr
     assert run(CHECK, **STAGING).returncode == 0
+    import os
+    import tempfile
+
+    missing = os.path.join(tempfile.gettempdir(), "catalyst-staging-effects-absent")
+    result = run(CHECK, **{**STAGING, "CATALYST_EFFECT_JOURNAL_DIR": missing})
+    assert result.returncode != 0 and "is missing" in result.stderr  # the directory must exist (PR #89 review)
+    loose = tempfile.mkdtemp(prefix="catalyst-staging-effects-loose-")
+    os.chmod(loose, 0o750)
+    result = run(CHECK, **{**STAGING, "CATALYST_EFFECT_JOURNAL_DIR": loose})
+    assert result.returncode != 0 and "is not_private" in result.stderr
 
 
 # --- 6B.5: secrets from per-secret files outside the local environments (026 section 5, P6-D-6) ---------------

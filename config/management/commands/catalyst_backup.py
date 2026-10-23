@@ -47,4 +47,10 @@ class Command(BaseCommand):
         except psycopg.Error as exc:  # its detail can quote a row: only the class and the code (PR #67 review)
             self.stderr.write(f"backup failed: {type(exc).__name__} {exc.sqlstate or ''}".rstrip())
             raise SystemExit(1) from None
-        self.stdout.write(json.dumps({"name": receipt["name"], "manifest_sha256": receipt["manifest_sha256"]}))
+        printed = {"name": receipt["name"], "manifest_sha256": receipt["manifest_sha256"]}
+        if receipt.get("effect_journal_error"):  # the set is complete; the journal fault is the alert (PR #89 review)
+            printed["effect_journal_error"] = receipt["effect_journal_error"]
+            self.stdout.write(json.dumps(printed))
+            self.stderr.write(f"backup written, but the effect journal could not be read: {receipt['effect_journal_error']}")
+            raise SystemExit(1)
+        self.stdout.write(json.dumps(printed))

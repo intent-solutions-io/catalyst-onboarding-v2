@@ -285,10 +285,11 @@ def strip_quotes(text: str) -> str:
 
 def _pause(application, reason: str) -> None:
     if not AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists():
+        journal.prepare("automation_pause", f"pause:{application.public_ref}", {"state": "paused", "by": "system"})
         AutomationPause.objects.create(subject_type="application", subject_id=application.public_ref, reason=reason,
                                        actor_ref="system:correspondence")
         event(application, "automation_paused", {"reason": reason})
-        journal.record("automation_pause", f"pause:{application.public_ref}", {"state": "paused", "by": "system"})
+        journal.record("automation_pause", f"pause:{application.public_ref}", {"state": "paused", "by": "system", "phase": "done"})
 
 
 def _before_decide(message) -> None:

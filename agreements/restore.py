@@ -17,7 +17,7 @@ provider (029 section 6.2: no automatic repair of provider state).
 from django.db import transaction
 from django.utils import timezone
 
-from correspondence.staff_items import event, open_item
+from correspondence.staff_items import event
 
 from . import handlers, provider
 from .models import NOT_LIVE, AgreementInstance
@@ -29,7 +29,7 @@ MOVED = {"COMPLETED": ("signing_complete_observed", "signing_complete_verified")
          "CANCELLED": ("cancelled",)}
 
 
-def read_envelopes(since) -> dict:
+def read_envelopes(since, opener) -> dict:
     instances = list(AgreementInstance.objects.select_related("application", "template_version")
                      .exclude(issue_status__in=NOT_LIVE).filter(replaced_at__isnull=True))
     if not instances:
@@ -55,8 +55,8 @@ def read_envelopes(since) -> dict:
             return {"status": f"unreachable:{exc.code}", "checked": 0, "items": items}
         if moved:
             with transaction.atomic():
-                open_item(ITEM_ENVELOPE, f"agreement:{instance.public_id}", application=instance.application, audit=False)
-                event(instance.application, "restore_effect_envelope",
-                      {"instance": str(instance.public_id), "had_envelope": bool(instance.envelope_id)}, actor_ref=ACTOR)
-            items += 1
+                if opener(ITEM_ENVELOPE, f"agreement:{instance.public_id}", application=instance.application):
+                    event(instance.application, "restore_effect_envelope",
+                          {"instance": str(instance.public_id), "had_envelope": bool(instance.envelope_id)}, actor_ref=ACTOR)
+                    items += 1
     return {"status": "ok", "checked": len(instances), "items": items}

@@ -14,7 +14,7 @@ import ssl
 
 from django.conf import settings
 
-from .transport import _host_allowed, peer_allowed, tls_context
+from .transport import _host_allowed, mailbox_pinned, peer_allowed, tls_context
 
 
 def classify(exc: BaseException) -> "MailboxError":
@@ -49,10 +49,10 @@ _DATE = re.compile(rb'INTERNALDATE ("[^"]*")')
 class MailboxClient:
     def __init__(self, timeout: float):
         host = settings.CATALYST_MAIL_HOST
-        if not host or not _host_allowed():
+        if not host or not _host_allowed("imap"):
             raise MailboxError("not_configured")
-        if not settings.CATALYST_MAIL_USER:
-            raise MailboxError("not_configured")  # IMAP selection needs an authenticated session
+        if not settings.CATALYST_MAIL_USER or not mailbox_pinned():
+            raise MailboxError("not_configured")  # IMAP selection needs the one authenticated, pinned session
         try:
             self.imap = imaplib.IMAP4_SSL(host, settings.CATALYST_MAIL_IMAP_PORT, ssl_context=tls_context(), timeout=timeout)
         except ssl.SSLError:
@@ -60,7 +60,7 @@ class MailboxClient:
         except (OSError, imaplib.IMAP4.error):
             raise MailboxError("unreachable") from None
         try:
-            if not peer_allowed(self.imap.sock.getpeername()[0]):
+            if not peer_allowed(self.imap.sock.getpeername()[0], "imap"):
                 raise MailboxError("peer_refused")
             try:
                 self.imap.login(settings.CATALYST_MAIL_USER, settings.CATALYST_MAIL_PASSWORD)
@@ -147,3 +147,36 @@ class MailboxClient:
 
     def append(self, folder: str, data: bytes) -> None:
         self._ok(self.imap.append(f'"{folder}"', None, None, data))
+
+
+class ReadOnlyMailbox:
+    """9kg.49 (security review): the Sent reader's view of the client, read-only by construction: no `append`, no
+    STORE, no writable SELECT. Commands available: EXAMINE, UID SEARCH, UID FETCH (sizes, dates, BODY.PEEK) and
+    LOGOUT, after the client's own CAPABILITY and LOGIN."""
+
+    def __init__(self, timeout: float):
+        self._client = MailboxClient(timeout=timeout)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self._client.close()
+
+    def examine(self, folder: str):
+        return self._client.examine(folder)
+
+    def uids_after(self, last_uid: int):
+        return self._client.uids_after(last_uid)
+
+    def uids_since(self, date: str):
+        return self._client.uids_since(date)
+
+    def search_message_id(self, folder: str, message_id: str):
+        return self._client.search_message_id(folder, message_id)
+
+    def meta(self, uid: int):
+        return self._client.meta(uid)
+
+    def fetch(self, uid: int):
+        return self._client.fetch(uid)

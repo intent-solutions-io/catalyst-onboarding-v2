@@ -394,6 +394,9 @@ CATALYST_MAIL_ALLOWED_HOSTS = [h.strip().lower() for h in os.environ.get("CATALY
 # mailbox: the first-generation service's own mailbox, so v2 can never become a second poller or reader of it.
 # Digests, not names: the repository is public and names nothing.
 CATALYST_MAIL_DENIED_USER_SHA256 = [d.strip().lower() for d in os.environ.get("CATALYST_MAIL_DENIED_USER_SHA256", "").split(",") if d.strip()]
+# 9kg.49 (security review): the positive pin of the one v2 mailbox login, a SHA-256 hex digest CATALYST_MAIL_USER must
+# hash to; required in a live environment, re-checked before any login. Private: never pasted into a PR or a doc.
+CATALYST_MAIL_USER_SHA256 = os.environ.get("CATALYST_MAIL_USER_SHA256", "").strip().lower()
 
 # P4 agreements (021; 4B.1). Synthetic only: the provider is a local fake Documenso in `test`. The URL, the pinned
 # address, the trust store and the API token are fixed in code and empty everywhere else, so nothing can reach a

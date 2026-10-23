@@ -184,10 +184,11 @@ def enqueue_cancel_instance(instance) -> PendingAction:
 
 def _pause(application, reason: str) -> None:  # P4-D-9: decline, expiry and a provider-side cancel
     if not AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists():
+        journal.prepare("automation_pause", f"pause:{application.public_ref}", {"state": "paused", "by": "system"})
         AutomationPause.objects.create(subject_type="application", subject_id=application.public_ref, reason=reason,
                                        actor_ref="system")
         event(application, "automation_paused", {"by": "system", "reason": reason})
-        journal.record("automation_pause", f"pause:{application.public_ref}", {"state": "paused", "by": "system"})
+        journal.record("automation_pause", f"pause:{application.public_ref}", {"state": "paused", "by": "system", "phase": "done"})
 
 
 # --- the fresh read -------------------------------------------------------------------------------------------------

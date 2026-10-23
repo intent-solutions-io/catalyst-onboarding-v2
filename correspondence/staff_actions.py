@@ -215,12 +215,13 @@ def pause(application_id: int, user, reason: str) -> AutomationPause:
             event(application, "automation_pause_requested_while_paused", {"reason": reason},
                   actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
             return existing
+        journal.prepare("automation_pause", f"pause:{application.public_ref}", {"state": "paused", "by": "staff"})
         row = AutomationPause.objects.create(subject_type="application", subject_id=application.public_ref,
                                              reason=reason, actor_ref=actor)
         # The reason lives in the append-only history too: resume deletes the pause row (2B.4 review).
         event(application, "automation_paused", {"by": "staff", "reason": reason},
               actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
-        journal.record("automation_pause", f"pause:{application.public_ref}", {"state": "paused", "by": "staff"})
+        journal.record("automation_pause", f"pause:{application.public_ref}", {"state": "paused", "by": "staff", "phase": "done"})
     return row
 
 
@@ -270,7 +271,7 @@ def resume(application_id: int, user, note: str = "") -> int:
             moved = reschedule_on_resume(application)
             event(application, "automation_resumed", {**prior, "rescheduled": moved, "note": note},
                   actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
-            journal.record("automation_pause", f"pause:{application.public_ref}", {"state": "resumed", "by": "staff"})
+            journal.record("automation_pause", f"pause:{application.public_ref}", {"state": "resumed", "by": "staff", "phase": "done"})
     if refused is not None:
         # 9kg.2: a refused resume is audited too (who, why, the causes still open), in its own transaction.
         with transaction.atomic():
@@ -301,6 +302,7 @@ def withdraw_question_as(question_id: int, actor: str, reason_code: str, note: s
             return question  # withdrawing twice does nothing more
         if question.status == Question.Status.SATISFIED:
             raise Refused("question_already_satisfied")
+        journal.prepare("question_withdrawn", f"question:{question.public_id}", {"reason": reason_code})
         Question.objects.filter(pk=question.pk).update(
             status=Question.Status.WITHDRAWN, withdrawn_by=actor, withdrawn_reason=f"{reason_code}: {note}"[:200].rstrip(": "),
             withdrawn_at=Now(), updated_at=Now())
@@ -331,7 +333,7 @@ def withdraw_question_as(question_id: int, actor: str, reason_code: str, note: s
             "cancelled_interpretations": cancelled_interpretations, "resolved_items": resolved},
             actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
         answers_settled(application)  # P3 3B.3: the last open question withdrawn may end a clarification round
-        journal.record("question_withdrawn", f"question:{question.public_id}", {"reason": reason_code})
+        journal.record("question_withdrawn", f"question:{question.public_id}", {"reason": reason_code, "phase": "done"})
     question.refresh_from_db()
     return question
 
@@ -398,4 +400,6 @@ def confirm_staff_message(draft_id: int, digest: str, user) -> ApprovedMessage:
         enqueue_send(message, 0)  # its own non-automated kind: it runs while paused (M5, J-09)
         event(application, "staff_message_confirmed", {"send_ref": str(message.send_ref), "draft": str(draft.public_id)},
               actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
+        journal.record("staff_message_confirmed", f"send:{message.send_ref}",
+                       {"send_ref": str(message.send_ref), "content_sha256": message.content_sha256})
     return message

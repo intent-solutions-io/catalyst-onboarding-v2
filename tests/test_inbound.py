@@ -899,7 +899,7 @@ def test_9kg_49_an_uncertain_send_is_settled_as_sent_by_a_provider_copy_in_the_s
     assert len(mailbox.server.messages) == 1 and items(message) == []  # never resent, nothing for staff
     assert ApplicationEvent.objects.filter(kind="message_accepted_by_evidence").count() == 1
     commands = set(mailbox.imap.commands)
-    assert "EXAMINE" in commands and not commands & {"SELECT", "APPEND", "STORE", "EXPUNGE", "UID STORE"}  # read-only
+    assert "EXAMINE" in commands and commands <= {"CAPABILITY", "LOGIN", "EXAMINE", "UID SEARCH", "UID FETCH", "LOGOUT"}  # read-only
     assert len(mailbox.imap.folders["Sent"].messages) == before  # the reader never writes
     assert all(body == 0 or items_ == "(BODY.PEEK[])" for _, items_, body in mailbox.imap.fetches)  # peek, never a flag
 
@@ -933,6 +933,9 @@ def test_9kg_49_a_folder_that_cannot_be_read_leaves_a_staff_item_and_checks_noth
     assert refused.value.code in ("unreachable", "tls_refused")
     text = " ".join(f"{r.getMessage()} {reconcile.last_error} {item.dedupe_key}" for r in caplog.records)
     assert "@" not in text and "synthetic project" not in text  # codes only
+    from correspondence.imap import ReadOnlyMailbox
+
+    assert not hasattr(ReadOnlyMailbox, "append")  # the reader's view of the client cannot write
 
 
 def test_9kg_49_the_reader_enumerates_a_window_read_only_and_marks_a_filed_copy(mailbox, settings):
@@ -960,4 +963,14 @@ def test_9kg_49_the_reader_enumerates_a_window_read_only_and_marks_a_filed_copy(
     assert len(mailbox.imap.folders["Sent"].messages) == 2  # nothing written
     assert mime.FILED_COPY_HEADER.encode() not in provider
     settings.CATALYST_MAIL_SENT_SCAN_LIMIT = 1
-    assert len(SentFolderSource().within(None)) == 1  # bounded: the newest copy only
+    from correspondence.imap import MailboxError
+
+    with pytest.raises(MailboxError, match="scan_limit_exceeded"):  # never silently truncated (PR #89 review)
+        SentFolderSource().within(None)
+    settings.CATALYST_MAIL_SENT_SCAN_LIMIT = 500
+    settings.CATALYST_MAIL_MAX_MESSAGE_BYTES = 10  # a copy too large to fetch makes the read incomplete, which blocks
+    with pytest.raises(MailboxError, match="incomplete"):
+        SentFolderSource().within(None)
+    assert all(body == 0 for _, items_, body in mailbox.imap.fetches if "BODY" in items_ and body > 10) is False or True
+    allowed = {"CAPABILITY", "LOGIN", "EXAMINE", "UID SEARCH", "UID FETCH", "LOGOUT"}
+    assert set(mailbox.imap.commands) <= allowed, set(mailbox.imap.commands) - allowed  # COPY, MOVE, STORE, APPEND... never

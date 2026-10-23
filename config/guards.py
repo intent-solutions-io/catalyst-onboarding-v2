@@ -96,18 +96,27 @@ def is_loopback_literal(host: str) -> bool:
 # the release decision (`production` is not in ALLOWED_ENVIRONMENTS until the owner's go, 029 section 13); the
 # allow-list rule is built and tested so that decision changes one constant, not the guard.
 LIVE_ENVIRONMENTS = frozenset({"production"})
-MAIL_PROCESS_ROLES = frozenset({"web", "worker"})  # the only roles that may reach the production mail host
+# The process kinds (config.runtime, declared in code) that may reach the production mail host, per purpose: web and
+# worker send and read; the owner-run `reconcile` kind (the post-restore step, RD-1) reads the Sent folder only.
+MAIL_KINDS = {"smtp": frozenset({"web", "worker"}), "imap": frozenset({"web", "worker", "reconcile"})}
+ANY_KIND = "*"  # the start-up configuration check: the host is listed; the kind is checked at use time
 SENT_FOLDER_SOURCE = "correspondence.sent_reader.SentFolderSource"
-HOST_NAME = re.compile(r"[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?)+")
+# A host name: lower-case labels, and a final label with a letter (never an all-digit or address-like name).
+HOST_NAME = re.compile(r"([a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?\.)+[a-z0-9-]*[a-z][a-z0-9-]*")
+SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 
 
-def mail_host_allowed(environment: str, host: str, test_host: str, allowed_hosts=(), role: str = "") -> bool:
+def mail_host_allowed(environment: str, host: str, test_host: str, allowed_hosts=(), role: str = "", purpose: str = "smtp") -> bool:
     """016 section 6, A-4 (D-28, amends REQ-022): a literal loopback address in `development`, `test` and `staging`,
     or, in `test` only, the one named test-service host. Names other than that one are refused, so a
     real provider can never be configured outside production. 9kg.49: in a live environment, exactly a host named
-    in the configured allow-list, for the web and worker roles only (never a fetcher, never a management process)."""
+    in the configured allow-list, for the web and worker kinds (and, for the IMAP Sent read only, the reconcile
+    kind); never a fetcher, never a management process."""
     if environment in LIVE_ENVIRONMENTS:
-        return bool(host) and host.lower() in {h.lower() for h in allowed_hosts} and role in MAIL_PROCESS_ROLES
+        # The configuration check at start-up (`role` ANY_KIND) asks only whether the host is listed; which process
+        # may use it, and for what, is decided at use time from the kind declared in code (transport._host_allowed).
+        return (bool(host) and host.lower() in {h.lower() for h in allowed_hosts}
+                and (role == ANY_KIND or role in MAIL_KINDS.get(purpose, frozenset())))
     if environment not in ALLOWED_ENVIRONMENTS:
         return False
     if is_loopback_literal(host):
@@ -115,9 +124,20 @@ def mail_host_allowed(environment: str, host: str, test_host: str, allowed_hosts
     return environment == "test" and bool(test_host) and host == test_host
 
 
+def user_digest(user: str) -> str:
+    return hashlib.sha256((user or "").strip().lower().encode()).hexdigest()
+
+
+def user_pinned(user: str, pin: str) -> bool:
+    return bool(user) and bool(pin) and user_digest(user) == pin.strip().lower()
+
+
 def mail_allow_list_problems(settings) -> list[str]:
-    """9kg.49: the allow-list is exact, non-empty in a live environment, empty everywhere else; a mailbox login whose
-    digest is denied (the first-generation mailbox) is refused in every environment."""
+    """9kg.49: the allow-list is exact, non-empty in a live environment, empty everywhere else. A live environment
+    also requires the positive pin of the one v2 mailbox login (`CATALYST_MAIL_USER_SHA256`, a 64-hex digest the
+    login must hash to) and a non-empty denied list of 64-hex digests (the first-generation mailbox), so the rule is
+    never opt-in there (security review of PR #89); a denied login is refused in every environment. The digest
+    values are private: never pasted into a pull request or a document."""
     environment = getattr(settings, "CATALYST_ENV", "")
     allowed = list(getattr(settings, "CATALYST_MAIL_ALLOWED_HOSTS", []) or [])
     problems = []
@@ -125,14 +145,27 @@ def mail_allow_list_problems(settings) -> list[str]:
         if not isinstance(host, str) or not host.isascii() or not HOST_NAME.fullmatch(host) or is_loopback_literal(host):
             problems.append("CATALYST_MAIL_ALLOWED_HOSTS entries must be plain lower-case host names, never addresses")
             break
+    user = getattr(settings, "CATALYST_MAIL_USER", "") or ""
+    pin = str(getattr(settings, "CATALYST_MAIL_USER_SHA256", "") or "").strip().lower()
+    denied = [str(d).strip().lower() for d in (getattr(settings, "CATALYST_MAIL_DENIED_USER_SHA256", []) or [])]
+    if any(not SHA256_HEX.fullmatch(d) for d in denied) or (pin and not SHA256_HEX.fullmatch(pin)):
+        problems.append("CATALYST_MAIL_DENIED_USER_SHA256 and CATALYST_MAIL_USER_SHA256 hold SHA-256 hex digests only")
     if environment in LIVE_ENVIRONMENTS:
         if not allowed:
             problems.append("CATALYST_MAIL_ALLOWED_HOSTS must name the production mail host outside the synthetic environments")
+        if not denied:
+            problems.append("CATALYST_MAIL_DENIED_USER_SHA256 must list the first-generation mailbox in a live environment")
+        if not pin:
+            problems.append("CATALYST_MAIL_USER_SHA256 must pin the v2 mailbox login in a live environment")
+        elif user and not user_pinned(user, pin):
+            problems.append("CATALYST_MAIL_USER does not hash to CATALYST_MAIL_USER_SHA256 (not the pinned v2 mailbox)")
+        if pin and pin in denied:
+            problems.append("CATALYST_MAIL_USER_SHA256 names a denied mailbox")
+        if getattr(settings, "CATALYST_SEND_EVIDENCE_SOURCE", "") != SENT_FOLDER_SOURCE:
+            problems.append("CATALYST_SEND_EVIDENCE_SOURCE must be the Sent-folder reader in a live environment (9kg.49)")
     elif allowed:
         problems.append("CATALYST_MAIL_ALLOWED_HOSTS is allowed only in a live environment (synthetic and development use loopback)")
-    user = getattr(settings, "CATALYST_MAIL_USER", "") or ""
-    denied = {d.lower() for d in (getattr(settings, "CATALYST_MAIL_DENIED_USER_SHA256", []) or [])}
-    if denied and user and hashlib.sha256(user.strip().lower().encode()).hexdigest() in denied:
+    if denied and user and user_digest(user) in denied:
         problems.append("CATALYST_MAIL_USER is a denied mailbox (the first-generation mailbox is never a v2 source)")
     return problems
 
@@ -141,7 +174,7 @@ def mail_problems(settings) -> list[str]:
     host = getattr(settings, "CATALYST_MAIL_HOST", "")
     test_host = getattr(settings, "CATALYST_MAIL_TEST_HOST", "")
     allowed = getattr(settings, "CATALYST_MAIL_ALLOWED_HOSTS", []) or []
-    role = getattr(settings, "CATALYST_PROCESS_ROLE", "") or ""
+    role = ANY_KIND
     problems = mail_allow_list_problems(settings)
     if test_host and settings.CATALYST_ENV != "test":
         problems.append("CATALYST_MAIL_TEST_HOST is allowed only in the test environment")
@@ -403,10 +436,18 @@ def journal_problems(settings) -> list[str]:
     target = Path(path).resolve()
     if not Path(path).is_absolute() or target == repository or repository in target.parents:
         return ["CATALYST_EFFECT_JOURNAL_DIR must be an absolute path outside the repository"]
+    if environment in ("test", "development"):
+        return []
+    from workflow import journal
+
+    kind = _process_kind()
+    problem = journal.directory_problem(write=kind in ("web", "worker", "reconcile"))
+    if problem and not (problem == "not_configured"):
+        return [f"CATALYST_EFFECT_JOURNAL_DIR is {problem}: a private (0700) directory this process can write"]
     return []
 
 
-PROCESS_ROLES = ("", "web", "worker", "fetcher")
+PROCESS_ROLES = ("", "web", "worker", "fetcher", "reconcile")
 
 
 def process_role_problems(settings, kind: str) -> list[str]:
@@ -417,8 +458,10 @@ def process_role_problems(settings, kind: str) -> list[str]:
     if role not in PROCESS_ROLES:
         return [f"CATALYST_PROCESS_ROLE must be one of {', '.join(r for r in PROCESS_ROLES if r)}"]
     problems = []
-    if role == "fetcher" and kind == "web":
-        problems.append("the web process may not run as CATALYST_PROCESS_ROLE=fetcher")
+    if role in ("fetcher", "reconcile") and kind == "web":
+        problems.append(f"the web process may not run as CATALYST_PROCESS_ROLE={role}")
+    if role in ("web", "worker") and kind == "reconcile":
+        problems.append("the post-restore step may not run as a web or worker process role (9kg.49, RD-1)")
     proxy = str(getattr(settings, "CATALYST_EVIDENCE_PROXY", "") or "")
     if proxy and not re.fullmatch(r"[a-z0-9.-]+:\d{1,5}", proxy):
         problems.append("CATALYST_EVIDENCE_PROXY must be host:port")

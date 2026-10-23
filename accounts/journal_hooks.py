@@ -2,10 +2,11 @@
 was removed after the backup, and the owner is told of access granted after it (accounts.restore).
 
 Django signals on the user model and its group membership, connected in `AccountsConfig.ready()`: a created staff
-account, a deactivation or reactivation, a group added or removed. Entries carry the username (the stable
-identifier of a staff account; numeric ids recur after a restore) and group names: never a password hash, an
-email address or a name. Creation through raw SQL (the tests' owner path) bypasses signals, as it bypasses
-everything else in Django.
+account, a deactivation or reactivation, a group added or removed. Entries name the account by an opaque reference
+(`journal.staff_ref`, a keyed digest of the username; PR #89 security review), never the username, a password hash,
+an email address or a name, and groups by name. A removal (a deactivation, a group removed) is restrictive and is
+journaled before its transaction commits (`prepare`) and again after it; a grant only after. Creation through raw
+SQL (the tests' owner path) bypasses signals, as it bypasses everything else in Django.
 """
 
 from django.contrib.auth import get_user_model
@@ -18,7 +19,7 @@ KIND = "staff_role_changed"
 
 
 def key(user) -> str:
-    return f"staff:{user.get_username()}"
+    return journal.staff_ref(user.get_username())
 
 
 def _remember_active(sender, instance, **kwargs):
@@ -26,6 +27,8 @@ def _remember_active(sender, instance, **kwargs):
         instance._journal_was_active = None
         return
     instance._journal_was_active = sender.objects.filter(pk=instance.pk).values_list("is_active", flat=True).first()
+    if instance._journal_was_active and not instance.is_active:  # a deactivation: prepared before the commit
+        journal.prepare(KIND, key(instance), {"change": "deactivated", "active": False, "groups": []})
 
 
 def _account_saved(sender, instance, created, **kwargs):
@@ -38,18 +41,27 @@ def _account_saved(sender, instance, created, **kwargs):
         change = "reactivated" if instance.is_active else "deactivated"
     else:
         return
-    journal.record(KIND, key(instance), {"change": change, "active": bool(instance.is_active), "groups": []})
+    data = {"change": change, "active": bool(instance.is_active), "groups": []}
+    journal.record(KIND, key(instance), {**data, "phase": "done"} if change == "deactivated" else data)
 
 
 def _groups_changed(sender, instance, action, reverse, pk_set, **kwargs):
-    if action not in ("post_add", "post_remove", "post_clear") or reverse:
+    if reverse:
+        return
+    if action in ("pre_remove", "pre_clear"):
+        names = ["*"] if action == "pre_clear" else sorted(Group.objects.filter(pk__in=pk_set or ()).values_list("name", flat=True))
+        journal.prepare(KIND, key(instance), {"change": "group_removed", "active": bool(instance.is_active), "groups": names})
+        return
+    if action not in ("post_add", "post_remove", "post_clear"):
         return
     if action == "post_clear":
-        journal.record(KIND, key(instance), {"change": "group_removed", "active": bool(instance.is_active), "groups": ["*"]})
+        journal.record(KIND, key(instance), {"change": "group_removed", "active": bool(instance.is_active), "groups": ["*"], "phase": "done"})
         return
     names = sorted(Group.objects.filter(pk__in=pk_set or ()).values_list("name", flat=True))
-    change = "group_added" if action == "post_add" else "group_removed"
-    journal.record(KIND, key(instance), {"change": change, "active": bool(instance.is_active), "groups": names})
+    if action == "post_add":
+        journal.record(KIND, key(instance), {"change": "group_added", "active": bool(instance.is_active), "groups": names})
+    else:
+        journal.record(KIND, key(instance), {"change": "group_removed", "active": bool(instance.is_active), "groups": names, "phase": "done"})
 
 
 def connect() -> None:

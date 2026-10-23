@@ -16,26 +16,40 @@ write-only), so a password set after the backup is not reconciled here: the revi
 open setup and marked an in-flight set uncertain, and staff reissue the link.
 """
 
+import uuid
+
 from django.db import transaction
 
 from applications.models import TERMINAL_STAGES, Application, ApplicationEvent
-from correspondence.staff_items import event, open_item
+from correspondence.staff_items import event
 
 from . import adapter, closure
 from .models import LIVE_REQUEST, AccessRevocation, ProvisioningRequest
 
 ACTOR = "catalyst_post_restore"
+
+
+def _uuid(text: str):
+    try:
+        return uuid.UUID(text)
+    except ValueError:
+        return None
+
+
 ITEM_MAILBOX = "restore_effect_mailbox"
 MAY_HOLD = (*LIVE_REQUEST, "active", "stopping", "stopped", "recovered_after_stop")
 
 
-def replay(entries) -> dict:
-    report = {"replayed": 0, "reflected": 0, "items": 0}
+def replay(entries, opener) -> dict:
+    report = {"replayed": 0, "reflected": 0, "items": 0, "target_missing": 0}
     for entry in entries:
         if entry.kind == "application_closed":
             application = Application.objects.select_for_update(of=("self",)).filter(
-                public_ref=entry.key.removeprefix("application:")).first()
-            if application is None or application.stage in TERMINAL_STAGES:
+                public_ref=_uuid(entry.key.removeprefix("application:"))).first()
+            if application is None:
+                report["target_missing"] += 1
+                continue
+            if application.stage in TERMINAL_STAGES:
                 report["reflected"] += 1
                 continue
             outcome = entry.data.get("outcome") if entry.data.get("outcome") in closure.OUTCOMES else "closed"
@@ -49,7 +63,10 @@ def replay(entries) -> dict:
             if state not in closure.FINAL:
                 report["reflected"] += 1
                 continue
-            rows = AccessRevocation.objects.filter(request__public_id=request_ref, kind=kind).exclude(state__in=closure.FINAL)
+            if not AccessRevocation.objects.filter(request__public_id=_uuid(request_ref), kind=kind).exists():
+                report["target_missing"] += 1
+                continue
+            rows = AccessRevocation.objects.filter(request__public_id=_uuid(request_ref), kind=kind).exclude(state__in=closure.FINAL)
             row = rows.select_related("request__application").first()
             if row is None:
                 report["reflected"] += 1
@@ -63,7 +80,7 @@ def replay(entries) -> dict:
     return report
 
 
-def read_mailboxes() -> dict:
+def read_mailboxes(opener) -> dict:
     """The provider read, outside any transaction. Returns {"status": "ok" | "not_configured" | "unreachable:<code>",
     "checked": n, "items": n}."""
     requests = list(ProvisioningRequest.objects.select_related("reservation", "application").filter(status__in=MAY_HOLD))
@@ -88,8 +105,8 @@ def read_mailboxes() -> dict:
                                                                       "verified", "active")
         if present != expected:
             with transaction.atomic():
-                open_item(ITEM_MAILBOX, f"provisioning:{request.public_id}", application=request.application, audit=False)
-                event(request.application, "restore_effect_mailbox",
-                      {"request": str(request.public_id), "present": present, "expected": expected}, actor_ref=ACTOR)
-            items += 1
+                if opener(ITEM_MAILBOX, f"provisioning:{request.public_id}", application=request.application):
+                    event(request.application, "restore_effect_mailbox",
+                          {"request": str(request.public_id), "present": present, "expected": expected}, actor_ref=ACTOR)
+                    items += 1
     return {"status": "ok", "checked": len(requests), "items": items}

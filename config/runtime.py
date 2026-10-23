@@ -12,7 +12,9 @@ worker command) must call declare_process: an undeclared process is "management"
 """
 
 ENFORCED_KINDS = frozenset({"web", "worker"})
-KINDS = ENFORCED_KINDS | {"management"}
+# `reconcile` (9kg.49, RD-1): the owner-run post-restore step, declared in code by its command; it may read the
+# mailbox's Sent folder and nothing else of the mail host, and is never role-enforced (it connects as the owner).
+KINDS = ENFORCED_KINDS | {"management", "reconcile"}
 
 _declared = {"kind": "management"}
 

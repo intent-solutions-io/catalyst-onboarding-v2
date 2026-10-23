@@ -121,7 +121,14 @@ def backup(conn, out_dir: Path, storage_dir: Path, name: str, commit: str = "") 
     # the post-restore step reconciles them (reconciliation is idempotent, so a head read early errs safely).
     from workflow import journal
 
-    journal_seq, journal_head = journal.head() if journal.configured() else (None, "")
+    # PR #89 review: a journal fault never aborts the database backup; it is recorded in the receipt and the command
+    # exits non-zero so the alert path sees it.
+    journal_seq, journal_head, journal_id, journal_error = None, "", "", ""
+    if journal.configured():
+        try:
+            journal_seq, journal_head, journal_id = journal.head()
+        except journal.JournalError as exc:
+            journal_error = exc.code
     manifest = {"tables": {}, "documents": [], "revision": []}
     pending.mkdir(mode=0o700)
     try:
@@ -157,7 +164,8 @@ def backup(conn, out_dir: Path, storage_dir: Path, name: str, commit: str = "") 
         receipt = {"name": name, "started_at": started, "finished_at": time.time(), "postgresql": server,
                    "commit": commit, "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
                    "excluded_tables": list(EXCLUDED_TABLES),  # no counts: they reveal volume (026 section 6)
-                   "effect_journal_seq": journal_seq, "effect_journal_head": journal_head}
+                   "effect_journal_seq": journal_seq, "effect_journal_head": journal_head,
+                   "effect_journal_id": journal_id, "effect_journal_error": journal_error}
         _private_file(pending / "receipt.json", json.dumps(receipt, sort_keys=True, indent=1).encode())
         _fsync_dir(pending / "custody")
         _fsync_dir(pending)
@@ -233,6 +241,8 @@ def restore(admin_conn, backup_dir: Path, storage_dir: Path, *, database: str, c
     manifest = check_set(backup_dir, expect_manifest_sha256)
     if storage_dir.is_symlink() or (storage_dir.exists() and any(storage_dir.iterdir())):
         raise BackupError("the custody directory to restore into is not empty")
+    receipt = json.loads((backup_dir / "receipt.json").read_text())
+    check_journal(receipt)
     check_target(admin_conn, database, confirm_database, manifest)
     admin_conn.rollback()
     staging = storage_dir.parent / f".{storage_dir.name}.staging"
@@ -263,10 +273,14 @@ def restore(admin_conn, backup_dir: Path, storage_dir: Path, *, database: str, c
             for table, expected in manifest["tables"].items():  # every loaded table, before the hold is written
                 if digest(copy_out(admin_conn, table)) != expected["sha256"]:
                     raise BackupError(f"the loaded table does not match the manifest: {table}")
+            # 9kg.33: the hold carries the backup anchor (journal identity, seq, head), so the post-restore step can
+            # verify the journal even when the journal itself was replaced or emptied (PR #89 review).
+            anchor = "|".join(["catalyst_restore", f"{receipt.get('effect_journal_id') or ''}:"
+                               f"{receipt.get('effect_journal_seq') or 0}:{receipt.get('effect_journal_head') or ''}"])
             admin_conn.execute(
                 "INSERT INTO workflow_automationpause (subject_type, subject_id, reason, actor_ref, created_at)"
-                " VALUES (%s, %s, %s, 'catalyst_restore', now()) ON CONFLICT (subject_type, subject_id) DO NOTHING",
-                [*RESTORE_HOLD, HOLD_REASON])
+                " VALUES (%s, %s, %s, %s, now()) ON CONFLICT (subject_type, subject_id) DO NOTHING",
+                [*RESTORE_HOLD, HOLD_REASON, anchor])
         storage_dir.mkdir(mode=0o700, exist_ok=True)
         os.chmod(storage_dir, 0o700)
         for document in manifest["documents"]:  # into place only after the commit
@@ -278,8 +292,24 @@ def restore(admin_conn, backup_dir: Path, storage_dir: Path, *, database: str, c
     # post-restore step knows which entries to reconcile. After the commit: the journal is outside the rollback domain.
     from workflow import journal
 
-    receipt = json.loads((backup_dir / "receipt.json").read_text())
-    journal.append("restore", f"restore:{backup_dir.name}", {
+    marker = journal.append("restore", f"restore:{backup_dir.name}", {
         "backup_seq": receipt.get("effect_journal_seq"), "backup_head": receipt.get("effect_journal_head") or "",
-        "backup_started_at": receipt.get("started_at")})
-    return {"restored": backup_dir.name, "hold": "recorded"}
+        "backup_journal_id": receipt.get("effect_journal_id") or "", "backup_started_at": receipt.get("started_at")})
+    return {"restored": backup_dir.name, "hold": "recorded", "effect_journal": "marked" if marker else "not_marked"}
+
+
+def check_journal(receipt: dict) -> None:
+    """PR #89 review: before the load, the configured journal must be the lineage the receipt names and must hold the
+    receipt's head at its seq; an empty, truncated or replaced journal is refused here, not discovered at the lift.
+    An unconfigured journal is not checked (the post-restore step then refuses to lift for want of evidence)."""
+    from workflow import journal
+
+    seq, head, identity = receipt.get("effect_journal_seq"), receipt.get("effect_journal_head") or "", receipt.get("effect_journal_id") or ""
+    if not journal.configured() or not isinstance(seq, int) or isinstance(seq, bool) or seq <= 0:
+        return
+    try:
+        entries = journal.read()
+    except journal.JournalError as exc:
+        raise BackupError(f"the effect journal cannot be read ({exc.code})") from None
+    if len(entries) < seq or entries[seq - 1].hash != head or (identity and str(entries[0].data.get("id", "")) != identity):
+        raise BackupError("the effect journal does not match the backup receipt (journal_mismatch)")

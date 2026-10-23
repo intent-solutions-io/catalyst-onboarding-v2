@@ -31,7 +31,7 @@ from django.utils.module_loading import import_string
 
 from applications.models import TERMINAL_STAGES, Application, ApplicationEvent, Stage
 from applications.stages import transition
-from workflow import ledger
+from workflow import journal, ledger
 from workflow.models import AutomationPause, PendingAction
 
 from . import transport
@@ -151,6 +151,9 @@ def approve_question(question_id: int, user) -> ApprovedMessage:
             raise Refused("application_closed")
         if application.stage in (Stage.ADMITTED, Stage.ON_HOLD):
             raise Refused("application_decided")  # P3 3B.4: no clarification after a decision
+        if StaffItem.objects.filter(question_id=question.pk, reason_code="restore_effect_unknown_send",
+                                    status=StaffItem.Status.OPEN).exists():
+            raise Refused("sent_after_backup_pending_review")  # 9kg.33: a copy of this question left after the backup
         recipient = verified_address(application)
         if recipient is None:
             raise Refused("contact_not_verified")
@@ -170,6 +173,8 @@ def approve_question(question_id: int, user) -> ApprovedMessage:
         enqueue_send(message, 0)
         event(application, "question_approved", {"question": str(question.public_id), "send_ref": str(message.send_ref)},
               actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor_ref(user))
+        journal.record("question_approved", f"send:{message.send_ref}", {"question": str(question.public_id),
+                       "send_ref": str(message.send_ref), "content_sha256": message.content_sha256})
         if application.stage == Stage.AWAITING_DECISION:  # 018 step 5: a staff act opens the clarification round
             transition(application.pk, (Stage.AWAITING_DECISION,), Stage.AWAITING_ANSWERS, event_kind="clarification_started",
                        data={"question": str(question.public_id)}, actor_type=ApplicationEvent.ActorType.STAFF,
@@ -186,6 +191,17 @@ class Proceed:
     attempt_id: int
     payload: bytes
     recipient: str
+    kind: str = ""
+    series: int = 0
+    question: str = ""  # a reminder's question and position, so a restore can move the series past it
+    n: int = 0
+
+
+def _send_identity(claim, decision) -> dict:
+    data = {"kind": decision.kind, "series": decision.series, "attempt": claim.attempt}
+    if decision.question:
+        data.update(question=decision.question, n=decision.n)
+    return data
 
 
 @dataclass(frozen=True)
@@ -256,6 +272,7 @@ class SendMessage:
             return
         if connection.in_atomic_block:
             raise RuntimeError("refusing to send inside a transaction")
+        journal.append("send_begun", f"send:{claim.input_ref}", _send_identity(claim, decision))  # before SMTP (9kg.33)
         result = transport.send(decision.payload, settings.DEFAULT_FROM_EMAIL, decision.recipient)
         try:
             _after_send(claim, result)
@@ -332,7 +349,12 @@ class SendMessage:
                 message_id=message_id(message.send_ref), status=Attempt.SENDING, approved_message=message,
                 attempt_series=series, rendered_sha256=digest,
             )
-            return Proceed(attempt.pk, payload, message.recipient)
+            question, n = "", 0
+            if message.kind == ApprovedMessage.Kind.REMINDER and questions:
+                from .scheduling import reminder_number
+
+                question, n = str(questions[0].public_id), reminder_number(message, questions[0])
+            return Proceed(attempt.pk, payload, message.recipient, kind=str(message.kind), series=series, question=question, n=n)
 
     # --- recording ----------------------------------------------------------------------------------------
 
@@ -463,6 +485,7 @@ class Evidence:
     recipient: str
     content_sha256: str
     filed_by_catalyst: bool = False  # the record carries X-Catalyst-Filed-Copy: never evidence, whatever its origin
+    observed_at: object = None  # the provider's internal date (aware datetime), when the source knows it
 
 
 def evidence_source():

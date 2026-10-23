@@ -167,15 +167,23 @@ class DirectoryEvidence:
     def within(self, since):
         import os
 
+        from datetime import UTC
+        from email.utils import parseaddr, parsedate_to_datetime
+
         directory = os.environ.get("CATALYST_TEST_SENT_DIR", "")
         for name in sorted(os.listdir(directory)):  # a missing directory raises: unreachable, never "no copies"
             if not name.endswith(".eml"):
                 continue
             with open(os.path.join(directory, name), "rb") as handle:
                 parsed = email.message_from_bytes(handle.read(), policy=DEFAULT_POLICY)
-            yield Evidence(origin=self.origin, message_id=str(parsed["Message-ID"] or ""), recipient=str(parsed["To"] or ""),
+            try:
+                observed = parsedate_to_datetime(str(parsed["Date"])).astimezone(UTC)
+            except (TypeError, ValueError):
+                observed = None
+            yield Evidence(origin=self.origin, message_id=str(parsed["Message-ID"] or ""),
+                           recipient=parseaddr(str(parsed["To"] or ""))[1].lower(),
                            content_sha256=canonical_digest(str(parsed["Subject"]), parsed.get_content()),
-                           filed_by_catalyst=parsed["X-Catalyst-Filed-Copy"] is not None)
+                           filed_by_catalyst=parsed["X-Catalyst-Filed-Copy"] is not None, observed_at=observed)
 
     def find(self, message_id):
         return (r for r in self.within(None) if r.message_id == message_id)
