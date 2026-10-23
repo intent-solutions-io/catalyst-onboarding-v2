@@ -77,6 +77,11 @@ def test_6b5b_every_catalyst_container_is_locked_down_and_pinned_to_staging():
     assert s["fetcher"]["environment"]["CATALYST_DB_USER"] == "catalyst_fetcher"
     assert s["web"]["environment"]["CATALYST_DB_USER"] == s["worker"]["environment"]["CATALYST_DB_USER"] == "catalyst_app"
     assert s["migrate"]["environment"]["CATALYST_DB_USER"] == "catalyst_owner"
+    for name, default in (("CATALYST_QUALIFICATION_AUTHORITY", ""), ("CATALYST_VERIFICATION_RESEND_LIMIT", "3"),
+                          ("CATALYST_HEALTH_AGED_WAITS_PAGE", "replies_awaiting_processing,issued_agreements,provisioning_activation"),
+                          ("CATALYST_HEALTH_PENDING_AGE_SECONDS", "3600")):  # PR #87 review: the launch values reach every container
+        for svc in ("web", "worker", "migrate"):
+            assert s[svc]["environment"][name] == f"${{{name}:-{default}}}", (svc, name)
 
 
 def test_6b5b_the_socket_is_shared_only_with_the_proxy_and_only_the_proxy_has_an_open_network():

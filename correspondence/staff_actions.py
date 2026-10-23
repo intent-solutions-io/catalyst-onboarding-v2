@@ -189,6 +189,16 @@ def resend_verification(application_id: int, user, note: str = "") -> int:
     return number
 
 
+def usable_verification_link(application) -> bool:
+    """An active, unexpired challenge whose send is queued, running or done: the applicant may still have a working
+    link, so a resend duplicates it (the screen says so; security review of PR #87)."""
+    from applications.services import _reusable
+    from applications.staff import active_challenge
+
+    challenge = active_challenge(application)
+    return challenge is not None and _reusable(challenge)
+
+
 def resends_used(application) -> int:
     return ApplicationEvent.objects.filter(application=application, kind=VERIFICATION_RESENT).count()
 

@@ -172,6 +172,8 @@ CATALYST_CHALLENGE_LIFETIME_SECONDS = number("CATALYST_CHALLENGE_LIFETIME_SECOND
 # 9kg.50: how many times staff may resend the verification message for one application (a new challenge each time,
 # the old one superseded; the applicant-facing message is the same). A synthetic default until 211.7.7 (POL-02).
 CATALYST_VERIFICATION_RESEND_LIMIT = number("CATALYST_VERIFICATION_RESEND_LIMIT", "3", minimum=0)
+if CATALYST_VERIFICATION_RESEND_LIMIT > 10:  # security review of PR #87: a resend is a send to an unverified address
+    raise ImproperlyConfigured("CATALYST_VERIFICATION_RESEND_LIMIT must be at most 10")
 
 # Verification links (ADR-16, D-24). Built from this base URL, never from a request's Host header (the
 # worker has no request). The signing key is dedicated: independent of SECRET_KEY, with fallback keys for
@@ -206,8 +208,11 @@ CATALYST_HEALTH_AGED_WAIT_CLASSES = ("assessing", "awaiting_decision", "on_hold"
 CATALYST_HEALTH_AGED_WAIT_SECONDS = {
     name: number(f"CATALYST_HEALTH_AGED_WAIT_{name.upper()}_SECONDS", str(CATALYST_HEALTH_PENDING_AGE_SECONDS), cast=float,
                  minimum=0) for name in CATALYST_HEALTH_AGED_WAIT_CLASSES}
+# Default page list: the three classes that are bad in themselves (a reply nobody is processing, a sent agreement
+# nobody signs, an activation the provider keeps refusing); the stage, item and pause classes are counted and
+# printed but page only once the owner lists them (211.7.2).
 CATALYST_HEALTH_AGED_WAITS_PAGE = [n.strip() for n in os.environ.get(
-    "CATALYST_HEALTH_AGED_WAITS_PAGE", ",".join(CATALYST_HEALTH_AGED_WAIT_CLASSES)).split(",") if n.strip()]
+    "CATALYST_HEALTH_AGED_WAITS_PAGE", "replies_awaiting_processing,issued_agreements,provisioning_activation").split(",") if n.strip()]
 if set(CATALYST_HEALTH_AGED_WAITS_PAGE) - set(CATALYST_HEALTH_AGED_WAIT_CLASSES):
     raise ImproperlyConfigured("CATALYST_HEALTH_AGED_WAITS_PAGE names an unknown wait class")
 CATALYST_WORKER_POLL_SECONDS = number("CATALYST_WORKER_POLL_SECONDS", "5", cast=float, minimum=0.05)
