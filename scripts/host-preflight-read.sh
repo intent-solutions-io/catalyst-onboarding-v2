@@ -32,17 +32,18 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT="${CATALYST_PREFLIGHT_OUT:-$HOME/.local/state/catalyst-v2/preflight-$STAMP.md}"
 [[ "$OUT" = /* ]] || { echo "CATALYST_PREFLIGHT_OUT must be absolute" >&2; exit 2; }
 OUT_DIR="$(dirname "$OUT")"
-install -d -m 700 "$OUT_DIR"
-if git -C "$OUT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+if git -C "$OUT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 || git -C "$(dirname "$OUT_DIR")" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "refusing to write the record inside a git work tree" >&2; exit 2
 fi
+install -d -m 700 "$OUT_DIR" || exit 2
 
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes --)
 answered=0; unknown=0
 
 redact() {  # mask IPv4, IPv6 and host:port literals; never trust a denylist for secrets, so items also allowlist
   sed -E -e 's/[0-9]{1,3}(\.[0-9]{1,3}){3}/<addr>/g' \
-         -e 's/([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}/<addr6>/g' \
+         -e 's/([0-9a-fA-F]{1,4}:){3,7}[0-9a-fA-F]{1,4}/<addr6>/g' \
+         -e 's/[0-9a-fA-F:]*::[0-9a-fA-F:]+/<addr6>/g' \
          -e 's/<addr6?>:[0-9]+/<addr:port>/g' \
          -e 's/\b[A-Za-z0-9.-]+\.(io|com|net|org|dev|ts\.net):[0-9]+/<host:port>/g'
 }
@@ -80,7 +81,7 @@ item "Timers (names and next run only)" <<< "systemctl list-timers --all --no-pa
 item "Operator cron entries (user and command path only; anything else redacted)" <<< "for u in \$(cut -d: -f1 /etc/passwd); do sudo -n crontab -l -u \$u 2>/dev/null | grep -vE '^\s*(#|\$)' | awk -v u=\$u '{c=\$6; if (c !~ /^\\/[A-Za-z0-9_.\\/-]+\$/) c=\"<redacted>\"; print u\": \"c}'; done; ls /etc/cron.d 2>/dev/null"
 item "Proxy configuration hash and size" <<< "sha256sum $PROXY_CONFIG; wc -l $PROXY_CONFIG"
 item "Proxy: site blocks (host names only)" <<< "grep -nE '^[a-z0-9.*-]+(, ?[a-z0-9.*-]+)* *\{' $PROXY_CONFIG"
-item "Proxy: the learning site's routing directives (allowlisted directives only)" <<< "awk '/^$LEARN_RE/{f=1} f&&/^\}/{f=0} f' $PROXY_CONFIG | awk '{d=\$1; sub(/^[ \t]+/, \"\", d)} d ~ /^(handle|handle_path|route|@|path|redir|rewrite|file_server|root|encode|try_files|respond|log|rate_limit|\})/ {print}'"
+item "Proxy: the learning site's routing directives (allowlisted directives only)" <<< "awk '/^$LEARN_RE/{f=1} f&&/^\}/{f=0} f' $PROXY_CONFIG | awk '{d=\$1} d ~ /^@/ || d ~ /^(handle|handle_path|route|path|redir|rewrite|file_server|root|encode|try_files|log|rate_limit|\})\$/ {print}'"
 item "Proxy: adapted configuration hash (parse only, no validate)" <<< "h=\$(caddy adapt --config $PROXY_CONFIG --adapter caddyfile 2>/dev/null) && printf '%s' \"\$h\" | sha256sum"
 item "Proxy modules of interest (rate limit, log filters, auth)" <<< "caddy list-modules 2>/dev/null | grep -Ei 'rate|filter|auth|forward'"
 item "Proxy log files (names, sizes, modes)" <<< "ls -l /var/log/caddy 2>/dev/null"
@@ -90,9 +91,9 @@ item "PostgreSQL service(s) and images (host or container)" <<< "systemctl list-
 item "PostgreSQL roles (names and attributes only)" <<< "sudo -n -u postgres psql -Atc \"select rolname, rolsuper, rolcreaterole, rolcanlogin from pg_roles order by 1\" 2>/dev/null || for c in \$(docker ps --format '{{.Names}}' | grep -i postgres); do docker exec \$c psql -U postgres -Atc \"select rolname, rolsuper, rolcreaterole, rolcanlogin from pg_roles order by 1\" 2>/dev/null; done"
 item "Backup fabric: repository paths and exclusions (names only)" <<< "ls -ld /backup* /srv/backup* 2>/dev/null; grep -rhoE -- '--exclude [^ ]+' /usr/local/bin/*backup* /etc/cron.d/* 2>/dev/null | sort -u"
 item "Alert floor present (names only)" <<< "ls -l /usr/local/bin/notify.sh /usr/local/lib/intentsolutions/alert-floor.sh 2>/dev/null"
-item "Staff private path configured on the proxy (count of matching lines)" <<< "grep -cE 'handle_path|@staff|forward_auth|remote_ip' $PROXY_CONFIG || true"
+item "Staff private path configured on the proxy (count of matching lines)" <<< "test -r $PROXY_CONFIG && { grep -cE 'handle_path|@staff|forward_auth|remote_ip' $PROXY_CONFIG || true; }"
 item "SSH: auth methods (names only)" <<< "sudo -n sshd -T 2>/dev/null | grep -E '^(passwordauthentication|pubkeyauthentication|permitrootlogin) '"
-item "Firewall: status, defaults and allow-rule count" <<< "sudo -n ufw status verbose 2>/dev/null | grep -E '^(Status|Default)'; sudo -n ufw status 2>/dev/null | grep -c ALLOW || true"
+item "Firewall: status, defaults and allow-rule count" <<< "c=\$(sudo -n ufw status verbose 2>/dev/null) && { printf '%s\n' \"\$c\" | grep -E '^(Status|Default)'; printf '%s\n' \"\$c\" | grep -c ALLOW || true; }"
 
 printf '\n---\nanswered: %d, unknown: %d\n' "$answered" "$unknown" >> "$OUT"
 echo
