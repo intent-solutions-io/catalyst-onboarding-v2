@@ -21,6 +21,13 @@ Then: the `QualificationDecision` row, the stage move (`admitted`, `declined` or
 held follow-on for P4 (`issue_nda:<application>` for admit, `send_decline:<application>` for decline; nothing for
 hold). A database trigger refuses any move into a decided stage without a decision row inserted in the same
 transaction (TEST-P3-52). No model output is read to choose anything here.
+
+oc4.12 (019 decision 4; 018 section 20): the decision digest binds, and the decision records in `decision_inputs`,
+the policy reference (the synthetic rubric's `none-approved` reference stated openly until a policy is bound), the
+pack digest and rubric version, the snapshot digest with an evidence manifest (present, unavailable, refused,
+size-limited, claims-only, pending) and every run with its status, error code and requests spent. A human-only
+decision carries a structured reason (`HUMAN_ONLY_CODES`), derived from the state, never free text alone; under
+the launch-wide suspension of model advice it is `advice_suspended` and cites the suspension record.
 """
 
 import hashlib
@@ -50,6 +57,9 @@ FOLLOW_ON = {"admit": "issue_nda", "decline": "send_decline"}  # held; P4 and PO
 CAPABILITY = ("shown", "partly_shown", "not_shown", "unknown")
 EVIDENCE_STRENGTH = ("strong", "moderate", "weak", "none")
 FAILED = ("refused", "invalid_output", "failed", "capped", "abandoned")
+# oc4.12: why a human-only assessment applies, in order of precedence (the first that holds).
+HUMAN_ONLY_CODES = ("advice_suspended", "run_capped", "run_failed", "run_cap_reached", "returned_without_reassessment")
+EVIDENCE_STATES = ("present", "size_limited", "unavailable", "refused", "pending", "claims_only")
 _REASON_CODE = re.compile(r"^[a-z][a-z_]{2,39}$")
 NOTE_MAX = 500
 # Staff items that concern who the applicant is: a decision waits until they are resolved (018 section 7).
@@ -78,6 +88,56 @@ def policy_ref(pack) -> str:
     """The selection policy the decision applies (019 section 6). Until an approved policy is activated, the
     synthetic rubric stands in, and the reference says so."""
     return settings.CATALYST_SELECTION_POLICY or f"none-approved:{pack.name}:rubric-{pack.rubric_version}"
+
+
+def bound_pack() -> str:
+    """The pack the active policy was approved with (oc4.10 item 1), or "" when no policy is active."""
+    policy = settings.CATALYST_SELECTION_POLICY
+    return (settings.CATALYST_SELECTION_POLICY_PACKS or {}).get(policy, "") if policy else ""
+
+
+def evidence_manifest(application, manifest) -> list:
+    """018 section 20: one state per claim, for the record and the digest: `present` (a capture), `size_limited` (a
+    truncated capture), `unavailable`, `refused`, `pending`, or `claims_only` (no approved source: the claim went to the
+    assessment as a statement only)."""
+    from .models import EvidenceCapture
+
+    by_claim = {entry["claim"]: entry for entry in manifest["items"]}
+    truncated = set(EvidenceCapture.objects.filter(pk__in=[e["capture"] for e in by_claim.values() if e["capture"]],
+                                                   truncated=True).values_list("pk", flat=True))
+    version = application.versions.get(public_id=manifest["version"])
+    claims = (version.submitted_fields or {}).get("claims") or {}
+    refs = [f"work:{i}" for i in range(1, len(claims.get("work") or []) + 1)]
+    refs += [f"credential:{i}" for i in range(1, len(claims.get("credentials") or []) + 1)]
+    out = []
+    for ref in sorted({*refs, *by_claim}):
+        entry = by_claim.get(ref)
+        if entry is None:
+            state = "claims_only"
+        elif entry["status"] == "fetched":
+            state = "size_limited" if entry["capture"] in truncated else "present"
+        else:
+            state = entry["status"]
+        out.append({"claim": ref, "state": state})
+    return out
+
+
+def runs_summary(application) -> list:
+    return [{"run": str(r.public_id), "status": r.status, "error_code": r.error_code, "requests_used": r.requests_used}
+            for r in AssessmentRun.objects.filter(application=application).order_by("id")]
+
+
+def human_only_code(application, run, current: str) -> str:
+    """The structured reason a human-only assessment applies now (the screen shows it; the record keeps it)."""
+    if settings.CATALYST_ASSESSMENT_MODEL == "none":
+        return "advice_suspended"
+    if run is not None and run.snapshot_sha256 == current and run.status == "capped":
+        return "run_capped"
+    if run is not None and run.snapshot_sha256 == current and run.status in FAILED:
+        return "run_failed"
+    if application.stage == Stage.ASSESSING:
+        return "run_cap_reached"
+    return "returned_without_reassessment"
 
 
 def _sha(value) -> str:
@@ -113,11 +173,18 @@ def decision_state(application) -> dict:
         or application.stage in (Stage.AWAITING_DECISION, Stage.ON_HOLD)
         or (application.stage == Stage.ASSESSING  # no run can be queued any more: the run cap is reached
             and AssessmentRun.objects.filter(application=application).count() >= settings.CATALYST_ASSESSMENT_RUNS_PER_APPLICATION))
+    evidence = evidence_manifest(application, manifest) if manifest is not None else []
+    runs = runs_summary(application)
+    policy = policy_ref(pack) if pack is not None else ""
+    code = human_only_code(application, run, current) if human_only_allowed else ""
     return {"pack": pack, "manifest": manifest, "snapshot": current, "run": succeeded, "latest_run": run,
             "stale_run": run is not None and succeeded is None and run.status == "succeeded",
             "questions": questions, "human_only_allowed": human_only_allowed,
-            "digest": _sha({"snapshot": current, "questions": questions,
-                            "run": str(succeeded.public_id) if succeeded else ""})}
+            "policy_ref": policy, "pack_sha256": pack.sha256 if pack else "", "rubric_version": pack.rubric_version if pack else 0,
+            "evidence_manifest": evidence, "runs": runs, "human_only_code": code,
+            "suspension_ref": settings.CATALYST_MODEL_ADVICE_SUSPENSION_REF if code == "advice_suspended" else "",
+            "digest": _sha({"snapshot": current, "questions": questions, "run": str(succeeded.public_id) if succeeded else "",
+                            "policy": policy, "pack_sha256": pack.sha256 if pack else "", "evidence": evidence, "runs": runs})}
 
 
 def _rationale(pack, rationale: dict) -> dict:
@@ -166,7 +233,9 @@ def record_decision(application_id: int, user, *, outcome: str, reason_code: str
         if state["pack"] is None or state["manifest"] is None:
             raise Refused("no_snapshot")
         if expected_digest != state["digest"]:
-            raise Refused("changed_since_shown")  # a re-fetch, a confirmed answer, a question set change, a new run
+            raise Refused("changed_since_shown")  # a re-fetch, a confirmed answer, a question set change, a new run, a policy change
+        if settings.CATALYST_SELECTION_POLICY and state["pack"].name != bound_pack():
+            raise Refused("policy_not_bound_to_pack")  # oc4.10 item 1: a policy labels only decisions under its own pack
         if AssessmentRun.objects.filter(application=application, status__in=("queued", "reserved")).exists():
             raise Refused("assessment_in_flight")
         version = application.versions.get(public_id=state["manifest"]["version"])
@@ -194,14 +263,20 @@ def record_decision(application_id: int, user, *, outcome: str, reason_code: str
                                                                  subject_id=application.public_ref).exists():
             raise Refused("admit_refused_while_paused")
         checked = _rationale(state["pack"], rationale)
+        code = state["human_only_code"] if human_only else ""
+        inputs = {"policy": state["policy_ref"], "pack": state["pack"].name, "pack_sha256": state["pack_sha256"],
+                  "rubric_version": state["rubric_version"], "snapshot": state["snapshot"],
+                  "evidence": state["evidence_manifest"], "runs": state["runs"], "questions": state["questions"],
+                  "human_only_code": code, "suspension_ref": state["suspension_ref"] if human_only else ""}
         try:
             with transaction.atomic():
                 decision = QualificationDecision.objects.create(
                     application=application, adopted_version=version, run=run, outcome=outcome,
                     basis=QualificationDecision.Basis.HUMAN_ONLY if human_only else QualificationDecision.Basis.MODEL_ASSISTED,
-                    human_only_reason=human_only_reason, reason_code=reason_code, reason_text=reason_text,
+                    human_only_reason=human_only_reason, human_only_code=code, reason_code=reason_code, reason_text=reason_text,
                     rationale=checked, snapshot_sha256=state["snapshot"], decision_digest=state["digest"],
-                    policy_ref=policy_ref(state["pack"]), actor_ref=actor)
+                    policy_ref=state["policy_ref"], prompt_pack=state["pack"].name, prompt_pack_sha256=state["pack_sha256"],
+                    rubric_version=state["rubric_version"], decision_inputs=inputs, actor_ref=actor)
         except IntegrityError as exc:
             constraint = getattr(getattr(exc.__cause__, "diag", None), "constraint_name", "")
             if constraint == "decision_one_final_per_application":
@@ -209,7 +284,8 @@ def record_decision(application_id: int, user, *, outcome: str, reason_code: str
             raise Refused("decision_invalid") from None
         try:
             transition(application.pk, from_stages, STAGE_FOR[outcome], event_kind=f"qualification_{outcome}",
-                       data={"decision": str(decision.public_id), "basis": decision.basis, "policy": decision.policy_ref},
+                       data={"decision": str(decision.public_id), "basis": decision.basis, "policy": decision.policy_ref,
+                             "human_only_code": code},
                        actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
         except StageConflict:
             raise Refused("stage_not_decidable") from None
@@ -229,3 +305,19 @@ def record_decision(application_id: int, user, *, outcome: str, reason_code: str
                                          input_ref=str(decision.public_id), idempotency_key=f"{kind}:{application.public_ref}",
                                          status=PendingAction.Status.HELD)
     return decision
+
+
+def scorecard() -> dict:
+    """019 section 9 (B: overrides and exceptions; C: version differences), counts only, for the weekly summary
+    (`f1u.7`): decisions by basis and outcome, human-only decisions by their structured reason, and by policy
+    reference. No name, reason text or identifier."""
+    from django.db.models import Count
+
+    decisions = QualificationDecision.objects.all()
+    human_only = decisions.filter(basis=QualificationDecision.Basis.HUMAN_ONLY)
+
+    def by(queryset, *fields):
+        return [dict(zip(fields, row[:-1]), count=row[-1]) for row in
+                queryset.values_list(*fields).annotate(n=Count("id")).order_by(*fields)]
+    return {"decisions": decisions.count(), "by_basis_and_outcome": by(decisions, "basis", "outcome"),
+            "human_only_by_code": by(human_only, "human_only_code"), "by_policy": by(decisions, "policy_ref")}

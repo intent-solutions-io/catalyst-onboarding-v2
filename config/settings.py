@@ -372,8 +372,14 @@ CATALYST_ASSESSMENT_ROUNDS = number("CATALYST_ASSESSMENT_ROUNDS", "3")
 # 9kg.30 (029 section 5.2): the launch host sets it when `211.7.8` names the holders, with no code change.
 CATALYST_QUALIFICATION_AUTHORITY = os.environ.get("CATALYST_QUALIFICATION_AUTHORITY", "").strip() or None
 # The active selection policy (019 section 6), set in code by a recorded owner activation. Empty: none is approved,
-# and decisions record the synthetic rubric they relied on instead.
+# and decisions record the synthetic rubric they relied on instead. A policy names the prompt pack it was approved
+# with (oc4.12, oc4.10 item 1): the guard refuses a policy that is unbound or bound to a synthetic rubric, and a
+# decision refuses a pack other than the bound one.
 CATALYST_SELECTION_POLICY = ""
+CATALYST_SELECTION_POLICY_PACKS = {}  # {"SP-L2-1": "assessment_v<n>"}, written by the activation that approves both
+# oc4.12 (019 decision 4, section 10): the launch-wide suspension of model advice, recorded in 011 section 4.1. Every
+# human-only decision taken under it cites this reference in its structured reason; fixed in code, like the policy.
+CATALYST_MODEL_ADVICE_SUSPENSION_REF = "011:4.1:2026-10-23:model-advice-suspended"
 CATALYST_QUESTIONS_PER_ROUND = number("CATALYST_QUESTIONS_PER_ROUND", "3")
 # Reply interpretation may use at most this many of the shared daily requests per application (3B.3 review).
 CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION = number("CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION", "10")

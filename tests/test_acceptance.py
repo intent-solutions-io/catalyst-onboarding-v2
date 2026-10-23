@@ -268,7 +268,7 @@ DATABASE_CONSTRAINTS = {
     "assessment_invocation_one_per_attempt", "assessment_invocation_status_valid",
     "question_text_unique_while_live", "reply_interpretation_one_per_attempt", "reply_interpretation_status_valid",
     "reply_interpretation_finished_has_time",
-    "decision_outcome_valid", "decision_basis_valid", "decision_basis_matches_run", "decision_one_final_per_application",
+    "decision_outcome_valid", "decision_basis_valid", "decision_basis_matches_run", "decision_one_final_per_application", "decision_human_only_has_code",
     # P4 4B.1 (021 section 3)
     "agreement_template_one_per_version", "agreement_template_status_valid", "agreement_template_approved_has_actor",
     "agreement_issue_status_valid", "agreement_signing_status_valid", "agreement_custody_status_valid",

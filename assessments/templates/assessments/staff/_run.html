@@ -1,9 +1,10 @@
 {% load correspondence_display %}<h2>Assessment (advisory)</h2>
 {% if not run %}<p>No assessment run yet.</p>{% else %}
+{% if run.status == "refused" and run.error_code == "model_not_authorized" %}<p><strong>Refused by suspension:</strong> model advice is disabled for this launch (019 decision 4). This is not an assessment failure; the recorded human-only assessment on the decision screen is the way on.</p>{% endif %}
 <p>Run status {{ run.status }}{% if run.error_code %} ({{ run.error_code }}){% endif %}; snapshot {{ run.snapshot_sha256|truncatechars:17 }}; prompt pack {{ run.prompt_pack }} (rubric {{ run.rubric_version }}){% if run.model_id %}; model <bdi>{{ run.model_id|visible }}</bdi>{% endif %}; {{ run.requests_used }} request(s).</p>
 {% if run.flags %}<p>Flags: {% for f in run.flags %}{{ f }}{% if not forloop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
 {% if run.output %}
-<p>This is a model's reading of the evidence, not a decision. A person decides; nothing here is pre-selected.</p>
+<p>This is a model's reading of the evidence: nonbinding advice, not a decision. A person decides; nothing here is pre-selected.</p>
 <table><tr><th>Criterion</th><th>Rating</th><th>Summary and quotes</th></tr>
 {% for f in run.output.criteria %}<tr><td>{{ f.criterion_id }}</td><td>{{ f.rating }}</td><td><bdi>{{ f.summary|visible }}</bdi>
 {% for c in f.citations %}<pre class="untrusted">{{ c.evidence_alias }}: {{ c.quote|visible }}</pre>{% endfor %}</td></tr>{% endfor %}

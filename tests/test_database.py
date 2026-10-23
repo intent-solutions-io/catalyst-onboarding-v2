@@ -61,6 +61,7 @@ APPROVED_MIGRATIONS = {
     ("assessments", "0009_fetcher_role_grants"),  # 9kg.24: the evidence fetcher's own narrower role
     # 9kg.30: the append-only staff role grant record and the P4 and P5 role groups (accounts.roles)
     ("accounts", "0006_staff_role_grants"), ("agreements", "0009_staff_groups"), ("provisioning", "0007_staff_groups"),
+    ("assessments", "0010_decision_inputs_and_human_only_code"),  # oc4.12: what a decision records, completed
 }
 
 

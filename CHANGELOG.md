@@ -78,6 +78,10 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   correspondence screen with its limit (`9kg.50`, `018` section 19, `016` section 10.13)
 - The `aged_waits` health part: every unbounded wait counted past its own threshold with its oldest age, paging
   per class by the owner's values, codes only (`9kg.51`, `026` section 17)
+- The human-only assessment path completed for a launch with model advice disabled: the suspension record, the
+  structured human-only reason, the decision digest and record carrying the policy, pack, evidence manifest and
+  runs, the policy-to-pack binding guard, "refused by suspension" labels and the selection scorecard command
+  (`oc4.12`; `oc4.10` items 1 to 3; `018` section 20, `011` section 4.1)
 
 ### Changed
 

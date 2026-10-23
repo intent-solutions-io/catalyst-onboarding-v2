@@ -206,6 +206,22 @@ def decision_problems(settings, environ: Mapping[str, str]) -> list[str]:
     policy = getattr(settings, "CATALYST_SELECTION_POLICY", "")
     if policy and not re.fullmatch(r"SP-[A-Z0-9]{1,8}-[0-9]{1,4}", policy):
         problems.append("CATALYST_SELECTION_POLICY must be empty or an SP-<role>-<n> identifier (019 section 6)")
+    elif policy:
+        # oc4.12 (oc4.10 item 1): a policy labels decisions only when it is bound to the pack it was approved with,
+        # and never while that pack's rubric is the synthetic one.
+        pack_name = (getattr(settings, "CATALYST_SELECTION_POLICY_PACKS", None) or {}).get(policy)
+        if not pack_name:
+            problems.append("CATALYST_SELECTION_POLICY is set but CATALYST_SELECTION_POLICY_PACKS does not bind it to a prompt pack")
+        else:
+            from assessments import pack as packs
+
+            try:
+                synthetic = packs.load(pack_name).rubric.get("synthetic", True)
+            except packs.PackRefused as exc:
+                problems.append(f"CATALYST_SELECTION_POLICY is bound to an unusable prompt pack ({exc})")
+            else:
+                if synthetic:
+                    problems.append("CATALYST_SELECTION_POLICY is bound to a prompt pack whose rubric is synthetic (POL-04)")
     return problems
 
 

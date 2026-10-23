@@ -300,9 +300,9 @@ def _decision_sql(conn, app_id, outcome="hold"):
     version = conn.execute("SELECT id FROM applications_submissionversion WHERE application_id = %s ORDER BY id LIMIT 1",
                            [app_id]).fetchone()[0]
     conn.execute("INSERT INTO assessments_qualificationdecision (public_id, application_id, adopted_version_id, outcome, basis,"
-                 " human_only_reason, reason_code, reason_text, rationale, snapshot_sha256, decision_digest, policy_ref,"
-                 " actor_ref, second_actor_ref) VALUES (gen_random_uuid(), %s, %s, %s, 'human_only', 'synthetic', 'synthetic',"
-                 " '', '{}', 'x', 'x', 'x', 'test', '')", [app_id, version, outcome])
+                 " human_only_reason, human_only_code, reason_code, reason_text, rationale, snapshot_sha256, decision_digest,"
+                 " policy_ref, actor_ref, second_actor_ref) VALUES (gen_random_uuid(), %s, %s, %s, 'human_only', 'synthetic',"
+                 " 'run_failed', 'synthetic', '', '{}', 'x', 'x', 'x', 'test', '')", [app_id, version, outcome])  # oc4.12: a code
 
 
 def test_review_the_backstop_needs_a_matching_decision_from_this_very_transaction(d, monkeypatch):
@@ -352,10 +352,10 @@ def test_review_a_supplied_transaction_marker_is_overwritten_and_truncate_is_ref
     app = ready_app(d, monkeypatch)
     conn = d.committed.connect("app", autocommit=True)
     conn.execute("INSERT INTO assessments_qualificationdecision (public_id, application_id, adopted_version_id, outcome,"
-                 " basis, human_only_reason, reason_code, reason_text, rationale, snapshot_sha256, decision_digest,"
-                 " policy_ref, actor_ref, second_actor_ref, created_txid) SELECT gen_random_uuid(), %s, id, 'hold',"
-                 " 'human_only', 'x', 'x', '', '{}', 'x', 'x', 'x', 'x', '', 1 FROM applications_submissionversion"
-                 " WHERE application_id = %s LIMIT 1", [app.pk, app.pk])
+                 " basis, human_only_reason, human_only_code, reason_code, reason_text, rationale, snapshot_sha256,"
+                 " decision_digest, policy_ref, actor_ref, second_actor_ref, created_txid) SELECT gen_random_uuid(), %s, id,"
+                 " 'hold', 'human_only', 'x', 'run_failed', 'x', '', '{}', 'x', 'x', 'x', 'x', '', 1"
+                 " FROM applications_submissionversion WHERE application_id = %s LIMIT 1", [app.pk, app.pk])
     assert conn.execute("SELECT created_txid FROM assessments_qualificationdecision WHERE application_id = %s",
                         [app.pk]).fetchone()[0] != 1
     with pytest.raises((errors.InsufficientPrivilege, errors.RaiseException)):
@@ -474,7 +474,10 @@ def test_review_the_selection_policy_setting_is_validated():
         CATALYST_SELECTION_POLICY = "anything goes"
     assert guards.decision_problems(Fake, {})
     Fake.CATALYST_SELECTION_POLICY = "SP-L2-1"
-    assert guards.decision_problems(Fake, {}) == []
+    # oc4.12 (oc4.10 item 1): a well-formed policy is refused until it is bound to the pack it was approved with, and
+    # while that pack's rubric is synthetic; tests/test_human_only.py has the bound cases.
+    [problem] = guards.decision_problems(Fake, {})
+    assert "does not bind it to a prompt pack" in problem
 
 
 def test_recheck_human_only_after_the_run_cap_in_assessing(d, monkeypatch, settings):

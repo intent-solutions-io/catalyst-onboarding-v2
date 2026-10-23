@@ -347,6 +347,19 @@ RTO targets, alert thresholds, rotation intervals and scan policy remain open (`
 direction of 2026-10-23 ("Our pilot will be go live and we dogfood ourselves") is the planning instruction for
 handoff PL-A (`029`), not a launch authorization.
 
+**Suspension record, 2026-10-23 (PROPOSED default; `019` section 10, under the D-35 amendment of P3-D-10).** Model
+advice is suspended for the whole internal launch: `CATALYST_ASSESSMENT_MODEL` stays `none`, no model request is
+made, and every case that reaches the decision stage is assessed by a person against the same criteria and the same
+snapshot, recorded as a human-only decision whose structured reason is `advice_suspended` and cites this record
+(`CATALYST_MODEL_ADVICE_SUSPENSION_REF`, `011:4.1:2026-10-23:model-advice-suspended`). This is the recommended
+default of `029` D-E ("model advice off for the internal launch; human-only assessment"), built on by `oc4.12` as
+section 13.3 of `029` allows; it becomes the owner's decision when `211.7.4` is recorded, and lifting it is a separate
+recorded act (`019` section 10: suspension and rollback are the owner's). Nothing here declines anyone
+automatically; a run refused under the suspension is labelled "refused by suspension", not an assessment failure.
+Internal dogfooding under this record is not evidence of selection validity (`029` D-M) and is never covert staff
+appraisal: participants are told what is recorded and what leaves the system (nothing leaves under this record).
+Design record: `018` section 20.
+
 ### 4.2 Decision summary
 
 Decision records with rationale live in `003` section "Architecture decisions". This table is the

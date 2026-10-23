@@ -46,6 +46,11 @@ REASONS = {
     "send_rejected_permanent": "a send was rejected permanently",
     "send_refused": "a send was refused before sending",
     "filed_copy_failed": "a copy could not be filed",
+    "assessment_failed": "an assessment run failed; staff may rerun it or record a human-only assessment",
+    "assessment_capped": "the assessment budget for this snapshot is spent; the human-only decision form is the way on",
+    "assessment_input_changed": "the assessment input changed before the run; a reassessment was needed",
+    "assessment_pack_refused": "the prompt pack was refused; no assessment can run",
+    "assessment_suspended": "refused by suspension: model advice is disabled, a human-only assessment applies (oc4.12)",
 }
 
 

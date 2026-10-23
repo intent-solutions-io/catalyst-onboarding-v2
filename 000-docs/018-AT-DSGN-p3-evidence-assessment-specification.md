@@ -1109,3 +1109,41 @@ decision, not a closure, so the decision service now accepts `on_hold` as a sour
 Tests: `tests/test_hold_and_resend.py` (the service, the form, the refused user, the human-only hold). The default
 built on: the route is the existing authority-gated decision form, never a free close action (`029` section 13.3;
 `oc4.12` records the same for a capped snapshot).
+
+## 20. The human-only path completed for the internal launch (oc4.12, 2026-10-23)
+
+Built on the recorded default that model advice is suspended for the whole internal launch (`011` section 4.1,
+suspension record of 2026-10-23; `019` decision 4 and section 10) and on `oc4.8`'s recommended default (a capped or
+refused snapshot leaves `assessing` through the authority-gated human-only decision form, never a free
+close-assessment action; the owner's `oc4.8` decision can change the value without redesign).
+
+**What a decision now records** (`QualificationDecision`, migration 0010; `decisions.decision_state`):
+
+- the **decision digest** binds, and `decision_inputs` keeps: the policy reference (the synthetic rubric's
+  `none-approved:<pack>:rubric-<n>` stated openly until a policy is bound), the pack name and digest and the rubric
+  version, the snapshot digest with an **evidence manifest** (one state per claim: `present`, `size_limited`,
+  `unavailable`, `refused`, `pending`, `claims_only`), every run with its status, error code and requests spent, and
+  the question set. A change to any of them between the screen and the submit is refused (`changed_since_shown`):
+  `oc4.10` item 2 fixed.
+- the **pack, its digest and the rubric version** in their own columns, whatever the policy reference says:
+  `oc4.10` item 3 fixed.
+- a **structured human-only reason** (`human_only_code`: `advice_suspended`, `run_capped`, `run_failed`,
+  `run_cap_reached`, `returned_without_reassessment`), derived from the state and shown on the screen before the
+  submit; a database constraint refuses a human-only row without one, so a free-text reason never stands alone.
+  Under the suspension the code is `advice_suspended` and the record cites `CATALYST_MODEL_ADVICE_SUSPENSION_REF`.
+
+**A policy labels only its own decisions** (`oc4.10` item 1 fixed): `CATALYST_SELECTION_POLICY_PACKS` binds a
+policy to the pack it was approved with (written by the activation, code-fixed like the policy). The start-up guard
+refuses a policy that is unbound, bound to an unusable pack, or bound to a pack whose rubric is synthetic (POL-04);
+the decision service refuses a decision whose pack is not the bound one (`policy_not_bound_to_pack`).
+
+**Refused by suspension.** A run refused because the model is `none` opens `assessment_suspended` (acknowledge-only,
+settled by a later success or rerun like the other assessment items), not `assessment_failed`; the dossier and the
+run partial say "refused by suspension: not an assessment failure" (TEST-P3-02 amended accordingly). Model output,
+where it exists, is labelled nonbinding advice.
+
+**Counted.** `manage.py selection_scorecard` prints the `019` section 9 counts (decisions by basis and outcome,
+human-only decisions by reason, decisions by policy reference), counts only, for the weekly summary (`f1u.7`).
+
+**Not built, by design:** no close-assessment action, no budget top-up, no change to the applicant-facing pages, no
+model call. Tests: `tests/test_human_only.py`; the hold exit of section 19 is the same form.
