@@ -6,11 +6,11 @@ import json
 
 from django.core.management.base import BaseCommand
 
-from assessments import decisions
+from assessments import scorecard
 
 
 class Command(BaseCommand):
     help = "Print selection-quality counts (019 section 9): decisions by basis, outcome, human-only reason and policy."
 
     def handle(self, *args, **options):
-        self.stdout.write(json.dumps(decisions.scorecard(), sort_keys=True))
+        self.stdout.write(json.dumps(scorecard.scorecard(), sort_keys=True))

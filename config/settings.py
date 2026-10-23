@@ -380,6 +380,15 @@ CATALYST_SELECTION_POLICY_PACKS = {}  # {"SP-L2-1": "assessment_v<n>"}, written 
 # oc4.12 (019 decision 4, section 10): the launch-wide suspension of model advice, recorded in 011 section 4.1. Every
 # human-only decision taken under it cites this reference in its structured reason; fixed in code, like the policy.
 CATALYST_MODEL_ADVICE_SUSPENSION_REF = "011:4.1:2026-10-23:model-advice-suspended"
+# The policy identifier every cohort decision records while no policy is active and model advice is off (council
+# record 030 Q8; D-M): the literal below, never the synthetic rubric's reference. Once advice is on, the rubric
+# reference applies again. Fixed in code.
+CATALYST_NO_POLICY_LABEL = "none: internal cohort, D-M"
+# oc4.8 (recommended default, oc4.12): what clears a capped assessment snapshot. "human_only": the authority-gated
+# human-only decision form; "none": nothing (a capped case waits for the owner's budget decision). Fixed in code.
+CATALYST_CAPPED_EXIT = "human_only"
+if CATALYST_CAPPED_EXIT not in ("human_only", "none"):
+    raise ImproperlyConfigured("CATALYST_CAPPED_EXIT must be 'human_only' or 'none'")
 CATALYST_QUESTIONS_PER_ROUND = number("CATALYST_QUESTIONS_PER_ROUND", "3")
 # Reply interpretation may use at most this many of the shared daily requests per application (3B.3 review).
 CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION = number("CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION", "10")

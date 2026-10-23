@@ -23,10 +23,17 @@ class Migration(migrations.Migration):
                             field=models.PositiveIntegerField(db_default=0, default=0)),
         migrations.AddField(model_name="qualificationdecision", name="decision_inputs",
                             field=models.JSONField(db_default="{}", default=dict)),
-        migrations.AddConstraint(
-            model_name="qualificationdecision",
-            constraint=models.CheckConstraint(
-                condition=models.Q(("basis", "model_assisted")) | models.Q(("human_only_code", ""), _negated=True),
-                name="decision_human_only_has_code"),
+        # NOT VALID: existing human-only rows (none in production; synthetic ones elsewhere) are append-only, so no
+        # backfill can give them a code; the constraint binds every row inserted from now on.
+        migrations.SeparateDatabaseAndState(
+            state_operations=[migrations.AddConstraint(
+                model_name="qualificationdecision",
+                constraint=models.CheckConstraint(
+                    condition=models.Q(("basis", "model_assisted")) | models.Q(("human_only_code", ""), _negated=True),
+                    name="decision_human_only_has_code"))],
+            database_operations=[migrations.RunSQL(
+                "ALTER TABLE assessments_qualificationdecision ADD CONSTRAINT decision_human_only_has_code"
+                " CHECK (basis = 'model_assisted' OR NOT (human_only_code = '')) NOT VALID",
+                "ALTER TABLE assessments_qualificationdecision DROP CONSTRAINT decision_human_only_has_code")],
         ),
     ]

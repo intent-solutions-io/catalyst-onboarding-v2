@@ -17,9 +17,9 @@ Selection policy: {{ policy_ref }}.</p>
 {% else %}
 <form method="post" action="{% url 'assessments_staff:decide' application.public_ref %}">{% csrf_token %}
 <input type="hidden" name="digest" value="{{ state.digest }}">
-<p>For each criterion, record what the evidence shows (capability) and how much evidence there is (strength) separately. Missing or private evidence is never evidence against the applicant.</p>
-<table><tr><th>Criterion</th><th>Capability</th><th>Strength of evidence</th><th>Your reasoning</th></tr>
-{% for c in criteria %}<tr><td>{{ c.id }}</td>
+<p>For each criterion, record what the evidence shows (capability) and how much evidence there is (strength) separately (019 section 5: two facts, never one score). <strong>Not evidence of low ability:</strong> no public portfolio, confidential or private work, a missing certification, a non-traditional career, a different communication style or English fluency beyond what the role needs; with no evidence, capability is <em>unknown</em>. <strong>Equivalent evidence routes:</strong> every criterion accepts more than one route; an applicant who cannot use one is offered another, and the alternative is recorded. The same criteria apply to every applicant.</p>
+<table><tr><th>Criterion</th><th>Definition</th><th>Capability</th><th>Strength of evidence</th><th>Your reasoning</th></tr>
+{% for c in criteria %}<tr><td>{{ c.id }}{% if c.required %} (required){% endif %}</td><td>{{ c.definition }}</td>
 <td><select name="cap-{{ c.id }}" required><option value="">choose</option>{% for v in capability %}<option value="{{ v }}">{{ v }}</option>{% endfor %}</select></td>
 <td><select name="str-{{ c.id }}" required><option value="">choose</option>{% for v in strength %}<option value="{{ v }}">{{ v }}</option>{% endfor %}</select></td>
 <td><input name="note-{{ c.id }}" maxlength="500" required></td></tr>{% endfor %}
