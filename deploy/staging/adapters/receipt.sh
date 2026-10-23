@@ -24,6 +24,7 @@ ids="$(compose exec -T web python manage.py check --deploy --fail-level WARNING 
 mkdir -p "$CATALYST_DEPLOY_STATE/receipts"
 out="$CATALYST_DEPLOY_STATE/receipts/$(date -u +%Y%m%dT%H%M%SZ).json"
 pending="$(mktemp "$CATALYST_DEPLOY_STATE/receipts/.pending.XXXXXX")"
+trap 'rm -f "$pending"' EXIT  # a receipt that was not kept on purpose is never left behind
 python3 - "$image" "$label" "$facts" "$check" "$ready" "$op" "$role" > "$pending" <<'PY'
 import datetime, json, sys
 image, label, facts, check, ready, op, role = sys.argv[1:]
@@ -45,6 +46,7 @@ if ! PYTHONPATH="$REPO" python3 -m config.personal_data_scan --class receipt "$p
   rm -f "$pending"
   fail "receipt withheld: the personal-data scan did not pass over the deployment receipt and the pre-deploy backup receipt"
 fi
+chmod 0640 "$pending"  # mktemp leaves 0600; the receipt is read by the deploy user's own timers (health.sh)
 mv -f "$pending" "$out"
 problems=()
 [ "$role" = deploy ] || [ "$role" = revert ] || problems+=("$role")

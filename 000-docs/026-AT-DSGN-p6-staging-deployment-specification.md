@@ -439,29 +439,43 @@ the report cannot drift apart silently), and the report shape, `register.json` a
 run. Deferred to a later task, since it needs git state: marking a proof for review when an implementation file
 listed against it changes.
 
-### 11.2 The personal-data scan (`9kg.40`, TEST-P6-35, 2026-10-23)
+### 11.2 The personal-data scan (`9kg.40`, TEST-P6-35, 2026-10-23; reviewed the same day)
 
 `config/personal_data_scan.py` (standard library only, so the host runs it with its own `python3`) scans four
-input classes for personal data: the committed evidence (`EVIDENCE_PATHS`: the after-action reports, the
-compatibility and first-slice evidence, this specification with its section 16 records, and `029`), backup and
-restore-drill receipts, alert text (a log or stdin) and the deployment receipt. Its patterns are classes, not
-people: an email address outside the reserved example domains, a phone number with separators, a street address,
-a fixture person's name (a receipt carrying even a synthetic applicant's name has a leak), a secret assignment
-whose value is not marked synthetic or redacted, a bearer token, a private-key block, a long mixed-case token (a
-digest is hex and allowed; a slug of joined words is a name) and an IPv4 address that is neither loopback,
-unspecified, link-local nor a documentation address. It prints the location and the pattern's name, never the
-matched value; it exits 0 clean, 1 on a hit and 2 when nothing was scanned or an input could not be read, so an
-empty result is meaningful only when something was read.
+input classes for personal data: the committed evidence (`EVIDENCE_PATHS`, globs: every after-action report,
+analysis evidence, test evidence and decision record filed under `000-docs`, this specification with its section 16
+records, and `029`; a new record of one of those classes is scanned without a change to the list, which a test
+checks), backup and restore-drill receipts, alert text (a log or stdin) and the deployment receipt. Its patterns
+are classes, not people: an email address outside the reserved example domains (the domain itself or a subdomain of
+it; an address at a domain that merely ends in the letters of a reserved one is a hit), a phone number with separators or a bracketed area code, a street address, a
+fixture person's name (case-insensitive; the fixtures' generic labels only in their exact case), a secret assignment
+(the keyword alone, inside a wider identifier such as `DB_PASSWORD` or as a quoted key, with a value not marked
+synthetic or redacted and not a code expression), a bearer token, a private-key block, a long mixed-case token
+(judged per path segment: a digest is hex, a path and a slug are names) and an IPv4 address that is neither loopback,
+unspecified, link-local nor a documentation address. Each document is scanned line by line and again as
+whitespace-normalised paragraphs, so a name or number split across a wrapped line is found and reported at the
+paragraph's first line. It prints the location and the pattern's name, never the matched value (a non-UTF-8 input
+is reported with a fixed message); it exits 0 clean, 1 on a hit and 2 when nothing was scanned or an input could
+not be read, so an empty result is meaningful only when something was read.
+
+**Floor, stated.** The fixture-name list detects the fixtures' names and no real person's; a deny-list of invited
+names on the host would be an owner decision and is not built. An unseparated phone number, a postcode and a
+free-text name are below the pattern floor. The scan is a floor under the evidence, not proof of absence.
 
 It runs in CI with the suite (`tests/test_personal_data_scan.py`: the committed evidence passes; a planted
 synthetic address, name, phone, email and token in each input class fails the scan with the value never printed;
-zero files or an unreadable input fails closed; reserved addresses, digests, run ids, timestamps and CIDR ranges
-are not hits) and on the host in the receipt step: `receipt.sh` now writes the deployment receipt to a pending
-file, scans it together with the pre-deploy backup's receipt, and only then moves it into `receipts/`; a hit
-removes the pending file and fails the step, which the deploy wrapper and the alert floor see. The step is tested
-under docker stubs. Not yet shown: that receipt step run live on a host (the register carries TEST-P6-35 as partial
-against the dark deploy, `9kg.31.5`). The scan does not replace the alert message rule in `health.sh` (codes only)
-or gitleaks (credentials in history); it adds the personal-data check `009` section 5.1 listed as manual.
+zero files or an unreadable input fails closed; reserved addresses, digests, run ids, timestamps, CIDR ranges and
+production-shaped paths are not hits) and on the host in the receipt step: `receipt.sh` writes the deployment
+receipt to a pending file (removed on any exit), scans it together with the bound pre-deploy backup's receipt, sets
+its mode and only then moves it into `receipts/`; a hit removes the pending file and fails the step for the operator.
+Today `receipt.sh` runs after a promotion in the force-command's sequence, not on a wrapper hook, so the wrapper and
+the alert floor learn of a withheld receipt through that sequence; the wiring of the receipt step into the wrapper's
+notification path waits on 6B.11's host work. The step is tested under docker stubs and ran in the deploy drill on
+the dev box (section 16, PL batch 5). Not yet wired: restore-drill receipts and the scheduled backup job's receipts
+(both written by scripts that do not call the scan yet) and alert text (codes only by construction, `health.sh`);
+the register carries TEST-P6-35 as partial against the dark deploy, `9kg.31.5`, with those surfaces named. The scan
+does not replace the alert message rule in `health.sh` or gitleaks (credentials in history); it adds the
+personal-data check `009` section 5.1 listed as manual.
 
 ## 12. 6B task graph (proposed)
 

@@ -4,6 +4,7 @@ reserved user-assigned domain (.zz), a drama-range phone number, an invented str
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -67,6 +68,14 @@ def test_9kg40_a_planted_sentinel_in_each_input_class_fails_the_scan_and_the_val
     assert piped.returncode == 1 and piped.stdout == "stdin:1: email\n" and SENTINELS["email"] not in piped.stdout
 
 
+def test_9kg40_an_undecodable_stdin_is_reported_with_a_fixed_message_never_its_bytes():
+    result = subprocess.run([sys.executable, "-m", "config.personal_data_scan", "--class", "alert", "-"], cwd=ROOT,
+                            env=support.child_env(PYTHONPATH=str(ROOT)), input=b"urgent \xff\xfe\x80 text", capture_output=True,
+                            timeout=60)
+    assert result.returncode == 2 and b"stdin is not UTF-8 text" in result.stderr
+    assert b"\xff" not in result.stderr + result.stdout and b"0xff" not in result.stderr.lower()
+
+
 def test_9kg40_the_scan_fails_closed_on_zero_files_or_an_unreadable_input(tmp_path):
     empty = tmp_path / "empty"
     empty.mkdir()
@@ -92,14 +101,18 @@ def test_9kg40_the_committed_evidence_passes_the_scan():
     assert result.returncode == 0, result.stdout
     files = int(result.stderr.split(" files")[0].rsplit(" ", 1)[1])
     assert files >= len(scan.EVIDENCE_PATHS) and files >= 10
-    for path in scan.EVIDENCE_PATHS:
-        assert (ROOT / path).exists(), path
+    for pattern in scan.EVIDENCE_PATHS:
+        assert list(ROOT.glob(pattern)), pattern  # every class in the set matches something (an empty glob fails closed)
 
 
-def test_9kg40_reserved_addresses_digests_run_ids_and_ranges_are_not_personal_data():
+def test_9kg40_reserved_addresses_digests_run_ids_paths_and_ranges_are_not_personal_data():
     """Negative controls: what evidence legitimately holds must not fail the scan, or the scan would be removed."""
     text = "\n".join([
         "ada@example.test onboarding@example.invalid staff@sub.example.com x@catalyst.example y@localhost.localhost",
+        "/var/backups/catalyst/20261023T030000Z/receipt /var/lib/catalyst/backups/catalyst-20261023T103300Z/receipt.json",
+        "/srv/catalyst/Deploy7State/receipts/20261023T103300Z.json and operations/drill-first/pre-deploy-backup.json",
+        "lease_token = models.UUIDField(null=True) and filter(lease_token=tok).update(status='done')",
+        "A synthetic applicant asks for access; a wrong adoption hands someone else's mailbox to an applicant.",
         "run 39780920293 head 178da42 sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d",
         "2026-10-23T10:33:00Z 20261023T103300Z 13 Oct 2026 10:00:00 +0000 1052 s 28 of 28 PASS 3.14.8",
         "127.0.0.1 127.0.0.2 0.0.0.0 192.0.2.10 198.51.100.7 203.0.113.44 169.254.169.254",
@@ -115,18 +128,57 @@ def test_9kg40_reserved_addresses_digests_run_ids_and_ranges_are_not_personal_da
 def test_9kg40_email_and_token_patterns_catch_what_fixture_names_alone_would_miss():
     """Cohort data is not fixture data: an address or a token with no fixture name near it is still a hit."""
     assert scan.scan_text("reply from someone@a-cohort-member.zz\n") == [(1, "email")]
+    assert scan.scan_text("x@myexample.com\n") == [(1, "email")]  # reserved domains match as a domain, never a suffix
     assert scan.scan_text("Bearer " + "x" * 24 + "\n") == [(1, "bearer_token")]
     assert scan.scan_text("-----BEGIN OPENSSH PRIVATE KEY-----\n") == [(1, "private_key")]
     assert scan.scan_text("api_key = ABCDEFGHIJ\n") == [(1, "secret_assignment")]
+    assert scan.scan_text('"password": "hunter2hunter2"\n') == [(1, "secret_assignment")]  # a quoted key
+    assert scan.scan_text("DB_PASSWORD=hunter2hunter2\n") == [(1, "secret_assignment")]  # a wider identifier
+    assert scan.scan_text("CATALYST_SECRET_KEY=hunter2hunter2\n") == [(1, "secret_assignment")]  # the control's twin
+    assert scan.scan_text("CATALYST_SECRET_KEY=synthetic-test-only\n") == []  # passes for the synthetic value only
     assert scan.scan_text("192.168.1.20 and 172.16.0.3\n") == [(1, "ipv4_address")]  # once per line per pattern
     assert scan.scan_text("(020) 7946 0999\n") == [(1, "phone")]
+    assert scan.scan_text("(555)123-4567\n") == [(1, "phone")]  # a bracketed area code with no separator after it
+    assert scan.scan_text("5551234567\n") == []  # the stated floor: an unseparated number is not detected
+    token = "Zz9" * 14
+    assert scan.scan_text(f"/var/lib/{token}/receipt.json\n") == [(1, "token")]  # a token inside a path is still one
 
 
-def test_9kg40_the_fixture_person_names_are_the_ones_the_scan_knows():
-    """The fixtures' person name is on the scan's list (a receipt that carries it has a leak); a new fixture name
-    goes on the list too."""
-    assert VALID["name"] in scan.FIXTURE_NAMES
-    assert all(" " in name and name == name.title() for name in scan.FIXTURE_NAMES)
+def test_9kg40_a_value_split_across_a_wrapped_line_is_found_at_the_paragraphs_first_line():
+    text = "An applicant named Ada\nExample wrote from +44 20\n7946 0999 on Tuesday.\n\nA clean paragraph.\n"
+    assert scan.scan_text(text) == [(1, "fixture_name"), (1, "phone")]
+    assert scan.scan_text("x@myexample.com\nAda Example\n") == [(1, "email"), (2, "fixture_name")]  # not reported twice
+
+
+def test_9kg40_every_fixture_person_name_is_on_the_scans_list_and_matched_whatever_its_case():
+    """Every name the fixtures give an applicant is a hit, in any case; the generic labels only in their exact case,
+    so the same words as prose ("a synthetic applicant", "someone else's") are not a name. A real person's name is on
+    no list: the scan does not detect real names."""
+    used = set()
+    for path in sorted((ROOT / "tests").glob("test_*.py")):
+        used |= set(re.findall(r'(?:\bname=|"name": )"([A-Z][a-z]+ [A-Z][a-z]+)"', path.read_text()))
+    assert used and used <= set(scan.FIXTURE_NAMES) | set(scan.FIXTURE_LABELS), used - set(scan.FIXTURE_NAMES) - set(scan.FIXTURE_LABELS)
+    assert VALID["name"] in scan.FIXTURE_NAMES and {"Calm Example", "Other Example", "Queued Example", "Ada Two"} <= set(scan.FIXTURE_NAMES)
+    for name in scan.FIXTURE_NAMES:
+        for form in (name, name.lower(), name.upper()):
+            assert scan.scan_text(f"applicant {form} wrote\n") == [(1, "fixture_name")], form
+    for label in scan.FIXTURE_LABELS:
+        assert scan.scan_text(f"{label}\n") == [(1, "fixture_name")]
+        assert scan.scan_text(f"a {label.lower()}'s\n") == []
+    assert scan.scan_text("Adam Example-Smith\n") == []  # a longer name is not the fixture's
+
+
+def test_9kg40_every_filed_document_of_an_evidence_class_is_in_the_scanned_set():
+    """A new after-action report, analysis or test evidence or decision record is scanned without a code change."""
+    scanned = {p.relative_to(ROOT).as_posix() for p in scan.files("evidence", [])}
+    docs = ROOT / "000-docs"
+    expected = {p.relative_to(ROOT).as_posix() for p in docs.glob("000-aars/*.md")}
+    for code in ("RA-ANLY", "TQ-TEST", "AT-DECR"):
+        expected |= {p.relative_to(ROOT).as_posix() for p in docs.glob(f"*-{code}-*.md")}
+    expected |= {"000-docs/026-AT-DSGN-p6-staging-deployment-specification.md",
+                 "000-docs/029-PP-PLAN-internal-launch-comparison-and-execution-plan.md"}
+    assert scanned == expected and len(scanned) >= 11
+    assert any(name.startswith("000-docs/030-AT-DECR") for name in scanned)  # the council record, filed after the scan
 
 
 # --- the host's receipt step -----------------------------------------------------------------------------------------
@@ -199,6 +251,7 @@ def test_9kg40_the_host_receipt_step_blocks_on_a_hit_and_keeps_no_receipt(tmp_pa
     result, receipts, state, backup = run_receipt(tmp_path, FACTS, CLEAN_BACKUP)
     assert result.returncode == 0, result.stderr
     assert len(receipts) == 1 and receipts[0].endswith(".json") and not receipts[0].startswith(".")
+    assert oct((state / "receipts" / receipts[0]).stat().st_mode & 0o777) == "0o640"  # set before the move
     written = json.loads((state / "receipts" / receipts[0]).read_text())
     assert written["commit"] == COMMIT and written["operation"] == "deploy"
     assert written["pre_deploy_backup"]["receipt"] == str(backup.resolve())
@@ -209,4 +262,6 @@ def test_9kg40_the_receipt_step_scans_before_the_receipt_counts():
     text = (ADAPTERS / "receipt.sh").read_text()
     assert text.index("personal_data_scan --class receipt") < text.index('mv -f "$pending" "$out"') < text.index("receipt mismatch")
     assert 'rm -f "$pending"' in text and "receipt withheld" in text
+    assert text.index('trap \'rm -f "$pending"\' EXIT') == text.index("mktemp") + text[text.index("mktemp"):].index("\n") + 1  # right after mktemp
+    assert text.index('chmod 0640 "$pending"') < text.index('mv -f "$pending" "$out"')
     assert '"$pending" ${bound:+"$bound"}' in text  # the deployment receipt and the bound backup receipt, every time
