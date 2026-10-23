@@ -270,6 +270,9 @@ EXPECTED_TRIGGERS = {
     ("assessments_qualificationdecision", "catalyst_append_only"), ("assessments_qualificationdecision", "catalyst_no_truncate"),
     ("applications_application", "catalyst_decided_stage_needs_decision"),  # P3 3B.4
     ("workflow_automationpause", "catalyst_restore_hold"),  # 6B.7a
+    # 9kg.6: the pause row is cleared only by an audited resume; events carry the inserting transaction
+    ("workflow_automationpause", "catalyst_pause_resume_guard"), ("workflow_automationpause", "catalyst_pause_fixed"),
+    ("workflow_automationpause", "catalyst_no_truncate"), ("applications_applicationevent", "catalyst_event_txid"),
     ("otp_totp_totpdevice", "catalyst_otp_device_fixed"), ("otp_static_staticdevice", "catalyst_otp_device_fixed"),  # 6B.9
     # 9kg.24: the fetcher's writes, pinned
     ("workflow_pendingaction", "catalyst_fetcher_workflow_pendingaction_insert"),

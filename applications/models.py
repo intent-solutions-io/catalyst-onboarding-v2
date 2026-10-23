@@ -129,6 +129,11 @@ class VersionAdoption(models.Model):
         # keys added by migration 0001 (Django has no composite foreign key field).
 
 
+class CurrentTransactionId(models.Func):
+    template = "pg_current_xact_id()::text::bigint"
+    output_field = models.BigIntegerField()
+
+
 class ApplicationEvent(models.Model):
     class ActorType(models.TextChoices):
         SYSTEM = "system"
@@ -141,6 +146,10 @@ class ApplicationEvent(models.Model):
     actor_ref = models.CharField(max_length=200, blank=True, default="")
     occurred_at = models.DateTimeField(db_default=Now())
     data = models.JSONField(default=dict)  # never secrets or tokens
+    # The top-level transaction that inserted the row (the same inside a savepoint), always the database's own
+    # value (migration 0004 overwrites a supplied one). The pause guard (workflow 0005; 9kg.6) compares it with
+    # the current transaction, as the decision backstop does (assessments 0008).
+    created_txid = models.BigIntegerField(db_default=CurrentTransactionId())
 
     class Meta:
         indexes = [

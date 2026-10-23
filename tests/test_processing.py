@@ -369,7 +369,7 @@ def test_p2_34_loop_threshold_boundary_and_recount_after_staff_resolve(mailbox, 
     assert paused(mailbox)
     [item] = StaffItem.objects.filter(reason_code="loop_threshold")
     processing.resolve_exception(item.pk, "acknowledge", mailbox.operator)
-    AutomationPause.objects.filter(subject_id=mailbox.app.public_ref).delete()  # staff resume (2B.4 service)
+    support.resume_pauses(mailbox.app)  # staff resume (2B.4 service), in the guard's shape
     mailbox.imap.deliver(reply(message, headers=["Auto-Submitted: auto-replied"], body=f"away {uuid.uuid4().hex}"))
     collect()
     processed()
@@ -555,7 +555,7 @@ def test_9kg_3_an_open_hard_bounce_holds_every_send_and_refuses_staff_bypasses(m
     # A question approved meanwhile is frozen, but its send is held, refunded, and looks again later.
     question = Question.objects.create(application=mailbox.app, text="A second synthetic question?")
     message = outbound.approve_question(question.pk, mailbox.operator)
-    AutomationPause.objects.filter(subject_id=mailbox.app.public_ref).delete()  # isolate the bounce rule from the pause
+    support.resume_pauses(mailbox.app)  # isolate the bounce rule from the pause (the service would refuse: cause open)
     run_worker()
     [held] = PendingAction.objects.filter(kind="send_message", input_ref=str(message.send_ref))
     assert (held.status, held.last_error, held.attempts) == ("queued", "hard_bounce_open", 0)

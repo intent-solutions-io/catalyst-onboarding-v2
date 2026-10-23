@@ -390,7 +390,7 @@ def test_s1_19_a_pause_found_at_the_check_returns_the_action_without_sending(wor
     action = PendingAction.objects.get()
     assert (action.status, action.attempts, action.lease_token) == ("queued", 0, None)  # the attempt is refunded
     assert ledger.claim_next() is None  # still paused
-    AutomationPause.objects.all().delete()  # staff resume (P2); the application role may delete pauses
+    support.resume_pauses()  # staff resume (P2): the application role may delete a pause only with the resume event (9kg.6)
     assert "worker stopped after 1 actions" in worker() and len(mail.outbox) == 1
 
 

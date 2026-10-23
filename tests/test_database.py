@@ -59,6 +59,7 @@ APPROVED_MIGRATIONS = {
     ("otp_static", "0001_initial"), ("otp_static", "0002_throttling"), ("otp_static", "0003_add_timestamps"),
     ("accounts", "0004_login_throttle"), ("accounts", "0005_two_factor_grants"),
     ("assessments", "0009_fetcher_role_grants"),  # 9kg.24: the evidence fetcher's own narrower role
+    ("applications", "0004_event_txid"), ("workflow", "0005_pause_resume_guard"),  # 9kg.6: the pause-row guard
 }
 
 

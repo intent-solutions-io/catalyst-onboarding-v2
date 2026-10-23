@@ -70,3 +70,27 @@ def worker_process(sink_dir, *args, module=None, **overrides):
     cmd = [sys.executable, "-m", module] if module else [sys.executable, "manage.py", "run_worker"]
     return subprocess.Popen([*cmd, *args], cwd=ROOT, env=worker_env(sink_dir, **overrides),
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+
+def resume_pauses(*applications, note="synthetic resume (test setup)") -> int:
+    """Clear automation pauses in the shape the pause guard requires (workflow 0005; 9kg.6): the `automation_resumed`
+    history event, recorded by staff with an actor reference and a note, in the transaction that deletes the row.
+    For tests that step past a pause as setup, without the staff service's policy (permissions, open causes): the
+    service itself and its policy are tested in tests/test_processing.py and test_reminders.py. With no application
+    given, every application's pause is cleared; the restore hold is never touched. Returns the rows cleared."""
+    from django.db import transaction
+
+    from applications.models import Application, ApplicationEvent
+    from workflow.models import AutomationPause
+
+    with transaction.atomic():
+        rows = AutomationPause.objects.filter(subject_type="application")
+        if applications:
+            rows = rows.filter(subject_id__in=[a.public_ref for a in applications])
+        for row in rows:
+            application = Application.objects.get(public_ref=row.subject_id)
+            ApplicationEvent.objects.create(
+                application=application, kind="automation_resumed", actor_type=ApplicationEvent.ActorType.STAFF,
+                actor_ref="user:test-setup", data={"note": note, "paused_by": row.actor_ref, "pause_reason": row.reason,
+                                                   "system_pause": row.actor_ref == "system" or row.actor_ref.startswith("system:")})
+        return rows.delete()[0]

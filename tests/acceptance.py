@@ -1516,6 +1516,15 @@ P6_SUPPORTING = {
         "test_processing::test_9kg_2_every_system_pause_reason_is_a_resumable_cause_with_a_resolution",
         "test_processing::test_9kg_2_the_screen_offers_a_system_resume_only_to_a_decision_maker_with_a_required_reason",
     ],
+    "9kg.6 the pause row is cleared only by an audited resume (database guard)": [
+        "test_pause_guard::test_9kg6_a_bare_delete_or_update_by_the_application_role_is_refused",
+        "test_pause_guard::test_9kg6_the_migration_owner_is_refused_the_same_way_and_truncate_is_refused_for_every_role",
+        "test_pause_guard::test_9kg6_a_system_pause_clears_only_with_a_staff_resume_event_with_a_note_in_the_same_transaction",
+        "test_pause_guard::test_9kg6_a_staff_pause_clears_with_the_resume_event_even_inside_a_savepoint",
+        "test_pause_guard::test_9kg6_the_event_transaction_marker_is_always_the_databases_own",
+        "test_pause_guard::test_9kg6_the_supported_resume_path_clears_the_pause_and_work_resumes",
+        "test_pause_guard::test_9kg6_the_restore_hold_keeps_its_own_rule",
+    ],
 }
 
 # Cases with no pytest evidence of their own: shown only by a live script (026 section 16).

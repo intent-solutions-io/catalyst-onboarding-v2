@@ -75,7 +75,10 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   which prints proof types, completeness, residual beads and the approval boundary per case and counts partial and
   live-only cases apart from PASS (`9kg.44`); the personal-data scan over committed evidence, receipts, alert text and
   the deployment receipt, with positive controls, run by the suite and by the host's receipt step, which withholds a
-  receipt on a hit (`9kg.40`, TEST-P6-35)
+  receipt on a hit (`9kg.40`, TEST-P6-35); the automation pause row cleared only by an audited resume, enforced in
+  PostgreSQL for every role by a deferred constraint trigger that joins the pause to a same-transaction
+  `automation_resumed` event (staff, reference and note for a system pause), with UPDATE and TRUNCATE refused
+  (`9kg.6`; applications migration 0004, workflow migration 0005)
 
 ### Changed
 
