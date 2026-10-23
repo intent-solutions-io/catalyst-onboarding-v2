@@ -41,7 +41,7 @@ def manage_as_owner(*args):
 
 # Settings a spawned worker receives, and nothing else: no owner, retention or administrator login.
 WORKER_SETTINGS = ("CATALYST_SECRET_KEY", "CATALYST_DB_HOST", "CATALYST_DB_PORT", "CATALYST_CHALLENGE_LIFETIME_SECONDS",
-                   "CATALYST_PUBLIC_BASE_URL", "CATALYST_VERIFICATION_KEY")
+                   "CATALYST_PUBLIC_BASE_URL", "CATALYST_VERIFICATION_KEY", "CATALYST_EFFECT_JOURNAL_DIR")
 
 
 def worker_env(sink_dir, **overrides):

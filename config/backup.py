@@ -117,6 +117,11 @@ def backup(conn, out_dir: Path, storage_dir: Path, name: str, commit: str = "") 
     if final.exists() or pending.exists():
         raise BackupError("a set with this name already exists")
     started = time.time()
+    # 9kg.33: the effect journal's head before the snapshot opens. Entries after it may postdate the backup point;
+    # the post-restore step reconciles them (reconciliation is idempotent, so a head read early errs safely).
+    from workflow import journal
+
+    journal_seq, journal_head = journal.head() if journal.configured() else (None, "")
     manifest = {"tables": {}, "documents": [], "revision": []}
     pending.mkdir(mode=0o700)
     try:
@@ -151,7 +156,8 @@ def backup(conn, out_dir: Path, storage_dir: Path, name: str, commit: str = "") 
         _private_file(pending / "manifest.json", manifest_bytes)
         receipt = {"name": name, "started_at": started, "finished_at": time.time(), "postgresql": server,
                    "commit": commit, "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
-                   "excluded_tables": list(EXCLUDED_TABLES)}  # no counts: they reveal volume (026 section 6)
+                   "excluded_tables": list(EXCLUDED_TABLES),  # no counts: they reveal volume (026 section 6)
+                   "effect_journal_seq": journal_seq, "effect_journal_head": journal_head}
         _private_file(pending / "receipt.json", json.dumps(receipt, sort_keys=True, indent=1).encode())
         _fsync_dir(pending / "custody")
         _fsync_dir(pending)
@@ -268,4 +274,12 @@ def restore(admin_conn, backup_dir: Path, storage_dir: Path, *, database: str, c
         _fsync_dir(storage_dir)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
+    # 9kg.33: mark the restore in the effect journal, with the backup point it took the tables back to, so the
+    # post-restore step knows which entries to reconcile. After the commit: the journal is outside the rollback domain.
+    from workflow import journal
+
+    receipt = json.loads((backup_dir / "receipt.json").read_text())
+    journal.append("restore", f"restore:{backup_dir.name}", {
+        "backup_seq": receipt.get("effect_journal_seq"), "backup_head": receipt.get("effect_journal_head") or "",
+        "backup_started_at": receipt.get("started_at")})
     return {"restored": backup_dir.name, "hold": "recorded"}

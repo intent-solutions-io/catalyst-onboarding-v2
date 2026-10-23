@@ -200,6 +200,10 @@ CATALYST_WORKER_RETRY_SECONDS = number("CATALYST_WORKER_RETRY_SECONDS", "60", mi
 EMAIL_TIMEOUT = number("CATALYST_EMAIL_TIMEOUT_SECONDS", "10")
 if EMAIL_TIMEOUT * 2 > CATALYST_WORKER_LEASE_SECONDS:
     raise ImproperlyConfigured("CATALYST_EMAIL_TIMEOUT_SECONDS must be at most half of CATALYST_WORKER_LEASE_SECONDS")
+# 9kg.33 (029 section 6.2): the effect journal, the one durable record outside the backup's rollback domain
+# (workflow.journal). An absolute directory outside the repository, shared by every process on the host; required
+# outside test and development (config.guards). Empty in the local environments means no durable effects.
+CATALYST_EFFECT_JOURNAL_DIR = os.environ.get("CATALYST_EFFECT_JOURNAL_DIR", "").strip()
 # The only action kinds the worker may execute: a fixed mapping in code, never read from the database.
 CATALYST_ACTION_HANDLERS = {
     "send_verification": "correspondence.verification.SendVerification",

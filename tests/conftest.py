@@ -84,6 +84,21 @@ def block_network(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect_ex", _guarded_connect_ex)
 
 
+@pytest.fixture(autouse=True)
+def effect_journal(tmp_path, monkeypatch, settings):
+    """9kg.33: every test gets its own effect journal (workflow.journal), for this process and the child processes
+    it starts (the worker, the owner-run commands), so journaled effects are durable and the post-restore step has
+    evidence to read. Returns the directory."""
+    directory = tmp_path / "effects"
+    directory.mkdir(mode=0o700)
+    settings.CATALYST_EFFECT_JOURNAL_DIR = str(directory)
+    monkeypatch.setenv("CATALYST_EFFECT_JOURNAL_DIR", str(directory))
+    from workflow import journal
+
+    journal._state.usage_cache = None
+    return directory
+
+
 # PASS means executed and passed. A skipped test, an expected failure (xfail) or an unexpected pass of
 # an xfail-marked test (xpass) cannot satisfy a required case, so any of them fails the run (CI gate).
 # Counted from the reports themselves, so it does not depend on the terminal reporter plugin.

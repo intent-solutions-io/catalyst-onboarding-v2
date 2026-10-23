@@ -33,6 +33,7 @@ STAGING = {
     "CATALYST_EMAIL_BACKEND": None, "CATALYST_EMAIL_FILE_PATH": "/tmp/catalyst-staging-mail",
     "CATALYST_MAIL_TEST_HOST": None, "CATALYST_STAFF_HOST": "staff.staging.test", "CATALYST_LOCAL_HOSTS": "localhost",
     "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-staging-worker.beat",
+    "CATALYST_EFFECT_JOURNAL_DIR": "/tmp/catalyst-staging-effects",  # 9kg.33
 }
 WSGI = [sys.executable, "-c", "import config.wsgi"]
 
@@ -205,6 +206,16 @@ def test_6b3_review_staging_needs_a_proper_staff_host_and_local_hosts():
 def test_6b4_review_staging_requires_a_worker_heartbeat_file():
     result = run(CHECK, **{**STAGING, "CATALYST_WORKER_HEARTBEAT_FILE": None})
     assert result.returncode != 0 and "CATALYST_WORKER_HEARTBEAT_FILE must be an absolute path" in result.stderr
+
+
+def test_9kg_33_a_deployment_needs_an_effect_journal_directory_outside_the_repository():
+    """029 section 6.2: outside the local environments every process journals effects, so the directory is required
+    and must lie outside the repository (the image root is read-only and the repository is public)."""
+    result = run(CHECK, **{**STAGING, "CATALYST_EFFECT_JOURNAL_DIR": None})
+    assert result.returncode != 0 and "CATALYST_EFFECT_JOURNAL_DIR must be an absolute path" in result.stderr
+    result = run(CHECK, **{**STAGING, "CATALYST_EFFECT_JOURNAL_DIR": str(ROOT / "effects")})
+    assert result.returncode != 0 and "outside the repository" in result.stderr
+    assert run(CHECK, **STAGING).returncode == 0
 
 
 # --- 6B.5: secrets from per-secret files outside the local environments (026 section 5, P6-D-6) ---------------

@@ -59,7 +59,11 @@ COMMON_ENV = {
     "CATALYST_EMAIL_FILE_PATH": "/var/lib/catalyst/mail",
     # Staging requires the setting in every process; only the worker and the fetcher write it, each in its own /tmp.
     "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-worker.beat",
+    # 9kg.33: the effect journal, one volume outside the database's rollback domain, shared by every process that
+    # makes or reconciles effects (web, worker, the owner-run commands, backup and restore). Never the fetcher.
+    "CATALYST_EFFECT_JOURNAL_DIR": "/var/lib/catalyst/effects",
 }
+EFFECTS = "catalyst-effects:/var/lib/catalyst/effects"
 
 
 def catalyst(command: list, role: str, secrets: list, *, process_role: str = "", volumes=(), networks=("backend",),
@@ -92,16 +96,19 @@ def definition() -> dict:
     keys = [mount("secret_key"), mount("verification_key"), mount("verification_fallback_keys")]
     migrated = {"migrate": {"condition": "service_completed_successfully"}}
     web = catalyst([], "catalyst_app", [*keys, mount("app_password", "db_password")],
-                   volumes=["catalyst-run:/run/catalyst"], depends=migrated)
+                   volumes=["catalyst-run:/run/catalyst", EFFECTS], depends=migrated)
     del web["command"]  # the image's fixed gunicorn command (no access log, 0660 socket)
     worker = catalyst(["python", "manage.py", "run_worker", "--exclude", "fetch_evidence"], "catalyst_app",
-                      [*keys, mount("app_password", "db_password")], volumes=["catalyst-mail:/var/lib/catalyst/mail"],
+                      [*keys, mount("app_password", "db_password")], volumes=["catalyst-mail:/var/lib/catalyst/mail", EFFECTS],
                       depends=migrated)
     fetcher = catalyst(["python", "manage.py", "run_worker", "--only", "fetch_evidence"], "catalyst_fetcher",
                        [mount("secret_key"), mount("fetcher_password", "db_password")], process_role="fetcher",
                        networks=("backend", "fetch"), depends=migrated)
     fetcher["environment"]["CATALYST_WORKER_HEARTBEAT_FILE"] = "/tmp/catalyst-fetcher.beat"
     fetcher["environment"]["CATALYST_EVIDENCE_PROXY"] = "egress:3128"  # its only way out (6B.11)
+    # The fetcher makes no effect and holds no journal: the setting names a directory it never mounts, so a write
+    # there fails loudly rather than landing in the read-only image.
+    fetcher["environment"]["CATALYST_EFFECT_JOURNAL_DIR"] = "/var/lib/catalyst/effects-none"
     # The egress proxy (assessments.egress): no secret, no database login. It alone joins the outbound network; it
     # resolves names and refuses every address outside global unicast, as the fetcher's own classify does.
     # On the `fetch` network with the fetcher alone, never on `backend`: no other process can reach it (PR #76 review).
@@ -109,7 +116,7 @@ def definition() -> dict:
     egress["environment"] = {"CATALYST_ENV": "staging", "CATALYST_EGRESS_LISTEN": "0.0.0.0:3128"}
     del egress["secrets"]
     migrate = catalyst(["sh", "-c", "python manage.py migrate --noinput && python manage.py schedule_session_cleanup"],
-                       "catalyst_owner", [*keys, mount("owner_password", "db_password")],
+                       "catalyst_owner", [*keys, mount("owner_password", "db_password")], volumes=[EFFECTS],
                        depends={"db": {"condition": "service_healthy"}})
     migrate["restart"] = "no"
     provision = catalyst(["python", "scripts/provision_db_roles.py"], "catalyst_admin",
@@ -129,11 +136,12 @@ def definition() -> dict:
     backup = catalyst(["python", "manage.py", "catalyst_backup", "--out", "/var/lib/catalyst/backups",
                        "--storage-dir", "/var/lib/catalyst/custody"], "catalyst_backup",
                       [*keys, mount("backup_password", "db_password")],
-                      volumes=["catalyst-backups:/var/lib/catalyst/backups", "catalyst-custody:/var/lib/catalyst/custody:ro"],
+                      volumes=["catalyst-backups:/var/lib/catalyst/backups", "catalyst-custody:/var/lib/catalyst/custody:ro",
+                               EFFECTS + ":ro"],  # the backup only reads the journal's head into its receipt
                       depends={"db": {"condition": "service_healthy"}})
     restore = catalyst(["python", "manage.py", "catalyst_restore", "--help"], "catalyst_owner",
                        [*keys, mount("owner_password", "db_password"), mount("admin_password")],
-                       volumes=["catalyst-custody:/var/lib/catalyst/custody"],
+                       volumes=["catalyst-custody:/var/lib/catalyst/custody", EFFECTS],  # it writes the restore marker
                        depends={"db": {"condition": "service_healthy"}})
     restore["environment"]["CATALYST_DB_ADMIN_USER"] = "catalyst_admin"
     for service in (backup, restore):
@@ -206,7 +214,7 @@ def definition() -> dict:
         },
         "networks": {"backend": {"internal": True}, "fetch": {"internal": True}, "edge": {}, "egress": {}},
         "volumes": {name: {} for name in ("catalyst-db", "catalyst-run", "catalyst-static", "catalyst-mail",
-                                          "catalyst-backups", "catalyst-custody")},
+                                          "catalyst-backups", "catalyst-custody", "catalyst-effects")},
         "secrets": {name: {"file": f"${{CATALYST_STAGING_SECRETS:?}}/{name}"} for name in SECRET_FILES},
     }
 

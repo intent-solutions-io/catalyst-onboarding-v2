@@ -137,5 +137,6 @@ def test_6b5b_the_image_creates_the_mount_points_with_their_owners_and_modes():
     dockerfile = (ROOT / "Dockerfile").read_text()
     for line in ("install -d -o catalyst -g catalyst -m 0750 /run/catalyst",
                  "install -d -o catalyst -g catalyst -m 0700 /var/lib/catalyst/mail",
+                 "install -d -o catalyst -g catalyst -m 0700 /var/lib/catalyst/effects",  # 9kg.33: the effect journal
                  "COPY scripts/provision_db_roles.py scripts/provision_db_roles.py"):
         assert line in dockerfile, line

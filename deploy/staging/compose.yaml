@@ -145,6 +145,7 @@
         "CATALYST_CHALLENGE_LIFETIME_SECONDS": "3600",
         "CATALYST_EMAIL_FILE_PATH": "/var/lib/catalyst/mail",
         "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-worker.beat",
+        "CATALYST_EFFECT_JOURNAL_DIR": "/var/lib/catalyst/effects",
         "CATALYST_DB_USER": "catalyst_owner"
       },
       "secrets": [
@@ -174,6 +175,9 @@
         "backend"
       ],
       "restart": "no",
+      "volumes": [
+        "catalyst-effects:/var/lib/catalyst/effects"
+      ],
       "depends_on": {
         "db": {
           "condition": "service_healthy"
@@ -235,6 +239,7 @@
         "CATALYST_CHALLENGE_LIFETIME_SECONDS": "3600",
         "CATALYST_EMAIL_FILE_PATH": "/var/lib/catalyst/mail",
         "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-worker.beat",
+        "CATALYST_EFFECT_JOURNAL_DIR": "/var/lib/catalyst/effects",
         "CATALYST_DB_USER": "catalyst_backup"
       },
       "secrets": [
@@ -270,7 +275,8 @@
       "restart": "no",
       "volumes": [
         "catalyst-backups:/var/lib/catalyst/backups",
-        "catalyst-custody:/var/lib/catalyst/custody:ro"
+        "catalyst-custody:/var/lib/catalyst/custody:ro",
+        "catalyst-effects:/var/lib/catalyst/effects:ro"
       ],
       "depends_on": {
         "db": {
@@ -308,6 +314,7 @@
         "CATALYST_CHALLENGE_LIFETIME_SECONDS": "3600",
         "CATALYST_EMAIL_FILE_PATH": "/var/lib/catalyst/mail",
         "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-worker.beat",
+        "CATALYST_EFFECT_JOURNAL_DIR": "/var/lib/catalyst/effects",
         "CATALYST_DB_USER": "catalyst_owner",
         "CATALYST_DB_ADMIN_USER": "catalyst_admin"
       },
@@ -344,7 +351,8 @@
       ],
       "restart": "no",
       "volumes": [
-        "catalyst-custody:/var/lib/catalyst/custody"
+        "catalyst-custody:/var/lib/catalyst/custody",
+        "catalyst-effects:/var/lib/catalyst/effects"
       ],
       "depends_on": {
         "db": {
@@ -382,6 +390,7 @@
         "CATALYST_CHALLENGE_LIFETIME_SECONDS": "3600",
         "CATALYST_EMAIL_FILE_PATH": "/var/lib/catalyst/mail",
         "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-worker.beat",
+        "CATALYST_EFFECT_JOURNAL_DIR": "/var/lib/catalyst/effects",
         "CATALYST_DB_USER": "catalyst_app"
       },
       "secrets": [
@@ -407,7 +416,8 @@
       ],
       "restart": "unless-stopped",
       "volumes": [
-        "catalyst-run:/run/catalyst"
+        "catalyst-run:/run/catalyst",
+        "catalyst-effects:/var/lib/catalyst/effects"
       ],
       "depends_on": {
         "migrate": {
@@ -442,6 +452,7 @@
         "CATALYST_CHALLENGE_LIFETIME_SECONDS": "3600",
         "CATALYST_EMAIL_FILE_PATH": "/var/lib/catalyst/mail",
         "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-worker.beat",
+        "CATALYST_EFFECT_JOURNAL_DIR": "/var/lib/catalyst/effects",
         "CATALYST_DB_USER": "catalyst_app"
       },
       "secrets": [
@@ -474,7 +485,8 @@
       ],
       "restart": "unless-stopped",
       "volumes": [
-        "catalyst-mail:/var/lib/catalyst/mail"
+        "catalyst-mail:/var/lib/catalyst/mail",
+        "catalyst-effects:/var/lib/catalyst/effects"
       ],
       "depends_on": {
         "migrate": {
@@ -509,6 +521,7 @@
         "CATALYST_CHALLENGE_LIFETIME_SECONDS": "3600",
         "CATALYST_EMAIL_FILE_PATH": "/var/lib/catalyst/mail",
         "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-fetcher.beat",
+        "CATALYST_EFFECT_JOURNAL_DIR": "/var/lib/catalyst/effects-none",
         "CATALYST_DB_USER": "catalyst_fetcher",
         "CATALYST_PROCESS_ROLE": "fetcher",
         "CATALYST_EVIDENCE_PROXY": "egress:3128"
@@ -631,7 +644,8 @@
     "catalyst-static": {},
     "catalyst-mail": {},
     "catalyst-backups": {},
-    "catalyst-custody": {}
+    "catalyst-custody": {},
+    "catalyst-effects": {}
   },
   "secrets": {
     "secret_key": {

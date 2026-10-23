@@ -8,6 +8,9 @@
 # bootstrap administrator's credential, after every restore negative control has been refused. The post-restore step
 # runs (review, then lift), the stack starts, and the drill shows the restored data, the closed links and a working
 # form. RPO and RTO are measured and printed for the owner's targets (P6-D-7). Cases: TEST-P6-21 (in part), 22, 23, 29.
+# 9kg.33: an effect after the backup (a staff account created) is journaled outside the backup; the journal is carried
+# to the recovery host like the archive; the review replays it and opens its staff item, the lift is refused until the
+# owner resolves it, and the restored stack has no such account.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 work="$(mktemp -d)"
@@ -83,19 +86,30 @@ check "TEST-P6-21 the backup wrote a set with a manifest digest" test -n "$set_n
 check_not "TEST-P6-35 the backup receipt holds no personal data" grep -q '@' <<<"$receipt"
 check "the source has three applications at the backup" test "$(count_applications a)" = 3
 check "an applicant after the backup is accepted by the source" test "$(apply 18443 after-backup@example.test)" = 302
+# 9kg.33: an effect after the backup point, journaled outside the backup (the owner-run command, as in production).
+check "9kg.33 a staff account created after the backup is an effect the backup cannot know" test "$(a run --rm --no-deps -T \
+  -e CATALYST_DRILL_STAFF_PASSWORD="synthetic-drill-$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 24)" \
+  migrate python manage.py add_readonly_staff after-backup-staff --password-env CATALYST_DRILL_STAFF_PASSWORD 2>/dev/null | tail -1)" = "created read-only staff account 'after-backup-staff'"
 
 # The archive on the host: a copy of the set, private, read by the restore through a read-only mount.
 volume="${source_project}_catalyst-backups"
 docker run --rm --user 0 -v "$volume:/sets:ro" -v "$archive:/archive" "$CATALYST_IMAGE" \
   sh -c "cp -a /sets/$set_name /archive/ && chown -R 10001:10001 /archive"
 check "TEST-P6-35 the archived set is 0700 and its files 0600" bash -c "[ \"\$(docker run --rm --user 0 -v '$archive:/archive:ro' '$CATALYST_IMAGE' sh -c 'stat -c %a /archive/$set_name; find /archive/$set_name -type f -exec stat -c %a {} + | sort -u')\" = \$'700\\n600' ]"
-a down -v >/dev/null 2>&1  # the source is gone: only the archive remains
+# The effect journal is carried to the recovery host like the archive: it lives outside the backup's rollback domain.
+install -d -m 0700 "$work/effects"
+docker run --rm --user 0 -v "${source_project}_catalyst-effects:/effects:ro" -v "$work/effects:/carry" "$CATALYST_IMAGE" \
+  sh -c "cp -a /effects/. /carry/"
+check "9kg.33 the effect journal was carried off the source host" test -s "$work/effects/effects.jsonl"
+a down -v >/dev/null 2>&1  # the source is gone: only the archive and the carried journal remain
 
 # --- the target: a separate, migrated, empty stack ------------------------------------------------------------
 recovery_started=$(date +%s)  # the RTO clock starts with an empty host: the target is part of the recovery
 b up -d --wait db >/dev/null 2>&1
 b --profile provision run --rm provision-roles >/dev/null 2>&1
 b run --rm --no-deps -T migrate python manage.py migrate --noinput >/dev/null 2>&1
+docker run --rm --user 0 -v "$work/effects:/carry:ro" -v "${target_project}_catalyst-effects:/effects" "$CATALYST_IMAGE" \
+  sh -c "cp -a /carry/. /effects/ && chown -R 10001:10001 /effects && chmod 0700 /effects"
 refused_with() { grep -q "restore refused: $1" "$work/restore.out"; }  # this exact refusal, not any failure
 restore() {  # restore <set dir under /archive> [catalyst_restore arguments]: the restore's exit status
   b --profile ops run --rm --no-deps -T -v "$archive:/archive:ro" restore python manage.py catalyst_restore \
@@ -128,9 +142,26 @@ b stop web proxy >/dev/null 2>&1  # the post-restore step runs with nothing serv
 b run --rm --no-deps -T migrate python manage.py catalyst_post_restore --confirm-database catalyst >"$work/post.out" 2>&1
 check "the post-restore review runs" test $? = 0
 [ "$fail" = 0 ] || sed 's/^/  post-restore said: /' "$work/post.out" | tail -3
+# 9kg.33: the review replayed the journal (the account created after the backup is a grant: the owner's act, so it
+# is a staff item, never a replay), every provider read it needed completed, and the lift waits for the item.
+report="$(tail -1 "$work/post.out")"
+effect_item="$(python3 -c 'import json,sys;r=json.loads(sys.argv[1]);print(next((i.split(":",1)[1] for i in r["effect_items_open"] if i.startswith("restore_effect_staff_account:")), ""))' "$report" 2>/dev/null)"
+check "9kg.33 the review read the journal and reconciled every provider it needed (no evidence missing)" \
+  test "$(python3 -c 'import json,sys;r=json.loads(sys.argv[1]);print(r["effects"]["journal"], len(r["effects"]["blocked"]))' "$report" 2>/dev/null)" = "ok 0"
+check "9kg.33 the account created after the backup is a staff item for the owner, not a replay" test -n "$effect_item"
+b run --rm --no-deps -T migrate python manage.py catalyst_post_restore --confirm-database catalyst --lift \
+  --outward-checked --no-closures-after-backup >"$work/lift-refused.out" 2>&1
+check "9kg.33 the lift is refused while a restore_effect_ item is open" test $? = 1
+check "9kg.33 ... for that reason" grep -q "effects are unresolved" "$work/lift-refused.out"
+b run --rm --no-deps -T migrate python manage.py catalyst_post_restore --confirm-database catalyst \
+  --resolve "$effect_item" --note "Drill: the owner re-creates the account after the restore" >"$work/resolve.out" 2>&1
+check "9kg.33 the owner resolves the effect with a reason" test $? = 0
 b run --rm --no-deps -T migrate python manage.py catalyst_post_restore --confirm-database catalyst --lift \
   --outward-checked --no-closures-after-backup >"$work/lift.out" 2>&1
-check "the post-restore lift runs" test $? = 0
+check "the post-restore lift runs once the effects are reconciled and resolved (effects reconciled)" test $? = 0
+check "9kg.33 the restored stack has no account created after the backup (a grant is never replayed from a file)" \
+  test "$(b run --rm --no-deps -T migrate python manage.py shell -c \
+    "from accounts.models import User; print(User.objects.filter(username='after-backup-staff').count())" 2>/dev/null | tail -1)" = 0
 b up -d --wait web worker fetcher egress proxy >/dev/null 2>&1
 ready=""
 for _ in $(seq 60); do

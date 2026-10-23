@@ -188,6 +188,16 @@ def test_6b1_review_staging_never_prints_mail_and_its_file_sink_is_private():
     assert guards.mail_problems(staging(EMAIL_BACKEND=filebased, EMAIL_FILE_PATH="/run/mailsink", **mail)) == []
 
 
+def test_9kg_33_the_effect_journal_directory_is_required_outside_the_local_environments():
+    for local in ("test", "development"):
+        assert guards.journal_problems(SimpleNamespace(CATALYST_ENV=local, CATALYST_EFFECT_JOURNAL_DIR="")) == []
+    assert guards.journal_problems(staging(CATALYST_EFFECT_JOURNAL_DIR="")) == ["CATALYST_EFFECT_JOURNAL_DIR must be an absolute path outside test and development"]
+    assert guards.journal_problems(staging(CATALYST_EFFECT_JOURNAL_DIR="/var/lib/catalyst/effects")) == []
+    for bad in ("effects", "relative/effects", str(__import__("pathlib").Path(guards.__file__).resolve().parent.parent / "x")):
+        assert guards.journal_problems(staging(CATALYST_EFFECT_JOURNAL_DIR=bad)), bad
+    assert guards.journal_problems(SimpleNamespace(CATALYST_ENV="production", CATALYST_EFFECT_JOURNAL_DIR="")) == []  # refused elsewhere
+
+
 def test_6b1_review_staging_refuses_a_private_mail_peer_like_development(settings):
     from correspondence import transport
 

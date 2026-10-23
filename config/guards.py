@@ -346,6 +346,25 @@ def secret_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return problems
 
 
+def journal_problems(settings) -> list[str]:
+    """9kg.33 (029 section 6.2): outside test and development every process writes the effect journal, so the
+    directory must be an absolute path outside the repository. The local environments may leave it empty (no
+    durable effects; the post-restore lift then refuses for want of evidence)."""
+    environment = getattr(settings, "CATALYST_ENV", "")
+    path = str(getattr(settings, "CATALYST_EFFECT_JOURNAL_DIR", "") or "")
+    if not path:
+        if environment in ALLOWED_ENVIRONMENTS and environment not in ("test", "development"):
+            return ["CATALYST_EFFECT_JOURNAL_DIR must be an absolute path outside test and development"]
+        return []
+    from pathlib import Path
+
+    repository = Path(__file__).resolve().parent.parent
+    target = Path(path).resolve()
+    if not Path(path).is_absolute() or target == repository or repository in target.parents:
+        return ["CATALYST_EFFECT_JOURNAL_DIR must be an absolute path outside the repository"]
+    return []
+
+
 PROCESS_ROLES = ("", "web", "worker", "fetcher")
 
 
@@ -385,6 +404,7 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + provisioning_problems(settings, environ)
         + host_problems(settings)
         + secret_problems(settings, environ)
+        + journal_problems(settings)
         + process_role_problems(settings, _process_kind())
     )
 

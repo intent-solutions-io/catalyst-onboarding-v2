@@ -316,10 +316,14 @@ waits is `9kg.51`.
 - **Acceptance scenario:** back up a synthetic subject; erase afterward; restore the older backup; replay; prove that
   no web or staff view, job, attachment, derivative or enabled integration can expose or reuse the erased data; a
   second replay is harmless; an interruption recovers.
-- **Effects after the backup point** (`9kg.33`): mail (Sent-folder read), envelopes (provider read by key),
-  credential changes and mailbox facts (provider read), closures and revocations, staff role changes, and model usage
-  (preserve possibly spent usage). Quarantined provider reconciliation with the smallest durable evidence; a manual
-  exceptional resolution; conditions for lifting the hold.
+- **Effects after the backup point** (`9kg.33`; built in PL batch item 4, recorded in `026` section 16): mail
+  (Sent-folder read), envelopes (provider read by key), mailbox facts (provider read), closures and revocations,
+  staff role changes, and model usage (preserve possibly spent usage), from one hash-chained effect journal outside
+  the backup's rollback domain (`workflow/journal.py`), the same file the erasure record will use. Quarantined provider
+  reads outside the post-restore transaction with per-effect staff items; the owner's manual exceptional resolution
+  (`catalyst_post_restore --resolve`); the lift refuses while evidence is missing, a provider is unreachable or an
+  effect item is open. Credentials are not readable at the host and are not reconciled: the review closes every open
+  setup and staff reissue.
 - **Custody** (`9kg.34`): approved storage and access, a reviewed library, a recoverable key strategy, and a proof
   that an old backup cannot recover a destroyed key. Disk encryption is not per-subject erasure.
 

@@ -466,6 +466,8 @@ class Evidence:
 
 
 def evidence_source():
+    """The configured source: a class with `find(message_id)` (one message) and `within(since)` (every record
+    observed since a moment, or all of them for None; the post-restore Sent read, 9kg.33)."""
     path = settings.CATALYST_SEND_EVIDENCE_SOURCE
     return import_string(path)() if path else None
 
@@ -473,6 +475,27 @@ def evidence_source():
 def admissible(record: Evidence, message: ApprovedMessage, digests: set) -> bool:
     return (record.origin == "provider" and not record.filed_by_catalyst and record.message_id == message_id(message.send_ref)
             and record.recipient == message.recipient and record.content_sha256 in digests)
+
+
+def accept_by_evidence(message: ApprovedMessage, found: Evidence, actor_ref: str,
+                       send_statuses=(Status.UNCERTAIN,)) -> bool:
+    """Inside the caller's transaction: admissible evidence settles the logical message as `accepted_by_evidence`,
+    finishes its send actions in `send_statuses`, schedules what follows acceptance (E1) and resolves the items
+    that asked for a decision. Attempts stay `unknown`: evidence shows the message was accepted, not which
+    attempt was. Returns False when the message was no longer active (nothing changed)."""
+    if not ApprovedMessage.objects.filter(pk=message.pk, disposition=Disposition.ACTIVE).update(
+            disposition=Disposition.ACCEPTED_BY_EVIDENCE, disposition_at=Now(), disposition_by=actor_ref):
+        return False
+    PendingAction.objects.filter(kind__in=SEND_KINDS, input_ref=str(message.send_ref), status__in=send_statuses).update(
+        status=Status.DONE, last_error="accepted_by_evidence", lease_token=None, lease_expires_at=None,
+        completed_at=Now(), updated_at=Now())
+    schedule_after_acceptance(message)  # E1 also follows acceptance by evidence
+    event(message.application, "message_accepted_by_evidence",
+          {"send_ref": str(message.send_ref), "evidence_origin": found.origin}, actor_ref=actor_ref)
+    for item in StaffItem.objects.filter(approved_message=message, status=StaffItem.Status.OPEN, reason_code__in=DECIDABLE):
+        resolve_item(item, code="accepted_by_evidence", actor_ref=actor_ref, effects={"send_ref": str(message.send_ref)},
+                     actor_type=ApplicationEvent.ActorType.SYSTEM)
+    return True
 
 
 class SendStaffMessage(SendMessage):
@@ -525,23 +548,9 @@ class ReconcileSend:
 
         def write():
             if found is not None:
-                if ApprovedMessage.objects.filter(pk=message.pk, disposition=Disposition.ACTIVE).update(
-                        disposition=Disposition.ACCEPTED_BY_EVIDENCE, disposition_at=Now(),
-                        disposition_by=f"pending_action:{claim.id}"):
-                    # The send's own action finished uncertain; its work is complete. Attempts stay `unknown`:
-                    # evidence shows the logical message was accepted, not which attempt was.
-                    PendingAction.objects.filter(kind__in=SEND_KINDS, input_ref=str(message.send_ref), status=Status.UNCERTAIN).update(
-                        status=Status.DONE, last_error="accepted_by_evidence", completed_at=Now(), updated_at=Now())
-                    schedule_after_acceptance(message)  # E1 also follows acceptance by evidence
-                    event(message.application, "message_accepted_by_evidence",
-                          {"send_ref": str(message.send_ref), "evidence_origin": found.origin},
-                          actor_ref=f"pending_action:{claim.id}")
-                    # Items opened earlier (the poison rule opens one at once) no longer need a decision.
-                    for item in StaffItem.objects.filter(approved_message=message, status=StaffItem.Status.OPEN,
-                                                         reason_code__in=DECIDABLE):
-                        resolve_item(item, code="accepted_by_evidence", actor_ref=f"pending_action:{claim.id}",
-                                     effects={"send_ref": str(message.send_ref)},
-                                     actor_type=ApplicationEvent.ActorType.SYSTEM)
+                # The send's own action finished uncertain; its work is complete. Items opened earlier (the poison
+                # rule opens one at once) no longer need a decision.
+                accept_by_evidence(message, found, f"pending_action:{claim.id}")
             elif n < settings.CATALYST_MAIL_RECONCILE_CHECKS:
                 enqueue_reconcile(message, series, n + 1)
             else:

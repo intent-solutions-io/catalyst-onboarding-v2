@@ -1505,6 +1505,22 @@ P6_SUPPORTING = {
         "test_processing::test_9kg_2_every_system_pause_reason_is_a_resumable_cause_with_a_resolution",
         "test_processing::test_9kg_2_the_screen_offers_a_system_resume_only_to_a_decision_maker_with_a_required_reason",
     ],
+    "9kg.33 effects after the backup point are reconciled before the hold lifts (029 section 6.2)": [
+        "test_post_restore::test_9kg_33_the_effect_journal_is_append_only_chained_and_refuses_a_broken_chain",
+        "test_post_restore::test_9kg_33_a_backup_records_the_journal_head_and_a_restore_marks_the_backup_point",
+        "test_post_restore::test_9kg_33_pauses_resolutions_withdrawals_outcomes_and_decisions_after_the_backup_are_replayed_once",
+        "test_post_restore::test_9kg_33_closures_and_revocations_after_the_backup_are_replayed_and_access_is_removed_again",
+        "test_post_restore::test_9kg_33_a_reminder_that_left_after_the_backup_moves_the_series_position",
+        "test_post_restore::test_9kg_33_sent_copies_after_the_backup_settle_restored_sends_and_unknown_copies_block_the_lift",
+        "test_post_restore::test_9kg_33_a_resend_without_a_copy_waits_for_a_decision_maker",
+        "test_post_restore::test_9kg_33_missing_or_unreachable_evidence_blocks_the_lift",
+        "test_post_restore::test_9kg_33_staff_access_removed_after_the_backup_is_removed_again_and_grants_wait_for_the_owner",
+        "test_post_restore::test_9kg_33_model_usage_never_drops_below_the_journal_high_water_mark",
+        "test_post_restore::test_9kg_33_provider_reads_report_moved_envelopes_and_unexpected_mailboxes_or_unreachable_evidence",
+        "test_post_restore::test_9kg_33_the_restore_drill_exercises_the_effect_reconciliation",
+        "test_startup::test_9kg_33_a_deployment_needs_an_effect_journal_directory_outside_the_repository",
+        "test_guards::test_9kg_33_the_effect_journal_directory_is_required_outside_the_local_environments",
+    ],
 }
 
 # Cases with no pytest evidence of their own: shown only by a live script (026 section 16).

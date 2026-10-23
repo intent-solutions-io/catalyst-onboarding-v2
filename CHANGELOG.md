@@ -71,6 +71,10 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 - Hardening: correspondence evidence append-only (#44); hard bounces block every send (#45); system pauses need a
   decision-maker (#46); a quarter-faster test suite (#40)
 - Preparation: P5 specification, P6 readiness matrix and PL cutover plan, `023` and `024` (#48)
+- PL batch item 4: the effect journal (one hash-chained record outside the backup's rollback domain), the
+  reconciliation of effects after the backup point in the post-restore step (journal replay per app, provider reads
+  outside the transaction, per-effect staff items, the owner's manual resolution, a lift that refuses on missing
+  evidence) and the restore drill extended with an effect after the backup (`9kg.33`)
 
 ### Changed
 

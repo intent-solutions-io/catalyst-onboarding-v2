@@ -12,6 +12,7 @@ from django.db import IntegrityError, transaction
 
 from applications.links import CONFIRM_PATH
 from applications.models import ApplicationEvent
+from workflow import journal
 
 from .common import Refused
 from .models import StaffItem, StaffItemResolution
@@ -85,4 +86,6 @@ def resolve_item(item: StaffItem, *, code: str, actor_ref: str, note: str = "", 
     event(item.application, "staff_item_resolved", {"item": str(item.public_id), "reason": item.reason_code,
                                                     "resolution": code},
           actor_type=actor_type, actor_ref=actor_ref)
+    # 9kg.33: a resolution after a backup survives the restore (codes only; the note stays in the database).
+    journal.record("staff_item_resolved", f"item:{item.public_id}", {"reason": item.reason_code, "resolution": code})
     return True

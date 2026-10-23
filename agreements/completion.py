@@ -30,7 +30,7 @@ from applications.models import Application, Stage
 from applications.stages import StageConflict, transition
 from correspondence.models import StaffItem
 from correspondence.staff_items import event, open_item
-from workflow import ledger
+from workflow import journal, ledger
 from workflow.models import AutomationPause, PendingAction
 
 from . import provider
@@ -187,6 +187,7 @@ def _pause(application, reason: str) -> None:  # P4-D-9: decline, expiry and a p
         AutomationPause.objects.create(subject_type="application", subject_id=application.public_ref, reason=reason,
                                        actor_ref="system")
         event(application, "automation_paused", {"by": "system", "reason": reason})
+        journal.record("automation_pause", f"pause:{application.public_ref}", {"state": "paused", "by": "system"})
 
 
 # --- the fresh read -------------------------------------------------------------------------------------------------

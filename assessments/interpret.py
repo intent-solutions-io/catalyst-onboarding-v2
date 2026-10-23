@@ -57,8 +57,26 @@ def _today(model, application=None) -> int:
 
 def daily_requests_used() -> int:
     """Requests reserved today (the database's UTC date; TIME_ZONE is UTC) by assessments and reply
-    interpretations together (018 6)."""
-    return _today(AssessmentInvocation) + _today(ReplyInterpretation)
+    interpretations together (018 6). 9kg.33: never below the effect journal's high-water mark for the day, so a
+    restore to an older backup preserves usage that was possibly spent (an unreadable journal raises: an unknown
+    floor refuses the call rather than overspending)."""
+    from datetime import UTC, datetime
+
+    from workflow import journal
+
+    restored = _today(AssessmentInvocation) + _today(ReplyInterpretation)
+    return max(restored, journal.usage_high_water(datetime.now(UTC).strftime("%Y-%m-%d")))
+
+
+def record_usage() -> None:
+    """9kg.33: after a reservation commits, journal the day's running total, so the budget's floor survives a
+    restore. Called inside the reserving transaction; the entry is computed once the row is a fact."""
+    from datetime import UTC, datetime
+
+    from workflow import journal
+
+    day = datetime.now(UTC).strftime("%Y-%m-%d")
+    journal.record("model_usage", f"usage:{day}", lambda: {"requests": daily_requests_used()})
 
 
 def _excluded(request) -> list:
@@ -117,6 +135,10 @@ class Interpreter:
         if _today(ReplyInterpretation, application) + self.requests_per_attempt > settings.CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION:
             return "application_daily_request_budget"  # one applicant's replies cannot starve everyone else
         return ""
+
+    def reserved(self) -> None:
+        """Called by the correspondence side once its reservation row is written (inside that transaction)."""
+        record_usage()
 
     def interpret(self, request):
         try:
