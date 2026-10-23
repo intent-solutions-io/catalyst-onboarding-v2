@@ -60,9 +60,10 @@ def test_all_problems_combines_every_rule():
         CATALYST_ENV="production",
         EMAIL_BACKEND="django.core.mail.backends.smtp.EmailBackend",
     )
-    # the engine, the environment, the backend, the provider variable, and (9kg.49) a live environment's empty
-    # mail-host allow-list, missing denied list, missing mailbox pin and missing Sent-folder source
-    assert len(guards.all_problems(settings, {"SMTP_PASSWORD": "x"})) == 8
+    # the engine, the environment, the backend, the provider variable, the 9kg.29 and 9kg.43 fixed intake settings
+    # (unset here), and (9kg.49) a live environment's empty mail-host allow-list, missing denied list, missing mailbox
+    # pin and missing Sent-folder source
+    assert len(guards.all_problems(settings, {"SMTP_PASSWORD": "x"})) == 10
 
 
 def test_system_check_reports_a_problem_introduced_after_startup(settings):

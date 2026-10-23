@@ -1,8 +1,13 @@
 # Shared by the Catalyst deploy adapters (026 section 4; 6B.10). Sourced, never run.
 #
 # The estate deploy wrapper calls the adapters as hooks: capture.sh (DW_CAPTURE_CMD), deploy.sh <image>
-# (DW_DEPLOY_CMD, also the revert), smoke.sh (DW_SMOKE_CMD); receipt.sh runs after a promotion. They read:
-#   CATALYST_DEPLOY_STATE    a directory the deploy user owns: current-image (the serving image), receipts/
+# (DW_DEPLOY_CMD, also the revert), smoke.sh (DW_SMOKE_CMD); predeploy.sh <image> runs before the wrapper and
+# receipt.sh after a promotion. They read:
+#   CATALYST_DEPLOY_STATE    a directory the deploy user owns: current-image (the serving image), receipts/,
+#                            forward-only.json, operations/<deploy id>/ (the operation and its bound backup)
+#   CATALYST_DEPLOY_ID       the deploy operation's id, chosen by the caller (the force-command) and used once per
+#                            deploy: predeploy.sh, deploy.sh and receipt.sh require it; smoke.sh honours it
+#   CATALYST_EXPECTED_COMMIT optional for predeploy.sh: the approved commit the target image must carry
 #   CATALYST_COMPOSE_PROJECT the compose project name
 #   CATALYST_COMPOSE_FILE    the generated deploy/staging/compose.yaml
 #   CATALYST_SMOKE_URL       optional, the public form's URL through the proxy (an outside-in request)
@@ -25,6 +30,10 @@ compose() { docker compose --project-name "$CATALYST_COMPOSE_PROJECT" -f "$CATAL
 valid_ref() { [[ "$1" =~ $IMAGE_REF ]]; }
 release() { PYTHONPATH="$REPO" python3 -m config.release "$@"; }  # the tested code (config/release.py), no Django
 in_image() { docker run --rm --network none --entrypoint python "$1" -m config.release "${@:2}"; }
+# The deploy operation (config.release; 9kg.37): predeploy.sh starts it and binds the pre-deploy backup to it;
+# deploy.sh asks it whether <image> is the operation's approved target (with its backup bound) or its revert.
+operation() { release operation "$1" "$CATALYST_DEPLOY_STATE" "${CATALYST_DEPLOY_ID:?the id of the deploy operation}" "${@:2}"; }
+image_label() { docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$1"; }
 
 # Print the recorded forward-only list. With a serving release recorded, a missing record is lost state, never "none":
 # only the very first deploy (no pointer yet) starts from an empty list.

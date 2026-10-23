@@ -54,6 +54,8 @@ def test_6b5b_each_process_mounts_only_its_own_secrets_and_its_own_database_pass
     assert "secrets" not in s["collect-static"] and "secrets" not in s["proxy"] and "secrets" not in s["egress"]
     holders = [name for name, svc in s.items() if "admin_password" in secrets_of(svc).values()]
     assert sorted(holders) == ["db", "provision-roles", "restore"]  # the bootstrap credential reaches nothing else
+    for name in ("web", "worker", "fetcher"):  # 6hl.10: no administrator or probe variable either
+        assert not [k for k in s[name]["environment"] if k.startswith(("CATALYST_DB_ADMIN", "CATALYST_TEST_SUPERUSER"))]
     assert sorted(n for n, svc in s.items() if "backup_password" in secrets_of(svc).values()) == ["backup", "provision-roles"]
     assert secrets_of(s["backup"])["db_password"] == "backup_password"  # the backup reads as the backup role only
     assert s["backup"]["profiles"] == s["restore"]["profiles"] == ["ops"]  # operator-run, never started by `up`

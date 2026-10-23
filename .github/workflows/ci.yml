@@ -52,8 +52,10 @@ jobs:
       CATALYST_PUBLIC_BASE_URL: "http://catalyst.example.test"  # synthetic; never contacted
       CATALYST_VERIFICATION_KEY: synthetic-ci-verification-key-only
       CATALYST_DB_OWNER_PASSWORD: synthetic-ci-owner-only
-      CATALYST_DB_ADMIN_USER: catalyst_admin
-      CATALYST_DB_ADMIN_PASSWORD: synthetic-ci-admin-only
+      # The bootstrap administrator's login is set on the provisioning step only (6hl.10). The probe pair below is
+      # read by test code alone, for the superuser-refusal probes and the tests that must act as the administrator.
+      CATALYST_TEST_SUPERUSER_PROBE_USER: catalyst_admin
+      CATALYST_TEST_SUPERUSER_PROBE_PASSWORD: synthetic-ci-admin-only
       CATALYST_DB_APP_PASSWORD: synthetic-ci-app-only
       CATALYST_DB_RETENTION_PASSWORD: synthetic-ci-retention-only
       CATALYST_DB_BACKUP_PASSWORD: synthetic-ci-backup-only
@@ -66,7 +68,10 @@ jobs:
           python -m venv /tmp/venv
           /tmp/venv/bin/pip install --quiet --disable-pip-version-check --require-hashes --no-deps -r requirements/dev.txt
 
-      - name: Provision the three database roles (ADR-14)
+      - name: Provision the database roles (ADR-14); the only step that holds the administrator login (6hl.10)
+        env:
+          CATALYST_DB_ADMIN_USER: catalyst_admin
+          CATALYST_DB_ADMIN_PASSWORD: synthetic-ci-admin-only
         run: /tmp/venv/bin/python scripts/provision_db_roles.py
 
       - name: Test suite (PostgreSQL)
@@ -99,7 +104,7 @@ jobs:
       - name: Agent definitions stay read-only and well formed
         run: |
           set -e
-          python3 -m pip install --quiet --disable-pip-version-check pyyaml==6.0.2
+          python3 -m pip install --quiet --disable-pip-version-check --require-hashes --no-deps -r requirements/docs.txt
           python3 - <<'EOF'
           import glob, sys, yaml
           REQUIRED = {"name", "description", "tools", "disallowedTools", "model", "color", "version",
