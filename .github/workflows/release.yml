@@ -31,6 +31,9 @@ jobs:
     name: Release
     # Only main's own workflow file and scripts may release (an older ref could carry an older workflow).
     if: github.ref == 'refs/heads/main'
+    # The protected release environment (009 section 5.5, P6-D-5): its reviewer and main-only branch policy are
+    # applied by the owner with scripts/apply-github-protections.sh; until then the environment carries no rule.
+    environment: release
     runs-on: ubuntu-latest
     env:
       # The dispatcher's text reaches steps only through this variable, never interpolated into a script.

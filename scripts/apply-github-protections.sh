@@ -71,7 +71,7 @@ echo "admin on $REPO: $perm"
 [ "$perm" = "true" ] || { echo "this needs the owner's administration right; an agent token must not have it" >&2; exit 1; }
 
 env_body=$(cat <<EOF
-{"wait_timer": $WAIT_TIMER, "prevent_self_review": false,
+{"wait_timer": $WAIT_TIMER, "prevent_self_review": false, "can_admins_bypass": false,
  "reviewers": [{"type": "User", "id": $owner_id}],
  "deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}
 EOF
