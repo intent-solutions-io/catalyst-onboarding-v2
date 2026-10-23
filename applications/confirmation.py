@@ -20,6 +20,10 @@ Confirmation proves control of the address, not authorship of other versions.
 
 A second confirmation of the same link finds the challenge used and changes nothing ("already confirmed").
 Refusals carry a reason code only: never the token, the link, an address or an answer.
+
+Invitation-only intake (9kg.43, applications.invitations): after the locks and the version check, the live invitation
+for the application's address is spent by one conditional update; with none to spend the confirmation is refused as
+"no longer valid", the same page as an expired or superseded challenge.
 """
 
 from dataclasses import dataclass
@@ -32,6 +36,7 @@ from django.db.models.functions import Now
 
 from workflow.models import PendingAction
 
+from . import invitations
 from .links import signer
 from .models import OPEN_STAGES, Application, ApplicationEvent, ContactChallenge, Stage, SubmissionVersion, VersionAdoption
 from .services import open_staff_item
@@ -118,6 +123,10 @@ def confirm(challenge_uuid: UUID, version_public_id: UUID) -> Confirmed:
         version = SubmissionVersion.objects.filter(public_id=version_public_id, application=application).first()
         if version is None:
             raise Refused(Refused.BAD_VERSION, "version does not belong to the application")
+        if invitations.required() and not invitations.consume(application):
+            # 9kg.43: the invitation is spent here, once; none live (expired, superseded, already spent by a concurrent
+            # confirmation that then lost on the challenge, or intake opened and closed meanwhile) is one refusal.
+            raise Refused(Refused.NO_LONGER_VALID, "invitation not live")
         ContactChallenge.objects.filter(pk=challenge.pk).update(used_at=Now())
         Application.objects.filter(pk=application.pk).update(
             contact_verified_at=Now(), stage=Stage.CONTACT_VERIFIED, updated_at=Now()

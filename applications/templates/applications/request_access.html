@@ -1,7 +1,8 @@
 {% extends "applications/base.html" %}
 {% block content %}
 <h1>Request access</h1>
-<p>Synthetic placeholder form. The optional fields below describe your work and credentials. We check only the links you give, on approved sites; a private or unavailable link never counts against you. Never include client secrets, credentials or confidential material. A person makes every decision.</p>
+{% if invitation_only %}<p>Access is currently by invitation. Use the email address your invitation was sent to; a request from any other address receives no reply.</p>
+{% endif %}<p>Synthetic placeholder form. The optional fields below describe your work and credentials. We check only the links you give, on approved sites; a private or unavailable link never counts against you. Never include client secrets, credentials or confidential material. A person makes every decision.</p>
 <form method="post" novalidate>
   {% csrf_token %}
   {{ form.as_div }}

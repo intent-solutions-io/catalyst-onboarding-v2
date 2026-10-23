@@ -71,6 +71,11 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 - Hardening: correspondence evidence append-only (#44); hard bounces block every send (#45); system pauses need a
   decision-maker (#46); a quarter-faster test suite (#40)
 - Preparation: P5 specification, P6 readiness matrix and PL cutover plan, `023` and `024` (#48)
+- PL-A batch item 1 (`029` section 13.4): every public endpoint rate-limited in PostgreSQL per client (the proxy's
+  forwarded address, trusted by where the web process listens) and per hashed address or token, one uniform refusal,
+  fail closed for issuance and open for reading; invitation-only intake by default, enforced inside the intake
+  transaction, spent once at confirmation, issued only by the owner-run `catalyst_invite`, shown in the dossier, the
+  health report and the release receipt
 
 ### Changed
 

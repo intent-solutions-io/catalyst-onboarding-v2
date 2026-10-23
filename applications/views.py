@@ -8,44 +8,66 @@ resubmission follows the duplicate rules (services module docstring).
 Oversized bodies and too many fields are refused by Django with 400 before the form is read; CSRF is
 enforced by CsrfViewMiddleware (403).
 
+Limits (9kg.29, config.throttle): a POST is counted against the client before the form is read and, once the form is
+valid, against the hashed address key; either bucket over its limit is the one 429 page. A missing client identity or
+an unavailable throttle store refuses the POST with the 503 page (fail closed for issuance). Invitation-only intake
+(9kg.43, applications.invitations): an uninvited submission is rolled back inside the service and gets the same
+redirect as an accepted one; the view logs a reason code only.
+
 The confirmation view (005 S1.2 Confirm; J-03) carries the signed token in its path. Every response under
 that path, including the ones Django builds outside the view, is sent with `Referrer-Policy: no-referrer`
 and `Cache-Control: no-store` (config.redaction middleware), and refusals are logged as a reason code
 only. Django's own request and CSRF loggers name the path of a 4xx response, so config.redaction
-replaces the token in those records.
+replaces the token in those records. It is limited per client and per token; a read with the store down is still
+served, a POST is refused (fail open for reading, closed for issuance).
 """
 
 import logging
 import uuid
 
+from django.conf import settings
 from django.db import DatabaseError, InterfaceError
 from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods, require_safe
 
-from . import confirmation, services
+from config import throttle
+from config.client_identity import client_identity
+
+from . import confirmation, invitations, services
 from .forms import AccessRequestForm
+from .identity import email_key
 
 logger = logging.getLogger(__name__)
+TRY_AGAIN = "applications/try_again.html"
 
 
 @require_http_methods(["GET", "HEAD", "POST"])
 def request_access(request):
     if request.method == "POST":
-        form = AccessRequestForm(request.POST)
-        if form.is_valid():
-            try:
-                services.accept_submission({**form.cleaned_data, "claims": form.claims()})
-            except DatabaseError as exc:
-                # Class name only: no applicant data and no database error text. "Did not complete" rather than
-                # "not saved": if the commit acknowledgment was lost, the submission may have committed.
-                logger.warning("intake submission did not complete: %s", type(exc).__name__)
-                return render(request, "applications/try_again.html", status=503)
-            return redirect("applications:request_access_received")
+        try:
+            throttle.enforce(request, ("intake-client", client_identity(request), settings.CATALYST_THROTTLE_INTAKE_PER_CLIENT),
+                             issuance=True, unavailable=TRY_AGAIN)
+            form = AccessRequestForm(request.POST)
+            if form.is_valid():
+                throttle.enforce(request, ("intake-address", email_key(form.cleaned_data["email"]),
+                                           settings.CATALYST_THROTTLE_INTAKE_PER_ADDRESS), issuance=True, unavailable=TRY_AGAIN)
+                try:
+                    services.accept_submission({**form.cleaned_data, "claims": form.claims()})
+                except services.NotInvited:
+                    logger.info("intake refused: not_invited; nothing recorded")  # the reason code only, never the address
+                except DatabaseError as exc:
+                    # Class name only: no applicant data and no database error text. "Did not complete" rather than
+                    # "not saved": if the commit acknowledgment was lost, the submission may have committed.
+                    logger.warning("intake submission did not complete: %s", type(exc).__name__)
+                    return render(request, TRY_AGAIN, status=503)
+                return redirect("applications:request_access_received")
+        except throttle.Refused as refused:
+            return refused.response
     else:
         form = AccessRequestForm()
-    return render(request, "applications/request_access.html", {"form": form})
+    return render(request, "applications/request_access.html", {"form": form, "invitation_only": invitations.required()})
 
 
 @require_safe
@@ -64,6 +86,12 @@ REFUSAL_STATUS = {
 @never_cache
 @ensure_csrf_cookie
 def confirm(request, token):
+    try:
+        throttle.enforce(request, ("confirm-client", client_identity(request), settings.CATALYST_THROTTLE_LINK_PER_CLIENT),
+                         ("confirm-token", token, settings.CATALYST_THROTTLE_LINK_PER_TOKEN),
+                         issuance=request.method == "POST", unavailable="applications/confirm_try_again.html")
+    except throttle.Refused as refused:
+        return refused.response
     try:
         challenge = confirmation.challenge_id(token)
         if request.method == "POST":

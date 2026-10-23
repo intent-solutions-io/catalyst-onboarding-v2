@@ -111,10 +111,20 @@ def session_health() -> dict:
     return {"cleanup_scheduled": scheduled, "anomalies": ["session_cleanup_unscheduled"] if required and not scheduled else []}
 
 
+def intake_health() -> dict:
+    """9kg.43 and 9kg.29: the launch mode and the client-identity source the limits key on, as configured in code, and
+    the number of live invitations (a count, never an address). No anomaly: the mode is the owner's recorded act."""
+    from applications.invitations import LIVE
+    from applications.models import Invitation
+
+    return {"mode": settings.CATALYST_INTAKE_MODE, "client_identity": settings.CATALYST_CLIENT_IDENTITY,
+            "live_invitations": Invitation.objects.filter(LIVE).count(), "anomalies": []}
+
+
 def report() -> dict:
     from correspondence.health import collector_health, mail_behaviour_health, reminder_health, reply_health, send_health
 
     return {"worker": worker_health(), "queue": queue_health(), "agreements": agreement_health(),
             "provisioning": provisioning_health(), "bounces": bounce_health(), "sends": send_health(),
             "collector": collector_health(), "replies": reply_health(), "reminders": reminder_health(),
-            "mail": mail_behaviour_health(), "sessions": session_health()}
+            "mail": mail_behaviour_health(), "sessions": session_health(), "intake": intake_health()}

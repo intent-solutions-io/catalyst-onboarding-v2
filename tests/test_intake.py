@@ -522,7 +522,10 @@ def test_s1_05_simulated_lost_commit_acknowledgment_leaves_the_outcome_unknown_a
 
     client = Client()
     with monkeypatch.context() as patch:  # undo only this patch; the autouse network guard stays in place
-        patch.setattr(conn, "_commit", commit_then_lose_the_acknowledgment)
+        # Armed from inside the service's transaction (the TEST-S1-04 seam), after the 9kg.29 throttle buckets have
+        # committed on their own, so the lost acknowledgment is the service commit's.
+        patch.setattr(services, "_before_insert",
+                      lambda key: patch.setattr(conn, "_commit", commit_then_lose_the_acknowledgment))
         response = post(client)
     assert lost == [True]
     assert response.status_code == 503 and "Location" not in response

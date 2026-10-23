@@ -37,11 +37,18 @@ from django.db.models.functions import Now
 
 from workflow.models import PendingAction
 
+from . import invitations
 from .identity import email_key
 from .models import OPEN_STAGES, Application, ApplicationEvent, ContactChallenge, SubmissionVersion
 
 OPEN_KEY_CONSTRAINT = "application_one_open_per_email_key"
 SEND_VERIFICATION = "send_verification"
+
+
+class NotInvited(Exception):
+    """Invitation-only intake (9kg.43): the address holds no live invitation and this application consumed none.
+    Raised at the end of the transaction, after every write an invited submission makes, so the transaction rolls
+    back and nothing is recorded; the view answers exactly as for an accepted submission."""
 
 
 @dataclass(frozen=True)
@@ -153,7 +160,8 @@ def _issue_challenge(application) -> bool:
 
 def accept_submission(data) -> Outcome:
     """`data` is AccessRequestForm.cleaned_data. Raises DatabaseError on a database failure: before the
-    commit nothing is committed; at the commit the outcome is unknown (module docstring)."""
+    commit nothing is committed; at the commit the outcome is unknown (module docstring). Raises NotInvited, after
+    rolling everything back, when intake is invitation-only and the address holds no live invitation (9kg.43)."""
     email = data["email"]  # EmailField has already trimmed it
     key = email_key(email)
     fields = {"name": data["name"], "email": email, "reason": data["reason"]}
@@ -174,4 +182,6 @@ def accept_submission(data) -> Outcome:
                 kind="needs_staff_attention", **{**event, "data": {"version_number": number, "reason": reason}}
             )
             open_staff_item(application, reason, attention)
+        if invitations.required() and not invitations.admits(key, application):
+            raise NotInvited()  # after the same writes an invited submission makes: same timing, then rolled back
     return Outcome(application.public_ref, number, new_application, new_challenge, verified)

@@ -98,7 +98,8 @@ def test_6b10_release_facts_read_back_from_the_database(p2):
     call_command("catalyst_release", "receipt", stdout=out)
     receipt = json.loads(out.getvalue())
     assert receipt["migrations_pending"] == 0 and receipt["schema_heads"]["workflow"] == "0004_restore_hold_protection"
-    assert set(receipt) == {"commit", "schema_heads", "migrations_pending", "held_actions", "forward_only"}
+    assert set(receipt) == {"commit", "schema_heads", "migrations_pending", "held_actions", "forward_only", "intake_mode"}
+    assert receipt["intake_mode"] in ("invitation", "open")  # 9kg.43: the receipt names the mode (opened per test)
     assert "@" not in out.getvalue()  # counts and names only
 
 

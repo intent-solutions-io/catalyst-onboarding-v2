@@ -84,6 +84,24 @@ def block_network(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect_ex", _guarded_connect_ex)
 
 
+# The public entry's shipped defaults are invitation-only intake and small synthetic limits (9kg.43, 9kg.29;
+# config/settings.py). The suite's journeys submit the public form freely from one test client, so each test starts
+# with the mode open and every limit far above any burst a journey makes; tests/test_invitation.py and
+# tests/test_throttle.py set the values they prove, and the shipped defaults are checked from a fresh process there.
+SUITE_PUBLIC_ENTRY = {
+    "CATALYST_INTAKE_MODE": "open",
+    **{name: 100_000 for name in ("CATALYST_THROTTLE_INTAKE_PER_CLIENT", "CATALYST_THROTTLE_INTAKE_PER_ADDRESS",
+                                  "CATALYST_THROTTLE_LINK_PER_CLIENT", "CATALYST_THROTTLE_LINK_PER_TOKEN",
+                                  "CATALYST_THROTTLE_WEBHOOK_PER_CLIENT")},
+}
+
+
+@pytest.fixture(autouse=True)
+def suite_public_entry(settings):
+    for name, value in SUITE_PUBLIC_ENTRY.items():
+        setattr(settings, name, value)
+
+
 # PASS means executed and passed. A skipped test, an expected failure (xfail) or an unexpected pass of
 # an xfail-marked test (xpass) cannot satisfy a required case, so any of them fails the run (CI gate).
 # Counted from the reports themselves, so it does not depend on the terminal reporter plugin.
@@ -175,7 +193,7 @@ RUN_IDENTITY = {"marker": f"catalyst-test-run:{uuid.uuid4()}"}
 # permissions come from migrations and are kept.
 # The agreement types are the P4-D-1 inventory seeded by migration (like the groups), so the reset keeps them.
 SLICE_TABLES = re.compile(r"^((applications|workflow|correspondence|assessments|provisioning)_|agreements_(?!agreementtype$)|accounts_user"
-                          r"|django_session$|django_admin_log$|accounts_loginthrottle$|otp_)")  # 6B.9: throttles and staff devices
+                          r"|django_session$|django_admin_log$|accounts_loginthrottle$|accounts_requestthrottle$|otp_)")  # 6B.9, 9kg.29
 RESET_TRIGGER = "catalyst_no_truncate"
 _session = {}
 
@@ -285,6 +303,7 @@ EXPECTED_TRIGGERS = {
     ("provisioning_accessrevocation", "catalyst_access_revocation_fixed"),  # P5 5B.3
     ("provisioning_withdrawalconfirmation", "catalyst_withdrawal_confirmation_fixed"),
     ("provisioning_accessrevocation", "catalyst_no_truncate"), ("provisioning_withdrawalconfirmation", "catalyst_no_truncate"),
+    ("applications_invitation", "catalyst_invitation_fixed"), ("applications_invitation", "catalyst_no_truncate"),  # 9kg.43
 }
 
 
