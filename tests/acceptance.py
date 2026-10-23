@@ -1505,6 +1505,10 @@ P6_SUPPORTING = {
         "test_processing::test_9kg_2_every_system_pause_reason_is_a_resumable_cause_with_a_resolution",
         "test_processing::test_9kg_2_the_screen_offers_a_system_resume_only_to_a_decision_maker_with_a_required_reason",
     ],
+    "9kg.51 every unbounded wait has an age bound in the health report (029 section 5.2)": [
+        "test_system_health::test_9kg_51_each_aged_wait_raises_its_code_and_clears_when_resolved",
+        "test_system_health::test_9kg_51_thresholds_and_paging_are_per_wait_class",
+    ],
 }
 
 # Cases with no pytest evidence of their own: shown only by a live script (026 section 16).

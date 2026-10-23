@@ -198,6 +198,18 @@ CATALYST_WORKER_HEARTBEAT_FILE = os.environ.get("CATALYST_WORKER_HEARTBEAT_FILE"
 CATALYST_HEALTH_HEARTBEAT_STALE_SECONDS = number("CATALYST_HEALTH_HEARTBEAT_STALE_SECONDS", str(2 * CATALYST_WORKER_LEASE_SECONDS))
 CATALYST_HEALTH_PENDING_AGE_SECONDS = number("CATALYST_HEALTH_PENDING_AGE_SECONDS", "3600")
 CATALYST_HEALTH_HARD_BOUNCE_AGE_SECONDS = number("CATALYST_HEALTH_HARD_BOUNCE_AGE_SECONDS", "86400")
+# 9kg.51 (029 section 5.2): the waits that had no bound. Each class has its own age threshold (default: the pending-age
+# target above) and the page list says which classes raise a health anomaly (default: all); a class not listed is
+# still counted and its oldest age printed. The values are the owner's (211.7.2, 211.7.7); these are placeholders.
+CATALYST_HEALTH_AGED_WAIT_CLASSES = ("assessing", "awaiting_decision", "on_hold", "open_staff_items", "pauses",
+                                     "replies_awaiting_processing", "issued_agreements", "provisioning_activation")
+CATALYST_HEALTH_AGED_WAIT_SECONDS = {
+    name: number(f"CATALYST_HEALTH_AGED_WAIT_{name.upper()}_SECONDS", str(CATALYST_HEALTH_PENDING_AGE_SECONDS), cast=float,
+                 minimum=0) for name in CATALYST_HEALTH_AGED_WAIT_CLASSES}
+CATALYST_HEALTH_AGED_WAITS_PAGE = [n.strip() for n in os.environ.get(
+    "CATALYST_HEALTH_AGED_WAITS_PAGE", ",".join(CATALYST_HEALTH_AGED_WAIT_CLASSES)).split(",") if n.strip()]
+if set(CATALYST_HEALTH_AGED_WAITS_PAGE) - set(CATALYST_HEALTH_AGED_WAIT_CLASSES):
+    raise ImproperlyConfigured("CATALYST_HEALTH_AGED_WAITS_PAGE names an unknown wait class")
 CATALYST_WORKER_POLL_SECONDS = number("CATALYST_WORKER_POLL_SECONDS", "5", cast=float, minimum=0.05)
 CATALYST_WORKER_RETRY_SECONDS = number("CATALYST_WORKER_RETRY_SECONDS", "60", minimum=0)  # doubles per attempt
 EMAIL_TIMEOUT = number("CATALYST_EMAIL_TIMEOUT_SECONDS", "10")

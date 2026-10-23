@@ -251,6 +251,7 @@ checked from Buzz itself, never assumed (VERIFIED in the private alerting runboo
 | Backup freshness | the backup receipt | no | older than 26 hours, or failed |
 | Restore drill overdue | the drill receipt | no | older than 35 days |
 | A check itself failed | exit 2 from any health command | yes | any |
+| Aged waits (stages, staff items, pauses, replies, sent agreements, activation) | `aged_waits_health` (9kg.51, section 17) | yes | per class, over its own threshold; only the classes in the page list page |
 
 **Dead-man coverage:** the health timer writes a start marker and a success marker, and a separate estate sweep
 alerts on a stale success marker; an outside-in probe of the public intake path; a planted-fault test per signal on
@@ -1414,3 +1415,24 @@ specification text; nothing is built.
     name. TEST-P6-35 has no check over committed evidence.
   - For TEST-P6-08, 24, 25, 26 and 31, a gate PASS pins the code's shape; the drills carry the behaviour.
 - **GATE-STAGING sign-off:** left for the owner, on the statement in that report's section 9.
+
+## 17. The aged-waits health part (9kg.51, 2026-10-23)
+
+`029` section 5.2 listed the waits with no bound once the first-generation owner notices retire: an application in
+`assessing`, `awaiting_decision` or `on_hold`; an open staff item; a pause; a reply awaiting staff processing; a
+sent agreement awaiting the applicant's signature or the countersignature; a `provision_activate` action requeued
+because the provider was unavailable. Built, in `config.system_health.aged_waits_health`, one part of the health
+report (`catalyst_health`, the staging adapter `health.sh`, the Buzz floor):
+
+- **One class per wait.** Each class is counted past its own threshold and its oldest age is printed
+  (`waiting`, `aged`, `oldest_seconds`, `threshold_seconds`, `pages`). A stage's age runs from the latest transition
+  event into that stage; the others from the row's own time (opened, created, received, last status change).
+- **Thresholds and paging are the owner's values** (`211.7.2`, `211.7.7`): `CATALYST_HEALTH_AGED_WAIT_<CLASS>_SECONDS`
+  each defaults to the pending-age target `CATALYST_HEALTH_PENDING_AGE_SECONDS` (3600 s, a placeholder), and
+  `CATALYST_HEALTH_AGED_WAITS_PAGE` (default: every class) names the classes that raise the anomaly
+  `aged_waits.<class>`, which the floor delivers as high; a class outside the list is counted and printed, audit only.
+- **Codes only.** No identifier of an application, item, message or agreement is in the report (tested). No action
+  is taken and no mail is sent: the part is a signal, staff act on their screens.
+
+Tests: `tests/test_system_health.py` (`9kg.51` in `tests/acceptance.py` P6_SUPPORTING): every class fresh raises
+nothing, past its threshold raises its code, and clears when resolved; thresholds and paging per class.

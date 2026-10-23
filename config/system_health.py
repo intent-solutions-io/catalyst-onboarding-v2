@@ -111,10 +111,66 @@ def session_health() -> dict:
     return {"cleanup_scheduled": scheduled, "anomalies": ["session_cleanup_unscheduled"] if required and not scheduled else []}
 
 
+# 9kg.51 (029 section 5.2): the waits that had no bound once the first-generation owner notices retired. Each class is
+# counted past its own threshold and its oldest age is printed; a class in CATALYST_HEALTH_AGED_WAITS_PAGE raises the
+# anomaly `aged_waits.<class>` (delivered by the alert floor as high), the others are audit only. Counts and ages
+# only: no identifier of any application, item, message or agreement is part of the report.
+STAGE_WAITS = {"assessing": "assessing", "awaiting_decision": "awaiting_decision", "on_hold": "on_hold"}
+# A sent agreement still awaiting the applicant's signature, or the countersignature once the applicant signed.
+AWAITING_SIGNATURE = ("not_started", "partially_signed", "signing_complete_observed")
+
+
+def _stage_wait(stage: str):
+    """Applications in `stage`, with when they entered it: the latest transition event into the stage (every stage
+    move writes one, applications.stages), else the row's last update."""
+    from django.db.models import OuterRef, Subquery
+    from django.db.models.functions import Coalesce
+
+    from applications.models import Application, ApplicationEvent
+
+    entered = ApplicationEvent.objects.filter(application=OuterRef("pk"), data__to=stage).order_by("-occurred_at", "-id")
+    return (Application.objects.filter(stage=stage)
+            .annotate(started_at=Coalesce(Subquery(entered.values("occurred_at")[:1]), "updated_at")))
+
+
+def _waits() -> dict:
+    """Each wait class as (queryset, the name of its start-time column)."""
+    from agreements.models import AgreementInstance
+    from correspondence.models import InboundMessage, StaffItem
+    from workflow.models import AutomationPause
+
+    waits = {name: (_stage_wait(stage), "started_at") for name, stage in STAGE_WAITS.items()}
+    waits.update({
+        "open_staff_items": (StaffItem.objects.filter(status=StaffItem.Status.OPEN), "opened_at"),
+        "pauses": (AutomationPause.objects.filter(subject_type="application"), "created_at"),
+        "replies_awaiting_processing": (InboundMessage.objects.filter(status=InboundMessage.Status.AWAITING_PROCESSING),
+                                        "received_at"),
+        "issued_agreements": (AgreementInstance.objects.filter(replaced_at__isnull=True, issue_status="issued",
+                                                               signing_status__in=AWAITING_SIGNATURE), "updated_at"),
+        "provisioning_activation": (PendingAction.objects.filter(kind="provision_activate", status=PendingAction.Status.QUEUED),
+                                    "created_at"),
+    })
+    return waits
+
+
+def aged_waits_health() -> dict:
+    now = timezone.now()
+    report = {}
+    for name, (queryset, column) in _waits().items():
+        threshold = settings.CATALYST_HEALTH_AGED_WAIT_SECONDS[name]
+        oldest = queryset.aggregate(m=Min(column))["m"]
+        age = (now - oldest).total_seconds() if oldest else 0.0
+        aged = queryset.filter(**{f"{column}__lt": now - timedelta(seconds=threshold)}).count() if oldest else 0
+        report[name] = {"waiting": queryset.count(), "aged": aged, "oldest_seconds": int(age),
+                        "threshold_seconds": int(threshold), "pages": name in settings.CATALYST_HEALTH_AGED_WAITS_PAGE}
+    report["anomalies"] = sorted(name for name, values in report.items() if values["aged"] and values["pages"])
+    return report
+
+
 def report() -> dict:
     from correspondence.health import collector_health, mail_behaviour_health, reminder_health, reply_health, send_health
 
     return {"worker": worker_health(), "queue": queue_health(), "agreements": agreement_health(),
             "provisioning": provisioning_health(), "bounces": bounce_health(), "sends": send_health(),
             "collector": collector_health(), "replies": reply_health(), "reminders": reminder_health(),
-            "mail": mail_behaviour_health(), "sessions": session_health()}
+            "mail": mail_behaviour_health(), "sessions": session_health(), "aged_waits": aged_waits_health()}

@@ -76,6 +76,8 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   authority read from configuration (`9kg.30`, `029` section 17.1)
 - The staff path back from a hold through the decision service and form, and the staff verification resend on the
   correspondence screen with its limit (`9kg.50`, `018` section 19, `016` section 10.13)
+- The `aged_waits` health part: every unbounded wait counted past its own threshold with its oldest age, paging
+  per class by the owner's values, codes only (`9kg.51`, `026` section 17)
 
 ### Changed
 
