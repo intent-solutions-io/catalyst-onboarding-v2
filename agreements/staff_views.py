@@ -92,7 +92,19 @@ def _context(request, application, *, error="", form=None):
         for instance in (AgreementInstance.objects.filter(application=application, agreement_type=t)
                          .prefetch_related("recipients", "documents").order_by("id")):
             hold = completion.integrity_hold_open(instance)
+            unknown = None
+            if instance.issue_status in ("create_uncertain", "distribute_uncertain"):  # 9kg.47 review: what staff decide on
+                step = EnvelopeAttempt.Step.CREATE if instance.issue_status == "create_uncertain" else EnvelopeAttempt.Step.DISTRIBUTE
+                attempt = (EnvelopeAttempt.objects.filter(instance=instance, step=step, outcome=EnvelopeAttempt.Outcome.UNKNOWN)
+                           .order_by("-id").first())
+                if attempt is not None:
+                    reconciles = PendingAction.objects.filter(kind=handlers.RECONCILE, input_ref=str(attempt.public_id))
+                    unknown = {"attempt": attempt, "checks": reconciles.count(),
+                               "running": reconciles.filter(status__in=(PendingAction.Status.QUEUED, PendingAction.Status.RUNNING)).exists()}
             rows.append({
+                "unknown": unknown,
+                "cancellable": instance.issue_status in services.LIVE and instance.signing_status not in (
+                    "signing_complete_verified", "signing_complete_observed", "cancelled"),
                 "type": t, "instance": instance, "hold": hold,
                 "issue": LABELS.get(instance.issue_status, instance.issue_status),
                 "signing": LABELS.get(instance.signing_status, instance.signing_status),
@@ -191,8 +203,12 @@ def templates_screen(view):
 def template_list(request):
     """9kg.47: every agreement template version with its state, so the owner approves the exact version shown (its
     PDF digest) without a shell. No agreement text is here: only the type, version, provider references and digests."""
+    versions = list(AgreementTemplateVersion.objects.select_related("agreement_type").order_by("agreement_type__order", "-version"))
+    current = {t.key: (handlers.approved_version(t.key) or AgreementTemplateVersion(pk=None)).pk
+               for t in AgreementType.objects.all()}
     return render(request, "agreements/staff/templates.html", {
-        "versions": AgreementTemplateVersion.objects.select_related("agreement_type").order_by("agreement_type__order", "-version")})
+        "rows": [{"version": v, "digest": services.template_digest(v), "current": current.get(v.agreement_type.key) == v.pk}
+                 for v in versions]})
 
 
 @require_POST
@@ -200,12 +216,15 @@ def template_list(request):
 def approve_template(request, pk):
     version = get_object_or_404(AgreementTemplateVersion, pk=pk)
     try:
-        services.approve_template_version(version.pk, request.user, request.POST.get("digest", ""))
+        _, changed = services.approve_template_version(version.pk, request.user, request.POST.get("digest", ""))
     except services.Refused as exc:
         messages.error(request, f"approve_template: refused ({exc})")
     else:
-        logger.info("agreement template version %s approved", version.pk)  # the record is the row's approval columns
-        messages.success(request, "Template version approved.")
+        if changed:
+            logger.info("agreement template version %s approved by user:%s", version.pk, request.user.pk)  # the record is the row
+            messages.success(request, "Template version approved.")
+        else:
+            messages.error(request, "approve_template: nothing changed (the version was already approved).")
     return redirect(reverse("agreements_staff:templates"))
 
 

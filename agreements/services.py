@@ -84,18 +84,32 @@ def require(user, permission: str) -> None:
         raise PermissionDenied(permission)
 
 
-def approve_template_version(version_id: int, user, expected_sha256: str) -> AgreementTemplateVersion:
+def template_digest(version: AgreementTemplateVersion) -> str:
+    """What an approval attests (9kg.47 review): the whole frozen tuple of the registered version, recomputed on the
+    server. It covers the registered placeholder PDF's digest only; nothing here reads or compares the provider's
+    live template (a Documenso-side integrity canary is a separate bead)."""
+    import json
+
+    frozen = {"type": version.agreement_type.key, "version": version.version, "provider_template_ref": version.provider_template_ref,
+              "provider_template_number": version.provider_template_number, "recipient_slots": version.recipient_slots,
+              "pdf_sha256": version.pdf_sha256}
+    return hashlib.sha256(json.dumps(frozen, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def approve_template_version(version_id: int, user, expected_digest: str) -> tuple[AgreementTemplateVersion, bool]:
+    """Returns (version, changed): an already approved version is returned unchanged with False, so a caller can say
+    so instead of claiming an approval it did not make."""
     require(user, "approve_agreement_template")
     with transaction.atomic():
-        version = AgreementTemplateVersion.objects.select_for_update(of=("self",)).get(pk=version_id)
-        if expected_sha256 != version.pdf_sha256:
+        version = AgreementTemplateVersion.objects.select_for_update(of=("self",)).select_related("agreement_type").get(pk=version_id)
+        if expected_digest != template_digest(version):
             raise Refused("template_changed_since_shown")
         if version.status == AgreementTemplateVersion.Status.APPROVED:
-            return version
+            return version, False
         AgreementTemplateVersion.objects.filter(pk=version.pk, status=AgreementTemplateVersion.Status.DRAFT).update(
             status=AgreementTemplateVersion.Status.APPROVED, approved_by=f"user:{user.pk}", approved_at=Now())
     version.refresh_from_db()
-    return version
+    return version, True
 
 
 def decide_uncertain_create(instance_id: int, user, choice: str) -> AgreementInstance:
@@ -130,8 +144,9 @@ def decide_uncertain_create(instance_id: int, user, choice: str) -> AgreementIns
             AgreementInstance.objects.filter(pk=instance.pk).update(external_key=instance.external_key,
                                                                     issue_status="create_pending", updated_at=Now())
             handlers.enqueue_create(instance)
-        else:
-            AgreementInstance.objects.filter(pk=instance.pk).update(issue_status="cancelled", updated_at=Now())
+        else:  # abandoned: closed as _close closes an instance without an envelope (issue and signing both cancelled)
+            AgreementInstance.objects.filter(pk=instance.pk).update(issue_status="cancelled", signing_status="cancelled",
+                                                                    updated_at=Now())
         handlers.enqueue_reconcile(attempt, 1, watch=True)
         for item in StaffItem.objects.filter(reason_code=handlers.CREATE_UNKNOWN, dedupe_key=f"create:{attempt.public_id}",
                                              status=StaffItem.Status.OPEN):
@@ -169,6 +184,8 @@ def _close(instance, actor) -> str:
 
     if instance.signing_status == "signing_complete_verified":
         raise Refused("agreement_already_signed")  # a signed agreement is never cancelled here
+    if instance.signing_status == "signing_complete_observed":
+        raise Refused("completion_observed_verify_first")  # the provider reports it signed: a fresh read decides, not a cancel
     if _in_flight(instance):
         # D-42: a stop must not be forgotten because an exchange is running. The request is recorded once; the
         # exchange records its own result first (a request already sent may have taken effect) and then routes to

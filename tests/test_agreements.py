@@ -77,7 +77,7 @@ def g(d, tls, settings):
 
 
 def approve(env):
-    return services.approve_template_version(env.template.pk, env.template_owner, env.template.pdf_sha256)
+    return services.approve_template_version(env.template.pk, env.template_owner, services.template_digest(env.template))[0]
 
 
 def admitted(env, monkeypatch):
@@ -409,7 +409,7 @@ def ua_template(env):
     version = AgreementTemplateVersion.objects.create(
         agreement_type=AgreementType.objects.get(key="user_agreement"), version=1, provider_template_ref="envelope_template_ua",
         provider_template_number=102, recipient_slots={"SIGNER:1": 7002}, pdf_sha256=hashlib.sha256(PDF).hexdigest())
-    return services.approve_template_version(version.pk, env.template_owner, version.pdf_sha256)
+    return services.approve_template_version(version.pk, env.template_owner, services.template_digest(version))[0]
 
 
 INSERT = ("INSERT INTO agreements_agreementinstance (public_id, application_id, agreement_type_id, template_version_id,"

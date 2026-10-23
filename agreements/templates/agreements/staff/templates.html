@@ -1,11 +1,14 @@
 {% extends "correspondence/staff/base.html" %}
 {% block content %}
 <h1>Agreement template versions</h1>
-<p>Approving a version names its exact placeholder PDF digest (POL-07; P4-D-1). An approved version is final and never edited. No agreement text is shown or stored here.</p>
-<table><tr><th>Type</th><th>Version</th><th>Status</th><th>Provider template</th><th>PDF SHA-256</th><th>Approved</th><th></th></tr>
-{% for v in versions %}<tr><td>{{ v.agreement_type.key }}</td><td>{{ v.version }}</td><td>{{ v.status }}</td><td>{{ v.provider_template_ref }} ({{ v.provider_template_number }})</td><td>{{ v.pdf_sha256|truncatechars:17 }}</td><td>{% if v.approved_at %}{{ v.approved_at|date:"c" }} by {{ v.approved_by }}{% else %}-{% endif %}</td>
-<td>{% if v.status == "draft" %}<form method="post" action="{% url 'agreements_staff:approve_template' v.pk %}" class="inline">{% csrf_token %}
-<input type="hidden" name="digest" value="{{ v.pdf_sha256 }}"><button>Approve exactly this version</button></form>{% endif %}</td></tr>
-{% empty %}<tr><td colspan="7">No template versions.</td></tr>{% endfor %}
+<p>Approving a version attests the registered placeholder PDF digest and the version's frozen provider references (POL-07; P4-D-1); the digest posted is recomputed on the server over the whole registered tuple. Nothing here reads or compares the live provider template. An approved version is final and never edited. No agreement text is shown or stored here.</p>
+<table><tr><th>Type</th><th>Version</th><th>Status</th><th>Current for new agreements</th><th>Provider template</th><th>PDF SHA-256 (registered placeholder)</th><th>Approved</th><th></th></tr>
+{% for r in rows %}<tr><td>{{ r.version.agreement_type.key }}</td><td>{{ r.version.version }}</td><td>{{ r.version.status }}</td>
+<td>{% if r.current %}yes: new agreements of this type use it{% else %}no{% endif %}</td>
+<td>{{ r.version.provider_template_ref }} ({{ r.version.provider_template_number }})</td><td><code>{{ r.version.pdf_sha256 }}</code></td><td>{% if r.version.approved_at %}{{ r.version.approved_at|date:"c" }} by {{ r.version.approved_by }}{% else %}-{% endif %}</td>
+<td>{% if r.version.status == "draft" %}<form method="post" action="{% url 'agreements_staff:approve_template' r.version.pk %}" class="inline">{% csrf_token %}
+<input type="hidden" name="digest" value="{{ r.digest }}"><button>Approve exactly this version</button></form>{% endif %}</td></tr>
+{% empty %}<tr><td colspan="8">No template versions.</td></tr>{% endfor %}
 </table>
+<p>Consequence: approving a newer version makes it current; agreements already created keep the version they were created with.</p>
 {% endblock %}

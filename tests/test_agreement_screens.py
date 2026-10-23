@@ -13,7 +13,9 @@ from applications.models import Application
 from tests.test_agreement_completion import (  # noqa: F401  (fixture chain and helpers)
     a, activate, admitted, approve, c, d, ev, g, grant, h, issued, nda, p2, run_worker, tls,
 )
+from tests.test_agreement_custody import k, sign_and_settle  # noqa: F401
 from tests.test_outbound import staff
+from workflow.models import PendingAction
 
 
 def client_for(user):
@@ -122,11 +124,14 @@ def test_a_template_version_is_approved_on_its_own_screen_by_the_digest_shown(h)
     owner = client_for(h.template_owner)
     page = owner.get(url).content.decode()
     assert "nda" in page and "Approve exactly this version" in page and version.pdf_sha256[:14] in page
-    assert owner.post(approve_url, {"digest": "0" * 64}).status_code == 302
-    assert AgreementTemplateVersion.objects.get(pk=version.pk).status == "draft"
+    assert version.pdf_sha256 in page and len(version.pdf_sha256) == 64  # the full registered digest, never truncated
+    assert "Nothing here reads or compares the live provider template" in page
+    for stale in ("0" * 64, version.pdf_sha256):  # the posted digest covers the whole frozen tuple, not the PDF alone
+        assert owner.post(approve_url, {"digest": stale}).status_code == 302
+        assert AgreementTemplateVersion.objects.get(pk=version.pk).status == "draft"
     page = owner.get(url).content.decode()
     assert "approve_template: refused (template_changed_since_shown)" in page
-    assert owner.post(approve_url, {"digest": version.pdf_sha256}).status_code == 302
+    assert owner.post(approve_url, {"digest": services.template_digest(version)}).status_code == 302
     approved = AgreementTemplateVersion.objects.get(pk=version.pk)
     assert approved.status == "approved" and approved.approved_by == f"user:{h.template_owner.pk}" and approved.approved_at
     page = owner.get(url).content.decode()
@@ -139,3 +144,98 @@ def test_a_template_version_is_approved_on_its_own_screen_by_the_digest_shown(h)
     assert "Agreement templates" not in client_for(reader).get(change).content.decode()
     grant(h, reader, "approve_agreement_template")
     assert "Agreement templates" in client_for(reader).get(change).content.decode()
+
+
+def test_agreement_items_point_at_the_agreements_screen(h, monkeypatch):
+    from correspondence.processing import AGREEMENT_SCREEN_ITEMS
+
+    app = admitted(h, monkeypatch)
+    approve(h)
+    activate()
+    h.fake.fault("POST /envelope/use", ("drop_before",))
+    run_worker()
+    item = app.staff_items.get(reason_code=handlers.CREATE_UNKNOWN, status="open")
+    assert handlers.CREATE_UNKNOWN in AGREEMENT_SCREEN_ITEMS
+    operator = grant(h, staff(h, "item-reader", "Correspondence operator"), "view_agreementinstance")
+    page = client_for(operator).get(reverse("correspondence_staff:item", args=[item.public_id])).content.decode()
+    assert screen(app) in page and "Open the agreements screen" in page and "decided there" in page
+    assert "You hold no permission that resolves this item here" not in page and 'name="code"' not in page
+
+
+def test_the_screen_refuses_a_reconciliation_in_progress_a_signed_and_an_observed_complete_agreement(k, monkeypatch):
+    app = admitted(k, monkeypatch)
+    approve(k)
+    activate()
+    k.fake.fault("POST /envelope/use", ("drop_before",))
+    run_worker()
+    instance = nda(Application.objects.get(pk=app.pk))
+    attempt = EnvelopeAttempt.objects.get(instance=instance, step="create", outcome="unknown")
+    handlers.enqueue_reconcile(attempt, 9)  # a check still queued: deciding is refused until it ends
+    decider = client_for(k.agreement_decider)
+    page = decider.get(screen(app)).content.decode()
+    assert "reconciliation did not find an envelope; it may not have been able to ask" in page
+    assert "reconcile action(s) were queued for it, one is still queued or running" in page and "Duplicate risk" in page
+    assert "The unknown attempt was sent at 20" in page  # the attempt's time
+    refused = decider.post(act(app), {"action": "decide_create", "instance": str(instance.public_id), "choice": "not_sent"})
+    assert refused.status_code == 409 and "decide_create: refused (reconciliation_in_progress)" in refused.content.decode()
+    PendingAction.objects.filter(input_ref=str(attempt.public_id), status="queued").update(status="cancelled")
+    assert decider.post(act(app), {"action": "decide_create", "instance": str(instance.public_id), "choice": "not_sent"}).status_code == 302
+    run_worker()
+    instance = nda(Application.objects.get(pk=app.pk))
+    assert instance.issue_status == "issued"
+    # Reported complete by the provider but not yet verified: a cancel is refused until a fresh read decides.
+    owner = k.committed.connect("owner", autocommit=True)
+    owner.execute("UPDATE agreements_agreementinstance SET signing_status = 'signing_complete_observed' WHERE id = %s", [instance.pk])
+    refused = decider.post(act(app), {"action": "cancel", "instance": str(instance.public_id)})
+    assert refused.status_code == 409 and "cancel: refused (completion_observed_verify_first)" in refused.content.decode()
+    owner.execute("UPDATE agreements_agreementinstance SET signing_status = 'not_started' WHERE id = %s", [instance.pk])
+    sign_and_settle(k, app, "nda")
+    instance.refresh_from_db()
+    assert instance.signing_status == "signing_complete_verified"
+    refused = decider.post(act(app), {"action": "cancel", "instance": str(instance.public_id)})
+    assert refused.status_code == 409 and "cancel: refused (agreement_already_signed)" in refused.content.decode()
+
+
+def test_the_cancel_button_is_absent_for_verified_cancelled_and_superseded_rows(k, monkeypatch):
+    app = issued(k, monkeypatch)
+    instance = nda(app)
+    decider = client_for(k.agreement_decider)
+    section = lambda page, ref: page.split(f"instance {ref}")[1].split("</section>")[0]  # noqa: E731
+    assert 'value="cancel"' in section(decider.get(screen(app)).content.decode(), instance.public_id)
+    owner = k.committed.connect("owner", autocommit=True)
+    for state in ("cancelled", "superseded"):  # test-only: the owner places the unverified row in the state under test
+        owner.execute("UPDATE agreements_agreementinstance SET issue_status = %s WHERE id = %s", [state, instance.pk])
+        page = decider.get(screen(app)).content.decode()
+        assert 'value="cancel"' not in section(page, instance.public_id), state
+    owner.execute("UPDATE agreements_agreementinstance SET issue_status = 'issued' WHERE id = %s", [instance.pk])
+    sign_and_settle(k, app, "nda")
+    assert AgreementInstance.objects.get(pk=instance.pk).signing_status == "signing_complete_verified"
+    page = decider.get(screen(app)).content.decode()
+    assert 'value="cancel"' not in section(page, instance.public_id)  # verified: the database never lets it change
+
+
+def test_a_second_template_version_becomes_current_and_a_repeat_approval_is_a_no_op(h):
+    import hashlib
+
+    from agreements.models import AgreementType
+
+    first = h.template
+    owner = client_for(h.template_owner)
+    url = reverse("agreements_staff:templates")
+    assert owner.post(reverse("agreements_staff:approve_template", args=[first.pk]), {"digest": services.template_digest(first)}).status_code == 302
+    page = owner.get(url).content.decode()
+    assert page.count("yes: new agreements of this type use it") == 2  # one current version per type (nda, user agreement)
+    second = AgreementTemplateVersion.objects.create(
+        agreement_type=AgreementType.objects.get(key="nda"), version=2, provider_template_ref="envelope_template_nda2",
+        provider_template_number=103, recipient_slots={"SIGNER:1": 7003}, pdf_sha256=hashlib.sha256(b"v2").hexdigest())
+    assert owner.post(reverse("agreements_staff:approve_template", args=[second.pk]), {"digest": services.template_digest(second)}).status_code == 302
+    assert handlers.approved_version("nda").pk == second.pk
+    page = owner.get(url).content.decode()
+    nda_rows = [r for r in page.split("<tr>") if r.startswith("<td>nda</td>")]
+    assert [("yes: new agreements" in r) for r in nda_rows] == [True, False]  # version 2 is current, version 1 no longer
+    assert page.count("yes: new agreements of this type use it") == 2
+    # Approving an approved version again changes nothing and says so.
+    version, changed = services.approve_template_version(second.pk, h.template_owner, services.template_digest(second))
+    assert changed is False and version.approved_at == AgreementTemplateVersion.objects.get(pk=second.pk).approved_at
+    assert owner.post(reverse("agreements_staff:approve_template", args=[second.pk]), {"digest": services.template_digest(second)}).status_code == 302
+    assert "nothing changed (the version was already approved)" in owner.get(url).content.decode()

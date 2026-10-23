@@ -26,14 +26,15 @@
 
 <form method="post" action="{% url 'agreements_staff:act' application.public_ref %}" class="inline">{% csrf_token %}
 <input type="hidden" name="instance" value="{{ row.instance.public_id }}">
-{% if may.manage_agreements %}<button name="action" value="cancel">Cancel at the provider</button>
+{% if may.manage_agreements %}{% if row.cancellable %}<button name="action" value="cancel">Cancel at the provider</button>{% endif %}
 <button name="action" value="reissue">Reissue as a new agreement</button>{% endif %}
 {% if may.operate_agreements and row.instance.custody_status == "failed_needs_staff" and not row.instance.documents.all %}<button name="action" value="retry_custody">Retry custody</button>{% endif %}
 </form>
 
 {% if row.instance.issue_status == "create_uncertain" and may.decide_uncertain_agreement %}
 <h3>Decide the unknown create</h3>
-<p>The provider's answer to the create was never seen and reconciliation found no envelope. Nothing is retried on its own (P4-D-8).</p>
+<p>The provider's answer to the create was never seen, and reconciliation did not find an envelope; it may not have been able to ask. Nothing is retried on its own (P4-D-8).{% if row.unknown %} The unknown attempt was sent at {{ row.unknown.attempt.created_at|date:"c" }}; {{ row.unknown.checks }} reconcile action(s) were queued for it{% if row.unknown.running %}, one is still queued or running (a decision is refused until it ends){% endif %}.{% endif %}</p>
+<p><strong>Duplicate risk:</strong> the old key stays under watch, so a late envelope under it is cancelled as an orphan; a stray draft may be left at the provider and is never sent by this system.</p>
 <form method="post" action="{% url 'agreements_staff:act' application.public_ref %}">{% csrf_token %}
 <input type="hidden" name="action" value="decide_create"><input type="hidden" name="instance" value="{{ row.instance.public_id }}">
 <fieldset><legend>Decision</legend>{% for value, label in create_choices.items %}
@@ -42,7 +43,8 @@
 {% endif %}
 {% if row.instance.issue_status == "distribute_uncertain" and may.decide_uncertain_agreement %}
 <h3>Decide the unknown distribute</h3>
-<p>The provider's answer to the send was never seen and reconciliation could not settle it.</p>
+<p>The provider's answer to the send was never seen, and reconciliation did not find it sent; it may not have been able to ask.{% if row.unknown %} The unknown attempt was sent at {{ row.unknown.attempt.created_at|date:"c" }}; {{ row.unknown.checks }} reconcile action(s) were queued for it{% if row.unknown.running %}, one is still queued or running (a decision is refused until it ends){% endif %}.{% endif %}</p>
+<p><strong>Duplicate risk:</strong> sending again re-reads first and sends only a draft; if the first send did reach the applicant, the provider may have mailed them already.</p>
 <form method="post" action="{% url 'agreements_staff:act' application.public_ref %}">{% csrf_token %}
 <input type="hidden" name="action" value="decide_distribute"><input type="hidden" name="instance" value="{{ row.instance.public_id }}">
 <fieldset><legend>Decision</legend>{% for value, label in distribute_choices.items %}
