@@ -224,6 +224,7 @@ def approve_template(request, pk):
             logger.info("agreement template version %s approved by user:%s", version.pk, request.user.pk)  # the record is the row
             messages.success(request, "Template version approved.")
         else:
+            logger.info("agreement template version %s approval repeated by user:%s; nothing changed", version.pk, request.user.pk)
             messages.error(request, "approve_template: nothing changed (the version was already approved).")
     return redirect(reverse("agreements_staff:templates"))
 

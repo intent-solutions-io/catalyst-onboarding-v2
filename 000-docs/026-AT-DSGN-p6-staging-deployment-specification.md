@@ -1401,7 +1401,9 @@ specification text; nothing is built.
 **6C, the GATE-STAGING evidence map and the after-action report (026 sections 11 and 12, task 14).**
 
 - **The map:** `tests/acceptance.py` `P6_CASES` maps 37 of the 38 cases to the tests that prove them. The 38th,
-  TEST-P6-27, is shown only live (`P6_LIVE_ONLY`). `P6_SUPPORTING` holds the one P6 design rule that is not a case.
+  TEST-P6-27, is shown only live (`P6_LIVE_ONLY`). `P6_SUPPORTING` holds the P6 design rules that are not cases: the
+  9kg.2 pause rule and, since PR #87, the five internal-launch groups (`9kg.30`, `9kg.50`, `9kg.51`, `oc4.12`, `9kg.47`),
+  which sit inside GATE-STAGING's supporting map by design (every staff-path test gates a full run).
 - **The gate:** `tests/conftest.py` reports GATE-STAGING and gates it in a full run like GATE-S1 to GATE-P5.
 - **Two new tests:**
   - every case in this section is gated or live-only, never both and never neither;

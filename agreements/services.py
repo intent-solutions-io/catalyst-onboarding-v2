@@ -176,16 +176,19 @@ def _in_flight(instance) -> bool:
                                         input_ref=str(instance.public_id), status=PendingAction.Status.RUNNING).exists()
 
 
-def _close(instance, actor) -> str:
+def _close(instance, actor, *, staff_cancel: bool = False) -> str:
     """Inside the caller's transaction. An instance with an envelope is cancelled at the provider (P4-D-18); one
     without is closed here, and an unknown create is set aside with its key watched, so a late envelope is cancelled
-    as an orphan (P4-D-19). Returns what was done."""
+    as an orphan (P4-D-19). Returns what was done. `staff_cancel` (the decision-maker's cancel on the screen) refuses
+    an instance the provider reports complete but not yet verified: a fresh read decides that, not a cancel. A stop
+    (withdrawal, closure, hold) is not refused by it: the applicant's withdrawal must never roll back on an observed
+    completion, and the cancel itself re-reads first and cancels only a pending envelope."""
     from .completion import enqueue_cancel_instance
 
     if instance.signing_status == "signing_complete_verified":
         raise Refused("agreement_already_signed")  # a signed agreement is never cancelled here
-    if instance.signing_status == "signing_complete_observed":
-        raise Refused("completion_observed_verify_first")  # the provider reports it signed: a fresh read decides, not a cancel
+    if staff_cancel and instance.signing_status == "signing_complete_observed":
+        raise Refused("completion_observed_verify_first")
     if _in_flight(instance):
         # D-42: a stop must not be forgotten because an exchange is running. The request is recorded once; the
         # exchange records its own result first (a request already sent may have taken effect) and then routes to
@@ -238,7 +241,7 @@ def cancel_agreement(instance_id: int, user) -> AgreementInstance:
             instance.refresh_from_db()
         elif instance.issue_status not in LIVE:
             raise Refused("not_live")
-        done = _close(instance, actor)
+        done = _close(instance, actor, staff_cancel=True)
         event(application, "agreement_cancel_requested", {"instance": str(instance.public_id), "result": done},
               actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
     instance.refresh_from_db()

@@ -37,6 +37,22 @@ STAFF_VIEW_MODULES = ("correspondence.staff_views", "assessments.staff_views", "
                       "agreements.staff_views", "provisioning.staff_views", "applications.admin")
 
 
+@pytest.fixture(autouse=True)
+def matrix_groups_as_migrated(request):
+    """Group permissions are not part of the per-test reset; an earlier test that drifted a group (test_decision's
+    group-grant check, now cleaned up) must not fail these. Each test here starts from the migrated matrix."""
+    if "p2" not in request.fixturenames:
+        return
+    env = request.getfixturevalue("p2")
+    owner = env.committed.connect("owner", autocommit=True)
+    for spec in roles.GROUP_ROLES.values():
+        owner.execute("DELETE FROM auth_group_permissions WHERE group_id = (SELECT id FROM auth_group WHERE name = %s)", [spec.group])
+        for app, codename in sorted(spec.expected):
+            owner.execute("INSERT INTO auth_group_permissions (group_id, permission_id) SELECT g.id, p.id FROM auth_group g,"
+                          " auth_permission p JOIN django_content_type c ON c.id = p.content_type_id"
+                          " WHERE g.name = %s AND c.app_label = %s AND p.codename = %s", [spec.group, app, codename])
+
+
 def owner_command(*args, expect=0, **env):
     """The command as the owner runs it: a separate process connected as the migration owner (support.manage_as_owner,
     with an explicit environment for the authority setting)."""

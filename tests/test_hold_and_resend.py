@@ -176,3 +176,22 @@ def test_a_resend_is_refused_while_a_hard_bounce_is_open(p2):
     with pytest.raises(CorrespondenceRefused, match="hard_bounce_open"):
         staff_actions.resend_verification(app.pk, staff(p2, "resender-bounce", "Correspondence operator"))
     assert len(challenges(app)) == 1
+
+
+def test_the_dossier_flags_a_case_awaiting_decision_or_on_hold_and_links_the_decision_screen(d, monkeypatch):
+    from applications import staff as dossier
+
+    app = ready_app(d, monkeypatch)
+    last = dossier.next_steps(app)[-1]
+    assert (last.party, last.attention) == ("Staff", True) and "decision screen" in last.text
+    assert Application.objects.filter(pk=app.pk).filter(dossier.attention_q()).exists()
+    decide(d, app, "hold")
+    last = dossier.next_steps(Application.objects.get(pk=app.pk))[-1]
+    assert (last.party, last.attention) == ("Staff", True) and "On hold" in last.text and "decision screen" in last.text
+    assert Application.objects.filter(pk=app.pk).filter(dossier.attention_q()).exists()
+    change = reverse("admin:applications_application_change", args=[app.pk])
+    client = Client()
+    client.force_login(staff(d, "dossier-decider", "Read-only staff", "Assessment operator"))
+    assert "Decision screen" in client.get(change).content.decode()  # review_evidence opens the decision screen
+    client.force_login(staff(d, "dossier-reader", "Read-only staff"))
+    assert "Decision screen" not in client.get(change).content.decode()

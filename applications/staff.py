@@ -150,7 +150,10 @@ def next_steps(application) -> list[Step]:
     if application.stage == "evidence":
         return steps + [Step("System", "Evidence is being collected from approved sources (P3)")]
     if application.stage == "assessing":
-        return steps + [Step("Blocked", "Evidence collection is complete; the assessment step arrives with P3 task 3B.2")]
+        if application.staff_items.filter(status="open", reason_code__in=("assessment_suspended", "assessment_capped")).exists():
+            return steps + [Step("Staff", "The assessment is refused by suspension or capped: record a human-only decision on the"
+                                 " decision screen", attention=True)]
+        return steps + [Step("System", "Assessing: a run is queued or waiting; a failed run opens a staff item")]
     if application.stage == "awaiting_decision":  # 9kg.50 review: the decision-maker owes the next step
         return steps + [Step("Staff", "Awaiting the qualification decision: record it on the decision screen", attention=True)]
     if application.stage == "on_hold":

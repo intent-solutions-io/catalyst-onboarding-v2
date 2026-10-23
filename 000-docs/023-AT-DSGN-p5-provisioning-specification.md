@@ -486,7 +486,7 @@ None of these blocks synthetic work:
   - evidence is append-only;
   - a checklist attestation by the creator is refused;
   - nothing is deleted or truncated.
-- **Permissions:** `approve_provisioning` and `operate_provisioning`, assigned to no group.
+- **Permissions:** `approve_provisioning` (a direct named grant, P5-D-3) and `operate_provisioning` (carried by a named group since `9kg.30`, pending the owner's ratification; originally assigned to no group).
 - **`agreements.completion.prerequisites`:** one function for the P4 hand-off and every P5 boundary.
   `fresh_read_problem` is the fresh Documenso read, outside any transaction, and opens the D-43 integrity hold on a
   mismatch.
@@ -667,7 +667,7 @@ applicant-centred staff screen (TEST-P5-19, 20).
 
   It never deletes mailbox data, never suspends a whole hosting user or domain, and never reopens or closes twice
   (P5-D-10).
-- **Staff `close_application`:** needs the `close_application` permission (assigned to no group) and a reason. It
+- **Staff `close_application`:** needs the `close_application` permission (carried by the `Provisioning decision-maker` group since `9kg.30`, pending the owner's ratification; originally assigned to no group) and a reason. It
   covers a closure, and a withdrawal the applicant asked for through staff (the staff-mediated path of P5-D-8).
 - **The applicant's withdrawal** (`request_withdrawal_link`, `/withdraw/<token>/`):
   - Staff send a one-time link on the applicant's request.

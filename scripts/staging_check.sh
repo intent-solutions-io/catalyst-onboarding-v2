@@ -300,7 +300,8 @@ staff_post() {  # staff_post <user> <password> [device] [token]: the login POST'
 }
 staff_index() { curl -sk -b "$jar" -o /dev/null -w '%{http_code}' --resolve staff.staging.test:18444:127.0.0.2 "$staff_url/staff/"; }
 staff_password="synthetic-staff-$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"
-owner_run -e GATE_PW="$staff_password" migrate python manage.py add_readonly_staff gate-staff --password-env GATE_PW >/dev/null
+owner_run -e GATE_PW="$staff_password" migrate python manage.py add_readonly_staff gate-staff --password-env GATE_PW \
+  --approval-ref "synthetic staging check" >/dev/null
 owner_run -e DJANGO_SUPERUSER_PASSWORD="$staff_password" migrate python manage.py createsuperuser --noinput \
   --username gate-super --email gate-super@example.test >/dev/null
 secret_of() { owner_run migrate python manage.py enroll_staff_two_factor "$1" | grep -oE 'secret=[A-Z2-7]+' | cut -d= -f2; }

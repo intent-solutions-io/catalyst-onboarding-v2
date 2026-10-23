@@ -160,6 +160,31 @@ def test_agreement_items_point_at_the_agreements_screen(h, monkeypatch):
     page = client_for(operator).get(reverse("correspondence_staff:item", args=[item.public_id])).content.decode()
     assert screen(app) in page and "Open the agreements screen" in page and "decided there" in page
     assert "You hold no permission that resolves this item here" not in page and 'name="code"' not in page
+    # Every code decided on the screen says so; any other agreement item links the screen without that claim.
+    from django.db import transaction
+
+    from correspondence.staff_items import open_item
+
+    assert AGREEMENT_SCREEN_ITEMS == {"agreement_create_unknown", "agreement_distribute_unknown", "agreement_cancel_unknown",
+                                      "agreement_orphan_watch_ended"}
+    for code in sorted(AGREEMENT_SCREEN_ITEMS | {"agreement_duplicate_envelopes", "agreement_declined"}):
+        with transaction.atomic():
+            probe = open_item(code, f"probe:{code}", application=app)
+        page = client_for(operator).get(reverse("correspondence_staff:item", args=[probe.public_id])).content.decode()
+        assert "Open the agreements screen" in page, code
+        assert ("decided there" in page) is (code in AGREEMENT_SCREEN_ITEMS), code
+
+
+def test_a_withdrawal_stops_an_agreement_the_provider_reports_complete_but_unverified(k, monkeypatch):
+    """The observed-complete refusal is the decision-maker's cancel only: a withdrawal (or closure, or hold) through
+    stop_locked never rolls back on it; the cancel re-reads first and cancels only a pending envelope."""
+    app = issued(k, monkeypatch)
+    instance = nda(app)
+    owner = k.committed.connect("owner", autocommit=True)
+    owner.execute("UPDATE agreements_agreementinstance SET signing_status = 'signing_complete_observed' WHERE id = %s", [instance.pk])
+    assert services.stop_agreements(app.pk, k.agreement_decider, "withdrawn") == ["cancel_pending"]
+    assert AgreementInstance.objects.get(pk=instance.pk).issue_status == "cancel_pending"
+    assert app.events.filter(kind="agreements_stopped", data__reason="withdrawn").exists()
 
 
 def test_the_screen_refuses_a_reconciliation_in_progress_a_signed_and_an_observed_complete_agreement(k, monkeypatch):

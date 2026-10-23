@@ -1527,6 +1527,7 @@ P6_SUPPORTING = {
         "test_hold_and_resend::test_staff_resend_supersedes_the_challenge_and_sends_the_same_message",
         "test_hold_and_resend::test_a_resend_is_refused_beyond_the_limit_after_verification_and_without_the_permission",
         "test_hold_and_resend::test_a_resend_is_refused_while_a_hard_bounce_is_open",
+        "test_hold_and_resend::test_the_dossier_flags_a_case_awaiting_decision_or_on_hold_and_links_the_decision_screen",
     ],
     "oc4.12 the human-only assessment path completed for a launch with model advice disabled (018 section 20)": [
         "test_human_only::test_the_decision_service_and_screen_never_import_the_model_layer",
@@ -1549,6 +1550,7 @@ P6_SUPPORTING = {
         "test_agreement_screens::test_the_screen_refuses_a_reconciliation_in_progress_a_signed_and_an_observed_complete_agreement",
         "test_agreement_screens::test_the_cancel_button_is_absent_for_verified_cancelled_and_superseded_rows",
         "test_agreement_screens::test_a_second_template_version_becomes_current_and_a_repeat_approval_is_a_no_op",
+        "test_agreement_screens::test_a_withdrawal_stops_an_agreement_the_provider_reports_complete_but_unverified",
     ],
 }
 

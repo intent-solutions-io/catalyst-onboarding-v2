@@ -448,10 +448,14 @@ def test_review_a_group_grant_never_confers_the_decision(d, monkeypatch):
     owner = d.committed.connect("owner", autocommit=True)
     owner.execute("INSERT INTO auth_group_permissions (group_id, permission_id) SELECT g.id, p.id FROM auth_group g,"
                   " auth_permission p WHERE g.name = 'Assessment operator' AND p.codename = 'record_qualification_decision'")
-    member = staff(d, "group-member-p3", "Assessment operator")
-    assert member.has_perm("assessments.record_qualification_decision")  # Django would say yes
-    with pytest.raises(PermissionDenied):
-        decide(d, app, user=member)
+    try:
+        member = staff(d, "group-member-p3", "Assessment operator")
+        assert member.has_perm("assessments.record_qualification_decision")  # Django would say yes
+        with pytest.raises(PermissionDenied):
+            decide(d, app, user=member)
+    finally:  # group permissions are not reset between tests: leave the matrix as the migrations made it (9kg.30)
+        owner.execute("DELETE FROM auth_group_permissions WHERE group_id = (SELECT id FROM auth_group WHERE name = 'Assessment operator')"
+                      " AND permission_id = (SELECT id FROM auth_permission WHERE codename = 'record_qualification_decision')")
 
 
 def test_review_hostile_claim_text_is_escaped_and_nothing_is_preselected(d, monkeypatch):

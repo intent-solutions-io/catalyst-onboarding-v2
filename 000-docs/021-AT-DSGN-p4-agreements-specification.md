@@ -457,7 +457,7 @@ no request was made to the installation:
 - **The D-15 sequence.** When a type passes its gate, `advance_agreements` re-reads the previous envelope at the
   moment of issue (REQ-011) and only then starts the next type. A stale or changed read issues nothing and opens a
   staff item.
-- **Staff services, permission `manage_agreements`, assigned to no group:**
+- **Staff services, permission `manage_agreements`, carried by a named group since `9kg.30` (pending the owner's ratification; originally assigned to no group):**
   - **Cancel at the provider** (P4-D-18): its own reconciled action, with `cancel_pending` and `cancel_uncertain`.
   - **Reissue** after a decline or a cancellation: a new instance, the old one marked superseded.
   - **Stop agreements** for a withdrawal, closure or hold (P4-D-20): every live envelope is cancelled; an unknown
@@ -566,7 +566,7 @@ an envelope is distributed:
   exactly our recipients, an `agreement_integrity_hold` opens. The verified columns stay as they were (they are
   immutable).
 - The hold fails the gate, so the User Agreement and the P5 hand-off wait. Generic resume does not clear it.
-- `resolve_agreement_integrity`, assigned to no group, offers three things:
+- `resolve_agreement_integrity`, carried by a named group since `9kg.30` (pending the owner's ratification; originally assigned to no group), offers three things:
   - a recheck;
   - **continue**, only on a read recorded after the hold that matches fully;
   - **replace**: `replaced_at` and its reason are set once, the verified history is kept, and a new generation
@@ -667,7 +667,7 @@ Bead `catalyst-v2-hdg.4`; tests in `tests/test_agreement_custody.py`.
 
 **Retrieval** (`services.retrieve_document`; `POST /staff/p4/documents/<id>/retrieve/`):
 
-- **Who.** Only the `retrieve_agreement_document` permission, assigned to no group (P4-D-16), with a stated reason.
+- **Who.** Only the `retrieve_agreement_document` permission, carried by the decision-maker group since `9kg.30` (pending the owner's ratification; originally assigned to no group, P4-D-16), with a stated reason.
 - **Audit first.** The `DocumentAccess` row (append-only) is committed before any byte is read for release. If the
   audit write fails, nothing is released.
 - **Denials.** A missing permission, a missing document and a non-staff or anonymous caller all return the same 404.
@@ -821,7 +821,8 @@ from tests or a shell. Built, under the existing permissions and the section 9 s
   `_close` refuses an agreement the provider reports complete but not yet verified
   (`completion_observed_verify_first`), and the cancel button appears only for live, unverified, uncancelled rows;
   an abandoned create closes with both statuses cancelled, as `_close` does; every `agreement_*` staff item links the
-  agreements screen, and the five decided there offer no resolution of their own.
+  agreements screen, and the four decided there (unknown create, distribute and cancel; an ended orphan watch) offer no
+  resolution of their own; `agreement_duplicate_envelopes` has no screen action yet (`9kg.53`, the reconcile path).
 
 Tests: `tests/test_agreement_screens.py` (one test per action, a refusal without the permission, the recorded event
 or approval). The on-hold exit, the verification resend and the aged-waits bounds are `9kg.50` and `9kg.51` (`018`

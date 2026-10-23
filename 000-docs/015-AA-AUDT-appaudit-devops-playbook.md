@@ -395,7 +395,7 @@ No local Python install is needed for tests. Everything runs in the pinned conta
 | Lint and format | `scripts/check-docs.sh` | Markdown only. **No Python linter or formatter is configured** (gap) |
 | Build | none | no artifact; Django runs from source |
 | Worker | `python manage.py run_worker [--exit-when-idle]` | declares itself a worker; SIGTERM stops after the current action |
-| Create staff | `python manage.py add_readonly_staff <user>` as the owner | refused to the application role |
+| Create staff | `python manage.py add_readonly_staff <user> --approval-ref <decision>` as the owner (every grant is recorded, `9kg.30`; other roles: `grant_staff_role`) | refused to the application role |
 | Rotate a staff password | `python manage.py changepassword <user>` as the owner | the admin password form is refused (403) |
 | Deploy staging | none | P6 |
 | Deploy production | none | P6 |
