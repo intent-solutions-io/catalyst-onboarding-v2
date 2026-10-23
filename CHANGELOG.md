@@ -71,6 +71,12 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 - Hardening: correspondence evidence append-only (#44); hard bounces block every send (#45); system pauses need a
   decision-maker (#46); a quarter-faster test suite (#40)
 - Preparation: P5 specification, P6 readiness matrix and PL cutover plan, `023` and `024` (#48)
+- Internal launch, PL batch 2 (`029` section 13.3; beads `9kg.37`, `9kg.38`): the deploy operation (`CATALYST_DEPLOY_ID`)
+  binds the pre-deploy backup to the deploy by id, digest and time, and the deployment receipt is a gate, built on
+  D-I's recommended default: `deploy.sh` refuses an image other than the approved one, an unapproved commit label and
+  a missing, stale, replaced or another deploy's backup before anything changes, so the wrapper reverts and holds; the
+  smoke runs `check --deploy`. The deploy drill adds the N+1 expand release reverted to N on the expanded schema with
+  the data kept, and a forward-only (contract) release whose revert is refused by name (`026` section 16)
 
 ### Changed
 
