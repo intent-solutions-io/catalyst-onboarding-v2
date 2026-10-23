@@ -599,18 +599,21 @@ authorization; an authority label is not permission.
 | Bead | Title (short) | Depends on | Earliest boundary |
 |---|---|---|---|
 | `catalyst-v2-dy7.1` | Compare the live first-generation workflow, the approved journey and v2, and plan the internal launch | GATE-STAGING (D-50) | — |
-| `catalyst-v2-dy7.2` | Record ownership of every live first-generation case, mailbox poller, envelope, webhook target and timer; the cross-system guards | `9kg.42` (the live facts) | the launch manifest |
-| `catalyst-v2-dy7.3` | Rehearse routing, the error-log filter, socket ownership, reconciliation and rollback against the live baseline (awaits a go) | `9kg.42`, `9kg.28`, `dy7.2`, `211.7.3` | any routing change; the deployment |
+| `catalyst-v2-dy7.2` | Record ownership of every live first-generation case, mailbox poller, envelope, webhook target and timer; the cross-system guards | `9kg.42` (the live facts), `dy7.4` (the legacy evidence packet) | the launch manifest |
+| `catalyst-v2-dy7.3` | Rehearse routing, the error-log filter, socket ownership, reconciliation and rollback against the live baseline (awaits a go) | `9kg.42`, `9kg.28`, `dy7.2`, `211.7.3` | any routing change; the Documenso canary; the go/no-go; the deployment |
 | `catalyst-v2-9kg.42` | The read-only production-host preflight (awaits a go) | the owner's go | host preparation |
 | `catalyst-v2-9kg.28` | Host preparation: secrets, database access, backups with receipts, timers, the force-command (awaits a go) | `9kg.42`, `9kg.35`, `211.7.3`, `211.7.5` | the dark deploy |
-| `catalyst-v2-9kg.32`, `9kg.25`, `9kg.33`, `9kg.34` | The erasure path; erasure replay; effect reconciliation after restore; custody encryption | `211.7.1` (POL-10) for the first and last | real-data storage; the launch |
+| `catalyst-v2-9kg.32`, `9kg.25`, `9kg.33`, `9kg.34` | The erasure path; erasure replay; effect reconciliation after restore; custody encryption | `211.7.1` (POL-10) for the erasure path and custody; `211.7.9` (POL-09) for custody; replay waits on both | release preparation (the drilled digest must carry them); real-data storage; the launch |
 | `catalyst-v2-9kg.35`, `9kg.36` | The `main` ruleset, the release environment, the merge-guard registration; the image scan in the required contract | the owner (GitHub-admin) | any deploy credential |
 | `catalyst-v2-9kg.37` to `9kg.40` | Receipt and pre-deploy-backup gates; the N+1 revert drill; egress deny of production hosts; the personal-data scan | — | release preparation; enabling fetching |
-| `catalyst-v2-9kg.43`, `9kg.29`, `9kg.30`, `9kg.41`, `9kg.44`, `9kg.47` | Invitation mode; rate limits; the permission command; the screen walkthrough; the evidence register; the shell-only operator paths | — | release preparation |
-| `catalyst-v2-oc4.11`, `oc4.12` | The decline notice; the human-only assessment path | `211.7.4` (template); `oc4.8` | release preparation |
+| `catalyst-v2-9kg.43`, `9kg.29`, `9kg.30`, `9kg.44`, `9kg.47`, `9kg.49`, `9kg.50`, `9kg.51` | Invitation mode; rate limits; the permission command; the evidence register; the agreements screens for the shell-only states; the live Sent reader and mail allow-list; the on-hold exit and verification resend; the aged-waits bounds | — | release preparation |
+| `catalyst-v2-9kg.41` | The screen and exceptional-state walkthrough | `9kg.47`, `9kg.50`, `9kg.51` | the go/no-go package |
+| `catalyst-v2-9kg.48` | Align the package version with `version.txt`; hash-pin the docs job's one unpinned dependency | — | none (not a launch blocker) |
+| `catalyst-v2-oc4.11`, `oc4.12` | The decline notice; the human-only assessment path | `211.7.4` (template); `oc4.12` builds on `oc4.8`'s recommended default without waiting for it | release preparation |
 | `catalyst-v2-211.7.1` to `211.7.9` | The scoped policy decisions, each a blocker of the go/no-go | the owner (and counsel) | see `029` section 14 |
-| `catalyst-v2-9kg.31` | The internal launch milestone (GATE-PILOT) | `dy7.1`, `dy7.2` | — |
-| `catalyst-v2-9kg.31.1` to `.3` | The mail, Documenso and MXroute canaries, run from the dark-deployed stack (await a go) | `9kg.31.5` and, respectively, `211.7.3` and `dy7.2`; `211.7.4` and `dy7.2`; `211.7.6` | enabling each capability |
+| `catalyst-v2-9kg.31` | The internal launch milestone (GATE-PILOT) | none of its own; its go/no-go child waits on `dy7.2` and the policy decisions | — |
+| `catalyst-v2-dy7.4` | The approval-gated legacy evidence packet for the coexistence unknowns (awaits a go) | the owner's go | `dy7.2` |
+| `catalyst-v2-9kg.31.1` to `.3` | The mail, Documenso and MXroute canaries, run from the dark-deployed stack (await a go) | `9kg.31.5` and, respectively, `211.7.3`, `dy7.2` and `9kg.49`; `211.7.4`, `dy7.2` and `dy7.3`; `211.7.6` | enabling each capability |
 | `catalyst-v2-9kg.31.4` to `.10` | Release preparation; the dark deploy; the go/no-go; the deployment; verification and observation; the defect queue; the wider-enrollment decision | in that order, with the beads above | the launch; wider enrollment |
 
 ## 8. Definition of success
