@@ -2,3 +2,5 @@
 # its reason; nothing listed here is a real credential.
 # PR #53: a deliberately credential-like checklist note in a test, proving such notes are refused.
 2451eddd5c367f22a3d4e97bb8f7f0207be2419c:tests/test_provisioning.py:generic-api-key:517
+# tests/test_personal_data_scan.py: a planted synthetic token, the positive control of the personal-data scan (9kg.40)
+cfa31d7e83ff7afc165dd10aa41118beb34b597f:tests/test_personal_data_scan.py:generic-api-key:24

@@ -131,9 +131,13 @@ def test_9kg40_the_fixture_person_names_are_the_ones_the_scan_knows():
 
 # --- the host's receipt step -----------------------------------------------------------------------------------------
 
-def run_receipt(tmp_path, facts, backup_receipt, label="178da42"):
+COMMIT = "178da42" + "0" * 33  # a full sha, as the deploy operation requires
+
+
+def run_receipt(tmp_path, facts, backup_receipt_text, label=COMMIT, remove_backup_receipt=False):
     """Run the real receipt.sh (and the smoke.sh it calls) with docker stubbed: every compose exec and inspect
-    answers as a healthy stack on the recorded image would, and the release facts are the given JSON."""
+    answers as a healthy stack on the recorded image would, the release facts are the given JSON, and a real deploy
+    operation (config.release; 9kg.37) is started with the pre-deploy backup's receipt bound to it."""
     stubs = tmp_path / "bin"
     stubs.mkdir(exist_ok=True)
     image_id = "sha256:" + "c" * 64
@@ -151,49 +155,58 @@ case "$*" in
 esac
 """)
     (stubs / "docker").chmod(0o755)
-    state = tmp_path / "state"
-    state.mkdir(exist_ok=True)
+    run_receipt.calls = getattr(run_receipt, "calls", 0) + 1
+    state = tmp_path / f"state{run_receipt.calls}"
+    state.mkdir()
     (state / "current-image").write_text(image_id)
+    env = support.child_env(PYTHONPATH=str(ROOT))
+    operation = lambda *args: subprocess.run([sys.executable, "-m", "config.release", "operation", *args], cwd=ROOT, env=env,
+                                             capture_output=True, text=True, timeout=30)
+    assert operation("start", str(state), "deploy-1", image_id, label, "-").returncode == 0
+    backup = state / "backup-receipt.json"  # written after the operation started, so it is not stale
+    backup.write_text(backup_receipt_text)
+    bound = operation("bind", str(state), "deploy-1", str(backup))
+    assert bound.returncode == 0 and bound.stdout.strip(), bound.stderr
+    if remove_backup_receipt:
+        backup.unlink()
     python = os.path.dirname(sys.executable)
-    env = {"PATH": f"{stubs}:{python}:/usr/bin:/bin", "CATALYST_DEPLOY_STATE": str(state),
-           "CATALYST_COMPOSE_PROJECT": "p", "CATALYST_COMPOSE_FILE": "f", "CATALYST_BACKUP_RECEIPT": str(backup_receipt),
-           "CATALYST_SMOKE_SETTLE": "0", "CATALYST_SMOKE_SECONDS": "2"}
+    env = {"PATH": f"{stubs}:{python}:/usr/bin:/bin", "CATALYST_DEPLOY_STATE": str(state), "CATALYST_DEPLOY_ID": "deploy-1",
+           "CATALYST_COMPOSE_PROJECT": "p", "CATALYST_COMPOSE_FILE": "f", "CATALYST_SMOKE_SETTLE": "0",
+           "CATALYST_SMOKE_SECONDS": "2"}
     result = subprocess.run(["bash", str(ADAPTERS / "receipt.sh")], env=env, capture_output=True, text=True, timeout=60)
     receipts = sorted(p.name for p in (state / "receipts").iterdir()) if (state / "receipts").exists() else []
-    return result, receipts
+    return result, receipts, state, backup
 
 
-FACTS = {"commit": "178da42", "schema_heads": {"workflow": "0004"}, "migrations_pending": 0, "held_actions": {},
-         "forward_only": []}
+FACTS = {"commit": COMMIT, "schema_heads": {"workflow": "0005"}, "migrations_pending": 0, "held_actions": {},
+         "forward_only": [], "intake_mode": "invitation"}
+CLEAN_BACKUP = json.dumps({"name": "set", "manifest_sha256": "0" * 64, "commit": COMMIT})
 
 
 def test_9kg40_the_host_receipt_step_blocks_on_a_hit_and_keeps_no_receipt(tmp_path):
-    backup = tmp_path / "backup-receipt.json"
-    backup.write_text(json.dumps({"name": "set", "manifest_sha256": "0" * 64, "commit": "178da42"}))
     # The positive control: a value that reached the release facts would reach the receipt; the scan withholds it.
-    result, receipts = run_receipt(tmp_path, {**FACTS, "held_actions": {"send_message": SENTINELS["email"]}}, backup)
+    result, receipts, _, _ = run_receipt(tmp_path, {**FACTS, "held_actions": {"send_message": SENTINELS["email"]}}, CLEAN_BACKUP)
     assert result.returncode == 1 and "receipt withheld" in result.stderr and "email" in result.stdout, result.stderr
     assert receipts == [] and SENTINELS["email"] not in result.stdout + result.stderr
-    # The pre-deploy backup's receipt is scanned too.
-    leaking = tmp_path / "leaking-backup-receipt.json"
-    leaking.write_text(json.dumps({"name": "set", "operator": SENTINELS["phone"]}))
-    result, receipts = run_receipt(tmp_path, FACTS, leaking)
+    # The bound pre-deploy backup's receipt is scanned too.
+    result, receipts, _, _ = run_receipt(tmp_path, FACTS, json.dumps({"name": "set", "operator": SENTINELS["phone"]}))
     assert result.returncode == 1 and "receipt withheld" in result.stderr and "phone" in result.stdout
-    assert receipts == []
-    # A missing backup receipt is refused before any scan; an unreadable one fails the scan closed.
-    result, receipts = run_receipt(tmp_path, FACTS, tmp_path / "absent.json")
-    assert result.returncode == 1 and "does not exist" in result.stderr and receipts == []
+    assert receipts == [] and SENTINELS["phone"] not in result.stdout + result.stderr
+    # A bound backup receipt that is gone fails the scan closed: withheld, never a clean receipt.
+    result, receipts, _, _ = run_receipt(tmp_path, FACTS, CLEAN_BACKUP, remove_backup_receipt=True)
+    assert result.returncode == 1 and "receipt withheld" in result.stderr and "unreadable" in result.stderr and receipts == []
     # The control: clean facts and a clean backup receipt write exactly one receipt, which reads back as written.
-    result, receipts = run_receipt(tmp_path, FACTS, backup)
+    result, receipts, state, backup = run_receipt(tmp_path, FACTS, CLEAN_BACKUP)
     assert result.returncode == 0, result.stderr
     assert len(receipts) == 1 and receipts[0].endswith(".json") and not receipts[0].startswith(".")
-    written = json.loads((tmp_path / "state" / "receipts" / receipts[0]).read_text())
-    assert written["commit"] == "178da42" and written["pre_deploy_backup_receipt"] == str(backup)
+    written = json.loads((state / "receipts" / receipts[0]).read_text())
+    assert written["commit"] == COMMIT and written["operation"] == "deploy"
+    assert written["pre_deploy_backup"]["receipt"] == str(backup.resolve())
     assert result.stdout.strip().endswith(receipts[0])
 
 
 def test_9kg40_the_receipt_step_scans_before_the_receipt_counts():
     text = (ADAPTERS / "receipt.sh").read_text()
-    assert text.index("personal_data_scan --class receipt") < text.index('mv -f "$pending" "$out"')
+    assert text.index("personal_data_scan --class receipt") < text.index('mv -f "$pending" "$out"') < text.index("receipt mismatch")
     assert 'rm -f "$pending"' in text and "receipt withheld" in text
-    assert '"$pending" "$CATALYST_BACKUP_RECEIPT"' in text  # both receipts, every time
+    assert '"$pending" ${bound:+"$bound"}' in text  # the deployment receipt and the bound backup receipt, every time

@@ -73,5 +73,5 @@ def unprotect(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("workflow", "0004_restore_hold_protection"), ("applications", "0004_event_txid")]
+    dependencies = [("workflow", "0004_restore_hold_protection"), ("applications", "0006_event_txid")]
     operations = [migrations.RunPython(protect, unprotect)]

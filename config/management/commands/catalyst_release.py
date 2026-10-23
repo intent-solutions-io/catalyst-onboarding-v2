@@ -33,12 +33,15 @@ def receipt() -> dict:
     held = (PendingAction.objects.filter(status=PendingAction.Status.HELD).values("kind").annotate(n=Count("id"))
             .order_by("kind"))
     commit_file = Path(__file__).resolve().parents[3] / "COMMIT"
+    from django.conf import settings
+
     return {
         "commit": commit_file.read_text().strip() if commit_file.exists() else "unknown",
         "schema_heads": heads,
         "migrations_pending": len(executor.migration_plan(executor.loader.graph.leaf_nodes())),
         "held_actions": {row["kind"]: row["n"] for row in held},
         "forward_only": sorted(FORWARD_ONLY),
+        "intake_mode": settings.CATALYST_INTAKE_MODE,  # 9kg.43: the receipt is the recorded owner act for the mode
     }
 
 

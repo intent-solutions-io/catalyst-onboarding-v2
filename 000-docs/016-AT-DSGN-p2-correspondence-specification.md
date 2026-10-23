@@ -1366,7 +1366,7 @@ pause unless the same top-level transaction inserted an `automation_resumed` his
 (pauses are keyed by the application's `public_ref`, events by its id, so the guard joins the two); for a system
 pause (actor `system` or `system:...`) that event must be recorded by staff, with a non-empty actor reference and a
 resume note. "Same transaction" is a new `created_txid` column on `ApplicationEvent` (applications migration
-`0004`), always the database's own value through a BEFORE INSERT trigger, as the decision backstop of `018` does;
+`0006`), always the database's own value through a BEFORE INSERT trigger, as the decision backstop of `018` does;
 it holds inside a savepoint, where `xmin` would not. An UPDATE of an application's pause is refused outright (a pause
 is created and resumed, never changed) and TRUNCATE by the shared no-truncate function; the restore hold keeps its
 own rule (workflow `0004`). `staff_actions.resume()` already records that event in its transaction, so the

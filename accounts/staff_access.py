@@ -204,10 +204,13 @@ class ClearSessions:
 
         from accounts.models import LoginThrottle
 
+        from config import throttle
+
         Session.objects.filter(expire_date__lt=timezone.now()).delete()
         # Throttle rows for usernames nobody has tried for a day, and that are not locked, would otherwise only grow.
         LoginThrottle.objects.filter(updated_at__lt=timezone.now() - timedelta(days=1)).exclude(
             locked_until__gt=timezone.now()).delete()
+        throttle.sweep()  # 9kg.29: the public-endpoint buckets nobody touched for a day
         n = _number(claim)
         ledger.finish(claim, self, status=PendingAction.Status.DONE,
                       write=lambda: schedule_session_cleanup(n + 1, settings.CATALYST_SESSION_CLEANUP_SECONDS))

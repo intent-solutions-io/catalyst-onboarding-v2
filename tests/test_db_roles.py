@@ -33,11 +33,13 @@ SECRETS = [*PASSWORDS.values(), os.environ["CATALYST_DB_ADMIN_PASSWORD"]]
 # Trigger inventory (003 ADR-14): append-only on versions and events (2), no-truncate on versions, events,
 # audit and adoptions (4), audit immutability (1), adoption immutability (1).
 TRIGGERS = ("catalyst_append_only", "catalyst_no_truncate", "catalyst_audit_immutable", "catalyst_adoption_immutable")
-TRIGGER_COUNT = 38  # 8 from S1, 2 on evidence captures (P3 3B.1), 2 on qualification decisions (P3 3B.4),
+TRIGGER_COUNT = 39  # 8 from S1, 2 on evidence captures (P3 3B.1), 2 on qualification decisions (P3 3B.4),
 # 2 on agreement recipients (P4 4B.1), 2 on provider observations (P4 4B.2), 5 on custody and details (4B.3),
 # 8 on correspondence evidence (9kg.1),
 # 5 on provisioning records (P5 5B.1), 1 on credential setups (5B.2),
-# 2 on revocations and withdrawals (5B.3), 1 no-truncate on automation pauses (9kg.6)
+# 2 on revocations and withdrawals (5B.3),
+# 1 no-truncate on invitations (9kg.43; applications 0005, after the baseline),
+# 1 no-truncate on automation pauses (9kg.6; workflow 0005, after the baseline)
 SLICE_TABLES = [
     "applications_application", "applications_submissionversion", "applications_contactchallenge",
     "applications_versionadoption", "applications_applicationevent", "applications_retentionaudit",
@@ -401,17 +403,20 @@ def test_history_protection_migrations_reverse_and_reapply_and_keep_data(connect
     assert count() == 0
     manage_as_owner("migrate", "applications", "0003", "--verbosity", "0")
     # assessments (P3: captures and decisions) and agreements (P4: recipients) depend on applications 0003, so they
-    # stayed reversed; so did the pause guard (workflow 0005, on applications 0004)
-    assert count() == TRIGGER_COUNT - 30  # correspondence evidence (9kg.1) and provisioning (5B.1) stayed reversed
+    # stayed reversed, as did the invitation table (applications 0005, 9kg.43) and the pause guard (workflow 0005,
+    # on applications 0006)
+    assert count() == TRIGGER_COUNT - 31  # correspondence evidence (9kg.1) and provisioning (5B.1) stayed reversed
     manage_as_owner("migrate", "assessments", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 26
+    assert count() == TRIGGER_COUNT - 27
     manage_as_owner("migrate", "agreements", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 17
+    assert count() == TRIGGER_COUNT - 18
     manage_as_owner("migrate", "correspondence", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 9
+    assert count() == TRIGGER_COUNT - 10
     manage_as_owner("migrate", "provisioning", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 1
-    manage_as_owner("migrate", "workflow", "--verbosity", "0")  # the pause guard (9kg.6) and applications 0004 with it
+    assert count() == TRIGGER_COUNT - 2  # the invitation and pause no-truncates (applications 0005, workflow 0005) remain
+    manage_as_owner("migrate", "applications", "--verbosity", "0")
+    assert count() == TRIGGER_COUNT - 1  # applications 0006 is back; the pause guard waits on workflow
+    manage_as_owner("migrate", "workflow", "--verbosity", "0")  # the pause guard (9kg.6)
     assert count() == TRIGGER_COUNT
     assert {state for _, _, state in trigger_states(owner)} == {"O"}
     assert owner.execute("SELECT count(*) FROM applications_submissionversion WHERE id = %s AND application_id = %s",

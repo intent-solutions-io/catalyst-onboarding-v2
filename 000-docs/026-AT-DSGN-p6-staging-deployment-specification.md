@@ -1463,3 +1463,80 @@ specification text; nothing is built.
     name. TEST-P6-35 has no check over committed evidence.
   - For TEST-P6-08, 24, 25, 26 and 31, a gate PASS pins the code's shape; the drills carry the behaviour.
 - **GATE-STAGING sign-off:** left for the owner, on the statement in that report's section 9.
+
+**PL batch 2 (`029` section 13.3, item 2; beads `9kg.37` and `9kg.38`): the deploy operation, the receipt as a gate
+and the N+1 revert drill (TEST-P6-10, 24, 25).**
+
+- **The decision built on (D-I).** The recommended default, *a gate, not a recorded deviation*: a deployment
+  receipt that would not match is never written as a deviation; every comparison the receipt records is decided
+  before promotion, and a mismatch refuses the deploy through the wrapper's own path (the deploy hook fails, the
+  wrapper reverts to the captured image and holds). The owner's later decision can only relax this, not redesign it.
+- **The deploy operation** (`config/release.py`, the tested code; `lib.sh`): every deploy is one operation named by
+  `CATALYST_DEPLOY_ID`, which the caller chooses (the force-command, once per deploy) and `predeploy.sh`,
+  `deploy.sh` and `receipt.sh` require. The operation lives in the deploy state under `operations/<id>/`:
+  - `operation.json`, written by `predeploy.sh` before the backup: the approved artifact (the target image and,
+    when `CATALYST_EXPECTED_COMMIT` names one, the approved commit), the serving image it would revert to, and
+    the start time;
+  - `pre-deploy-backup.json`, the pre-deploy backup receipt the deploy side keeps: the deploy id, the path of the
+    receipt the backup command printed, that receipt's SHA-256 and its time (the file's modification time).
+- **The gates, in order.** `predeploy.sh` refuses an image whose commit label is not the approved commit before
+  anything is backed up or migrated; then starts the operation; then refuses a backup command that prints no
+  receipt, or an older receipt's path (older than the operation: stale), binding nothing and migrating nothing;
+  only a bound backup is followed by the forward-only record and the migration. `deploy.sh` asks the operation
+  before anything changes: the operation's target may switch only with its label equal to the approved commit and
+  its backup bound, still present, unchanged (the digest) and no older than the operation; the operation's previous
+  image, the wrapper's revert, may switch back with no expectation (it returns to what was recorded); the image
+  already serving may always be re-applied (what the wrapper restores when an apply was refused before any switch);
+  anything else is refused by name. The forward-only check follows, unchanged. `smoke.sh` now also runs
+  `check --deploy` and takes the approved commit from the operation, for its target only, so a revert's smoke
+  never fails on a commit it was never meant to carry. `receipt.sh` records the deploy id, the operation's answer
+  for the serving image, the approved image and commit, and the bound backup's receipt path, digest and time; it
+  still fails on any readback drift after promotion, as a record, not as the gate.
+- **Stated limits.** The gate compares image references as the caller passes them (the force-command passes the
+  same reference to `predeploy.sh` and the wrapper). The receipt's time is its modification time on the deploy
+  host, so the backup job must write it where the deploy user reads it (bead `9kg.22`). A deploy id is not refused
+  on reuse; a retried `predeploy.sh` replaces the operation and drops its binding, so a retry always takes a new
+  backup. A migration that fails after the backup was bound leaves the deploy to the smoke, which refuses the
+  unmigrated release (drilled). Nothing here is the attestation check, which stays before `predeploy.sh`.
+- **The N+1 revert drill (`9kg.38`; TEST-P6-25).** `scripts/deploy_drill.sh` now builds a release N+1 whose only
+  change is an expand migration (a nullable column added to an existing table), promotes it through the wrapper,
+  accepts an applicant on it, then reverts the image to N through the wrapper as its own operation (backed up,
+  nothing to migrate): the smoke is green on the expanded schema, the column and the applied migration stay (a
+  revert never runs a backward migration), every applicant is kept, and N accepts another. A further release with
+  a contract migration (the column removed), marked forward-only, is promoted; the revert to N+1 across it is
+  refused through the wrapper, naming the migration and saying restore, with the contract release still serving
+  and the migration, the schema and every applicant untouched. The contracting scan is run on the drill's own two
+  migrations in the gate (expand passes, contract is flagged), so the fixture is the rule it tests.
+- **Evidence.**
+  - `tests/test_release.py` (`9kg_37`, `9kg_38`; mapped to TEST-P6-10, 24 and 25 in `tests/acceptance.py`): the
+    binding and its refusals (missing, stale, the same second allowed), the gate's every answer (approved image with
+    its backup; wrong label; another image; the recorded revert; the serving image; a receipt gone, rewritten,
+    another deploy's or dated before the operation; no approved commit; no previous), a retried operation, bad ids
+    and commits, the commands the adapters run (exit 0, 1 with the reason, 2 usage; no data in any output), the
+    adapters' order (label, start, backup, bind, record, migrate; gate before `compose up`; `check --deploy` in the
+    smoke; nothing but `predeploy.sh` reading the approved commit from the environment), and the drill's fixtures
+    and order.
+  - `scripts/deploy_drill.sh` with the estate wrapper on the dev box, 60 of 60 PASS twice (the first run was 59 of
+    60 and found that a revert's smoke failed closed on an operation that never started, which the smoke now treats
+    as carrying no expectation). The cases, each with its control:
+    - a backup that prints no receipt refused, nothing migrated; the binding carrying the deploy id, digest and time;
+    - the first release migrated, deployed, smoked and receipted; a good release promoted (exit 0), its receipt
+      naming the deploy, the approved image and commit, and the bound backup;
+    - automatic reverts (exit 3) of a broken release, of a crash-looping one, and of one whose migration failed at
+      predeploy and was deployed anyway (the smoke refuses it: readiness red, migrations pending);
+    - TEST-P6-10: an image other than the approved one refused through the wrapper's top-level path (exit 3), the
+      refusal naming the identity mismatch, the previous release still serving, nothing promoted; the approved image
+      then promoted by the same operation (exit 0) with its receipt; an image whose commit label is not the approved
+      commit refused before any backup or migration, and the wrapper refused with no operation started;
+    - TEST-P6-24: an older receipt's path refused as stale with nothing bound or migrated, and the wrapper refused
+      with no backup bound; another deploy's binding with a fresh timestamp refused (exit 3); the deploy whose
+      backup it is promoted (exit 0), its receipt bound to that deploy's backup; in every refusal the stack unchanged;
+    - TEST-P6-25: an applicant accepted on N; N+1 (expand) promoted with the column present and an applicant
+      accepted; the image reverted to N through the wrapper (exit 0) on the expanded schema, the smoke green, the
+      column and the applied migration kept, both applicants kept, a third accepted; the contract release promoted
+      with the column removed and recorded forward-only; the revert across it refused (exit 3), naming the
+      migration and saying restore, with the image, the migration, the schema and every applicant untouched;
+    - a forward-only migration applied by a predeploy whose deploy never happened still refusing an image without
+      it; a lost record refused; a tag refused; an unattested tarball refused.
+- **Case status:** TEST-P6-10, 24 and 25 move from partly (`028` section 4, bead `9kg.27`) to proven for the
+  synthetic stack; `028` stays the point-in-time record of the sign-off.

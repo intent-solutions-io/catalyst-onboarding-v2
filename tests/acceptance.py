@@ -1297,6 +1297,9 @@ P6_CASES = {
     ],
     "TEST-P6-10": [
         "test_release::test_6b10_release_facts_read_back_from_the_database",
+        "test_release::test_9kg_37_the_gate_allows_only_the_approved_image_with_its_backup_bound_and_the_recorded_revert",
+        "test_release::test_9kg_37_the_operation_commands_are_the_tested_functions",
+        "test_release::test_9kg_37_the_adapters_gate_on_the_operation_before_switching_and_the_smoke_decides_the_receipt",
     ],
     "TEST-P6-11": [
         "test_startup::test_6b5_staging_reads_each_secret_from_its_own_file",
@@ -1421,9 +1424,13 @@ P6_CASES = {
     ],
     "TEST-P6-24": [
         "test_release::test_6b10_the_adapters_take_only_content_references_and_smoke_through_the_readiness_cache",
+        "test_release::test_9kg_37_an_operation_binds_only_a_backup_taken_for_it_and_refuses_a_stale_or_missing_one",
+        "test_release::test_9kg_37_a_restarted_operation_takes_a_new_backup_and_bad_ids_or_commits_are_refused",
+        "test_release::test_9kg_37_the_gate_allows_only_the_approved_image_with_its_backup_bound_and_the_recorded_revert",
     ],
     "TEST-P6-25": [
         "test_release::test_6b10_forward_only_migrations_block_only_an_image_that_does_not_know_them",
+        "test_release::test_9kg_38_the_drill_reverts_n_plus_one_to_n_on_the_expanded_schema_and_refuses_the_contract_revert",
         "test_restore_rehearsal::test_9kg_7_backup_restore_elsewhere_and_verify_rows_files_roles_and_triggers",
     ],
     "TEST-P6-26": [
@@ -1524,6 +1531,29 @@ P6_SUPPORTING = {
         "test_pause_guard::test_9kg6_the_event_transaction_marker_is_always_the_databases_own",
         "test_pause_guard::test_9kg6_the_supported_resume_path_clears_the_pause_and_work_resumes",
         "test_pause_guard::test_9kg6_the_restore_hold_keeps_its_own_rule",
+    ],
+    # PL-A batch item 1 (029 section 13.3): the public endpoints' limits with the proxy's client identity.
+    "9kg.29 every public endpoint is limited per client and per subject, keyed on the proxy's client identity": [
+        "test_throttle::test_9kg_29_the_client_identity_is_exactly_one_address_literal",
+        "test_throttle::test_9kg_29_the_identity_source_is_the_proxy_header_or_the_peer_and_is_fixed_in_code",
+        "test_throttle::test_9kg_29_every_public_endpoint_refuses_a_client_burst_uniformly_and_admits_again_after_the_window",
+        "test_throttle::test_9kg_29_intake_is_keyed_on_the_hashed_address_and_the_address_bucket_limits_issuance_not_confirmation",
+        "test_throttle::test_9kg_29_link_endpoints_are_keyed_on_the_client_and_the_token_hash_and_an_unknown_token_is_refused_alike",
+        "test_throttle::test_9kg_29_the_forwarded_identity_counts_only_in_proxy_mode_and_a_missing_or_invalid_one_refuses_issuance",
+        "test_throttle::test_9kg_29_an_unavailable_throttle_store_fails_closed_for_issuance_and_open_for_reading",
+        "test_throttle::test_9kg_29_the_webhook_is_limited_per_client_before_the_secret_is_compared",
+        "test_throttle::test_9kg_29_stale_buckets_are_swept_with_the_staff_sessions",
+    ],
+    # PL-A batch item 1 (029 sections 4.1, 7 and 13.3): invitation-only intake, enforced server-side.
+    "9kg.43 intake is invitation-only by default, enforced in the service, spent once at confirmation": [
+        "test_invitation::test_9kg_43_the_shipped_default_is_invitation_only_and_the_mode_is_fixed_in_code",
+        "test_invitation::test_9kg_43_an_uninvited_address_gets_exactly_the_invited_response_and_nothing_is_recorded",
+        "test_invitation::test_9kg_43_an_invitation_is_spent_at_confirmation_once_and_the_applicant_stays_admitted_afterwards",
+        "test_invitation::test_9kg_43_concurrent_confirmations_spend_the_invitation_once",
+        "test_invitation::test_9kg_43_an_invitation_expires_by_the_database_clock_and_an_expired_one_refuses_confirmation",
+        "test_invitation::test_9kg_43_issuance_is_an_owner_run_command_that_records_who_issued_it_and_nobody_else_can_change",
+        "test_invitation::test_9kg_43_with_the_mode_off_the_public_intake_is_unchanged",
+        "test_invitation::test_9kg_43_the_dossier_the_health_report_and_the_release_receipt_show_the_mode",
     ],
 }
 

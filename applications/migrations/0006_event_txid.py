@@ -28,7 +28,7 @@ def unprotect(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("applications", "0003_protect_version_adoption")]
+    dependencies = [("applications", "0005_invitation_protection")]
     operations = [
         migrations.AddField(
             model_name="applicationevent",
