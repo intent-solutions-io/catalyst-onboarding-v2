@@ -41,3 +41,6 @@ __pycache__/
 *.py[cod]
 .venv/
 .pytest_cache/
+
+# ===== Evidence register written by a full test run (9kg.44) =====
+register.json

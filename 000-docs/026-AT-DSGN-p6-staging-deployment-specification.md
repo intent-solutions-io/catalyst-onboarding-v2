@@ -251,6 +251,7 @@ checked from Buzz itself, never assumed (VERIFIED in the private alerting runboo
 | Backup freshness | the backup receipt | no | older than 26 hours, or failed |
 | Restore drill overdue | the drill receipt | no | older than 35 days |
 | A check itself failed | exit 2 from any health command | yes | any |
+| Aged waits (stages, staff items, pauses, replies, sent agreements, activation) | `aged_waits_health` (9kg.51, section 17) | yes | per class, over its own threshold; only the classes in the page list page |
 
 **Dead-man coverage:** the health timer writes a start marker and a success marker, and a separate estate sweep
 alerts on a stale success marker; an outside-in probe of the public intake path; a planted-fault test per signal on
@@ -405,6 +406,77 @@ as GATE-S1 to GATE-P5, in 6C.
 | TEST-P6-36 | Each secret-class rotation works as section 5 states, including link fallback and a leak rotation. |
 | TEST-P6-37 | The image has a vulnerability scan and a bill of materials, and contains no test, git or beads content. |
 | TEST-P6-38 | A planted sentinel never reaches an alert delivered to Buzz. |
+
+### 11.1 The evidence register (`9kg.44`, 2026-10-23; reviewed the same day)
+
+A gate count can be read as more than it proves. `tests/acceptance.py` therefore carries, beside the case map, an
+evidence register (`P6_EVIDENCE`): one explicit entry per numbered case, with the proof types in order (`pytest`,
+the gated run; `drill`, a script above run on the staging stack, whose commit and section 16 record `DRILLS`
+carries; `inspected`, a configuration or run read and recorded; `canary`, one real delivery through a real provider;
+`walkthrough`), each with an environment, a revision (a commit or a workflow run id for every proof but pytest, whose
+revision is the run) and a record pointer; what the gated tests show (`behaviour`, or `shape` where they pin only
+the code's shape and a drill shows the behaviour: TEST-P6-08, 24, 25, 26 and 31); completeness (`full`, or
+`partial` with the residual bead and what it still has to show); and the approval boundary the evidence is good up to
+(GATE-STAGING for a full case; for a partial one, the earliest boundary its residual bead blocks, from `029` section
+13.1: host preparation `9kg.28` for the host clauses 028 carried on `9kg.20` and `9kg.22`, the canaries for `9kg.27`,
+release preparation for `9kg.37` and `9kg.38`, and so on). There are no optimistic defaults: a case without an
+entry, an unknown drill or proof type, a partial case without its residual, a residual bead without a boundary or a
+proof without a commit or run id is refused as data (`check_register()`), and a full run whose register is refused
+exits 1.
+
+The per-gate report in `tests/conftest.py` reads the register, not this text. For every gate it counts the numbered
+cases apart from the supporting groups; for GATE-STAGING it stamps the run's commit, prints each case's proofs,
+completeness and boundary on its line and, on a second indented line, each proof as type, environment and revision
+with the residual of a partial case; lists TEST-P6-27 as `LIVE ONLY` (never as a pytest result); and ends with the
+register totals: full cases, of which proven by this run (full, PASS and behaviour: a shape-only case is never
+counted as proven, nor is the live-only case), and partial cases with their residual beads. At the end of a full run
+it writes `register.json` (`CATALYST_EVIDENCE_REGISTER`, or the repository root, ignored by git): the rows, the run's
+commit, the image digest when known, each proof's record pointer and the summary, so the go/no-go package reads it
+rather than transcribing the report. The gate itself is unchanged: a full run still needs every numbered case and
+supporting group PASS. `tests/test_acceptance.py` checks the register's shape and its refusals, that it reproduces
+after-action report `028` section 4 case by case (21 proven, one of them on a stand-in, and 17 partly; a later change
+to a case's completeness must carry a `since_028` note in its entry, so the AAR stays historical and the register and
+the report cannot drift apart silently), and the report shape, `register.json` and the failing full run in a child
+run. Deferred to a later task, since it needs git state: marking a proof for review when an implementation file
+listed against it changes.
+
+### 11.2 The personal-data scan (`9kg.40`, TEST-P6-35, 2026-10-23; reviewed the same day)
+
+`config/personal_data_scan.py` (standard library only, so the host runs it with its own `python3`) scans four
+input classes for personal data: the committed evidence (`EVIDENCE_PATHS`, globs: every after-action report,
+analysis evidence, test evidence and decision record filed under `000-docs`, this specification with its section 16
+records, and `029`; a new record of one of those classes is scanned without a change to the list, which a test
+checks), backup and restore-drill receipts, alert text (a log or stdin) and the deployment receipt. Its patterns
+are classes, not people: an email address outside the reserved example domains (the domain itself or a subdomain of
+it; an address at a domain that merely ends in the letters of a reserved one is a hit), a phone number with separators or a bracketed area code, a street address, a
+fixture person's name (case-insensitive; the fixtures' generic labels only in their exact case), a secret assignment
+(the keyword alone, inside a wider identifier such as `DB_PASSWORD` or as a quoted key, with a value not marked
+synthetic or redacted and not a code expression), a bearer token, a private-key block, a long mixed-case token
+(judged per path segment: a digest is hex, a path and a slug are names) and an IPv4 address that is neither loopback,
+unspecified, link-local nor a documentation address. Each document is scanned line by line and again as
+whitespace-normalised paragraphs, so a name or number split across a wrapped line is found and reported at the
+paragraph's first line. It prints the location and the pattern's name, never the matched value (a non-UTF-8 input
+is reported with a fixed message); it exits 0 clean, 1 on a hit and 2 when nothing was scanned or an input could
+not be read, so an empty result is meaningful only when something was read.
+
+**Floor, stated.** The fixture-name list detects the fixtures' names and no real person's; a deny-list of invited
+names on the host would be an owner decision and is not built. An unseparated phone number, a postcode and a
+free-text name are below the pattern floor. The scan is a floor under the evidence, not proof of absence.
+
+It runs in CI with the suite (`tests/test_personal_data_scan.py`: the committed evidence passes; a planted
+synthetic address, name, phone, email and token in each input class fails the scan with the value never printed;
+zero files or an unreadable input fails closed; reserved addresses, digests, run ids, timestamps, CIDR ranges and
+production-shaped paths are not hits) and on the host in the receipt step: `receipt.sh` writes the deployment
+receipt to a pending file (removed on any exit), scans it together with the bound pre-deploy backup's receipt, sets
+its mode and only then moves it into `receipts/`; a hit removes the pending file and fails the step for the operator.
+Today `receipt.sh` runs after a promotion in the force-command's sequence, not on a wrapper hook, so the wrapper and
+the alert floor learn of a withheld receipt through that sequence; the wiring of the receipt step into the wrapper's
+notification path waits on 6B.11's host work. The step is tested under docker stubs and ran in the deploy drill on
+the dev box (section 16, PL batch 5). Not yet wired: restore-drill receipts and the scheduled backup job's receipts
+(both written by scripts that do not call the scan yet) and alert text (codes only by construction, `health.sh`);
+the register carries TEST-P6-35 as partial against the dark deploy, `9kg.31.5`, with those surfaces named. The scan
+does not replace the alert message rule in `health.sh` or gitleaks (credentials in history); it adds the
+personal-data check `009` section 5.1 listed as manual.
 
 ## 12. 6B task graph (proposed)
 
@@ -1400,7 +1472,9 @@ specification text; nothing is built.
 **6C, the GATE-STAGING evidence map and the after-action report (026 sections 11 and 12, task 14).**
 
 - **The map:** `tests/acceptance.py` `P6_CASES` maps 37 of the 38 cases to the tests that prove them. The 38th,
-  TEST-P6-27, is shown only live (`P6_LIVE_ONLY`). `P6_SUPPORTING` holds the one P6 design rule that is not a case.
+  TEST-P6-27, is shown only live (`P6_LIVE_ONLY`). `P6_SUPPORTING` holds the P6 design rules that are not cases: the
+  9kg.2 pause rule and, since PR #87, the five internal-launch groups (`9kg.30`, `9kg.50`, `9kg.51`, `oc4.12`, `9kg.47`),
+  which sit inside GATE-STAGING's supporting map by design (every staff-path test gates a full run).
 - **The gate:** `tests/conftest.py` reports GATE-STAGING and gates it in a full run like GATE-S1 to GATE-P5.
 - **Two new tests:**
   - every case in this section is gated or live-only, never both and never neither;
@@ -1600,3 +1674,60 @@ item 6, 2026-10-23).**
   variable or secret (`tests/test_staging_compose.py`). The full suite runs with the narrowed environment.
 - **Staging is unchanged:** the administrator's password was already a file mounted only into the database, the
   operator-run provisioning and the restore service (section 5; the 6B.5b and 6B.13 records).
+
+**PL batch 5 (`029` section 13.3, item 5; beads `9kg.44`, `9kg.40` and `9kg.6`): the evidence register, the
+personal-data scan and the pause-row guard (TEST-P6-35).**
+
+- **Designs:** section 11.1 (the register), section 11.2 (the scan) and `016` section 10.15 (the guard).
+- **The deploy drill with the scanning receipt step**, `scripts/deploy_drill.sh` with the estate wrapper on the dev
+  box, run twice on 2026-10-23 at the branch's head. The first run was 44 of 60: the drill's fixture migrations
+  (`0005_drill`, `0005_expand`, `0006_contract`, `0007_staged` in `workflow`) collided with the guard's
+  `0005_pause_resume_guard` ("conflicting migrations detected"), so every N+1, contract and staged case failed at
+  predeploy; the fixtures are renumbered `0006` to `0008` on the guard (and `tests/test_release.py`'s 9kg.38 pins
+  with them). The second run was 59 of 60. The receipt step's scan ran in every receipt case (the first release,
+  the promoted release, the approved-image control and the other-deploy receipt): `personal-data scan (receipt):
+  2 files, 32 lines, 0 hits` each time, over the deployment receipt and the bound backup receipt, and every
+  receipt was kept and read back as intended, so the scan sits in the step without changing a clean deploy. The one
+  failure, "the data is kept across the revert: both applicants are still there", is not the receipt step's: the
+  drill submits its applicants through the public form without an invitation, and since PL batch 1 (`9kg.43`,
+  PR #85) intake is invitation-only by default, so the submit gets the invited response and records nothing; the
+  count check then reads the same number before and after. The same check fails on `main` today; batch 2's
+  60-of-60 record predates that merge. Carried as a follow-up for the drill (an invitation issued by
+  `catalyst_invite` before each submit, or the open mode for the drill's stack), not fixed here.
+- **Case status in the register:** TEST-P6-10 and 24 are full since batch 2 (`since_028` notes name PR #84);
+  TEST-P6-25 is partial against `9kg.63` until the drill issues an invitation and runs green; TEST-P6-35 stays partial against the dark deploy with the unwired surfaces named (section 11.2).
+- **Evidence:** `tests/test_personal_data_scan.py` (the receipt step under docker stubs: a planted value in the
+  release facts or in the bound backup receipt withholds the receipt; a bound receipt that is gone fails closed; a
+  clean deploy keeps exactly one receipt at mode 0640), `tests/test_acceptance.py` (the register) and
+  `tests/test_pause_guard.py` (the guard, through real connections as each role); the drill log above.
+
+## 17. The aged-waits health part (9kg.51, 2026-10-23)
+
+`029` section 5.2 listed the waits with no bound once the first-generation owner notices retire: an application in
+`assessing`, `awaiting_decision` or `on_hold`; an open staff item; a pause; a reply awaiting staff processing; a
+sent agreement awaiting the applicant's signature or the countersignature; a `provision_activate` action requeued
+because the provider was unavailable. Built, in `config.system_health.aged_waits_health`, one part of the health
+report (`catalyst_health`, the staging adapter `health.sh`, the Buzz floor):
+
+- **One class per wait.** Each class is counted past its own threshold and its oldest age is printed
+  (`waiting`, `aged`, `oldest_seconds`, `threshold_seconds`, `pages`). A stage's age runs from the latest transition
+  event into that stage; the others from the row's own time (opened, created, received, last status change).
+- **Thresholds and paging are the owner's values** (`211.7.2`, `211.7.7`): `CATALYST_HEALTH_AGED_WAIT_<CLASS>_SECONDS`
+  each defaults to the pending-age target `CATALYST_HEALTH_PENDING_AGE_SECONDS` (3600 s, a placeholder), and
+  `CATALYST_HEALTH_AGED_WAITS_PAGE` (default: every class) names the classes that raise the anomaly
+  `aged_waits.<class>`, which the floor delivers as high; a class outside the list is counted and printed, audit only.
+- **Codes only.** No identifier of an application, item, message or agreement is in the report (tested). No action
+  is taken and no mail is sent: the part is a signal, staff act on their screens.
+- **Age semantics (review of 2026-10-23).** `assessing`, `awaiting_decision` and `on_hold` age from the latest
+  transition event into the stage; `open_staff_items` from `opened_at`; `pauses` from `created_at` and count
+  application pauses only (the restore hold is a `system` pause with its own signal, `catalyst_post_restore`);
+  `replies_awaiting_processing` from `received_at`; `issued_agreements` from the instance's `updated_at`, the last
+  status change, not the send itself; `provisioning_activation` from the action's `created_at`.
+- **Default page list.** Until the owner sets values, only the three classes that are bad in themselves page:
+  `replies_awaiting_processing`, `issued_agreements`, `provisioning_activation`; the stage, item and pause classes
+  are counted and printed, audit only. The health report also carries `decision.qualification_authority_configured`.
+- **Deferred:** a `held_followons` class (held `issue_nda` and `send_decline` actions past an age) is not built; the
+  main session files its bead.
+
+Tests: `tests/test_system_health.py` (`9kg.51` in `tests/acceptance.py` P6_SUPPORTING): every class fresh raises
+nothing, past its threshold raises its code, and clears when resolved; thresholds and paging per class.

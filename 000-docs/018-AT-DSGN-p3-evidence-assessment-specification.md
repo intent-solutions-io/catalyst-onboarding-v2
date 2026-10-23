@@ -543,7 +543,7 @@ GATE-S1 and GATE-P2.
 | TEST-P3-50 | static checks: `assessments` imports nothing from agreements or provisioning; no transition or code branch reads **any** model-output field (recommendation, proposals, ratings); no assessment code calls `confirm_question_outcome` | 3B.2 |
 | TEST-P3-51 | a decision is refused after a re-fetch, a newly confirmed answer or a changed question set since the snapshot shown | 3B.4 |
 | TEST-P3-52 | the stage cannot enter a decided state without a decision row in the same transaction (trigger) | 3B.4 |
-| TEST-P3-53 | a superuser is refused after POL-05 is recorded; the authority setting is refused from the environment | 3B.4 |
+| TEST-P3-53 | a superuser is refused after POL-05 is recorded; the authority setting takes only the one rule the code implements (amended 2026-10-23 by `9kg.30`: it is read from the environment, accepted only as `explicit_permission` or unset; the selection policy stays refused from the environment) | 3B.4 |
 | TEST-P3-54 | `classify(ip)` has no environment branch; fixtures pass only through a `fixture_only` source refused outside `test` | 3B.1 |
 | TEST-P3-55 | `interpret_message` is cancelled by a staff decision; a staff decision before the call stops the disclosure | 3B.3 |
 | TEST-P3-56 | a crash inside the lease with a recorded invocation yields at most the stated requests per snapshot; no refund after invocation; the poison path opens a staff item | 3B.2 |
@@ -1087,3 +1087,91 @@ Released by the owner ("release 3C"). Verification only; no feature was added.
 13. `on_hold` has no exit in P3 (section 17): what follows a hold is POL-05 or POL-12.
 14. The open inputs of `019` section 13 (domain expert, operational delegate, private evaluation location,
     scorecard minimums).
+
+## 19. The staff path back from a hold (9kg.50, 2026-10-23)
+
+Section 17 recorded that `on_hold` had no exit in P3. The internal launch (`029` section 5.2) needs one that is a
+decision, not a closure, so the decision service now accepts `on_hold` as a source stage:
+
+- `record_decision` moves a held application to `admitted` or `declined` under exactly the rules of any decision:
+  the configured authority and the direct grant (`can_decide`), the digest shown, no run in flight, no pending
+  evidence, no open identity item, admit refused while paused, a rationale per criterion. A model-assisted decision
+  needs a succeeded run on the current snapshot; otherwise the recorded human-only assessment applies, which is
+  allowed from `on_hold` as it is from `awaiting_decision`. A second hold is refused (`already_on_hold`): the way
+  off a hold is a decision.
+- The transition is the ordinary compare-and-set with its event (`qualification_admit` or `qualification_decline`,
+  `from: on_hold`, the staff actor), the same-transaction database backstop applies, and the held follow-on
+  (`issue_nda` or `send_decline`) is created as for any admit or decline. The hold decision stays as history (one
+  admit or decline per application; holds are not limited).
+- The decision screen offers the form on a held case with `hold` removed from the outcomes; a viewer without the
+  permission sees no form and a POST is refused (403), as before.
+
+Tests: `tests/test_hold_and_resend.py` (the service, the form, the refused user, the human-only hold). The default
+built on: the route is the existing authority-gated decision form, never a free close action (`029` section 13.3;
+`oc4.12` records the same for a capped snapshot).
+
+## 20. The human-only path completed for the internal launch (oc4.12, 2026-10-23)
+
+Built on the recorded default that model advice is suspended for the whole internal launch (`011` section 4.1,
+suspension record of 2026-10-23; `019` decision 4 and section 10) and on `oc4.8`'s recommended default (a capped or
+refused snapshot leaves `assessing` through the authority-gated human-only decision form, never a free
+close-assessment action; the owner's `oc4.8` decision can change the value without redesign).
+
+**What a decision now records** (`QualificationDecision`, migration 0010; `decisions.decision_state`):
+
+- the **decision digest** binds, and `decision_inputs` keeps: the policy reference (the synthetic rubric's
+  `none-approved:<pack>:rubric-<n>` stated openly until a policy is bound), the pack name and digest and the rubric
+  version, the snapshot digest with an **evidence manifest** (one state per claim: `present`, `size_limited`,
+  `unavailable`, `refused`, `pending`, `claims_only`), every run with its status, error code and requests spent, and
+  the question set. A change to any of them between the screen and the submit is refused (`changed_since_shown`):
+  `oc4.10` item 2 fixed.
+- the **pack, its digest and the rubric version** in their own columns, whatever the policy reference says:
+  `oc4.10` item 3 fixed.
+- a **structured human-only reason** (`human_only_code`: `advice_suspended`, `run_capped`, `run_failed`,
+  `run_cap_reached`, `returned_without_reassessment`), derived from the state and shown on the screen before the
+  submit; a database constraint refuses a human-only row without one, so a free-text reason never stands alone.
+  Under the suspension the code is `advice_suspended` and the record cites `CATALYST_MODEL_ADVICE_SUSPENSION_REF`.
+
+**A policy labels only its own decisions** (`oc4.10` item 1 fixed): `CATALYST_SELECTION_POLICY_PACKS` binds a
+policy to the pack it was approved with (written by the activation, code-fixed like the policy). The start-up guard
+refuses a policy that is unbound, bound to an unusable pack, or bound to a pack whose rubric is synthetic (POL-04);
+the decision service refuses a decision whose pack is not the bound one (`policy_not_bound_to_pack`).
+
+**Refused by suspension.** A run refused because the model is `none` opens `assessment_suspended` (acknowledge-only,
+settled by a later success or rerun like the other assessment items), not `assessment_failed`; the dossier and the
+run partial say "refused by suspension: not an assessment failure" (TEST-P3-02 amended accordingly). Model output,
+where it exists, is labelled nonbinding advice.
+
+**Counted.** `manage.py selection_scorecard` emits every `019` section 9 row explicitly: a measurable row as a value
+(the decision-time rows with every human-only code and an explicit zero, overrides against the advisory
+recommendation by reason code, open and resolved assessment items with the runs that ended capped or failed, days
+from adoption to decision, insufficient-evidence ratings per succeeded run, outcomes by policy, pack and rubric),
+and a row this code cannot compute as `null` with its reason (`shell_or_database_edits`: its source is an incident
+log that does not exist in the database; reviewer annotations, abandonment and delivery records likewise). Counts
+only, for the weekly summary (`f1u.7`).
+
+**The cohort's policy identifier.** While no policy is active and model advice is off, every decision records the
+literal `none: internal cohort, D-M` (`CATALYST_NO_POLICY_LABEL`; council record `030` Q8), not the synthetic
+rubric's reference, which applies again the moment advice is on; the pack, its digest and the rubric version stay in
+their own columns either way.
+
+**One source for the human-only rule.** `decisions.human_only_code` computes the structured reason once;
+`human_only_allowed` is "a code applies". `CATALYST_CAPPED_EXIT` (`human_only`, the recommended default from
+`oc4.8`; or `none`) decides whether a capped snapshot is an exit, so the owner's `oc4.8` decision changes one setting.
+A paused application under the suspension is refused at once (the model check runs before the pause check), so a
+requeued run never blocks the human-only path. A human-only decision resolves the case's `assessment_suspended`
+or `assessment_capped` item (`human_only_decision`), so it does not page forever.
+
+**The form and comparability at launch.** The decision form shows each criterion's definition and the `019`
+section 5 rules (missing or private evidence is never evidence of low ability; equivalent evidence routes are
+offered and recorded). Comparability at the internal launch means the same criteria and the same form for everyone;
+a fixed core question set per criterion is a later owner decision.
+
+**Open owner decisions (policy, not implemented):** (1) whether `not_shown` should need observed contrary evidence
+rather than absence; (2) whether a decline should need at least one `not_shown` criterion at moderate or strong
+evidence strength; (3) a fixed core question set per criterion; (4) `oc4.8`'s value (`CATALYST_CAPPED_EXIT`).
+
+**Not built, by design:** no close-assessment action, no budget top-up, no change to the applicant-facing pages, no
+model call (a tripwire in `tests/test_human_only.py` fails any test on this path that builds or calls a model, and a
+static check keeps `decisions.py` and `staff_views.py` free of the model layer). Tests: `tests/test_human_only.py`;
+the hold exit of section 19 is the same form.

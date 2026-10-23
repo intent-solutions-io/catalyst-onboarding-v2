@@ -169,6 +169,11 @@ def number(name: str, default: str | None = None, cast=int, minimum=1):
 # Verification challenge lifetime (POL-02 open: no production value is proposed). Required, so no number
 # is invented here; compose and CI pass a synthetic value.
 CATALYST_CHALLENGE_LIFETIME_SECONDS = number("CATALYST_CHALLENGE_LIFETIME_SECONDS")
+# 9kg.50: how many times staff may resend the verification message for one application (a new challenge each time,
+# the old one superseded; the applicant-facing message is the same). A synthetic default until 211.7.7 (POL-02).
+CATALYST_VERIFICATION_RESEND_LIMIT = number("CATALYST_VERIFICATION_RESEND_LIMIT", "3", minimum=0)
+if CATALYST_VERIFICATION_RESEND_LIMIT > 10:  # security review of PR #87: a resend is a send to an unverified address
+    raise ImproperlyConfigured("CATALYST_VERIFICATION_RESEND_LIMIT must be at most 10")
 
 # Verification links (ADR-16, D-24). Built from this base URL, never from a request's Host header (the
 # worker has no request). The signing key is dedicated: independent of SECRET_KEY, with fallback keys for
@@ -195,6 +200,21 @@ CATALYST_WORKER_HEARTBEAT_FILE = os.environ.get("CATALYST_WORKER_HEARTBEAT_FILE"
 CATALYST_HEALTH_HEARTBEAT_STALE_SECONDS = number("CATALYST_HEALTH_HEARTBEAT_STALE_SECONDS", str(2 * CATALYST_WORKER_LEASE_SECONDS))
 CATALYST_HEALTH_PENDING_AGE_SECONDS = number("CATALYST_HEALTH_PENDING_AGE_SECONDS", "3600")
 CATALYST_HEALTH_HARD_BOUNCE_AGE_SECONDS = number("CATALYST_HEALTH_HARD_BOUNCE_AGE_SECONDS", "86400")
+# 9kg.51 (029 section 5.2): the waits that had no bound. Each class has its own age threshold (default: the pending-age
+# target above) and the page list says which classes raise a health anomaly (default: all); a class not listed is
+# still counted and its oldest age printed. The values are the owner's (211.7.2, 211.7.7); these are placeholders.
+CATALYST_HEALTH_AGED_WAIT_CLASSES = ("assessing", "awaiting_decision", "on_hold", "open_staff_items", "pauses",
+                                     "replies_awaiting_processing", "issued_agreements", "provisioning_activation")
+CATALYST_HEALTH_AGED_WAIT_SECONDS = {
+    name: number(f"CATALYST_HEALTH_AGED_WAIT_{name.upper()}_SECONDS", str(CATALYST_HEALTH_PENDING_AGE_SECONDS), cast=float,
+                 minimum=0) for name in CATALYST_HEALTH_AGED_WAIT_CLASSES}
+# Default page list: the three classes that are bad in themselves (a reply nobody is processing, a sent agreement
+# nobody signs, an activation the provider keeps refusing); the stage, item and pause classes are counted and
+# printed but page only once the owner lists them (211.7.2).
+CATALYST_HEALTH_AGED_WAITS_PAGE = [n.strip() for n in os.environ.get(
+    "CATALYST_HEALTH_AGED_WAITS_PAGE", "replies_awaiting_processing,issued_agreements,provisioning_activation").split(",") if n.strip()]
+if set(CATALYST_HEALTH_AGED_WAITS_PAGE) - set(CATALYST_HEALTH_AGED_WAIT_CLASSES):
+    raise ImproperlyConfigured("CATALYST_HEALTH_AGED_WAITS_PAGE names an unknown wait class")
 CATALYST_WORKER_POLL_SECONDS = number("CATALYST_WORKER_POLL_SECONDS", "5", cast=float, minimum=0.05)
 CATALYST_WORKER_RETRY_SECONDS = number("CATALYST_WORKER_RETRY_SECONDS", "60", minimum=0)  # doubles per attempt
 EMAIL_TIMEOUT = number("CATALYST_EMAIL_TIMEOUT_SECONDS", "10")
@@ -355,13 +375,29 @@ CATALYST_ASSESSMENT_DAILY_REQUESTS = number("CATALYST_ASSESSMENT_DAILY_REQUESTS"
 # Clarification (018 section 6 and step 5): at most 3 assessment rounds per application, 3 proposals per round.
 CATALYST_ASSESSMENT_ROUNDS = number("CATALYST_ASSESSMENT_ROUNDS", "3")
 # The qualification decision (018 section 7; P3 3B.4). Who may decide is POL-05: until the owner records it this
-# stays None and every decision is refused, superusers included. Once decided it is set here in code to
-# "explicit_permission" (assessments.record_qualification_decision, granted to named people only). Never from the
-# environment (config.guards.decision_problems).
-CATALYST_QUALIFICATION_AUTHORITY = None
+# stays unset (None) and every decision is refused, superusers included. The one value the code implements is
+# "explicit_permission" (assessments.record_qualification_decision, granted to named people only, by
+# `grant_staff_role`); the guard refuses any other (config.guards.decision_problems). Configuration-driven since
+# 9kg.30 (029 section 5.2): the launch host sets it when `211.7.8` names the holders, with no code change.
+CATALYST_QUALIFICATION_AUTHORITY = os.environ.get("CATALYST_QUALIFICATION_AUTHORITY", "").strip() or None
 # The active selection policy (019 section 6), set in code by a recorded owner activation. Empty: none is approved,
-# and decisions record the synthetic rubric they relied on instead.
+# and decisions record the synthetic rubric they relied on instead. A policy names the prompt pack it was approved
+# with (oc4.12, oc4.10 item 1): the guard refuses a policy that is unbound or bound to a synthetic rubric, and a
+# decision refuses a pack other than the bound one.
 CATALYST_SELECTION_POLICY = ""
+CATALYST_SELECTION_POLICY_PACKS = {}  # {"SP-L2-1": "assessment_v<n>"}, written by the activation that approves both
+# oc4.12 (019 decision 4, section 10): the launch-wide suspension of model advice, recorded in 011 section 4.1. Every
+# human-only decision taken under it cites this reference in its structured reason; fixed in code, like the policy.
+CATALYST_MODEL_ADVICE_SUSPENSION_REF = "011:4.1:2026-10-23:model-advice-suspended"
+# The policy identifier every cohort decision records while no policy is active and model advice is off (council
+# record 030 Q8; D-M): the literal below, never the synthetic rubric's reference. Once advice is on, the rubric
+# reference applies again. Fixed in code.
+CATALYST_NO_POLICY_LABEL = "none: internal cohort, D-M"
+# oc4.8 (recommended default, oc4.12): what clears a capped assessment snapshot. "human_only": the authority-gated
+# human-only decision form; "none": nothing (a capped case waits for the owner's budget decision). Fixed in code.
+CATALYST_CAPPED_EXIT = "human_only"
+if CATALYST_CAPPED_EXIT not in ("human_only", "none"):
+    raise ImproperlyConfigured("CATALYST_CAPPED_EXIT must be 'human_only' or 'none'")
 CATALYST_QUESTIONS_PER_ROUND = number("CATALYST_QUESTIONS_PER_ROUND", "3")
 # Reply interpretation may use at most this many of the shared daily requests per application (3B.3 review).
 CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION = number("CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION", "10")

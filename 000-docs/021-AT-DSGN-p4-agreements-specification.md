@@ -204,6 +204,11 @@ One agreement screen per application (permission-gated like the P2 and P3 screen
 
 New permissions are assigned to no group by migration except where `011` POL-13 already maps a role.
 
+*Amended 2026-10-23 (`9kg.30`, `029` section 17.1), pending the owner's ratification of the role names:* the
+agreement permissions are carried by the named groups `Agreement operator`, `Agreement decision-maker` and
+`Agreement template owner` (agreements migration 0009), granted only by the owner-run `grant_staff_role` command;
+no permission is granted per person in a shell any more.
+
 ## 10. Security and privacy summary
 
 | Control | Status |
@@ -452,7 +457,7 @@ no request was made to the installation:
 - **The D-15 sequence.** When a type passes its gate, `advance_agreements` re-reads the previous envelope at the
   moment of issue (REQ-011) and only then starts the next type. A stale or changed read issues nothing and opens a
   staff item.
-- **Staff services, permission `manage_agreements`, assigned to no group:**
+- **Staff services, permission `manage_agreements`, carried by a named group since `9kg.30` (pending the owner's ratification; originally assigned to no group):**
   - **Cancel at the provider** (P4-D-18): its own reconciled action, with `cancel_pending` and `cancel_uncertain`.
   - **Reissue** after a decline or a cancellation: a new instance, the old one marked superseded.
   - **Stop agreements** for a withdrawal, closure or hold (P4-D-20): every live envelope is cancelled; an unknown
@@ -561,7 +566,7 @@ an envelope is distributed:
   exactly our recipients, an `agreement_integrity_hold` opens. The verified columns stay as they were (they are
   immutable).
 - The hold fails the gate, so the User Agreement and the P5 hand-off wait. Generic resume does not clear it.
-- `resolve_agreement_integrity`, assigned to no group, offers three things:
+- `resolve_agreement_integrity`, carried by a named group since `9kg.30` (pending the owner's ratification; originally assigned to no group), offers three things:
   - a recheck;
   - **continue**, only on a read recorded after the hold that matches fully;
   - **replace**: `replaced_at` and its reason are set once, the verified history is kept, and a new generation
@@ -662,7 +667,7 @@ Bead `catalyst-v2-hdg.4`; tests in `tests/test_agreement_custody.py`.
 
 **Retrieval** (`services.retrieve_document`; `POST /staff/p4/documents/<id>/retrieve/`):
 
-- **Who.** Only the `retrieve_agreement_document` permission, assigned to no group (P4-D-16), with a stated reason.
+- **Who.** Only the `retrieve_agreement_document` permission, carried by the decision-maker group since `9kg.30` (pending the owner's ratification; originally assigned to no group, P4-D-16), with a stated reason.
 - **Audit first.** The `DocumentAccess` row (append-only) is committed before any byte is read for release. If the
   audit write fails, nothing is released.
 - **Denials.** A missing permission, a missing document and a non-staff or anonymous caller all return the same 404.
@@ -788,3 +793,37 @@ server, its TLS certificates and the custody directory are created per test in t
 
 **What a browser harness would add:** none exists in this repository. The journey uses Django's test client, which
 runs the full middleware stack (sessions, CSRF, authentication) in-process, with no socket, proxy or real host.
+
+## 20. Staff screens for the shell-only states (9kg.47, 2026-10-23)
+
+`029` section 5.2 found that `decide_uncertain_create`, `decide_uncertain_distribute` (the only remedies for an
+unknown provider outcome) and `approve_template_version` (which `activate_agreements` requires) were reachable only
+from tests or a shell. Built, under the existing permissions and the section 9 screen rules:
+
+- **The agreements screen** offers, only in the state each applies to and never preselected: the decision on an
+  unknown create (`decide_create`: mark not sent and create once more under a new key, or abandon; P4-D-8), the
+  decision on an unknown distribute (`decide_distribute`: send again, or cancel, which also needs `manage_agreements`),
+  and the decision on an unknown cancel (the existing `cancel` action, which sets the unknown attempt aside as a
+  decision and runs a new reconciled cancel). Each is one POST to the one service, which checks its own permission
+  and writes its event (`agreement_create_decided`, `agreement_distribute_decided`, `agreement_cancel_requested`); a
+  holder of another agreement permission reaches the page but the act is refused (409, `not_permitted`).
+- **The template screen** (`/staff/p4/templates/`, gate `approve_agreement_template`, the owner's under POL-07): every
+  template version with its type, version, provider references, the full registered placeholder PDF digest and
+  whether it is current for new agreements. Approval posts a digest the server recomputes over the whole frozen
+  tuple (type, version, provider reference and number, recipient slots, PDF digest) and is refused on any difference
+  (`template_changed_since_shown`); approving an approved version changes nothing and the screen says so. The
+  attestation covers the registered placeholder PDF only: nothing compares it to the live provider template (a
+  Documenso-side integrity canary is a separate bead). The record is the version's own approval columns, frozen by
+  the database (migration 0002); no agreement text is shown or stored. The dossier and the staff navigation link the
+  screen for holders of the permission.
+- **Review fix-ups (2026-10-23):** the decision text says reconciliation did not find an envelope and may not have
+  been able to ask, states the duplicate risk, and shows the unknown attempt's time and its reconcile count;
+  `_close` refuses an agreement the provider reports complete but not yet verified
+  (`completion_observed_verify_first`), and the cancel button appears only for live, unverified, uncancelled rows;
+  an abandoned create closes with both statuses cancelled, as `_close` does; every `agreement_*` staff item links the
+  agreements screen, and the four decided there (unknown create, distribute and cancel; an ended orphan watch) offer no
+  resolution of their own; `agreement_duplicate_envelopes` has no screen action yet (`9kg.53`, the reconcile path).
+
+Tests: `tests/test_agreement_screens.py` (one test per action, a refusal without the permission, the recorded event
+or approval). The on-hold exit, the verification resend and the aged-waits bounds are `9kg.50` and `9kg.51` (`018`
+section 19, `016` section 10.14, `026` section 17).

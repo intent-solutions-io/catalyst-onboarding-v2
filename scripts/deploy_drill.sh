@@ -151,10 +151,10 @@ failing='from django.db import migrations
 
 
 class Migration(migrations.Migration):
-    dependencies = [("workflow", "0004_restore_hold_protection")]
+    dependencies = [("workflow", "0005_pause_resume_guard")]
     operations = [migrations.RunSQL("SELECT 1/0", migrations.RunSQL.noop)]
 '
-unmigrated="$(derive next unmigrated "$(put /app/workflow/migrations/0005_drill.py "$failing")")"
+unmigrated="$(derive next unmigrated "$(put /app/workflow/migrations/0006_drill.py "$failing")")"
 op unmigrated
 check "a release whose migration fails is refused at predeploy" bash -c "! '$adapters/predeploy.sh' '$unmigrated' 2>/dev/null"
 wrapper "$unmigrated"; rc=$?
@@ -222,22 +222,22 @@ expand_migration='from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("workflow", "0004_restore_hold_protection")]
+    dependencies = [("workflow", "0005_pause_resume_guard")]
     operations = [migrations.AddField(model_name="pendingaction", name="drill_note", field=models.TextField(null=True))]
 '
 contract_migration='from django.db import migrations
 
 
 class Migration(migrations.Migration):
-    dependencies = [("workflow", "0005_expand")]
+    dependencies = [("workflow", "0006_expand")]
     operations = [migrations.RemoveField(model_name="pendingaction", name="drill_note")]
 '
 n="$swapped"  # image N, serving
-expand="$(derive swapped expand "$(put /app/workflow/migrations/0005_expand.py "$expand_migration")")"
+expand="$(derive swapped expand "$(put /app/workflow/migrations/0006_expand.py "$expand_migration")")"
 check "an applicant is accepted on image N before the drill" submit n-before@example.test
 before="$(applications)"
 op expand
-check "N+1's predeploy applies the expand migration" bash -c "'$adapters/predeploy.sh' '$expand' >/dev/null && [ \"\$(CATALYST_IMAGE='$expand' docker compose --project-name '$project' -f deploy/staging/compose.yaml run --rm --no-deps -T web python manage.py catalyst_release applied 2>/dev/null | grep -c 0005_expand)\" = 1 ]"
+check "N+1's predeploy applies the expand migration" bash -c "'$adapters/predeploy.sh' '$expand' >/dev/null && [ \"\$(CATALYST_IMAGE='$expand' docker compose --project-name '$project' -f deploy/staging/compose.yaml run --rm --no-deps -T web python manage.py catalyst_release applied 2>/dev/null | grep -c 0006_expand)\" = 1 ]"
 wrapper "$expand"; rc=$?
 check "N+1 (expand) is promoted (exit 0)" test "$rc" = 0 -a "$(serving)" = "$expand"
 check "the expanded column exists while N+1 serves" test "$(drill_column)" = 1
@@ -248,14 +248,14 @@ wrapper "$n"; rc=$?
 check "the image is reverted to N on the expanded schema through the wrapper (exit 0)" test "$rc" = 0 -a "$(serving)" = "$n"
 check "the reverted stack passes the smoke on the expanded schema" "$adapters/smoke.sh"
 check "the schema was not rolled back: the column stays and the expand migration stays applied" \
-  test "$(drill_column)" = 1 -a "$(applied_with "$expand" | grep -c 0005_expand)" = 1
+  test "$(drill_column)" = 1 -a "$(applied_with "$expand" | grep -c 0006_expand)" = 1
 check "the data is kept across the revert: both applicants are still there" test "$(applications)" = "$((before + 1))"
 check "an applicant is accepted on N after the revert" submit n-after@example.test
 # 5b. A release with a contract migration, marked forward-only: promoted, then a revert across it is refused.
-contract="$(derive expand contract "$(put /app/workflow/migrations/0006_contract.py "$contract_migration") && sed -i 's/^FORWARD_ONLY: frozenset\\[str\\] = frozenset(.*)$/FORWARD_ONLY: frozenset[str] = frozenset({\"workflow.0006_contract\"})/' /app/config/release.py")"
+contract="$(derive expand contract "$(put /app/workflow/migrations/0007_contract.py "$contract_migration") && sed -i 's/^FORWARD_ONLY: frozenset\\[str\\] = frozenset(.*)$/FORWARD_ONLY: frozenset[str] = frozenset({\"workflow.0007_contract\"})/' /app/config/release.py")"
 op contract
 check "the contract release's predeploy records it forward-only before migrating" bash -c \
-  "'$adapters/predeploy.sh' '$contract' >/dev/null && grep -q 'workflow.0006_contract' '$CATALYST_DEPLOY_STATE/forward-only.json'"
+  "'$adapters/predeploy.sh' '$contract' >/dev/null && grep -q 'workflow.0007_contract' '$CATALYST_DEPLOY_STATE/forward-only.json'"
 wrapper "$contract"; rc=$?
 check "the contract release is promoted (exit 0)" test "$rc" = 0 -a "$(serving)" = "$contract"
 check "the contract migration removed the column" test "$(drill_column)" = 0
@@ -264,12 +264,12 @@ op revert-across-contract
 "$adapters/predeploy.sh" "$expand" >/dev/null
 wrapper "$expand"; rc=$?
 check "a revert across a forward-only migration is refused through the wrapper (exit 3)" test "$rc" = 3
-check "the refusal names the migration and says restore" grep -q "workflow.0006_contract.*restore instead" "$work/wrapper-drill-revert-across-contract.err"
+check "the refusal names the migration and says restore" grep -q "workflow.0007_contract.*restore instead" "$work/wrapper-drill-revert-across-contract.err"
 check "the image is untouched: the contract release still serves" test "$(serving)" = "$contract"
 check "the data is untouched: the migration stays applied, the column stays gone, every applicant is there" \
-  test "$(applied_with "$contract" | grep -c 0006_contract)" = 1 -a "$(drill_column)" = 0 -a "$(applications)" = "$count"
+  test "$(applied_with "$contract" | grep -c 0007_contract)" = 1 -a "$(drill_column)" = 0 -a "$(applications)" = "$count"
 check "the forward-only list is recorded in the deploy state, not read from the serving image" \
-  grep -q "workflow.0006_contract" "$CATALYST_DEPLOY_STATE/forward-only.json"
+  grep -q "workflow.0007_contract" "$CATALYST_DEPLOY_STATE/forward-only.json"
 rm -f "$work/wrapper/HOLD"
 
 # 6. A forward-only migration applied by the predeploy step of a release whose deploy then never happens: it was
@@ -278,14 +278,14 @@ staged_migration='from django.db import migrations
 
 
 class Migration(migrations.Migration):
-    dependencies = [("workflow", "0006_contract")]
+    dependencies = [("workflow", "0007_contract")]
     operations = [migrations.RunSQL("SELECT 1", migrations.RunSQL.noop)]
 '
-staged="$(derive contract staged "$(put /app/workflow/migrations/0007_staged.py "$staged_migration") && sed -i 's/^FORWARD_ONLY: frozenset\\[str\\] = frozenset(.*)$/FORWARD_ONLY: frozenset[str] = frozenset({\"workflow.0006_contract\", \"workflow.0007_staged\"})/' /app/config/release.py")"
+staged="$(derive contract staged "$(put /app/workflow/migrations/0008_staged.py "$staged_migration") && sed -i 's/^FORWARD_ONLY: frozenset\\[str\\] = frozenset(.*)$/FORWARD_ONLY: frozenset[str] = frozenset({\"workflow.0007_contract\", \"workflow.0008_staged\"})/' /app/config/release.py")"
 op staged
 check "the predeploy step applies a forward-only migration" "$adapters/predeploy.sh" "$staged"
 out="$("$adapters/deploy.sh" "$contract" 2>&1)"; rc=$?
-check "after an aborted deploy, an image without that migration is refused" bash -c "[ $rc != 0 ] && grep -q 'workflow.0007_staged' <<<'$out'"
+check "after an aborted deploy, an image without that migration is refused" bash -c "[ $rc != 0 ] && grep -q 'workflow.0008_staged' <<<'$out'"
 check "nothing changed: the contract release is still serving" test "$(serving)" = "$contract"
 check "a tag is refused as an image reference" bash -c "! '$adapters/deploy.sh' catalyst:latest 2>/dev/null"
 

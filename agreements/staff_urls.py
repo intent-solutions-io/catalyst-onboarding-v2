@@ -9,4 +9,6 @@ urlpatterns = [
     path("applications/<uuid:public_ref>/agreements/", v.agreements, name="agreements"),
     path("applications/<uuid:public_ref>/agreements/act/", v.act, name="act"),
     path("documents/<uuid:public_id>/retrieve/", v.retrieve, name="retrieve"),
+    path("templates/", v.template_list, name="templates"),  # 9kg.47
+    path("templates/<int:pk>/approve/", v.approve_template, name="approve_template"),
 ]

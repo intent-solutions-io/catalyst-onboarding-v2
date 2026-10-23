@@ -91,7 +91,10 @@ def _finish_run(run, status, **fields):
         status=status, finished_at=Now(), **fields)
 
 
-ITEM_CODES = ("assessment_failed", "assessment_capped", "assessment_input_changed", "assessment_pack_refused")
+# `assessment_suspended` (oc4.12): the run was refused because model advice is disabled (the launch-wide suspension,
+# 019 decision 4), which is not an assessment failure; the recorded human-only decision is the way on.
+ITEM_CODES = ("assessment_failed", "assessment_capped", "assessment_input_changed", "assessment_pack_refused",
+              "assessment_suspended")
 
 
 def _staff(application, reason, run):
@@ -171,6 +174,14 @@ class RunAssessment:
         if application.stage != Stage.ASSESSING:
             return (Status.CANCELLED, "stage_changed", False,
                     lambda: _finish_run(run, Run.REFUSED, error_code="stage_changed"), None), None, None
+        try:  # before the pause check (oc4.12): a paused application under the suspension ends refused at once, so the
+            # human-only path is open to staff instead of a requeued run that blocks it; nothing is reserved either way
+            agent.build_model()
+        except agent.ModelUnavailable as exc:
+            reason = str(exc)
+            item = "assessment_suspended" if settings.CATALYST_ASSESSMENT_MODEL == "none" else "assessment_failed"
+            return (Status.DONE, reason, False, lambda: (
+                _finish_run(run, Run.REFUSED, error_code=reason), _staff(application, item, run)), None), None, None
         if AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists():
             # No invocation is recorded yet for this attempt, so the attempt may be returned.
             return (Status.QUEUED, "automation_paused", True, None,
@@ -186,12 +197,6 @@ class RunAssessment:
             return (Status.DONE, "input_changed", False, lambda: (
                 _finish_run(run, Run.REFUSED, error_code="input_changed"),
                 _staff(application, "assessment_input_changed", run)), None), None, None
-        try:  # checked before any reservation: an unavailable model never spends budget
-            agent.build_model()
-        except agent.ModelUnavailable as exc:
-            reason = str(exc)
-            return (Status.DONE, reason, False, lambda: (
-                _finish_run(run, Run.REFUSED, error_code=reason), _staff(application, "assessment_failed", run)), None), None, None
         # Earlier invocations of this run whose attempt never finished were possibly billed: counted, abandoned.
         AssessmentInvocation.objects.filter(run=run, status="started").update(status="abandoned", finished_at=Now())
         stop = self._budget(application, run)

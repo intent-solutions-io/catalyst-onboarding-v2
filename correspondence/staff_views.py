@@ -19,6 +19,7 @@ admin stays read-only, and these focused views are the one place staff act:
 import uuid
 from functools import wraps
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
@@ -28,7 +29,7 @@ from django.urls import reverse
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
-from applications.models import Application
+from applications.models import TERMINAL_STAGES, Application
 from workflow.models import AutomationPause
 
 from . import outbound, processing, staff_actions
@@ -150,6 +151,9 @@ def item_detail(request, public_id):
         and can(request.user, "restart_collector"),
         "sent": sent,
         "attempts": OutboundMessage.objects.filter(approved_message=sent).order_by("attempt_number") if sent else [],
+        # 9kg.47 review: any agreement item is handled on the agreements screen; the decided ones say so explicitly
+        "agreements_screen": item.application is not None and item.reason_code.startswith("agreement_"),
+        "decided_on_screen": item.reason_code in processing.AGREEMENT_SCREEN_ITEMS,
     })
 
 
@@ -210,6 +214,11 @@ def application_detail(request, public_ref):
         "items": application.staff_items.filter(status="open").order_by("opened_at", "id"),
         "staff_messages": ApprovedMessage.objects.filter(application=application, kind="staff_message").order_by("-id")[:20],
         "draft": {"subject": "", "body": ""},
+        # 9kg.50: the verification resend, offered only while it could do anything (unverified, open, under the limit)
+        "can_resend": can(user, "send_staff_message") and application.contact_verified_at is None
+        and application.stage not in TERMINAL_STAGES,
+        "resends_used": staff_actions.resends_used(application), "resend_limit": settings.CATALYST_VERIFICATION_RESEND_LIMIT,
+        "usable_link": staff_actions.usable_verification_link(application),
     })
 
 
@@ -313,6 +322,15 @@ def resume(request, public_ref):
     return act(request, reverse("correspondence_staff:application", args=[public_ref]),
                lambda: staff_actions.resume(application.pk, request.user, request.POST.get("note", "")),
                lambda moved: f"Resumed; {moved} reminder action(s) rescheduled.")
+
+
+@require_POST
+@staff_page(*APPLICATION)
+def resend_verification(request, public_ref):
+    application = get_object_or_404(Application, public_ref=public_ref)
+    return act(request, reverse("correspondence_staff:application", args=[public_ref]),
+               lambda: staff_actions.resend_verification(application.pk, request.user, request.POST.get("note", "")),
+               lambda number: f"Verification message queued again (resend {number} of {settings.CATALYST_VERIFICATION_RESEND_LIMIT}).")
 
 
 @require_POST

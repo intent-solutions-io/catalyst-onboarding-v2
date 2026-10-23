@@ -62,6 +62,12 @@ COMMON_ENV = {
     # 9kg.33: the effect journal, one volume outside the database's rollback domain, shared by every process that
     # makes or reconciles effects (web, worker, the owner-run commands, backup and restore). Never the fetcher.
     "CATALYST_EFFECT_JOURNAL_DIR": "/var/lib/catalyst/effects",
+    # 9kg.30, 9kg.50, 9kg.51 (PR #87 review): the launch values the host sets without a release. Unset keeps the
+    # code defaults: the authority unset (everyone refused), three resends, the three paging wait classes.
+    "CATALYST_QUALIFICATION_AUTHORITY": "${CATALYST_QUALIFICATION_AUTHORITY:-}",
+    "CATALYST_VERIFICATION_RESEND_LIMIT": "${CATALYST_VERIFICATION_RESEND_LIMIT:-3}",
+    "CATALYST_HEALTH_AGED_WAITS_PAGE": "${CATALYST_HEALTH_AGED_WAITS_PAGE:-replies_awaiting_processing,issued_agreements,provisioning_activation}",
+    "CATALYST_HEALTH_PENDING_AGE_SECONDS": "${CATALYST_HEALTH_PENDING_AGE_SECONDS:-3600}",
 }
 EFFECTS = "catalyst-effects:/var/lib/catalyst/effects"
 

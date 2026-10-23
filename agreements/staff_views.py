@@ -28,13 +28,21 @@ from correspondence.models import StaffItem
 from workflow.models import AutomationPause, PendingAction
 
 from . import completion, handlers, services
-from .models import AgreementDetailsVersion, AgreementInstance, AgreementType, EnvelopeAttempt, ProviderObservation
+from .models import (AgreementDetailsVersion, AgreementInstance, AgreementTemplateVersion, AgreementType, EnvelopeAttempt,
+                     ProviderObservation)
 
 logger = logging.getLogger(__name__)
 SCREEN = ("view_agreementinstance", "operate_agreements", "manage_agreements", "decide_uncertain_agreement",
           "resolve_agreement_integrity", "retrieve_agreement_document", "confirm_required_details")
+TEMPLATES = ("approve_agreement_template",)  # 9kg.47: the template screen is the owner's (POL-07)
 STOP_REASONS = {"on_hold": "Hold (resumable by a decision-maker)", "withdrawn": "Withdrawn (final)",
                 "closed": "Closed (final)"}
+# 9kg.47 (029 section 5.2): the decisions on an unknown provider outcome, offered only in the state they apply to and
+# never preselected (P4-D-8; 021 section 5).
+CREATE_CHOICES = {"not_sent": "Mark not sent and create once more under a new key (the old key stays watched)",
+                  "abandon": "Abandon this agreement (the old key stays watched; a reissue is a new instance)"}
+DISTRIBUTE_CHOICES = {"redistribute": "Send again (the step re-reads first and sends only a draft)",
+                      "cancel": "Cancel this agreement (needs the manage permission too)"}
 DISPOSITIONS = {"continue": "Continue: a fresh read matches fully", "replace": "Replace with a new agreement",
                 "escalate": "Escalate to the owner or counsel (stays held)"}
 LABELS = {
@@ -84,7 +92,19 @@ def _context(request, application, *, error="", form=None):
         for instance in (AgreementInstance.objects.filter(application=application, agreement_type=t)
                          .prefetch_related("recipients", "documents").order_by("id")):
             hold = completion.integrity_hold_open(instance)
+            unknown = None
+            if instance.issue_status in ("create_uncertain", "distribute_uncertain"):  # 9kg.47 review: what staff decide on
+                step = EnvelopeAttempt.Step.CREATE if instance.issue_status == "create_uncertain" else EnvelopeAttempt.Step.DISTRIBUTE
+                attempt = (EnvelopeAttempt.objects.filter(instance=instance, step=step, outcome=EnvelopeAttempt.Outcome.UNKNOWN)
+                           .order_by("-id").first())
+                if attempt is not None:
+                    reconciles = PendingAction.objects.filter(kind=handlers.RECONCILE, input_ref=str(attempt.public_id))
+                    unknown = {"attempt": attempt, "checks": reconciles.count(),
+                               "running": reconciles.filter(status__in=(PendingAction.Status.QUEUED, PendingAction.Status.RUNNING)).exists()}
             rows.append({
+                "unknown": unknown,
+                "cancellable": instance.issue_status in services.LIVE and instance.signing_status not in (
+                    "signing_complete_verified", "signing_complete_observed", "cancelled"),
                 "type": t, "instance": instance, "hold": hold,
                 "issue": LABELS.get(instance.issue_status, instance.issue_status),
                 "signing": LABELS.get(instance.signing_status, instance.signing_status),
@@ -110,6 +130,7 @@ def _context(request, application, *, error="", form=None):
         "items": StaffItem.objects.filter(application=application, status="open", reason_code__startswith="agreement_"),
         "handoff": PendingAction.objects.filter(kind=completion.HANDOFF, subject_id=application.public_ref).first(),
         "stop_reasons": STOP_REASONS, "dispositions": DISPOSITIONS, "error": error, "form": form or {},
+        "create_choices": CREATE_CHOICES, "distribute_choices": DISTRIBUTE_CHOICES,
         "may": {p: services.can(user, p) for p in SCREEN},
     }
 
@@ -126,7 +147,10 @@ def _instance(application, ref):
 
 
 ACTIONS = {
-    "cancel": lambda r, a, p: services.cancel_agreement(_instance(a, p["instance"]).pk, r.user),
+    "cancel": lambda r, a, p: services.cancel_agreement(_instance(a, p["instance"]).pk, r.user),  # also the cancel_uncertain remedy
+    "decide_create": lambda r, a, p: services.decide_uncertain_create(_instance(a, p["instance"]).pk, r.user, p.get("choice", "")),
+    "decide_distribute": lambda r, a, p: services.decide_uncertain_distribute(_instance(a, p["instance"]).pk, r.user,
+                                                                               p.get("choice", "")),
     "reissue": lambda r, a, p: services.reissue_agreement(_instance(a, p["instance"]).pk, r.user),
     "stop": lambda r, a, p: services.stop_agreements(a.pk, r.user, p.get("reason", "")),
     "resume": lambda r, a, p: services.resume_agreements(a.pk, r.user),
@@ -161,6 +185,48 @@ def act(request, public_ref):
         return render(request, "agreements/staff/agreements.html", context, status=409)
     messages.success(request, f"{action}: done")
     return redirect(reverse("agreements_staff:agreements", args=[application.public_ref]))
+
+
+def templates_screen(view):
+    @never_cache
+    @login_required(login_url="admin:login")
+    @wraps(view)
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_staff or not any(services.can(request.user, p) for p in TEMPLATES):
+            raise PermissionDenied
+        return view(request, *args, **kwargs)
+    return wrapper
+
+
+@require_GET
+@templates_screen
+def template_list(request):
+    """9kg.47: every agreement template version with its state, so the owner approves the exact version shown (its
+    PDF digest) without a shell. No agreement text is here: only the type, version, provider references and digests."""
+    versions = list(AgreementTemplateVersion.objects.select_related("agreement_type").order_by("agreement_type__order", "-version"))
+    current = {t.key: (handlers.approved_version(t.key) or AgreementTemplateVersion(pk=None)).pk
+               for t in AgreementType.objects.all()}
+    return render(request, "agreements/staff/templates.html", {
+        "rows": [{"version": v, "digest": services.template_digest(v), "current": current.get(v.agreement_type.key) == v.pk}
+                 for v in versions]})
+
+
+@require_POST
+@templates_screen
+def approve_template(request, pk):
+    version = get_object_or_404(AgreementTemplateVersion, pk=pk)
+    try:
+        _, changed = services.approve_template_version(version.pk, request.user, request.POST.get("digest", ""))
+    except services.Refused as exc:
+        messages.error(request, f"approve_template: refused ({exc})")
+    else:
+        if changed:
+            logger.info("agreement template version %s approved by user:%s", version.pk, request.user.pk)  # the record is the row
+            messages.success(request, "Template version approved.")
+        else:
+            logger.info("agreement template version %s approval repeated by user:%s; nothing changed", version.pk, request.user.pk)
+            messages.error(request, "approve_template: nothing changed (the version was already approved).")
+    return redirect(reverse("agreements_staff:templates"))
 
 
 @require_POST
