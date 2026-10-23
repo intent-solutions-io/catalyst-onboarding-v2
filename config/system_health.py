@@ -167,10 +167,18 @@ def aged_waits_health() -> dict:
     return report
 
 
+def decision_health() -> dict:
+    """9kg.30 review: whether the qualification authority is configured (POL-05), visible without a shell. Not an
+    anomaly either way: unset is the intended state until 211.7.8 is recorded."""
+    return {"qualification_authority_configured": settings.CATALYST_QUALIFICATION_AUTHORITY == "explicit_permission",
+            "anomalies": []}
+
+
 def report() -> dict:
     from correspondence.health import collector_health, mail_behaviour_health, reminder_health, reply_health, send_health
 
     return {"worker": worker_health(), "queue": queue_health(), "agreements": agreement_health(),
             "provisioning": provisioning_health(), "bounces": bounce_health(), "sends": send_health(),
             "collector": collector_health(), "replies": reply_health(), "reminders": reminder_health(),
-            "mail": mail_behaviour_health(), "sessions": session_health(), "aged_waits": aged_waits_health()}
+            "mail": mail_behaviour_health(), "sessions": session_health(), "aged_waits": aged_waits_health(),
+            "decision": decision_health()}

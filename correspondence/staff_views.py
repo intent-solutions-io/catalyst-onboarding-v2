@@ -151,6 +151,9 @@ def item_detail(request, public_id):
         and can(request.user, "restart_collector"),
         "sent": sent,
         "attempts": OutboundMessage.objects.filter(approved_message=sent).order_by("attempt_number") if sent else [],
+        # 9kg.47 review: any agreement item is handled on the agreements screen; the decided ones say so explicitly
+        "agreements_screen": item.application is not None and item.reason_code.startswith("agreement_"),
+        "decided_on_screen": item.reason_code in processing.AGREEMENT_SCREEN_ITEMS,
     })
 
 
@@ -215,6 +218,7 @@ def application_detail(request, public_ref):
         "can_resend": can(user, "send_staff_message") and application.contact_verified_at is None
         and application.stage not in TERMINAL_STAGES,
         "resends_used": staff_actions.resends_used(application), "resend_limit": settings.CATALYST_VERIFICATION_RESEND_LIMIT,
+        "usable_link": staff_actions.usable_verification_link(application),
     })
 
 

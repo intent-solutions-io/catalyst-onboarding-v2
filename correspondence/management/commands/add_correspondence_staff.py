@@ -16,9 +16,11 @@ from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+from accounts import grants
 from correspondence.roles import DECISION_MAKER, OPERATOR, TEMPLATE_OWNER
 
 ROLES = {"operator": OPERATOR, "decision-maker": DECISION_MAKER, "template-owner": TEMPLATE_OWNER}
+SLUGS = {"operator": "correspondence-operator", "decision-maker": "correspondence-decision-maker", "template-owner": "template-owner"}
 
 
 class Command(BaseCommand):
@@ -29,8 +31,10 @@ class Command(BaseCommand):
         parser.add_argument("--role", required=True, choices=sorted(ROLES))
         parser.add_argument("--existing", action="store_true", help="add an existing account instead of creating one")
         parser.add_argument("--password-env", help="name of an environment variable holding the password")
+        parser.add_argument("--approval-ref", help="the decision that authorizes this grant (recorded, 9kg.30)")
 
-    def handle(self, username, role, existing=False, password_env=None, **options):
+    def handle(self, username, role, existing=False, password_env=None, approval_ref=None, **options):
+        approval_ref = grants.require_approval(approval_ref)
         User = get_user_model()
         group = Group.objects.filter(name=ROLES[role]).first()
         if group is None:
@@ -41,6 +45,7 @@ class Command(BaseCommand):
                 if user is None:
                     raise CommandError(f"no non-superuser account {username!r}")
                 user.groups.add(group)
+                grants.record(user, role=SLUGS[role], kind="group", target=group.name, action="grant", approval_ref=approval_ref)
             self.stdout.write(f"added {username!r} to {group.name!r}")
             return
         if password_env:
@@ -60,4 +65,5 @@ class Command(BaseCommand):
                 raise CommandError(f"user {username!r} already exists")
             user.save()
             user.groups.add(group)
+            grants.record(user, role=SLUGS[role], kind="group", target=group.name, action="grant", approval_ref=approval_ref)
         self.stdout.write(f"created {username!r} in {group.name!r}")

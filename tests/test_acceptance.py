@@ -518,10 +518,12 @@ def test_every_p6_test_is_mapped():
     p6_files = ("test_web_security", "test_health", "test_system_health", "test_image", "test_backup_commands",
                 "test_post_restore", "test_restore_rehearsal", "test_staging_proxy", "test_staff_two_factor",
                 "test_fetcher_role", "test_staging_compose", "test_release", "test_secret_rotation", "test_egress",
-                "test_staging_alerts", "test_cutover")
+                "test_staging_alerts", "test_cutover",
+                # PR #87 (029 section 13.3 batch item 3): every test of the four new files is a named design rule
+                "test_staff_roles", "test_hold_and_resend", "test_human_only", "test_agreement_screens")
     found = set()
     for path in sorted((ROOT / "tests").glob("test_*.py")):
-        pattern = r"^(?:async )?def (test_\w+)" if path.stem in p6_files else r"^(?:async )?def (test_(?:6b|9kg|p6)\w*)"
+        pattern = r"^(?:async )?def (test_\w+)" if path.stem in p6_files else r"^(?:async )?def (test_(?:6b|9kg|p6|oc4)\w*)"
         found |= {f"{path.stem}::{n}" for n in re.findall(pattern, path.read_text(), flags=re.M)}
     earlier = {name.split("[", 1)[0] for names in {
         **acceptance.CASES, **acceptance.SUPPORTING, **acceptance.P2_CASES, **acceptance.P3_CASES,

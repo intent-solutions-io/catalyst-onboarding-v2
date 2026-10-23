@@ -68,6 +68,10 @@ RESOLUTIONS = {
     "repeat_after_decline": {"acknowledge": "resolve_identity_exception"},  # P3 3B.4, J-02 (P3-D-16)
     "newer_unverified_version": {"acknowledge": "resolve_identity_exception"},
 }
+# 9kg.47 review: items that are decided on the agreements screen (the decision services resolve them); the item page
+# links the screen and offers no resolution of its own, so an item can never be acknowledged past its decision.
+AGREEMENT_SCREEN_ITEMS = {"agreement_create_unknown", "agreement_distribute_unknown", "agreement_cancel_unknown",
+                          "agreement_duplicate_envelopes", "agreement_orphan_watch_ended"}
 ACKNOWLEDGE_ONLY = {"processing_error", "message_id_conflict", "mailbox_uidvalidity_changed", "collector_stale",
                     "filed_copy_failed", "inbound_oversize", "application_closed", "collector_pass_failed",
                     "mailbox_history_out_of_scope", "loop_threshold",

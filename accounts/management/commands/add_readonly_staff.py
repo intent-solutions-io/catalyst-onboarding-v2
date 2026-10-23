@@ -17,6 +17,8 @@ from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+from accounts import grants
+
 READ_ONLY_STAFF = "Read-only staff"
 
 
@@ -26,8 +28,10 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("username")
         parser.add_argument("--password-env", help="name of an environment variable holding the password")
+        parser.add_argument("--approval-ref", help="the decision that authorizes this account (recorded, 9kg.30)")
 
-    def handle(self, username, password_env=None, **options):
+    def handle(self, username, password_env=None, approval_ref=None, **options):
+        approval_ref = grants.require_approval(approval_ref)
         if password_env:
             password = os.environ.get(password_env, "")
         else:
@@ -46,4 +50,5 @@ class Command(BaseCommand):
                 raise CommandError(f"user {username!r} already exists")
             user.save()
             user.groups.add(Group.objects.get(name=READ_ONLY_STAFF))
+            grants.record(user, role="read-only-staff", kind="group", target=READ_ONLY_STAFF, action="grant", approval_ref=approval_ref)
         self.stdout.write(f"created read-only staff account {username!r}")

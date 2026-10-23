@@ -16,14 +16,13 @@ of any staff setup step.
 Exit 0 done, 1 refused. `--list` prints the matrix and exits.
 """
 
-import getpass
-
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+from accounts import grants
 from accounts.models import StaffRoleGrant
 from accounts.roles import DIRECT_ROLES, GROUP_ROLES, ROLES
 
@@ -50,8 +49,7 @@ class Command(BaseCommand):
             return
         if not username or not role:
             raise CommandError("a username and --role are required (or --list)")
-        if not (approval_ref or "").strip():
-            raise CommandError("--approval-ref is required: name the decision that authorizes this change")
+        approval_ref = grants.require_approval(approval_ref)
         user = get_user_model().objects.filter(username=username).first()
         if user is None:
             raise CommandError(f"no account {username!r}")
@@ -59,10 +57,6 @@ class Command(BaseCommand):
             raise CommandError("a superuser account holds no staff role: the owner works through manage.py")
         if not revoke and not (user.is_staff and user.is_active):
             raise CommandError("only an active staff account can be granted a role")
-        try:
-            actor = f"owner_command:{getpass.getuser()}"  # the operating-system login that ran the command
-        except OSError:  # no login name in the environment (a container): the command itself is still the actor
-            actor = "owner_command"
         with transaction.atomic():
             if role in GROUP_ROLES:
                 changed, target = self._group(user, role, revoke)
@@ -71,10 +65,10 @@ class Command(BaseCommand):
             if not changed:
                 self.stdout.write(f"{username!r} {'does not hold' if revoke else 'already holds'} {role!r}; nothing changed")
                 return
-            record = StaffRoleGrant.objects.create(
-                user=user, role=role, kind=StaffRoleGrant.Kind.GROUP if role in GROUP_ROLES else StaffRoleGrant.Kind.PERMISSION,
+            record = grants.record(
+                user, role=role, kind=StaffRoleGrant.Kind.GROUP if role in GROUP_ROLES else StaffRoleGrant.Kind.PERMISSION,
                 target=target, action=StaffRoleGrant.Action.REVOKE if revoke else StaffRoleGrant.Action.GRANT,
-                approval_ref=approval_ref.strip(), actor_ref=actor)
+                approval_ref=approval_ref)
         self.stdout.write(f"{'revoked' if revoke else 'granted'} {role!r} {'from' if revoke else 'to'} {username!r} (record {record.pk})")
 
     def _group(self, user, role, revoke):

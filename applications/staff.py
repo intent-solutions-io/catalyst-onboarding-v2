@@ -10,7 +10,8 @@ Staff attention, one rule for the dossier, the list column and the list filter (
 - while contact is unverified and the application open: an active, unexpired challenge whose send is
   missing or ended in anything but queued, running or done (failed, uncertain, cancelled, held), so the
   applicant has no working link and nothing automatic will produce one;
-- once contact is verified: no next-stage action.
+- once contact is verified: no next-stage action;
+- an application awaiting the qualification decision or on hold (the decision-maker owes the next step).
 Every other next step belongs to the applicant, the system, or nobody yet (blocked in this slice).
 """
 
@@ -83,6 +84,7 @@ def attention_q() -> Q:
         | Q(Exists(AutomationPause.objects.filter(subject_type="application", subject_id=OuterRef("public_ref"))))
         | (Q(contact_verified_at__isnull=True) & ~Q(stage__in=TERMINAL_STAGES) & Q(Exists(stuck_link)))
         | (Q(contact_verified_at__isnull=False) & ~Q(stage__in=TERMINAL_STAGES) & ~Q(Exists(next_stage)))
+        | Q(stage__in=("awaiting_decision", "on_hold"))  # a decision is owed (9kg.50 review)
     )
 
 
@@ -149,6 +151,10 @@ def next_steps(application) -> list[Step]:
         return steps + [Step("System", "Evidence is being collected from approved sources (P3)")]
     if application.stage == "assessing":
         return steps + [Step("Blocked", "Evidence collection is complete; the assessment step arrives with P3 task 3B.2")]
+    if application.stage == "awaiting_decision":  # 9kg.50 review: the decision-maker owes the next step
+        return steps + [Step("Staff", "Awaiting the qualification decision: record it on the decision screen", attention=True)]
+    if application.stage == "on_hold":
+        return steps + [Step("Staff", "On hold: the way on is an admit or a decline on the decision screen", attention=True)]
     if action.status == PendingAction.Status.HELD:
         return steps + [Step("Blocked", "Start evidence collection is held until the owner releases it (activation command, 018 4.1)")]
     return steps + [Step("Blocked", f"Start evidence collection is {action.status}")]

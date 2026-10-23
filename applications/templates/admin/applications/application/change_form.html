@@ -2,6 +2,7 @@
 {% block object-tools-items %}
 {% if correspondence_link and original %}<li><a href="{% url 'correspondence_staff:application' original.public_ref %}">Correspondence screen</a></li>{% endif %}
 {% if agreements_link and original %}<li><a href="{% url 'agreements_staff:agreements' original.public_ref %}">Agreements screen</a></li>{% endif %}
+{% if decision_link and original %}<li><a href="{% url 'assessments_staff:decision' original.public_ref %}">Decision screen</a></li>{% endif %}
 {% if agreement_templates_link %}<li><a href="{% url 'agreements_staff:templates' %}">Agreement templates</a></li>{% endif %}
 {% if provisioning_link and original %}<li><a href="{% url 'provisioning_staff:provisioning' original.public_ref %}">Provisioning screen</a></li>{% endif %}
 {{ block.super }}

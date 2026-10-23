@@ -61,15 +61,21 @@ def held_by(user) -> set:
 
 @pytest.mark.django_db
 def test_every_permission_a_staff_screen_checks_has_a_grant_path():
-    """Any codename a staff view, the dossier or the decision service names must be carried by some role."""
+    """Inverted (QA review of PR #87): every permission any Catalyst model declares, and every codename a staff view,
+    the dossier or the decision service names, must be carried by some role; and the matrix names only permissions
+    that exist. The declared set is the stronger check: a permission with no role is a permission nobody can hold."""
+    from django.apps import apps
+
+    declared = {(label, codename) for label in CATALYST_APPS for model in apps.get_app_config(label).get_models()
+                for codename, _ in model._meta.permissions}
+    assert len(declared) >= 27  # the Meta.permissions of P2 to P5
+    assert sorted(declared - roles.every_granted_permission()) == []
     known = {codename: app for app, codename in Permission.objects.filter(
         content_type__app_label__in=CATALYST_APPS).values_list("content_type__app_label", "codename")}
     source = "".join(inspect.getsource(__import__(m, fromlist=["x"])) for m in STAFF_VIEW_MODULES)
     checked = {(app, codename) for codename, app in known.items() if re.search(rf'["\'.]{codename}["\']', source)}
     assert len(checked) > 20  # the scan found the screens' permissions, not an empty set
-    missing = sorted(checked - roles.every_granted_permission())
-    assert missing == [], f"no grant path for {missing}"
-    # And the matrix names only permissions that exist (no stale codename can be granted).
+    assert sorted(checked - roles.every_granted_permission()) == []
     assert sorted(roles.every_granted_permission() - {(app, codename) for codename, app in known.items()}) == []
 
 
@@ -145,19 +151,21 @@ def test_the_grant_record_is_append_only_for_every_role_and_names_no_secret(p2):
                     " VALUES (%s, 'x', 'group', 'x', 'grant', 'x', 'x')", [user.pk])
 
 
-def test_a_role_granted_by_the_command_opens_exactly_its_screens(p2):
+def test_a_role_granted_by_the_command_opens_exactly_its_screens(p2, settings):
+    settings.CATALYST_QUALIFICATION_AUTHORITY = "explicit_permission"
     app = Application.objects.create(email="holder@example.test", email_key="holder@example.test", display_name="Synthetic")
-    agreements_page = reverse("agreements_staff:agreements", args=[app.public_ref])
-    provisioning_page = reverse("provisioning_staff:provisioning", args=[app.public_ref])
-    queue = reverse("correspondence_staff:queue")
-    expected = {"agreement-decision-maker": (200, 403, 403), "provisioning-operator": (403, 200, 403),
-                "correspondence-operator": (403, 403, 200), "read-only-staff": (403, 403, 403)}
+    pages = (reverse("agreements_staff:agreements", args=[app.public_ref]),
+             reverse("provisioning_staff:provisioning", args=[app.public_ref]), reverse("correspondence_staff:queue"),
+             reverse("assessments_staff:decision", args=[app.public_ref]))
+    expected = {"agreement-decision-maker": (200, 403, 403, 403), "provisioning-operator": (403, 200, 403, 403),
+                "correspondence-operator": (403, 403, 200, 403), "read-only-staff": (403, 403, 403, 403),
+                "qualification-decision-maker": (403, 403, 403, 200), "provisioning-approver": (403, 200, 403, 403)}
     for role, codes in expected.items():
         user = staff(p2, f"screen-{role}")
-        grant(p2, user.username, role)
+        grant(p2, user.username, role, CATALYST_QUALIFICATION_AUTHORITY="explicit_permission")
         client = Client()
         client.force_login(get_user_model().objects.get(pk=user.pk))
-        assert tuple(client.get(page).status_code for page in (agreements_page, provisioning_page, queue)) == codes, role
+        assert tuple(client.get(page).status_code for page in pages) == codes, role
 
 
 def test_no_runbook_or_design_step_grants_with_raw_sql_or_a_shell():
@@ -166,3 +174,23 @@ def test_no_runbook_or_design_step_grants_with_raw_sql_or_a_shell():
     pattern = re.compile(r"INSERT INTO (auth_|accounts_user)|manage\.py shell\b|user_permissions\.add", re.I)
     offenders = [str(p.relative_to(ROOT)) for p in (ROOT / "000-docs").rglob("*.md") if pattern.search(p.read_text())]
     assert offenders == []
+
+
+def test_every_group_membership_has_a_latest_grant_row(p2):
+    """Every command that gives a role writes the same record (accounts.grants): the two account-creating commands
+    and the role command; so every membership in the database has a latest `grant` row for its group."""
+    env = dict(CATALYST_DB_NAME=connection.settings_dict["NAME"], CATALYST_DB_USER=settings.CATALYST_DB_ROLES["owner"],
+               CATALYST_DB_PASSWORD=os.environ["CATALYST_DB_OWNER_PASSWORD"], STAFF_PASSWORD_FOR_TEST="synthetic-password-only-xyz")
+    for args in (["add_readonly_staff", "reader-ledger", "--password-env", "STAFF_PASSWORD_FOR_TEST"],
+                 ["add_correspondence_staff", "operator-ledger", "--role", "operator", "--password-env", "STAFF_PASSWORD_FOR_TEST"],
+                 ["add_correspondence_staff", "reader-ledger", "--role", "template-owner", "--existing"]):
+        refused = support.run([sys.executable, "manage.py", *args], **env)
+        assert refused.returncode != 0 and "--approval-ref is required" in refused.stderr, args
+        result = support.run([sys.executable, "manage.py", *args, "--approval-ref", "synthetic D-30"], **env)
+        assert result.returncode == 0, result.stderr
+    grant(p2, "operator-ledger", "agreement-operator")
+    memberships = list(get_user_model().groups.through.objects.values_list("user_id", "group__name"))
+    assert len(memberships) == 4
+    for user_id, group_name in memberships:
+        latest = StaffRoleGrant.objects.filter(user_id=user_id, kind="group", target=group_name).order_by("-id").first()
+        assert latest is not None and latest.action == "grant" and latest.approval_ref.startswith("synthetic"), (user_id, group_name)

@@ -204,6 +204,11 @@ One agreement screen per application (permission-gated like the P2 and P3 screen
 
 New permissions are assigned to no group by migration except where `011` POL-13 already maps a role.
 
+*Amended 2026-10-23 (`9kg.30`, `029` section 17.1), pending the owner's ratification of the role names:* the
+agreement permissions are carried by the named groups `Agreement operator`, `Agreement decision-maker` and
+`Agreement template owner` (agreements migration 0009), granted only by the owner-run `grant_staff_role` command;
+no permission is granted per person in a shell any more.
+
 ## 10. Security and privacy summary
 
 | Control | Status |
@@ -803,10 +808,20 @@ from tests or a shell. Built, under the existing permissions and the section 9 s
   and writes its event (`agreement_create_decided`, `agreement_distribute_decided`, `agreement_cancel_requested`); a
   holder of another agreement permission reaches the page but the act is refused (409, `not_permitted`).
 - **The template screen** (`/staff/p4/templates/`, gate `approve_agreement_template`, the owner's under POL-07): every
-  template version with its type, version, provider references and placeholder PDF digest; approval posts the exact
-  digest shown and is refused on any difference (`template_changed_since_shown`). The record is the version's own
-  approval columns, frozen by the database (migration 0002); no agreement text is shown or stored. The dossier links
-  the screen for holders of the permission.
+  template version with its type, version, provider references, the full registered placeholder PDF digest and
+  whether it is current for new agreements. Approval posts a digest the server recomputes over the whole frozen
+  tuple (type, version, provider reference and number, recipient slots, PDF digest) and is refused on any difference
+  (`template_changed_since_shown`); approving an approved version changes nothing and the screen says so. The
+  attestation covers the registered placeholder PDF only: nothing compares it to the live provider template (a
+  Documenso-side integrity canary is a separate bead). The record is the version's own approval columns, frozen by
+  the database (migration 0002); no agreement text is shown or stored. The dossier and the staff navigation link the
+  screen for holders of the permission.
+- **Review fix-ups (2026-10-23):** the decision text says reconciliation did not find an envelope and may not have
+  been able to ask, states the duplicate risk, and shows the unknown attempt's time and its reconcile count;
+  `_close` refuses an agreement the provider reports complete but not yet verified
+  (`completion_observed_verify_first`), and the cancel button appears only for live, unverified, uncancelled rows;
+  an abandoned create closes with both statuses cancelled, as `_close` does; every `agreement_*` staff item links the
+  agreements screen, and the five decided there offer no resolution of their own.
 
 Tests: `tests/test_agreement_screens.py` (one test per action, a refusal without the permission, the recorded event
 or approval). The on-hold exit, the verification resend and the aged-waits bounds are `9kg.50` and `9kg.51` (`018`

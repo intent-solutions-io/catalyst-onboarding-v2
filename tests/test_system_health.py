@@ -258,10 +258,12 @@ def test_9kg_51_each_aged_wait_raises_its_code_and_clears_when_resolved(k, monke
     for value in (str(waiting.public_ref), str(held.public_ref), str(stuck.public_ref), str(signed.public_ref),
                   str(reply.public_id), str(item.public_id), "example.test"):
         assert value not in text
-    settings.CATALYST_HEALTH_AGED_WAIT_SECONDS = {name: 2 for name in classes}
-    time.sleep(2.5)
+    settings.CATALYST_HEALTH_AGED_WAITS_PAGE = list(classes)  # every class pages here; the default is the three bad ones
+    settings.CATALYST_HEALTH_AGED_WAIT_SECONDS = {name: 3 for name in classes}
+    time.sleep(6)  # twice the threshold: a slow database never makes a wait look fresh, and the resolutions below
+    # are checked well inside the next three seconds
     assert aged_codes() == sorted(classes) and health()[0] == 1
-    assert health()[1]["aged_waits"]["on_hold"]["oldest_seconds"] >= 2
+    assert health()[1]["aged_waits"]["on_hold"]["oldest_seconds"] >= 3
     # Resolving each wait clears its code (a new wait a resolution creates is fresh, so it raises nothing yet).
     decide(k, waiting, "admit")
     assert "awaiting_decision" not in aged_codes()
@@ -303,3 +305,11 @@ def test_9kg_51_thresholds_and_paging_are_per_wait_class(p2, settings):
     assert report["anomalies"] == []  # an aged pause is counted and printed, but does not page
     settings.CATALYST_HEALTH_AGED_WAITS_PAGE = list(settings.CATALYST_HEALTH_AGED_WAIT_CLASSES)
     assert aged_codes() == ["pauses"]
+
+
+def test_9kg_51_the_default_page_list_is_the_three_bad_classes_and_the_authority_flag_is_reported(p2):
+    from config.settings import CATALYST_HEALTH_AGED_WAITS_PAGE  # the module default, not the test's override
+
+    assert CATALYST_HEALTH_AGED_WAITS_PAGE == ["replies_awaiting_processing", "issued_agreements", "provisioning_activation"]
+    report = health()[1]
+    assert report["decision"] == {"qualification_authority_configured": False, "anomalies": []}

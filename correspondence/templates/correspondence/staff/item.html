@@ -16,6 +16,7 @@ sender matches the verified address: {{ message.from_matches_verified_address|ye
 <table><tr><th>Attempt</th><th>Series</th><th>Status</th><th>Phase</th><th>Code</th></tr>
 {% for a in attempts %}<tr><td>{{ a.attempt_number }}</td><td>{{ a.attempt_series }}</td><td>{{ a.status }}</td><td>{{ a.protocol_phase_reached }}</td><td>{{ a.smtp_reply_code|default:"" }}</td></tr>{% empty %}<tr><td colspan="5">No attempt was recorded.</td></tr>{% endfor %}</table>
 {% endif %}
+{% if agreements_screen %}<p><a href="{% url 'agreements_staff:agreements' item.application.public_ref %}">Open the agreements screen</a>{% if decided_on_screen %}: this item is decided there (an unknown provider outcome, duplicate envelopes or an ended watch), and the decision resolves it; it has no resolution of its own here{% endif %}.</p>{% endif %}
 {% if cursor %}<p>Mailbox {{ cursor.mailbox_ref }}: {{ cursor.state }}{% if cursor.blocked_reason %} ({{ cursor.blocked_reason }}){% endif %}.</p>{% endif %}
 {% for code in codes %}
 <form method="post" action="{% url 'correspondence_staff:resolve' item.public_id %}">{% csrf_token %}
@@ -37,5 +38,5 @@ sender matches the verified address: {{ message.from_matches_verified_address|ye
 <form method="post" action="{% url 'correspondence_staff:restart' cursor.public_id %}">{% csrf_token %}
 <label>Note <input name="note" maxlength="500"></label><button>Restart the collector</button></form>
 {% endif %}
-{% if item.status == "open" and not codes and not decide and not restart %}<p>You hold no permission that resolves this item here.</p>{% endif %}
+{% if item.status == "open" and not codes and not decide and not restart and not decided_on_screen %}<p>You hold no permission that resolves this item here.</p>{% endif %}
 {% endblock %}

@@ -131,7 +131,8 @@ def test_the_application_role_has_only_the_session_and_admin_log_grants_it_needs
 
 def test_staff_accounts_are_created_by_the_owner_command_and_refused_to_the_application_role(privileged_reset):
     result = support.run(
-        [sys.executable, "manage.py", "add_readonly_staff", "grace", "--password-env", "STAFF_PASSWORD_FOR_TEST"],
+        [sys.executable, "manage.py", "add_readonly_staff", "grace", "--password-env", "STAFF_PASSWORD_FOR_TEST",
+         "--approval-ref", "synthetic D-23"],
         STAFF_PASSWORD_FOR_TEST=PASSWORD, CATALYST_DB_NAME=connection.settings_dict["NAME"],
         CATALYST_DB_USER=settings.CATALYST_DB_ROLES["owner"], CATALYST_DB_PASSWORD=os.environ["CATALYST_DB_OWNER_PASSWORD"])
     assert result.returncode == 0, result.stderr
@@ -141,7 +142,8 @@ def test_staff_accounts_are_created_by_the_owner_command_and_refused_to_the_appl
     assert list(user.groups.values_list("name", flat=True)) == [READ_ONLY_STAFF]
     # The same command as the application role: refused by the database grants.
     refused = support.run(
-        [sys.executable, "manage.py", "add_readonly_staff", "mallory", "--password-env", "STAFF_PASSWORD_FOR_TEST"],
+        [sys.executable, "manage.py", "add_readonly_staff", "mallory", "--password-env", "STAFF_PASSWORD_FOR_TEST",
+         "--approval-ref", "synthetic D-23"],
         STAFF_PASSWORD_FOR_TEST=PASSWORD, CATALYST_DB_NAME=connection.settings_dict["NAME"],
         CATALYST_DB_USER=settings.CATALYST_DB_ROLES["app"], CATALYST_DB_PASSWORD=os.environ["CATALYST_DB_APP_PASSWORD"])
     assert refused.returncode != 0 and "permission denied" in refused.stderr

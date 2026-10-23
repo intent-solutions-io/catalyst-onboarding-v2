@@ -1433,6 +1433,16 @@ report (`catalyst_health`, the staging adapter `health.sh`, the Buzz floor):
   `aged_waits.<class>`, which the floor delivers as high; a class outside the list is counted and printed, audit only.
 - **Codes only.** No identifier of an application, item, message or agreement is in the report (tested). No action
   is taken and no mail is sent: the part is a signal, staff act on their screens.
+- **Age semantics (review of 2026-10-23).** `assessing`, `awaiting_decision` and `on_hold` age from the latest
+  transition event into the stage; `open_staff_items` from `opened_at`; `pauses` from `created_at` and count
+  application pauses only (the restore hold is a `system` pause with its own signal, `catalyst_post_restore`);
+  `replies_awaiting_processing` from `received_at`; `issued_agreements` from the instance's `updated_at`, the last
+  status change, not the send itself; `provisioning_activation` from the action's `created_at`.
+- **Default page list.** Until the owner sets values, only the three classes that are bad in themselves page:
+  `replies_awaiting_processing`, `issued_agreements`, `provisioning_activation`; the stage, item and pause classes
+  are counted and printed, audit only. The health report also carries `decision.qualification_authority_configured`.
+- **Deferred:** a `held_followons` class (held `issue_nda` and `send_decline` actions past an age) is not built; the
+  main session files its bead.
 
 Tests: `tests/test_system_health.py` (`9kg.51` in `tests/acceptance.py` P6_SUPPORTING): every class fresh raises
 nothing, past its threshold raises its code, and clears when resolved; thresholds and paging per class.

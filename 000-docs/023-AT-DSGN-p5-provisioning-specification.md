@@ -169,6 +169,12 @@ synthetic work only. Every live value and every live operation stays a separate 
 **Carried from P4 (D-46):** the correspondence decision-maker resolves routine agreement causes, and one qualified
 person may record and confirm required details as two audited actions.
 
+*Amended 2026-10-23 (`9kg.30`, `029` section 17.1), pending the owner's ratification of the role names:*
+`operate_provisioning`, `view_provisioningrequest` and `close_application` are carried by the named groups
+`Provisioning operator` and `Provisioning decision-maker` (provisioning migration 0007), granted only by the owner-run
+`grant_staff_role` command. `approve_provisioning` stays a direct, named grant per person (P5-D-3), made by the same
+command and recorded the same way.
+
 ## 9. Acceptance plan (GATE-P5), amended 0.2.0
 
 TEST-P5-01 to TEST-P5-05 keep their meaning from `004`. The numbered cases below are mapped in `tests/acceptance.py`
