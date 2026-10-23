@@ -67,7 +67,7 @@
 | 6C evidence map and this report | this PR |
 | A persistent staging stack, with host timers, scheduled backups and receipts | **deferred** to the pilot host (beads `9kg.20` to `9kg.22`) |
 | The live Learn switch | **not started**: needs the cutover plan and the owner's go |
-| GATE-STAGING sign-off | **not done; the owner's decision** |
+| GATE-STAGING sign-off | **not done at filing; the owner's decision** (signed off 2026-10-22, D-50) |
 
 ## 3. Architecture and tradeoffs
 
