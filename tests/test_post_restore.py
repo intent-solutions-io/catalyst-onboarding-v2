@@ -425,7 +425,13 @@ def test_9kg_33_closures_and_revocations_after_the_backup_are_replayed_and_acces
     assert closed[0].key == f"application:{app.public_ref}" and closed[0].data["outcome"] == "closed"
     revoked = [e for e in entries() if e.kind == "access_revocation"]
     assert {e.data["state"] for e in revoked} >= {"applied_unverified", "verified"} and {e.data["phase"] for e in revoked} == {"prepare", "done"}
-    assert all("@" not in json.dumps(e.data) and "ada" not in e.key for e in entries()[len(before):])
+    # No applicant identifier reaches the journal: keys are references of the allowed shape (UUIDs and hex digests
+    # can contain any hex run, so the check is on the real address, name and local part, never on a substring like
+    # "ada"), and data carries no address.
+    written = entries()[len(before):]
+    text = json.dumps([[e.key, e.data] for e in written])
+    assert "@" not in text and "Ada Example" not in text and "ada.example" not in text and "ada@example.test" not in text
+    assert all(re.fullmatch(r"[a-z_]+:[A-Za-z0-9:_.-]+", e.key) for e in written)
     # "Restore": the application is active again and the revocation obligations are back to requested, as at T. As
     # the restore's load does, the rows are put back with the triggers off (the bootstrap administrator, replica mode).
     with admin(connection.settings_dict["NAME"]) as load:
