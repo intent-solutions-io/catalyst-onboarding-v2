@@ -295,7 +295,10 @@ def restore(admin_conn, backup_dir: Path, storage_dir: Path, *, database: str, c
     marker = journal.append("restore", f"restore:{backup_dir.name}", {
         "backup_seq": receipt.get("effect_journal_seq"), "backup_head": receipt.get("effect_journal_head") or "",
         "backup_journal_id": receipt.get("effect_journal_id") or "", "backup_started_at": receipt.get("started_at")})
-    return {"restored": backup_dir.name, "hold": "recorded", "effect_journal": "marked" if marker else "not_marked"}
+    status = "marked" if marker else "not_marked"
+    if receipt.get("effect_journal_error") or not isinstance(receipt.get("effect_journal_seq"), int):
+        status = "unanchored"  # the set carries no journal head: the review reconciles every entry (safe, but unverified)
+    return {"restored": backup_dir.name, "hold": "recorded", "effect_journal": status}
 
 
 def check_journal(receipt: dict) -> None:

@@ -152,9 +152,14 @@ def replay(entries, opener) -> dict:
             if row is None or row.created_at >= entry.when:
                 count("reflected")
                 continue
-            _pause_row(public_ref).delete()
+            # The pause guard (PR #88) admits a delete only with a staff `automation_resumed` event in the same
+            # transaction: the actor is the journaled staff reference of the resume, or the owner who runs this step.
+            actor = str(entry.data.get("actor") or f"owner:{ACTOR}")
             moved = scheduling.reschedule_on_resume(application)
-            event(application, "automation_resumed", {"rescheduled": moved, "note": "replayed_after_restore"}, actor_ref=ACTOR)
+            event(application, "automation_resumed",
+                  {"rescheduled": moved, "note": "replayed from the effect journal after a restore", "journal_seq": entry.seq},
+                  actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
+            _pause_row(public_ref).delete()
         _replayed(application, entry)
         count("replayed")
     return report

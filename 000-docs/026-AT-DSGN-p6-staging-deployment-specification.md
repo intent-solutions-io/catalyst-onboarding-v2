@@ -1484,8 +1484,18 @@ hardened after the PR #89 reviews).**
   the same set into a stack with an empty journal volume and is refused before the load with `journal_mismatch`.
   The gate test pins the script's shape only. A provider read in the drill (an envelope, a mailbox, a Sent copy)
   needs a provider fake running in the dark stack, which none does today: recorded as a limit, not shown.
-- **Evidence:** `tests/test_post_restore.py` (the seventeen `9kg_33` tests), `tests/test_startup.py` and
-  `tests/test_guards.py` (the directory guard), mapped under `P6_SUPPORTING`; the drill run is recorded below.
+- **Evidence:** `tests/test_post_restore.py` (the `9kg_33` tests), `tests/test_startup.py` and
+  `tests/test_guards.py` (the directory guard), mapped under `P6_SUPPORTING`.
+- **The drill on the dev box, 2026-10-23** (`scripts/restore_drill.sh` at the branch head after the merge from
+  `main`): **43 of 43 PASS**. Measured: backup 10 s; recovery from an empty host to serving (target prepared,
+  negative controls, restore, post-restore with the journal replay and the owner's resolution, start) 162 s; restore,
+  post-restore and start alone 92 s. By design RPO is the backup's point (the applicant accepted after the backup is
+  absent). Three earlier runs that day found, and the branch fixed: the drill did not invite its applicants after
+  intake became invitation-only on `main` (#85), so none were recorded; the backup's read-only journal mount made
+  the reader fail, so the receipt held no anchor; a journal with no effects yet anchored at seq 0, so an emptied
+  journal went undetected (now the worker writes the genesis entry at start). One run's third leg failed on the
+  host (Docker's address pools exhausted with three stacks up), which the drill now avoids by taking the restored
+  stack down first and reports separately from the check.
 
 **PL batch 2 (`029` section 13.3, item 2; beads `9kg.37` and `9kg.38`): the deploy operation, the receipt as a gate
 and the N+1 revert drill (TEST-P6-10, 24, 25).**

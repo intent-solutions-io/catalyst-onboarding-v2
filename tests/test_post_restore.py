@@ -231,6 +231,36 @@ def test_9kg_33_the_effect_journal_is_append_only_chained_and_refuses_a_broken_c
         journal.usage_high_water("2026-10-23")  # the budget floor is unknown: refused, never zero
 
 
+def test_9kg_33_the_genesis_entry_anchors_a_journal_with_no_effects_yet(effect_journal):
+    """A deployed worker writes the genesis entry at start, so a backup of a journal with no effects still records an
+    identity at seq 1 and an emptied or replaced journal behind it is detected."""
+    assert journal.head() == (0, journal.GENESIS, "")
+    assert journal.ensure_genesis() is True and journal.ensure_genesis() is False  # idempotent
+    seq, head, identity = journal.head()
+    assert seq == 1 and len(identity) == 32 and journal.read()[0].kind == "genesis"
+    first = journal.append("automation_pause", f"pause:{uuid.uuid4()}", {"state": "paused", "by": "staff"})
+    assert first.seq == 2 and first.prev == head  # no second genesis
+    with pytest.raises(journal.JournalError, match="journal_mismatch"):
+        journal.verify_anchor([], identity, 1, head)  # an emptied journal behind a seq-1 anchor
+    os.unlink(effect_journal / journal.FILE)
+    journal.ensure_genesis()  # a replaced journal: another identity
+    with pytest.raises(journal.JournalError, match="journal_mismatch"):
+        journal.verify_anchor(journal.read(), identity, 1, head)
+
+
+def test_9kg_33_a_reader_on_a_read_only_mount_reads_the_journal(effect_journal):
+    """The backup mounts the journal read-only: its reader takes the shared lock through a read-only descriptor
+    (found by the restore drill: a read-write lock open made the backup record no journal head)."""
+    first = journal.append("automation_pause", f"pause:{uuid.uuid4()}", {"state": "paused", "by": "staff"})
+    os.chmod(effect_journal / journal.LOCK, 0o400)
+    os.chmod(effect_journal, 0o500)
+    try:
+        assert journal.head()[:2] == (first.seq, first.hash)
+    finally:
+        os.chmod(effect_journal, 0o700)
+        os.chmod(effect_journal / journal.LOCK, 0o600)
+
+
 def test_9kg_33_a_torn_tail_stops_appends_and_only_the_owner_repair_moves_it_aside(effect_journal, p2):
     first = journal.append("automation_pause", f"pause:{uuid.uuid4()}", {"state": "paused", "by": "staff"})
     path = effect_journal / journal.FILE
@@ -413,6 +443,27 @@ def test_9kg_33_pauses_resolutions_withdrawals_outcomes_and_decisions_after_the_
     assert AutomationPause.objects.filter(subject_type="application", subject_id=app.public_ref).count() == 1
     # The journal entries the replays would have made are not made: a replay re-applies facts, it is not one.
     assert [e.kind for e in entries() if e.kind == "staff_item_resolved"] == ["staff_item_resolved"] * 2
+
+
+def test_9kg_33_a_resume_after_the_backup_is_replayed_with_a_staff_event_by_the_journaled_actor(ready, tmp_path):
+    """The restored tables hold a pause that a staff member resumed after the backup: the replay deletes it with a
+    staff `automation_resumed` event naming the journaled staff reference, in the same transaction (the pause guard of
+    PR #88 refuses any other delete), and a second review changes nothing."""
+    from correspondence import staff_actions
+
+    app = ready.app
+    staff_actions.pause(app.pk, ready.operator, "Paused for a synthetic restore test")
+    journal.append("automation_pause", f"pause:{app.public_ref}",
+                   {"state": "resumed", "by": "staff", "phase": "done", "actor": journal.staff_ref("operator")})
+    place_hold()
+    result, report = post_restore(**with_sent(tmp_path))
+    assert result.returncode == 0, result.stderr
+    assert not AutomationPause.objects.filter(subject_type="application", subject_id=app.public_ref).exists()
+    [resumed] = ApplicationEvent.objects.filter(application=app, kind="automation_resumed")
+    assert resumed.actor_type == "staff" and resumed.actor_ref == journal.staff_ref("operator")
+    assert len(resumed.data["note"]) >= 10 and "operator" not in resumed.actor_ref
+    result, again = post_restore(**with_sent(tmp_path))
+    assert ApplicationEvent.objects.filter(application=app, kind="automation_resumed").count() == 1
 
 
 def test_9kg_33_closures_and_revocations_after_the_backup_are_replayed_and_access_is_removed_again(cl, monkeypatch, tmp_path):

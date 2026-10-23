@@ -38,6 +38,10 @@ count_applications() {  # count_applications <a|b>: the number of applications, 
   "$1" run --rm --no-deps -T migrate python manage.py shell -c \
     "from applications.models import Application; print(Application.objects.count())" 2>/dev/null | tail -1
 }
+invite() {  # invite <a|b> <email>: 9kg.43, intake is invitation-only, so the owner invites the synthetic address first
+  "$1" run --rm --no-deps -T migrate python manage.py catalyst_invite "$2" --issued-by "restore drill" \
+    --note "synthetic drill applicant" 2>/dev/null | grep -q '"issued": true'
+}
 apply() {  # apply <port> <email>: one synthetic applicant through the public form; prints the response code
   local port="$1" jar="$work/jar" page csrf url="https://catalyst.staging.test:$1"
   rm -f "$jar"
@@ -70,6 +74,7 @@ a up -d --wait db >/dev/null 2>&1
 a --profile provision run --rm provision-roles >/dev/null 2>&1
 a up -d --wait web worker fetcher egress proxy >/dev/null 2>&1 || { echo "FAIL the source stack did not come up"; exit 1; }
 for n in 1 2 3; do
+  check "the owner invites synthetic applicant $n (invitation-only intake)" invite a "before-$n@example.test"
   check "the source takes synthetic applicant $n through its form" test "$(apply 18443 "before-$n@example.test")" = 302
 done
 for _ in $(seq 30); do
@@ -86,6 +91,7 @@ manifest="$(python3 -c 'import json,sys;print(json.loads(sys.argv[1])["manifest_
 check "TEST-P6-21 the backup wrote a set with a manifest digest" test -n "$set_name" -a -n "$manifest"
 check_not "TEST-P6-35 the backup receipt holds no personal data" grep -q '@' <<<"$receipt"
 check "the source has three applications at the backup" test "$(count_applications a)" = 3
+invite a after-backup@example.test
 check "an applicant after the backup is accepted by the source" test "$(apply 18443 after-backup@example.test)" = 302
 # 9kg.33: an effect after the backup point, journaled outside the backup (the owner-run command, as in production).
 check "9kg.33 a staff account created after the backup is an effect the backup cannot know" test "$(a run --rm --no-deps -T \
@@ -174,8 +180,12 @@ restore_finished=$(date +%s)
 check "TEST-P6-22 the restored stack serves the form" test -n "$ready"
 check "TEST-P6-22 the restored data is the backup's (three applications, not the later one)" test "$(count_applications b)" = 3
 check "TEST-P6-29 the confirmation link from before the backup is closed on the restored stack" closed 19443 "$link"
+invite b after-restore@example.test
 check "the restored stack takes a new applicant" test "$(apply 19443 after-restore@example.test)" = 302
 
+# The restored stack's checks are done: take it down first, so the third stack's networks fit the host's address pools
+# (a shared dev box can run out of predefined pools with three stacks up at once).
+b --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
 # 9kg.33, a second leg: a third stack restores the same set with an empty effect journal; the restore refuses before
 # the load, because the receipt's anchor is not in the journal (journal_mismatch), and the stack stays empty.
 empty_project="catalyst-restore-empty-$$"
@@ -186,8 +196,11 @@ c run --rm --no-deps -T migrate python manage.py migrate --noinput >/dev/null 2>
 c --profile ops run --rm --no-deps -T -v "$archive:/archive:ro" restore python manage.py catalyst_restore \
   --from "/archive/$set_name" --storage-dir /var/lib/catalyst/custody/restored --confirm-database catalyst \
   --expect-manifest-sha256 "$manifest" >"$work/restore-empty.out" 2>&1
-check "9kg.33 a restore with an empty effect journal is refused before the load" test $? = 1
+status=$?
+check "9kg.33 the third stack came up (not an infrastructure failure)" bash -c "! grep -q 'address pools\|No space left' '$work/restore-empty.out'"
+check "9kg.33 a restore with an empty effect journal is refused before the load" test "$status" = 1
 check "9kg.33 ... because the receipt's anchor is not in the journal" grep -q "journal_mismatch" "$work/restore-empty.out"
+grep -q "journal_mismatch" "$work/restore-empty.out" || grep -E "refused|failed" "$work/restore-empty.out" | sed 's/^/  empty-journal restore said: /' | tail -2
 check "9kg.33 ... and the empty target stayed empty" test "$(count_applications c)" = 0
 c --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
 

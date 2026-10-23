@@ -117,8 +117,8 @@ section 16.
 | TEST-P6-19 | partly | Live: bounce and backlog. Unit: uncertain send and custody. **Not yet:** those two live (bead `9kg.27`) |
 | TEST-P6-20 | proven | `alert_drill.sh`; unit |
 | TEST-P6-21 | partly | Live and unit: set, manifest, a failed run keeps the good set. **Not yet:** the failed run's alert (scheduled job; bead `9kg.22`) |
-| TEST-P6-22 | proven at `720e8cf`, pending re-run | `restore_drill.sh`, with times measured; PR #89 extends the drill with the effect journal and the reconciliation (`026` section 16, 9kg.33) and the figures are re-measured there. **The owner sets** the RPO and RTO targets |
-| TEST-P6-23 | proven at `720e8cf`, pending re-run | `restore_drill.sh` (five controls on their exact refusals, plus the empty-journal refusal added by PR #89); unit |
+| TEST-P6-22 | proven (re-run 2026-10-23 on PR #89, 43 of 43) | `restore_drill.sh`, with times measured; PR #89 extends the drill with the effect journal and the reconciliation (`026` section 16, 9kg.33): backup 10 s, recovery 162 s. **The owner sets** the RPO and RTO targets |
+| TEST-P6-23 | proven (re-run 2026-10-23 on PR #89) | `restore_drill.sh` (five controls on their exact refusals, plus the empty-journal refusal added by PR #89, refused with `journal_mismatch`); unit |
 | TEST-P6-24 | partly | `deploy_drill.sh`: a missing receipt is refused. The backup runs in the same step, so it is fresh by construction. **Not yet:** refusing a backup command that prints an older receipt's path (bead `9kg.27`) |
 | TEST-P6-25 | partly | The restore path: `restore_drill.sh`. The forward-only refusal: `deploy_drill.sh`. **Not yet:** migrating N+1 (expand) and reverting to N on that schema; the drill's reverts are of releases that never migrated (bead `9kg.27`) |
 | TEST-P6-26 | proven on a stand-in | `cutover_rehearsal.sh` 19 of 19. The gated unit tests pin only the route sets. **Not yet:** the live Learn read (the preconditions in `026` section 16; owner's go) |

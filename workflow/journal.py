@@ -70,7 +70,7 @@ KINDS = {
     "repair": {"discarded_bytes", "last_good_hash"},
     "application_closed": {"outcome", "phase"},
     "access_revocation": {"state", "phase"},
-    "automation_pause": {"state", "by", "phase"},
+    "automation_pause": {"state", "by", "phase", "actor"},  # actor: an opaque staff reference (staff_ref) on a resume
     "staff_item_resolved": {"reason", "resolution"},
     "question_withdrawn": {"reason", "phase"},
     "reply_link_outcome": {"state", "outcome"},
@@ -207,14 +207,17 @@ def _entries(raw: bytes) -> list[Entry]:
 
 
 def read() -> list[Entry]:
-    """Every entry, in order, with the chain verified, under a shared lock. Raises JournalError rather than
-    returning a partial record."""
+    """Every entry, in order, with the chain verified, under a shared lock taken through a read-only descriptor, so
+    a reader on a read-only mount (the backup) works. Raises JournalError rather than returning a partial record. A
+    lock file that does not exist yet means no writer has ever appended (a writer creates it before the file)."""
     if not configured():
         raise JournalError("not_configured")
     if not os.path.isdir(directory()):
         raise JournalError("unreadable")
     try:
-        fd = _lock_fd()
+        fd = os.open(os.path.join(directory(), LOCK), os.O_RDONLY | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        return _entries(_read_bytes())
     except OSError:
         raise JournalError("unreadable") from None
     try:
@@ -315,6 +318,29 @@ def _append_locked(kind: str, key: str, data: dict) -> Entry:
         os.fsync(handle.fileno())
     _fsync_dir(directory())
     return entry
+
+
+def ensure_genesis() -> bool:
+    """Write the genesis entry if the journal is empty (the worker calls it at start in a deployment), so every backup
+    taken from a running stack anchors to the journal's identity at seq 1 at least; an emptied or replaced journal
+    behind it is then `journal_mismatch` (found by the restore drill: a backup of a never-used journal recorded seq 0
+    and nothing to verify). Returns True when it wrote the entry. Idempotent under the exclusive lock."""
+    fd = _lock_fd()
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        path = os.path.join(directory(), FILE)
+        if os.path.exists(path) and os.path.getsize(path) > 0:
+            return False
+        wfd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(wfd, "ab") as handle:
+            _write_entry(handle, "genesis", f"journal:{secrets.token_hex(16)}", {"id": secrets.token_hex(16)}, 1, GENESIS)
+            handle.flush()
+            os.fsync(handle.fileno())
+        _fsync_dir(directory())
+        return True
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
 
 
 def append(kind: str, key: str, data: dict | None = None) -> Entry | None:

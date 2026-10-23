@@ -271,7 +271,8 @@ def resume(application_id: int, user, note: str = "") -> int:
             moved = reschedule_on_resume(application)
             event(application, "automation_resumed", {**prior, "rescheduled": moved, "note": note},
                   actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
-            journal.record("automation_pause", f"pause:{application.public_ref}", {"state": "resumed", "by": "staff", "phase": "done"})
+            journal.record("automation_pause", f"pause:{application.public_ref}",
+                           {"state": "resumed", "by": "staff", "phase": "done", "actor": journal.staff_ref(user.get_username())})
     if refused is not None:
         # 9kg.2: a refused resume is audited too (who, why, the causes still open), in its own transaction.
         with transaction.atomic():
