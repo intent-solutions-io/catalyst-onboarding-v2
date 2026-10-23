@@ -17,7 +17,8 @@ from django.conf import settings
 from django.db import ProgrammingError, connection, transaction
 from psycopg import errors
 
-from tests.support import ROOT, manage_as_owner, run
+from tests import support
+from tests.support import ROOT, manage_as_owner, run, superuser_login, superuser_probe
 
 ROLES = settings.CATALYST_DB_ROLES
 PASSWORDS = {
@@ -27,7 +28,7 @@ PASSWORDS = {
     "backup": os.environ["CATALYST_DB_BACKUP_PASSWORD"],
     "fetcher": os.environ["CATALYST_DB_FETCHER_PASSWORD"],
 }
-SECRETS = [*PASSWORDS.values(), os.environ["CATALYST_DB_ADMIN_PASSWORD"]]
+SECRETS = [*PASSWORDS.values(), superuser_login()[1]]
 # Trigger inventory (003 ADR-14): append-only on versions and events (2), no-truncate on versions, events,
 # audit and adoptions (4), audit immutability (1), adoption immutability (1).
 TRIGGERS = ("catalyst_append_only", "catalyst_no_truncate", "catalyst_audit_immutable", "catalyst_adoption_immutable")
@@ -445,9 +446,9 @@ def check_database(**env):
 
 
 def test_a_superuser_connection_is_refused():
-    # The one child process that receives administrator credentials, explicitly, to prove refusal.
-    result = check_database(CATALYST_DB_USER=os.environ["CATALYST_DB_ADMIN_USER"],
-                            CATALYST_DB_PASSWORD=os.environ["CATALYST_DB_ADMIN_PASSWORD"])
+    # A child process that receives the superuser login, explicitly, to prove refusal (6hl.10: the probe pair).
+    user, password = superuser_login()
+    result = check_database(CATALYST_DB_USER=user, CATALYST_DB_PASSWORD=password)
     assert result.returncode != 0
     assert "catalyst.E002" in result.stderr and "superuser" in result.stderr
 
@@ -489,7 +490,8 @@ with connection.cursor() as cursor:
 
 def wsgi_connect(role_key=None, **env):
     if role_key == "admin":
-        env.update(CATALYST_DB_USER=os.environ["CATALYST_DB_ADMIN_USER"], CATALYST_DB_PASSWORD=os.environ["CATALYST_DB_ADMIN_PASSWORD"])
+        user, password = superuser_login()
+        env.update(CATALYST_DB_USER=user, CATALYST_DB_PASSWORD=password)
     elif role_key:
         env.update(CATALYST_DB_USER=ROLES[role_key], CATALYST_DB_PASSWORD=PASSWORDS[role_key])
     result = run([sys.executable, "-c", WSGI_PROBE], **env)
@@ -545,9 +547,37 @@ def test_a_failing_role_check_closes_the_connection_and_checks_again_on_retry():
     assert result.stdout.count("refused: ProgrammingError closed: True") == 2, result.stdout
 
 
+NAMES = "import os; print(sorted(k for k in os.environ if k.startswith(('CATALYST_DB_ADMIN', 'CATALYST_TEST_SUPERUSER'))))"
+
+
 def test_child_processes_do_not_receive_the_administrator_login():
-    result = run([sys.executable, "-c", "import os; print(sorted(k for k in os.environ if k.startswith('CATALYST_DB_ADMIN')))"])
-    assert result.stdout.strip() == "[]"
+    result = run([sys.executable, "-c", NAMES])
+    assert result.stdout.strip() == "[]"  # neither the administrator names nor the probe pair (6hl.10)
+    explicit = run([sys.executable, "-c", NAMES], **superuser_probe())  # the only way in: a test passes it
+    assert explicit.stdout.strip() == "['CATALYST_DB_ADMIN_PASSWORD', 'CATALYST_DB_ADMIN_USER']"
+
+
+# --- 6hl.10: the administrator login reaches only the role-provisioning step (026 section 16) ------------------
+
+def test_6hl10_the_test_process_holds_no_administrator_login():
+    # compose.yaml gives CATALYST_DB_ADMIN_* to the provisioning command alone, ci.yml to the provisioning step alone.
+    assert [k for k in os.environ if k.startswith(support.ADMIN_PREFIX)] == []
+    user, password = superuser_login()  # the probe pair is what the refusal probes use instead
+    assert user and password and not [k for k in os.environ if k.startswith(support.PROBE_PREFIX)
+                                      and k not in (support.PROBE_PREFIX + "USER", support.PROBE_PREFIX + "PASSWORD")]
+
+
+def test_6hl10_the_probe_login_is_read_by_the_test_support_module_only():
+    # The name is assembled here so this file does not match itself.
+    name = "CATALYST_TEST_" + "SUPERUSER_PROBE"
+    skipped = (".git", ".beads", "000-docs", "node_modules", ".venv", "__pycache__")
+    hits = sorted(str(path.relative_to(ROOT)) for path in ROOT.rglob("*")
+                  if path.is_file() and path.suffix in (".py", ".yaml", ".yml", ".sh", ".toml", ".txt", ".cfg")
+                  and not set(path.relative_to(ROOT).parts) & set(skipped)
+                  and name in path.read_text(encoding="utf-8", errors="replace"))
+    # Where the value is set (the local compose file and CI) and the one reader. Nothing under config/, scripts/,
+    # deploy/ or an application package knows the name, so no runtime path can pick the login up by accident.
+    assert hits == [".github/workflows/ci.yml", "compose.yaml", "tests/support.py"]
 
 
 @pytest.mark.parametrize(
@@ -763,8 +793,9 @@ NO_PASSWORDS = {f"CATALYST_DB_{k}_PASSWORD": None for k in ("OWNER", "APP", "RET
 def staging_secret_files(tmp_path):
     directory = tmp_path / "secrets"
     directory.mkdir()
-    for key in ("owner", "app", "retention", "backup", "fetcher", "admin"):
+    for key in ("owner", "app", "retention", "backup", "fetcher"):
         (directory / f"{key}_password").write_text(os.environ[f"CATALYST_DB_{key.upper()}_PASSWORD"] + "\n")
+    (directory / "admin_password").write_text(superuser_login()[1] + "\n")
     return directory
 
 
@@ -782,21 +813,21 @@ def test_6b6_staging_provisioning_takes_passwords_only_from_files(tmp_path):
 
 def test_6b6_staging_provisioning_succeeds_from_files_and_stores_only_password_hashes(tmp_path):
     script = [sys.executable, "scripts/provision_db_roles.py"]
-    admin = {"CATALYST_DB_ADMIN_USER": os.environ["CATALYST_DB_ADMIN_USER"]}
+    admin = {"CATALYST_DB_ADMIN_USER": superuser_login()[0]}  # the password comes from the file in staging
     try:
         result = run(script, CATALYST_ENV="staging", CATALYST_SECRETS_DIR=str(staging_secret_files(tmp_path)),
                      **NO_PASSWORDS, **admin)
         assert result.returncode == 0, result.stderr
         assert "5 roles ready" in result.stdout
         with psycopg.connect(host=connection.settings_dict["HOST"], port=connection.settings_dict["PORT"],
-                             dbname=connection.settings_dict["NAME"], user=os.environ["CATALYST_DB_ADMIN_USER"],
-                             password=os.environ["CATALYST_DB_ADMIN_PASSWORD"], autocommit=True) as conn:
+                             dbname=connection.settings_dict["NAME"], user=superuser_login()[0],
+                             password=superuser_login()[1], autocommit=True) as conn:
             stored = conn.execute("SELECT rolname, rolpassword, rolcreatedb FROM pg_authid WHERE rolname = ANY(%s)",
                                   [list(ROLES.values())]).fetchall()
         assert len(stored) == 5 and all(p.startswith("SCRAM-SHA-256$") for _, p, _ in stored)  # never the clear text
         assert not any(createdb for *_, createdb in stored)  # staging's owner creates no databases
     finally:  # back to the test cluster's own provisioning (the owner needs CREATEDB for the restore rehearsal)
-        restored = run(script, CATALYST_ENV="test", **admin, CATALYST_DB_ADMIN_PASSWORD=os.environ["CATALYST_DB_ADMIN_PASSWORD"])
+        restored = run(script, CATALYST_ENV="test", **superuser_probe())
         assert restored.returncode == 0, restored.stderr
 
 

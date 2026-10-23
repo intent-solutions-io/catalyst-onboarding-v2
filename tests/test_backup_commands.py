@@ -18,8 +18,7 @@ from tests.test_agreement_custody import (  # noqa: F401  (fixture chain and hel
     a, activate, admitted, approve, c, d, ev, g, grant, h, issued, k, nda, of, p2, run_worker, sign_and_settle, tls,
 )
 
-ADMIN = {"CATALYST_DB_ADMIN_USER": os.environ["CATALYST_DB_ADMIN_USER"],
-         "CATALYST_DB_ADMIN_PASSWORD": os.environ["CATALYST_DB_ADMIN_PASSWORD"]}
+ADMIN = support.superuser_probe()  # these tests act as the administrator, from the probe-only pair (6hl.10)
 
 
 def admin(dbname):

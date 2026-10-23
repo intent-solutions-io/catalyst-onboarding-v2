@@ -74,6 +74,9 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 - Hardening (internal-launch batch item 6): the database freezes inbound message provenance and the identity
   columns of outbound attempts and reply links for every role, with the audited retention path left open for
   erasure (correspondence migration 0017, `016` section 10.13)
+- Test hygiene (internal-launch batch item 6): the administrator database login reaches only the role-provisioning
+  step of the test container and the CI job; the superuser-refusal probes and the tests that act as the
+  administrator use a probe-only pair read by `tests/support.py` alone (`026` section 16)
 
 ### Changed
 

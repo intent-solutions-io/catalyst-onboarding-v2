@@ -1519,6 +1519,11 @@ P6_SUPPORTING = {
         "test_provenance_freezes::test_9kg5_the_freeze_functions_are_owned_fixed_and_not_executable_by_the_application_role",
         "test_provenance_freezes::test_9kg5_the_freeze_migration_reverses_and_reapplies_and_keeps_the_rows",
     ],
+    "6hl.10 the administrator login reaches only the role-provisioning step (internal-launch batch item 6)": [
+        "test_db_roles::test_6hl10_the_test_process_holds_no_administrator_login",
+        "test_db_roles::test_6hl10_the_probe_login_is_read_by_the_test_support_module_only",
+        "test_db_roles::test_child_processes_do_not_receive_the_administrator_login",
+    ],
 }
 
 # Cases with no pytest evidence of their own: shown only by a live script (026 section 16).

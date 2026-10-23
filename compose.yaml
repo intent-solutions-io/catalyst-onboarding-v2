@@ -44,8 +44,11 @@ services:
       CATALYST_PUBLIC_BASE_URL: "http://catalyst.example.test"  # synthetic; never contacted
       CATALYST_VERIFICATION_KEY: synthetic-test-verification-key-only
       CATALYST_DB_OWNER_PASSWORD: synthetic-owner-only
-      CATALYST_DB_ADMIN_USER: catalyst_admin
-      CATALYST_DB_ADMIN_PASSWORD: synthetic-admin-only
+      # The bootstrap administrator's login (CATALYST_DB_ADMIN_*) is given to the provisioning command alone, below
+      # (6hl.10): pip, the venv and the pytest process never hold it. The probe pair is read by test code only
+      # (tests/support.py), for the superuser-refusal probes and the tests that must act as the administrator.
+      CATALYST_TEST_SUPERUSER_PROBE_USER: catalyst_admin
+      CATALYST_TEST_SUPERUSER_PROBE_PASSWORD: synthetic-admin-only
       CATALYST_DB_APP_PASSWORD: synthetic-app-only
       CATALYST_DB_RETENTION_PASSWORD: synthetic-retention-only
       CATALYST_DB_BACKUP_PASSWORD: synthetic-backup-only
@@ -53,5 +56,5 @@ services:
     command: >-
       sh -c "python -m venv /tmp/venv
       && /tmp/venv/bin/pip install --quiet --disable-pip-version-check --require-hashes --no-deps -r requirements/dev.txt
-      && /tmp/venv/bin/python scripts/provision_db_roles.py
+      && env CATALYST_DB_ADMIN_USER=catalyst_admin CATALYST_DB_ADMIN_PASSWORD=synthetic-admin-only /tmp/venv/bin/python scripts/provision_db_roles.py
       && /tmp/venv/bin/python -m pytest -v ${PYTEST_ARGS:-}"

@@ -618,7 +618,7 @@ Playbooks are a P6 deliverable (`catalyst-release-operations` agent scope). The 
 - **[MEDIUM]** There is no local "run the app" recipe → Impact: demos and manual QA need tribal knowledge → Fix: add `web` and `worker` services to `compose.yaml` (development only, filebased sink) and a README section.
 - **[MEDIUM]** The merge-guard registration is outside the repo and was clobbered once → Impact: merges blocked; a silent removal could also un-watch the repo → Fix: estate-level, versioning `repos.yaml` (intent-os).
 - **[MEDIUM]** There is no rate limiting on public endpoints → Impact: form spam and link brute-force attempts (the signature makes brute force infeasible, but load is unbounded) → Fix: a P6 proxy limit, plus an application-level throttle on intake.
-- **[LOW]** The test process holds administrator credentials (`catalyst-v2-6hl.10`, now under P6).
+- **[LOW]** The test process holds administrator credentials (`catalyst-v2-6hl.10`, now under P6). Resolved 2026-10-23: the login reaches only the role-provisioning step (`026` section 16, 6hl.10).
 - **[LOW]** `release.yml` uses an unpinned action (`actions/checkout@v7`) → Fix: pin by SHA as `ci.yml` does.
 - **[LOW]** Reverse migrations are exercised for some apps only (`accounts` 0001-0002 and `correspondence` are not).
 - **[LOW]** The orphan check's negative control covers missing subjects only (QA residual, AAR `014`).
