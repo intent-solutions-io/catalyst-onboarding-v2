@@ -1535,6 +1535,15 @@ P6_SUPPORTING = {
         "test_invitation::test_9kg_43_with_the_mode_off_the_public_intake_is_unchanged",
         "test_invitation::test_9kg_43_the_dossier_the_health_report_and_the_release_receipt_show_the_mode",
     ],
+    # 030 Q8 and Q4 (D-51): the one-paragraph data notice as an owner-approved template, and the member-on-file flag.
+    "9kg.52 the data notice renders from one approved template on the intake page and in the invitation mail, and the owner records a member's agreement on file": [
+        "test_intake_notice::test_9kg_52_the_approved_notice_renders_on_the_intake_page_in_invitation_mode_with_its_version_and_digest",
+        "test_intake_notice::test_9kg_52_an_unapproved_notice_is_marked_draft_outside_a_live_environment_and_withheld_in_one",
+        "test_intake_notice::test_9kg_52_the_invitation_mail_carries_the_notice_and_the_invitation_records_its_version_and_digest",
+        "test_intake_notice::test_9kg_52_the_wording_is_an_owner_approved_template_and_not_a_constant",
+        "test_intake_notice::test_9kg_52_the_member_on_file_flag_is_recorded_only_by_the_owner_run_command_and_fixed_by_the_database",
+        "test_intake_notice::test_9kg_52_the_dossier_shows_the_member_on_file_state",
+    ],
     "9kg.5 the database freezes inbound provenance and outbound and reply-link identity for every role (internal-launch batch item 6)": [
         "test_provenance_freezes::test_9kg5_a_frozen_inbound_column_refuses_an_update_for_every_role",
         "test_provenance_freezes::test_9kg5_the_updatable_inbound_columns_still_update_through_the_application_role_and_the_owner",

@@ -114,11 +114,20 @@ def session_health() -> dict:
 def intake_health() -> dict:
     """9kg.43 and 9kg.29: the launch mode and the client-identity source the limits key on, as configured in code, and
     the number of live invitations (a count, never an address). No anomaly: the mode is the owner's recorded act."""
+    from applications import notices
     from applications.invitations import LIVE
     from applications.models import Invitation
 
+    # 9kg.52: the data notice's state (approved, draft or missing, with the version and digest; never the wording).
+    # Unapproved in invitation mode where no draft may be shown is an anomaly: the page is withheld and no invitation
+    # can be issued until the owner approves. Where a draft may be shown (config.guards) the page works, marked.
+    from config import guards
+    notice = notices.status(notices.DATA_NOTICE)
+    withheld = (settings.CATALYST_INTAKE_MODE == "invitation" and notice["status"] != "approved"
+                and not guards.draft_wording_allowed(settings.CATALYST_ENV))
+    anomalies = ["data_notice_unapproved"] if withheld else []
     return {"mode": settings.CATALYST_INTAKE_MODE, "client_identity": settings.CATALYST_CLIENT_IDENTITY,
-            "live_invitations": Invitation.objects.filter(LIVE).count(), "anomalies": []}
+            "live_invitations": Invitation.objects.filter(LIVE).count(), "data_notice": notice, "anomalies": anomalies}
 
 
 def report() -> dict:

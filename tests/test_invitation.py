@@ -49,8 +49,20 @@ def invite(owner, email_key, *, lifetime="1 day", issued_ago="0 seconds", used=F
         [email_key, issued_by, issued_ago, issued_ago, lifetime, used, superseded]).fetchone()[0]
 
 
+def ensure_notice_templates():
+    """9kg.52: invitation mode needs the data notice and invitation templates (correspondence migration 0018), and the
+    reset truncates every correspondence table, so a test recreates the seeded drafts when they are absent."""
+    from importlib import import_module
+
+    from correspondence.models import MessageTemplate, MessageTemplateVersion
+
+    if not MessageTemplate.objects.filter(key="data_notice").exists():
+        import_module("correspondence.migrations.0018_intake_notice_templates").create_templates(MessageTemplate, MessageTemplateVersion)
+
+
 def closed(settings):
     settings.CATALYST_INTAKE_MODE = "invitation"
+    ensure_notice_templates()
 
 
 # --- the mode: fixed in code, invitation-only by default -------------------------------------------------------
@@ -171,6 +183,7 @@ def test_9kg_43_an_invitation_expires_by_the_database_clock_and_an_expired_one_r
 # --- issuance: the owner-run command, and what no role may change ----------------------------------------------
 
 def test_9kg_43_issuance_is_an_owner_run_command_that_records_who_issued_it_and_nobody_else_can_change(privileged_reset, settings):
+    ensure_notice_templates()  # the command renders the invitation mail before it issues (9kg.52)
     first = manage_as_owner("catalyst_invite", "Ada@Example.TEST", "--issued-by", "owner probe", "--note", "cohort member")
     issued = json.loads(first.stdout)
     assert issued["issued"] is True and issued["superseded"] == 0 and issued["mode"] == "invitation"
@@ -246,7 +259,9 @@ def test_9kg_43_the_dossier_the_health_report_and_the_release_receipt_show_the_m
     client = Client()
     app = intake(client)
     code, report = health()
-    assert code == 0 and report["intake"] == {"mode": "invitation", "client_identity": "direct", "live_invitations": 1, "anomalies": []}
+    assert code == 0 and report["intake"] == {"mode": "invitation", "client_identity": "direct", "live_invitations": 1, "anomalies": [],
+                                              "data_notice": {"status": "draft", "version": 1, "sha256": report["intake"]["data_notice"]["sha256"]}}
+    assert len(report["intake"]["data_notice"]["sha256"]) == 64  # the version's digest, never the wording
     out = StringIO()
     call_command("catalyst_release", "receipt", stdout=out)
     assert json.loads(out.getvalue())["intake_mode"] == "invitation"

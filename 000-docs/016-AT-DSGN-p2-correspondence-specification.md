@@ -1398,3 +1398,17 @@ them (`tests/test_db_roles.py`).
 approved message links to it, and whether a disposition may leave a terminal state. Both stay as 9kg.1 left them.
 
 **Limits.** As in 0015: the owner can disable or drop a trigger it owns, and a superuser bypasses them.
+
+### 10.14 The intake data notice and the invitation mail as templates (9kg.52, 2026-10-23)
+
+Two templates join the register by correspondence migration 0018, seeded as unapproved synthetic placeholders:
+`data_notice` (no variables; the one-paragraph notice of `030` Q8: what is collected, who sees it, that no model
+reads it and no link is fetched, how to withdraw and how to request erasure) and `invitation` (one variable,
+`notice`; the mail the owner sends by hand to an invited member). The owner approves each on the template screen
+like every other template (A1, D-29); approving one does not approve the other. The renderer is unchanged: only an
+approved version renders. `correspondence.notices` reads and renders the templates and is reached from
+`applications.notices` only through the `CATALYST_NOTICE_SOURCE` seam, so `applications` never imports this app
+(`003` ADR-01; `tests/test_processing.py` enforces it). The notice is rendered into the invitation as a value and is not re-expanded.
+Where a draft may be shown (`config.guards.DRAFT_WORDING_ENVIRONMENTS`), `applications.notices` substitutes the draft
+with the standard library and marks it; it never uses the template engine for message text. The design record is
+`029` section 13.5.

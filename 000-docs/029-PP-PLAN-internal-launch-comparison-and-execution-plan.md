@@ -650,6 +650,44 @@ the placeholders without redesign.
   rate-limit module (`9kg.42`), which would add a second, outer layer and replaces nothing above; the live staging
   check (`scripts/staging_check.sh`), which is a dev-box drill, not a CI test.
 
+### 13.5 The data notice and the member-on-file flag as built (`9kg.52`, first pass)
+
+Built 2026-10-23 from the council record `030` (Q8: a plain data notice is not deferred; Q4: existing members are
+referenced, not re-signed); repo-only, synthetic data, nothing deployed. The decline refusal for a member on file and
+the decision policy identifier `none: internal cohort, D-M` wait for the decision form of PR #87 and are not here.
+
+- **One template, two surfaces** (`applications.notices`; correspondence migration 0018): the notice is the message
+  template `data_notice` and the invitation mail the template `invitation`, whose one variable is the notice. Both
+  are seeded as unapproved placeholders (status draft, synthetic) and approved by the owner on the template screen
+  like every other template (211.7.7, D-29); the wording is a template the owner approves, never a constant in code,
+  and a test proves the placeholder phrase appears in the seed migration alone. The request-access page in
+  invitation mode renders the newest approved version with its version and content digest in the markup; the open
+  intake is the S1 page unchanged. The templates are read and rendered by `correspondence.notices`, reached only through the
+  `CATALYST_NOTICE_SOURCE` seam (`003` ADR-01: `applications` never imports `correspondence`).
+- **Unapproved wording**: in `development`, `test` and `staging` (`config.guards.DRAFT_WORDING_ENVIRONMENTS`, listed
+  by name) the newest draft renders with a visible draft marker so the page and the mail can be exercised before
+  approval; anywhere else the page is withheld with the one 503 try-again page, no invitation is issued, the log
+  carries a reason code and the health report names `data_notice_unapproved`. The health report and the release
+  path see the notice's state (approved, draft or missing, with version and digest), never its wording.
+- **The invitation mail**: v2 contacts nobody on an invitation (section 5.1), so `catalyst_invite` renders the mail
+  before any write and prints it for the owner to send by hand, with the notice's version and digest; the invitation
+  row records them (two columns fixed by the 0005 trigger, replaced in 0007). A live environment refuses to issue
+  while either wording is unapproved.
+- **Agreement on file, first-generation** (`applications.members`, `applications.MemberAgreementOnFile`, `manage.py
+  catalyst_member_on_file`): keyed on the email key like the invitation, so it exists before any application does;
+  only the owner-run command inserts (the application role has SELECT for the dossier and nothing else); the row is
+  the audit record (the agreement version as a plain label, that completion was verified, who recorded it, when),
+  fixed by trigger, a correction supersedes the live row, nothing is deleted or truncated. `--completion-verified` is
+  required (a member without a verified completion is a new participant: nothing recorded), and a value that reads
+  as a link, a path, a long identifier or a pasted record is refused, so no legacy identifier and no document copy
+  enter v2. The dossier shows the state per applicant as one line.
+- **Evidence**: `tests/test_intake_notice.py`, mapped as a P6 design rule in `tests/acceptance.py`; the migration
+  round trip and the role, trigger and constraint inventories updated (`tests/test_db_roles.py`,
+  `tests/test_database.py`, `tests/test_acceptance.py`); the health assertion in `tests/test_invitation.py`.
+- **Not done here**: the real wording (the owner approves it with the templates, 211.7.7; counsel's POL-10 answer
+  may change the erasure sentence); the decline refusal and the policy identifier (after PR #87); the private
+  roster itself stays outside the repository.
+
 ## 14. Decision brief (recommended choice, alternative, consequence, first task blocked)
 
 **Council record (2026-10-23).** Every row below was put to the seven-seat council in `030` under the owner's

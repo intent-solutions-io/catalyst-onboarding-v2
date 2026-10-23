@@ -35,7 +35,7 @@ from django.views.decorators.http import require_http_methods, require_safe
 from config import throttle
 from config.client_identity import client_identity
 
-from . import confirmation, invitations, services
+from . import confirmation, invitations, notices, services
 from .forms import AccessRequestForm
 from .identity import email_key
 
@@ -43,8 +43,22 @@ logger = logging.getLogger(__name__)
 TRY_AGAIN = "applications/try_again.html"
 
 
+def _data_notice():
+    """9kg.52: in invitation mode the page carries the data notice from its approved template; with none approved, a
+    local or synthetic environment shows the draft with its marker and a live environment withholds the page (the
+    one 503 page, a reason code in the log). The open intake is the S1 intake unchanged."""
+    if not invitations.required():
+        return None
+    return notices.data_notice()
+
+
 @require_http_methods(["GET", "HEAD", "POST"])
 def request_access(request):
+    try:
+        notice = _data_notice()
+    except notices.Unavailable as refused:
+        logger.warning("intake page withheld: %s", refused)
+        return render(request, TRY_AGAIN, status=503)
     if request.method == "POST":
         try:
             throttle.enforce(request, ("intake-client", client_identity(request), settings.CATALYST_THROTTLE_INTAKE_PER_CLIENT),
@@ -67,7 +81,8 @@ def request_access(request):
             return refused.response
     else:
         form = AccessRequestForm()
-    return render(request, "applications/request_access.html", {"form": form, "invitation_only": invitations.required()})
+    return render(request, "applications/request_access.html",
+                  {"form": form, "invitation_only": invitations.required(), "notice": notice})
 
 
 @require_safe

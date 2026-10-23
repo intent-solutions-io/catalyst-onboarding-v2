@@ -82,6 +82,12 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   fail closed for issuance and open for reading; invitation-only intake by default, enforced inside the intake
   transaction, spent once at confirmation, issued only by the owner-run `catalyst_invite`, shown in the dossier, the
   health report and the release receipt
+- Intake notice and member-on-file flag (`030` Q8 and Q4; `029` section 13.5): the one-paragraph data notice as an
+  owner-approved message template rendered on the request-access page in invitation mode and into the invitation
+  mail that `catalyst_invite` now prints for the owner to send, with the notice's version and digest recorded on the
+  invitation; a marked draft outside a live environment and a withheld page, no issuance and a health anomaly in
+  one; the owner-run `catalyst_member_on_file` records that a member's first-generation agreement is on file (a
+  plain version label and a verified completion, fixed by trigger, shown on the dossier)
 - Hardening (internal-launch batch item 6): the database freezes inbound message provenance and the identity
   columns of outbound attempts and reply links for every role, with the audited retention path left open for
   erasure (correspondence migration 0017, `016` section 10.13)

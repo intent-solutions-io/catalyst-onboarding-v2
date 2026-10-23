@@ -43,14 +43,19 @@ def consume(application) -> bool:
                 .update(used_at=Now(), application=application, updated_at=Now()))
 
 
-def issue(email: str, issued_by: str, lifetime: timedelta, note: str = "") -> tuple[Invitation, int]:
+def issue(email: str, issued_by: str, lifetime: timedelta, note: str = "", notice=None) -> tuple[Invitation, int]:
     """Owner path only (the application role may not insert). Supersedes the live invitation for the address, if any,
-    and issues a new one. Returns it and how many were superseded (0 or 1)."""
+    and issues a new one, recording which data notice its mail carries (9kg.52: the `applications.notices.Wording`
+    rendered into the mail; its version and digest are fixed on the row). Returns it and how many were superseded
+    (0 or 1)."""
     key = email_key(email)
     with transaction.atomic():
         superseded = Invitation.objects.filter(email_key=key, used_at__isnull=True, superseded_at__isnull=True).update(
             superseded_at=Now(), updated_at=Now())
-        invitation = Invitation.objects.create(email_key=key, issued_by=issued_by, note=note, expires_at=Now() + lifetime)
+        invitation = Invitation.objects.create(
+            email_key=key, issued_by=issued_by, note=note, expires_at=Now() + lifetime,
+            notice_template_version=notice.version if notice is not None else None,
+            notice_sha256=notice.sha256 if notice is not None else "")
         invitation.refresh_from_db()  # the database clock's values, not the expressions
     return invitation, superseded
 

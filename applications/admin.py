@@ -15,7 +15,7 @@ from django.utils.html import format_html, format_html_join
 
 from config.staff_admin import ReadOnlyModelAdmin, ReadOnlyTabularInline
 
-from . import invitations, staff
+from . import invitations, members, staff
 from .models import Application, ApplicationEvent, ContactChallenge, SubmissionVersion, VersionAdoption
 
 
@@ -123,10 +123,12 @@ class ApplicationAdmin(ReadOnlyModelAdmin):
     ordering = ("-created_at", "-id")
     fieldsets = [
         ("Applicant", {"fields": ("display_name", "email", "stage", "created_at", "updated_at")}),
-        ("Status", {"fields": ("intake", "contact_state", "adopted_version", "staff_attention", "next_step", "outstanding_work")}),
+        ("Status", {"fields": ("intake", "member_agreement", "contact_state", "adopted_version", "staff_attention", "next_step",
+                               "outstanding_work")}),
     ]
     readonly_fields = ("display_name", "email", "stage", "created_at", "updated_at",
-                       "intake", "contact_state", "adopted_version", "staff_attention", "next_step", "outstanding_work")
+                       "intake", "member_agreement", "contact_state", "adopted_version", "staff_attention", "next_step",
+                       "outstanding_work")
     inlines = [VersionInline, ChallengeInline, EventInline, OutboundInline]
 
     def get_queryset(self, request):
@@ -160,6 +162,11 @@ class ApplicationAdmin(ReadOnlyModelAdmin):
     def intake(self, obj):
         """9kg.43: the launch mode, and this applicant's invitation where the mode needs one (never a token)."""
         return invitations.describe(obj)
+
+    @admin.display(description="first-generation agreement")
+    def member_agreement(self, obj):
+        """9kg.52 (030 Q4): whether the owner recorded that this member's agreement is on file; a state, never a document."""
+        return members.describe(obj)
 
     @admin.display(description="contact")
     def contact_state(self, obj):

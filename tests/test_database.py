@@ -62,6 +62,8 @@ APPROVED_MIGRATIONS = {
     ("assessments", "0009_fetcher_role_grants"),  # 9kg.24: the evidence fetcher's own narrower role
     ("accounts", "0006_request_throttle"),  # 9kg.29: the public-endpoint throttle buckets
     ("applications", "0004_invitation"), ("applications", "0005_invitation_protection"),  # 9kg.43: invitation-only intake
+    ("applications", "0006_notice_record_and_member_on_file"), ("applications", "0007_member_on_file_protection"),  # 9kg.52
+    ("correspondence", "0018_intake_notice_templates"),  # 9kg.52: the data notice and invitation templates
 }
 
 
