@@ -65,7 +65,11 @@ EOF
 
 echo "== identity"
 gh api user --jq '"login: " + .login' || { echo "gh is not authenticated" >&2; exit 1; }
+owner_login=$(gh api user --jq .login)
 owner_id=$(gh api user --jq .id)
+if [ -n "${EXPECTED_LOGIN:-}" ] && [ "$owner_login" != "$EXPECTED_LOGIN" ]; then
+  echo "authenticated as $owner_login, expected $EXPECTED_LOGIN; the reviewer would be the wrong account" >&2; exit 1
+fi
 perm=$(gh api "repos/$REPO" --jq '.permissions.admin')
 echo "admin on $REPO: $perm"
 [ "$perm" = "true" ] || { echo "this needs the owner's administration right; an agent token must not have it" >&2; exit 1; }
@@ -78,8 +82,9 @@ EOF
 )
 
 echo "== current state (read-only)"
-existing_id=$(gh api "repos/$REPO/rulesets" --jq ".[] | select(.name==\"$RULESET_NAME\") | .id" 2>/dev/null || true)
-echo "rulesets: $(gh api "repos/$REPO/rulesets" --jq 'map(.name) | join(", ")' 2>/dev/null || echo none)"
+rulesets_json=$(gh api "repos/$REPO/rulesets") || { echo "could not list rulesets; not continuing" >&2; exit 1; }
+existing_id=$(printf '%s' "$rulesets_json" | jq -r ".[] | select(.name==\"$RULESET_NAME\") | .id")
+echo "rulesets: $(printf '%s' "$rulesets_json" | jq -r 'map(.name) | join(", ")')"
 echo "rules effective on main: $(gh api "repos/$REPO/rules/branches/main" --jq 'map(.type) | join(", ")' 2>/dev/null || echo none)"
 if env_now=$(gh api "repos/$REPO/environments/$ENVIRONMENT" --jq '"present, reviewer rules: " + (.protection_rules|map(select(.type=="required_reviewers"))|length|tostring)' 2>/dev/null); then
   echo "environment $ENVIRONMENT: $env_now"
@@ -115,4 +120,21 @@ gh api "repos/$REPO/rules/branches/main" --jq '.[] | .type + (if .parameters.req
 gh api "repos/$REPO/rulesets" --jq ".[] | select(.name==\"$RULESET_NAME\") | \"bypass actors: \" + (.bypass_actors|length|tostring) + \", enforcement: \" + .enforcement"
 gh api "repos/$REPO/environments/$ENVIRONMENT" --jq '"environment " + .name + ": " + (.protection_rules|map(.type)|join(", ")) + "; branch policy custom=" + (.deployment_branch_policy.custom_branch_policies|tostring)'
 gh api "repos/$REPO/environments/$ENVIRONMENT/deployment-branch-policies" --jq '"deployment branches: " + (.branch_policies|map(.name)|join(", "))'
+echo "== assertions"
+fail=0
+bypass=$(gh api "repos/$REPO/rulesets" --jq ".[] | select(.name==\"$RULESET_NAME\") | .bypass_actors | length")
+enf=$(gh api "repos/$REPO/rulesets" --jq ".[] | select(.name==\"$RULESET_NAME\") | .enforcement")
+got_checks=$(gh api "repos/$REPO/rules/branches/main" --jq '[.[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context] | sort | join("|")')
+want_checks=$(printf '%s' "$checks" | jq -r 'map(.context) | sort | join("|")')
+policies=$(gh api "repos/$REPO/environments/$ENVIRONMENT/deployment-branch-policies" --jq '[.branch_policies[] | select(.type=="branch") | .name] | sort | join("|")')
+types=$(gh api "repos/$REPO/rules/branches/main" --jq '[.[] | .type] | sort | join("|")')
+[ "$bypass" = "0" ] || { echo "ASSERT FAILED: bypass actors = $bypass (want 0)"; fail=1; }
+[ "$enf" = "active" ] || { echo "ASSERT FAILED: enforcement = $enf (want active)"; fail=1; }
+[ "$got_checks" = "$want_checks" ] || { echo "ASSERT FAILED: required checks = $got_checks (want $want_checks)"; fail=1; }
+[ "$policies" = "main" ] || { echo "ASSERT FAILED: deployment branch policies = $policies (want exactly main)"; fail=1; }
+for t in deletion non_fast_forward required_linear_history pull_request required_status_checks; do
+  case "|$types|" in *"|$t|"*) ;; *) echo "ASSERT FAILED: rule $t not effective on main"; fail=1 ;; esac
+done
+[ "$fail" = 0 ] && echo "all assertions passed" || { echo "readback does not match the intended controls; fix before any deploy credential" >&2; exit 1; }
+echo "note: the required checks are pinned to the GitHub Actions app, not to a workflow file; a pull request that edits ci.yml can emit a job of the same name, a residual accepted with one maintainer and merges through the merge guard (record it in 009 section 5.5). Linear history means merges use squash."
 echo "next: open a probe pull request without checks and confirm it cannot merge; record the readback in 009 section 5.5; issue the scoped agent token (contents, pull requests, checks; no administration, environments, secrets or variables)."
