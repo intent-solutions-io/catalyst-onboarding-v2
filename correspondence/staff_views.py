@@ -30,6 +30,7 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
 from applications.models import TERMINAL_STAGES, Application
+from applications.staff import REASONS as REASON_TEXT
 from workflow.models import AutomationPause
 
 from . import outbound, processing, staff_actions
@@ -154,6 +155,12 @@ def item_detail(request, public_id):
         # 9kg.47 review: any agreement item is handled on the agreements screen; the decided ones say so explicitly
         "agreements_screen": item.application is not None and item.reason_code.startswith("agreement_"),
         "decided_on_screen": item.reason_code in processing.AGREEMENT_SCREEN_ITEMS,
+        # 9kg.41: the plain words for the reason (the dossier's), and the P3 screen where an assessment or evidence item
+        # is acted on; acknowledging here only records that it was seen.
+        "reason_text": REASON_TEXT.get(item.reason_code, ""),
+        "decision_screen": item.application is not None and item.reason_code.startswith("assessment_"),
+        "evidence_screen": item.application is not None and (
+            item.reason_code.startswith("evidence_") or item.reason_code in ("claims_missing", "adoption_changed")),
     })
 
 
@@ -328,8 +335,14 @@ def resume(request, public_ref):
 @staff_page(*APPLICATION)
 def resend_verification(request, public_ref):
     application = get_object_or_404(Application, public_ref=public_ref)
-    return act(request, reverse("correspondence_staff:application", args=[public_ref]),
-               lambda: staff_actions.resend_verification(application.pk, request.user, request.POST.get("note", "")),
+    here = reverse("correspondence_staff:application", args=[public_ref])
+    try:  # 9kg.41: the resend the page offered; a double submit names one already recorded and is refused
+        expected = int(request.POST.get("resend_number", ""))
+    except ValueError:
+        expected = 0  # no number: the service checks the permission first, then refuses `page_out_of_date`
+    return act(request, here,
+               lambda: staff_actions.resend_verification(application.pk, request.user, request.POST.get("note", ""),
+                                                         expected_number=expected),
                lambda number: f"Verification message queued again (resend {number} of {settings.CATALYST_VERIFICATION_RESEND_LIMIT}).")
 
 

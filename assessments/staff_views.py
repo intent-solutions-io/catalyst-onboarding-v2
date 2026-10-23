@@ -100,12 +100,24 @@ def _rows(application):
     return version, claims, rows
 
 
+def refused_page(request, template, context, exc):
+    """9kg.41: a refused form comes back with what the person typed (the agreements and provisioning screens' rule), the
+    refusal code on the page and status 409, instead of a redirect that drops the typed text."""
+    messages.error(request, f"Refused: {exc}")
+    return render(request, template, context, status=409)
+
+
 @require_GET
 @staff_page(*REVIEW)
 def evidence(request, public_ref):
     application = get_object_or_404(Application, public_ref=public_ref)
+    return render(request, "assessments/staff/evidence.html", _evidence_context(request, application))
+
+
+def _evidence_context(request, application, form=None):
     version, claims, rows = _rows(application)
-    return render(request, "assessments/staff/evidence.html", {
+    return {
+        "form": form or {},
         "application": application, "version": version, "claims": claims, "rows": rows,
         "newer_versions": application.versions.filter(version_number__gt=version.version_number).count() if version else 0,
         "can_operate": services.can(request.user, "operate_evidence"),
@@ -117,7 +129,7 @@ def evidence(request, public_ref):
         "can_approve": correspondence_rules.can(request.user, "approve_question"),
         "can_author": correspondence_rules.can(request.user, "author_question") and application.stage in services.CLARIFY_STAGES,
         "criteria": _criteria(),
-    })
+    }
 
 
 def _criteria():
@@ -136,14 +148,21 @@ DECIDE = ("review_evidence", "operate_evidence", "record_qualification_decision"
 @staff_page(*DECIDE)
 def decision(request, public_ref):
     """018 section 7 (3B.4): everything the decision relies on, and only the outcomes the viewer may record."""
+    application = get_object_or_404(Application, public_ref=public_ref)
+    return render(request, "assessments/staff/decision.html", _decision_context(request, application))
+
+
+def _decision_context(request, application, form=None):
     from . import decisions
 
-    application = get_object_or_404(Application, public_ref=public_ref)
+    form = form or {}
     version, claims, rows = _rows(application)
     state = decisions.decision_state(application)
     may = decisions.can_decide(request.user)
     paused = AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists()
-    return render(request, "assessments/staff/decision.html", {
+    criteria = state["pack"].criteria if state["pack"] else []
+    return {
+        "form": form,  # 9kg.41: what was typed before a refusal; the outcome is never carried over (chosen again)
         "application": application, "version": version, "claims": claims, "rows": rows, "state": state,
         "newer_versions": application.versions.filter(version_number__gt=version.version_number).count() if version else 0,
         "run": state["run"] or state["latest_run"], "authority": settings.CATALYST_QUALIFICATION_AUTHORITY is not None,
@@ -153,10 +172,11 @@ def decision(request, public_ref):
         "decidable": application.stage in ("awaiting_decision", "on_hold")
         or (application.stage == "assessing" and state["human_only_allowed"]),
         "capability": decisions.CAPABILITY, "strength": decisions.EVIDENCE_STRENGTH,
-        "criteria": state["pack"].criteria if state["pack"] else [],
+        "criteria": [{**c, "posted": {"cap": form.get(f"cap-{c['id']}", ""), "str": form.get(f"str-{c['id']}", ""),
+                                      "note": form.get(f"note-{c['id']}", "")}} for c in criteria],
         "policy_ref": decisions.policy_ref(state["pack"]) if state["pack"] else "",
         "questions": Question.objects.filter(application=application).exclude(round=0).order_by("round", "id"),
-    })
+    }
 
 
 @require_POST
@@ -170,12 +190,15 @@ def decide(request, public_ref):
     criteria = [c["id"] for c in pack.criteria] if pack else []  # no snapshot: the service refuses
     rationale = {c: {"capability": post.get(f"cap-{c}", ""), "evidence_strength": post.get(f"str-{c}", ""),
                      "note": post.get(f"note-{c}", "")} for c in criteria}
-    return act(request, reverse("assessments_staff:decision", args=[public_ref]),
-               lambda: decisions.record_decision(
-                   application.pk, request.user, outcome=post.get("outcome", ""), reason_code=post.get("reason_code", ""),
-                   reason_text=post.get("reason_text", ""), expected_digest=post.get("digest", ""), rationale=rationale,
-                   human_only_reason=post.get("human_only_reason", "")),
-               "Decision recorded.")
+    try:
+        decisions.record_decision(
+            application.pk, request.user, outcome=post.get("outcome", ""), reason_code=post.get("reason_code", ""),
+            reason_text=post.get("reason_text", ""), expected_digest=post.get("digest", ""), rationale=rationale,
+            human_only_reason=post.get("human_only_reason", ""))
+    except services.Refused as exc:  # the page shows the new state with the typed reasoning kept (9kg.41)
+        return refused_page(request, "assessments/staff/decision.html", _decision_context(request, application, post), exc)
+    messages.success(request, "Decision recorded.")
+    return redirect(reverse("assessments_staff:decision", args=[public_ref]))
 
 
 @require_POST
@@ -183,12 +206,15 @@ def decide(request, public_ref):
 def author(request, public_ref):
     application = get_object_or_404(Application, public_ref=public_ref)
     post = request.POST
-    return act(request, reverse("assessments_staff:evidence", args=[public_ref]),
-               lambda: services.author_clarification(
-                   application.pk, request.user, text=post.get("text", ""), criterion_id=post.get("criterion", ""),
-                   evidence_gap=post.get("gap", ""), alternative_route=post.get("route", ""),
-                   requires_evidence=post.get("requires_evidence") == "on"),
-               "Question stored as proposed; approve it to send it.")
+    try:
+        services.author_clarification(
+            application.pk, request.user, text=post.get("text", ""), criterion_id=post.get("criterion", ""),
+            evidence_gap=post.get("gap", ""), alternative_route=post.get("route", ""),
+            requires_evidence=post.get("requires_evidence") == "on")
+    except services.Refused as exc:  # the typed question comes back (9kg.41); a double submit is `duplicate_question`
+        return refused_page(request, "assessments/staff/evidence.html", _evidence_context(request, application, post), exc)
+    messages.success(request, "Question stored as proposed; approve it to send it.")
+    return redirect(reverse("assessments_staff:evidence", args=[public_ref]))
 
 
 @require_POST

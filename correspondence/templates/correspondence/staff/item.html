@@ -1,6 +1,7 @@
 {% extends "correspondence/staff/base.html" %}{% load correspondence_display %}
 {% block content %}
 <h1>Staff item: {{ item.reason_code }}</h1>
+{% if reason_text %}<p>What happened: {{ reason_text }}.</p>{% endif %}
 <p>Status: {{ item.status }}. Opened {{ item.opened_at|date:"Y-m-d H:i" }} UTC ({{ item.opened_at|timesince }} ago).
 {% if item.application %}Application: <a href="{% url 'correspondence_staff:application' item.application.public_ref %}"><bdi>{{ item.application.display_name|visible }}</bdi></a>.{% endif %}</p>
 {% if message %}
@@ -17,6 +18,8 @@ sender matches the verified address: {{ message.from_matches_verified_address|ye
 {% for a in attempts %}<tr><td>{{ a.attempt_number }}</td><td>{{ a.attempt_series }}</td><td>{{ a.status }}</td><td>{{ a.protocol_phase_reached }}</td><td>{{ a.smtp_reply_code|default:"" }}</td></tr>{% empty %}<tr><td colspan="5">No attempt was recorded.</td></tr>{% endfor %}</table>
 {% endif %}
 {% if agreements_screen %}<p><a href="{% url 'agreements_staff:agreements' item.application.public_ref %}">Open the agreements screen</a>{% if decided_on_screen %}: this item is decided there (an unknown provider outcome, duplicate envelopes or an ended watch), and the decision resolves it; it has no resolution of its own here{% endif %}.</p>{% endif %}
+{% if decision_screen %}<p><a href="{% url 'assessments_staff:decision' item.application.public_ref %}">Open the decision screen</a>: the way on is a decision there (a human-only assessment where the run was refused, capped or failed). Acknowledging this item only records that it was seen; it does not move the application.</p>{% endif %}
+{% if evidence_screen %}<p><a href="{% url 'assessments_staff:evidence' item.application.public_ref %}">Open the evidence screen</a>: re-fetch or proceed without the item there. Acknowledging this item only records that it was seen.</p>{% endif %}
 {% if cursor %}<p>Mailbox {{ cursor.mailbox_ref }}: {{ cursor.state }}{% if cursor.blocked_reason %} ({{ cursor.blocked_reason }}){% endif %}.</p>{% endif %}
 {% for code in codes %}
 <form method="post" action="{% url 'correspondence_staff:resolve' item.public_id %}">{% csrf_token %}

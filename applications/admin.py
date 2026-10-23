@@ -200,5 +200,5 @@ class ApplicationAdmin(ReadOnlyModelAdmin):
         if not actions:
             return "none"
         return format_html_join("", "<p>{}: <strong>{}</strong>, attempts {} of {}{}</p>", (
-            (a.kind, a.status, a.attempts, a.max_attempts, f"; last error: {a.last_error}" if a.last_error else "")
+            (a.kind, staff.describe_status(a), a.attempts, a.max_attempts, f"; last error: {a.last_error}" if a.last_error else "")
             for a in actions))

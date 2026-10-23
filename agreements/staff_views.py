@@ -81,6 +81,10 @@ def _next_action(application, instances) -> tuple[str, str]:
     if next_type is not None and not completion.details_confirmed(application, next_type):
         return f"Record and confirm the details the {next_type.key} needs", "staff (confirm_required_details)"
     if reason == "waiting_for_gate":
+        if any(r["instance"].signing_status == "partially_signed" and r["instance"].replaced_at is None for r in instances):
+            # 9kg.41: the countersignature wait (029 section 5.1) is named, not shown as the applicant's
+            return ("Waiting for the remaining required signer (the countersignature, signed by hand at the provider),"
+                    " then custody", "the countersigner, then the system")
         return "Waiting for the applicant to sign, and for custody", "applicant, then the system"
     return "The system continues the sequence", "system"
 
@@ -117,11 +121,16 @@ def _context(request, application, *, error="", form=None):
                         application=application, status="open", reason_code=handlers.ORPHAN_WATCH_ENDED)]),
             })
     details = []
+    form = form or {}
     for t in types:
         fields = completion.required_details(t)
         if fields:
-            details.append({"type": t, "fields": fields, "draft": AgreementDetailsVersion.objects.filter(
-                application=application, agreement_type=t, status="draft").order_by("-version").first(),
+            # 9kg.41: a refused draft comes back with the values typed for this type, like every other form here
+            mine = form.get("action") == "record_details" and form.get("type") == t.key
+            details.append({
+                "type": t, "fields": fields, "posted": [(f, form.get(f"field-{f}", "") if mine else "") for f in fields],
+                "draft": AgreementDetailsVersion.objects.filter(
+                    application=application, agreement_type=t, status="draft").order_by("-version").first(),
                 "confirmed": completion.details_confirmed(application, t)})
     next_action, owner = _next_action(application, rows)
     user = request.user
@@ -129,7 +138,7 @@ def _context(request, application, *, error="", form=None):
         "application": application, "rows": rows, "details": details, "next_action": next_action, "owner": owner,
         "items": StaffItem.objects.filter(application=application, status="open", reason_code__startswith="agreement_"),
         "handoff": PendingAction.objects.filter(kind=completion.HANDOFF, subject_id=application.public_ref).first(),
-        "stop_reasons": STOP_REASONS, "dispositions": DISPOSITIONS, "error": error, "form": form or {},
+        "stop_reasons": STOP_REASONS, "dispositions": DISPOSITIONS, "error": error, "form": form,
         "create_choices": CREATE_CHOICES, "distribute_choices": DISTRIBUTE_CHOICES,
         "may": {p: services.can(user, p) for p in SCREEN},
     }

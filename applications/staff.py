@@ -12,7 +12,8 @@ Staff attention, one rule for the dossier, the list column and the list filter (
   applicant has no working link and nothing automatic will produce one;
 - once contact is verified: no next-stage action;
 - an application awaiting the qualification decision or on hold (the decision-maker owes the next step).
-Every other next step belongs to the applicant, the system, or nobody yet (blocked in this slice).
+Every other next step belongs to the applicant, the system, or nobody (blocked: the step waits on a policy
+decision or the owner's release, and the dossier says which).
 """
 
 from dataclasses import dataclass
@@ -52,7 +53,41 @@ REASONS = {
     "assessment_input_changed": "the assessment input changed before the run; a reassessment was needed",
     "assessment_pack_refused": "the prompt pack was refused; no assessment can run",
     "assessment_suspended": "refused by suspension: model advice is disabled, a human-only assessment applies (oc4.12)",
+    # 9kg.41: plain words for the launch's other common items (the dossier and the staff item page share them)
+    "escalate_unanswered": "a question stayed unanswered after the last reminder",
+    "evidence_required_unavailable": "a required evidence item could not be read; re-fetch it or proceed without it",
+    "claims_missing": "the adopted submission carries no claim fields; a new submission with claims is needed",
+    "agreement_declined": "an agreement was declined at the provider; automation is paused",
+    "agreement_expired": "an agreement expired at the provider; automation is paused",
+    "agreement_cancelled_at_provider": "an agreement was cancelled at the provider; automation is paused",
+    "agreement_create_unknown": "an agreement's creation outcome is unknown; a decision-maker decides on the agreements screen",
+    "agreement_distribute_unknown": "an agreement's sending outcome is unknown; a decision-maker decides on the agreements screen",
+    "agreement_cancel_unknown": "an agreement's cancel outcome is unknown; a decision-maker cancels again on the agreements screen",
+    "agreement_integrity_hold": "a signed agreement no longer matches what was verified; it is held",
+    "agreement_custody_failed": "the signed copy could not be stored; retry custody on the agreements screen",
+    "agreement_provider_unavailable": "the signing provider could not be reached",
+    "provisioning_activation_blocked": "activation is blocked; fix the cause, then retry activation",
 }
+
+
+# 9kg.41 (029 section 5.2, "Actions enqueued without a handler"; audit 8.8): an action held on purpose, waiting on a
+# policy decision or the owner's release, says so in the dossier instead of a bare "held". Kind names only, never an
+# import: applications depends on no later app (003 ADR-01). Any other held action is an operational hold whose reason
+# code the dossier shows as its last error.
+HELD_ON_POLICY = {
+    "start_evidence_collection": "waits for the owner's release (activate_evidence_collection, 018 4.1)",
+    "issue_nda": "waits for the owner's release (activate_agreements, 021 section 2)",
+    "send_decline": "no decline notice is sent until the notice and its template are approved (oc4.11); nothing runs it",
+    "interpret_reply": "model reading of replies is off; staff confirm the outcome on the reply screen, which ends it",
+    "provision": "waits for the owner's release (activate_provisioning, 023 section 5); off at the internal launch",
+}
+
+
+def describe_status(action) -> str:
+    """The status the dossier shows for one pending action: a held action waiting on policy is labelled as such."""
+    if action.status == PendingAction.Status.HELD and action.kind in HELD_ON_POLICY:
+        return f"held on policy: {HELD_ON_POLICY[action.kind]}"
+    return action.status
 
 
 def _staff_item_model():
@@ -63,7 +98,7 @@ def _staff_item_model():
 
 @dataclass(frozen=True)
 class Step:
-    party: str  # who acts next: Applicant, System, Staff, or Blocked (nobody can act in this slice)
+    party: str  # who acts next: Applicant, System, Staff, or Blocked (waits on a policy decision or the owner's release)
     text: str
     attention: bool = False
 
@@ -179,6 +214,7 @@ def _verification_step(application, paused: bool) -> Step:
             return Step("Blocked", "The verification message waits: automation is paused")
         return Step("System", f"The verification message is waiting to be sent (attempt {send.attempts} of {send.max_attempts} so far)")
     if send.status == Status.DONE:
-        return Step("Applicant", "Confirm the email address (the message was accepted by the local mail sink, which is not proof of delivery)")
+        return Step("Applicant", "Confirm the email address (the message was accepted by the configured mail backend, which is not proof of"
+                    " delivery)")
     return Step("Staff", f"The verification send ended {send.status} and is not retried; the applicant has no working link"
                 " (staff can resend it from the correspondence screen)", attention=True)

@@ -159,17 +159,23 @@ def decide_uncertain_send(message_id: int, user, decision: str, note: str = "") 
 VERIFICATION_RESENT = "verification_resent"
 
 
-def resend_verification(application_id: int, user, note: str = "") -> int:
+def resend_verification(application_id: int, user, note: str = "", expected_number: int | None = None) -> int:
     """9kg.50 (029 section 5.2): staff queue the verification message again for an applicant who has no working link
     (a failed or cancelled send, an expired link). Under the staff-send permission, one locked transaction: the
     application must be open with contact unverified, no hard bounce may be open (every send path, 9kg.3), and the
     resends are bounded (CATALYST_VERIFICATION_RESEND_LIMIT). The active challenge is superseded and a new one is
     issued through the intake path itself (applications.services.reissue_challenge), so the message, lifetime and
-    handler are the ones issuance uses. Returns the number of this resend. The event names no challenge or token."""
+    handler are the ones issuance uses. Returns the number of this resend. The event names no challenge or token.
+
+    `expected_number` (9kg.41) is the resend the screen offered (resends used when the page was drawn, plus one). A
+    double submit, or a second tab, names a resend that is already recorded and is refused as
+    `resend_already_recorded`, so one click on the page never sends two messages. The screen always passes it."""
     from applications.models import OPEN_STAGES
     from applications.services import reissue_challenge
 
     require(user, "send_staff_message")
+    if expected_number is not None and expected_number < 1:
+        raise Refused("page_out_of_date")  # a form without the offered number never acts (9kg.41)
     note = clean_note(note)
     actor = actor_ref(user)
     with transaction.atomic():
@@ -181,6 +187,8 @@ def resend_verification(application_id: int, user, note: str = "") -> int:
         if hard_bounce_open(application):
             raise Refused("hard_bounce_open")
         number = ApplicationEvent.objects.filter(application=application, kind=VERIFICATION_RESENT).count() + 1
+        if expected_number is not None and expected_number != number:
+            raise Refused("resend_already_recorded")  # checked under the lock, before the limit (9kg.41)
         if number > settings.CATALYST_VERIFICATION_RESEND_LIMIT:
             raise Refused("resend_limit_reached")
         reissue_challenge(application)
