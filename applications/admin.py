@@ -143,10 +143,13 @@ class ApplicationAdmin(ReadOnlyModelAdmin):
             user.has_perm(f"agreements.{name}") for name in AGREEMENT_SCREEN_PERMISSIONS)
         provisioning_allowed = user.is_active and user.is_staff and not user.is_superuser and any(
             user.has_perm(f"provisioning.{name}") for name in PROVISIONING_SCREEN_PERMISSIONS)
+        templates_allowed = user.is_active and user.is_staff and not user.is_superuser and user.has_perm(
+            "agreements.approve_agreement_template")  # 9kg.47: the template screen (agreements.staff_views.TEMPLATES)
         return super().changeform_view(request, object_id, form_url, {**(extra_context or {}),
                                                                       "correspondence_link": allowed,
                                                                       "agreements_link": agreements_allowed,
-                                                                      "provisioning_link": provisioning_allowed})
+                                                                      "provisioning_link": provisioning_allowed,
+                                                                      "agreement_templates_link": templates_allowed})
 
     @admin.display(boolean=True, description="contact verified")
     def contact_verified(self, obj):

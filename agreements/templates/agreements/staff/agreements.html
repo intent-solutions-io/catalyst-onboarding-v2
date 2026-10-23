@@ -31,6 +31,32 @@
 {% if may.operate_agreements and row.instance.custody_status == "failed_needs_staff" and not row.instance.documents.all %}<button name="action" value="retry_custody">Retry custody</button>{% endif %}
 </form>
 
+{% if row.instance.issue_status == "create_uncertain" and may.decide_uncertain_agreement %}
+<h3>Decide the unknown create</h3>
+<p>The provider's answer to the create was never seen and reconciliation found no envelope. Nothing is retried on its own (P4-D-8).</p>
+<form method="post" action="{% url 'agreements_staff:act' application.public_ref %}">{% csrf_token %}
+<input type="hidden" name="action" value="decide_create"><input type="hidden" name="instance" value="{{ row.instance.public_id }}">
+<fieldset><legend>Decision</legend>{% for value, label in create_choices.items %}
+<label><input type="radio" name="choice" value="{{ value }}" required{% if form.choice == value and form.instance == row.instance.public_id|stringformat:"s" %} checked{% endif %}> {{ label }}</label>{% endfor %}</fieldset>
+<button>Record the decision</button></form>
+{% endif %}
+{% if row.instance.issue_status == "distribute_uncertain" and may.decide_uncertain_agreement %}
+<h3>Decide the unknown distribute</h3>
+<p>The provider's answer to the send was never seen and reconciliation could not settle it.</p>
+<form method="post" action="{% url 'agreements_staff:act' application.public_ref %}">{% csrf_token %}
+<input type="hidden" name="action" value="decide_distribute"><input type="hidden" name="instance" value="{{ row.instance.public_id }}">
+<fieldset><legend>Decision</legend>{% for value, label in distribute_choices.items %}
+<label><input type="radio" name="choice" value="{{ value }}" required{% if form.choice == value and form.instance == row.instance.public_id|stringformat:"s" %} checked{% endif %}> {{ label }}</label>{% endfor %}</fieldset>
+<button>Record the decision</button></form>
+{% endif %}
+{% if row.instance.issue_status == "cancel_uncertain" and may.manage_agreements %}
+<h3>Decide the unknown cancel</h3>
+<p>The provider's answer to the cancel was never seen. Cancelling again sets the unknown attempt aside as a decision (never a known outcome) and runs a new cancel that re-reads first.</p>
+<form method="post" action="{% url 'agreements_staff:act' application.public_ref %}">{% csrf_token %}
+<input type="hidden" name="instance" value="{{ row.instance.public_id }}">
+<button name="action" value="cancel">Cancel again (reconciled)</button></form>
+{% endif %}
+
 {% if row.hold and may.resolve_agreement_integrity %}
 <h3>Resolve the integrity hold</h3>
 <p>The earlier verified read stays in the record. Continuing needs a fresh read, recorded after the hold, that matches fully{% if row.integrity.fresh %}: the latest read is {% if row.integrity.matching %}a full match{% else %}<strong>not</strong> a match{% endif %}{% else %}: no fresh read yet{% endif %}. Replacing creates a new agreement and keeps this one as history. Nothing here voids an agreement legally.</p>

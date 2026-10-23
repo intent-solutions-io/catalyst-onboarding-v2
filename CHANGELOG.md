@@ -82,6 +82,8 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   structured human-only reason, the decision digest and record carrying the policy, pack, evidence manifest and
   runs, the policy-to-pack binding guard, "refused by suspension" labels and the selection scorecard command
   (`oc4.12`; `oc4.10` items 1 to 3; `018` section 20, `011` section 4.1)
+- Staff screens for the shell-only agreement states: the decisions on an unknown Documenso create, distribute and
+  cancel on the agreements screen, and the agreement template approval screen (`9kg.47`, `021` section 20)
 
 ### Changed
 

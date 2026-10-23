@@ -788,3 +788,26 @@ server, its TLS certificates and the custody directory are created per test in t
 
 **What a browser harness would add:** none exists in this repository. The journey uses Django's test client, which
 runs the full middleware stack (sessions, CSRF, authentication) in-process, with no socket, proxy or real host.
+
+## 20. Staff screens for the shell-only states (9kg.47, 2026-10-23)
+
+`029` section 5.2 found that `decide_uncertain_create`, `decide_uncertain_distribute` (the only remedies for an
+unknown provider outcome) and `approve_template_version` (which `activate_agreements` requires) were reachable only
+from tests or a shell. Built, under the existing permissions and the section 9 screen rules:
+
+- **The agreements screen** offers, only in the state each applies to and never preselected: the decision on an
+  unknown create (`decide_create`: mark not sent and create once more under a new key, or abandon; P4-D-8), the
+  decision on an unknown distribute (`decide_distribute`: send again, or cancel, which also needs `manage_agreements`),
+  and the decision on an unknown cancel (the existing `cancel` action, which sets the unknown attempt aside as a
+  decision and runs a new reconciled cancel). Each is one POST to the one service, which checks its own permission
+  and writes its event (`agreement_create_decided`, `agreement_distribute_decided`, `agreement_cancel_requested`); a
+  holder of another agreement permission reaches the page but the act is refused (409, `not_permitted`).
+- **The template screen** (`/staff/p4/templates/`, gate `approve_agreement_template`, the owner's under POL-07): every
+  template version with its type, version, provider references and placeholder PDF digest; approval posts the exact
+  digest shown and is refused on any difference (`template_changed_since_shown`). The record is the version's own
+  approval columns, frozen by the database (migration 0002); no agreement text is shown or stored. The dossier links
+  the screen for holders of the permission.
+
+Tests: `tests/test_agreement_screens.py` (one test per action, a refusal without the permission, the recorded event
+or approval). The on-hold exit, the verification resend and the aged-waits bounds are `9kg.50` and `9kg.51` (`018`
+section 19, `016` section 10.13, `026` section 17).
