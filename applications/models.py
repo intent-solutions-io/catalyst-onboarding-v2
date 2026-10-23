@@ -152,6 +152,40 @@ class ApplicationEvent(models.Model):
         ]
 
 
+class Invitation(models.Model):
+    """An address the owner invited to apply while intake is invitation-only (9kg.43; 029 sections 4.1 and 7).
+
+    Bound to the email key, never a bearer token: the existing mail confirmation proves control of the address.
+    Issued only by the owner-run `catalyst_invite` (the application role may not insert, migration 0005); a repeat
+    issuance supersedes the live one. Consumed at confirmation by one conditional update (applications.invitations),
+    never at acceptance, so an unconfirmed submission does not spend it. Identity, issuer, note and expiry are fixed by
+    trigger; use, supersession and the consuming application are written once. The row is the audit record of the
+    issuance: who, when, until when.
+    """
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    email_key = models.CharField(max_length=320)  # the identity key (applications.identity), as on Application
+    issued_by = models.CharField(max_length=200)
+    note = models.CharField(max_length=500, blank=True, default="")
+    issued_at = models.DateTimeField(db_default=Now())
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    superseded_at = models.DateTimeField(null=True, blank=True)
+    application = models.ForeignKey(Application, null=True, blank=True, on_delete=models.PROTECT, related_name="invitations")
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        constraints = [
+            # "Live" = not used and not superseded; expiry is a time comparison and is not encoded here.
+            models.UniqueConstraint(
+                fields=["email_key"], condition=Q(used_at__isnull=True, superseded_at__isnull=True),
+                name="invitation_one_live_per_email_key",
+            ),
+            models.CheckConstraint(condition=Q(expires_at__gt=models.F("issued_at")), name="invitation_expires_after_issue"),
+            models.CheckConstraint(condition=~Q(issued_by=""), name="invitation_has_issuer"),
+        ]
+
+
 class RetentionAudit(models.Model):
     """One row per audited retention delete; inserted only by the protection trigger (migration 0002).
     Records which application's record was removed and a SHA-256 digest of the deleted row, never its content."""

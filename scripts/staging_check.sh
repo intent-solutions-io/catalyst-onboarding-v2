@@ -244,6 +244,10 @@ check "TEST-P6-30 the egress proxy mounts no secret" test -z "$(docker exec "$("
 # TEST-P6-27: a dark deploy. An applicant goes through the real form and confirmation link; the evidence collection that
 # follows is held until the owner's activation command, and no action that reaches a provider exists in any other state.
 jar="$work/dark-jar"
+# 9kg.43: intake is invitation-only by default, so the owner path invites the synthetic address first (as the owner role).
+check "TEST-P6-27 the owner invites the dark-deploy address (invitation-only intake)" \
+  bash -c "\"\$@\" | grep -q '\"issued\": true'" _ "${compose[@]}" run --rm --no-deps -T migrate \
+  python manage.py catalyst_invite dark-deploy@example.test --issued-by "staging check" --note "dark deploy, TEST-P6-27"
 form="$(curl -sk -c "$jar" --resolve catalyst.staging.test:18443:127.0.0.1 https://catalyst.staging.test:18443/request-access/)"
 csrf="$(grep -oE 'name="csrfmiddlewaretoken" value="[^"]+"' <<<"$form" | head -1 | sed 's/.*value="//; s/"$//')"
 check "TEST-P6-27 an applicant is accepted through the form" test "$(curl -sk -b "$jar" -o /dev/null -w '%{http_code}' \

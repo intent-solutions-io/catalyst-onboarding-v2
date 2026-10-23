@@ -59,6 +59,8 @@ APPROVED_MIGRATIONS = {
     ("otp_static", "0001_initial"), ("otp_static", "0002_throttling"), ("otp_static", "0003_add_timestamps"),
     ("accounts", "0004_login_throttle"), ("accounts", "0005_two_factor_grants"),
     ("assessments", "0009_fetcher_role_grants"),  # 9kg.24: the evidence fetcher's own narrower role
+    ("accounts", "0006_request_throttle"),  # 9kg.29: the public-endpoint throttle buckets
+    ("applications", "0004_invitation"), ("applications", "0005_invitation_protection"),  # 9kg.43: invitation-only intake
 }
 
 

@@ -60,7 +60,8 @@ def test_all_problems_combines_every_rule():
         CATALYST_ENV="production",
         EMAIL_BACKEND="django.core.mail.backends.smtp.EmailBackend",
     )
-    assert len(guards.all_problems(settings, {"SMTP_PASSWORD": "x"})) == 4
+    # database, environment, provider variable, sink backend, plus the 9kg.29 and 9kg.43 fixed intake settings (unset here)
+    assert len(guards.all_problems(settings, {"SMTP_PASSWORD": "x"})) == 6
 
 
 def test_system_check_reports_a_problem_introduced_after_startup(settings):

@@ -1512,6 +1512,29 @@ P6_SUPPORTING = {
         "test_processing::test_9kg_2_every_system_pause_reason_is_a_resumable_cause_with_a_resolution",
         "test_processing::test_9kg_2_the_screen_offers_a_system_resume_only_to_a_decision_maker_with_a_required_reason",
     ],
+    # PL-A batch item 1 (029 section 13.3): the public endpoints' limits with the proxy's client identity.
+    "9kg.29 every public endpoint is limited per client and per subject, keyed on the proxy's client identity": [
+        "test_throttle::test_9kg_29_the_client_identity_is_exactly_one_address_literal",
+        "test_throttle::test_9kg_29_the_identity_source_is_the_proxy_header_or_the_peer_and_is_fixed_in_code",
+        "test_throttle::test_9kg_29_every_public_endpoint_refuses_a_client_burst_uniformly_and_admits_again_after_the_window",
+        "test_throttle::test_9kg_29_intake_is_keyed_on_the_hashed_address_and_the_address_bucket_limits_issuance_not_confirmation",
+        "test_throttle::test_9kg_29_link_endpoints_are_keyed_on_the_client_and_the_token_hash_and_an_unknown_token_is_refused_alike",
+        "test_throttle::test_9kg_29_the_forwarded_identity_counts_only_in_proxy_mode_and_a_missing_or_invalid_one_refuses_issuance",
+        "test_throttle::test_9kg_29_an_unavailable_throttle_store_fails_closed_for_issuance_and_open_for_reading",
+        "test_throttle::test_9kg_29_the_webhook_is_limited_per_client_before_the_secret_is_compared",
+        "test_throttle::test_9kg_29_stale_buckets_are_swept_with_the_staff_sessions",
+    ],
+    # PL-A batch item 1 (029 sections 4.1, 7 and 13.3): invitation-only intake, enforced server-side.
+    "9kg.43 intake is invitation-only by default, enforced in the service, spent once at confirmation": [
+        "test_invitation::test_9kg_43_the_shipped_default_is_invitation_only_and_the_mode_is_fixed_in_code",
+        "test_invitation::test_9kg_43_an_uninvited_address_gets_exactly_the_invited_response_and_nothing_is_recorded",
+        "test_invitation::test_9kg_43_an_invitation_is_spent_at_confirmation_once_and_the_applicant_stays_admitted_afterwards",
+        "test_invitation::test_9kg_43_concurrent_confirmations_spend_the_invitation_once",
+        "test_invitation::test_9kg_43_an_invitation_expires_by_the_database_clock_and_an_expired_one_refuses_confirmation",
+        "test_invitation::test_9kg_43_issuance_is_an_owner_run_command_that_records_who_issued_it_and_nobody_else_can_change",
+        "test_invitation::test_9kg_43_with_the_mode_off_the_public_intake_is_unchanged",
+        "test_invitation::test_9kg_43_the_dossier_the_health_report_and_the_release_receipt_show_the_mode",
+    ],
 }
 
 # Cases with no pytest evidence of their own: shown only by a live script (026 section 16).

@@ -77,6 +77,11 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   a missing, stale, replaced or another deploy's backup before anything changes, so the wrapper reverts and holds; the
   smoke runs `check --deploy`. The deploy drill adds the N+1 expand release reverted to N on the expanded schema with
   the data kept, and a forward-only (contract) release whose revert is refused by name (`026` section 16)
+- PL-A batch item 1 (`029` section 13.3): every public endpoint rate-limited in PostgreSQL per client (the proxy's
+  forwarded address, trusted by where the web process listens) and per hashed address or token, one uniform refusal,
+  fail closed for issuance and open for reading; invitation-only intake by default, enforced inside the intake
+  transaction, spent once at confirmation, issued only by the owner-run `catalyst_invite`, shown in the dossier, the
+  health report and the release receipt
 
 ### Changed
 
