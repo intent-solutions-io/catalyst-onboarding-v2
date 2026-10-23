@@ -1334,7 +1334,7 @@ The owner signs GATE-P2; this section does not.
 
 | Direction | Current implementation | Conforms? | Correction | Gate it blocks |
 |---|---|---|---|---|
-| **Correspondence evidence.** Extend the append-only protections to immutable audit records and frozen identity and content fields. Do not freeze operational state or drafts. | **9kg.1 (correspondence migration 0015):** triggers refuse, for every role, an update or delete of a staff item resolution, an inbound message location or an approved message's question link; any change to an approved message other than its disposition, and its deletion; and any change to an approved or retired template version other than approved to retired, and its deletion; a template version is always inserted as a draft. All five tables refuse truncation. Drafts (staff message drafts, draft template versions) and delivery state (dispositions, outbound messages) stay updatable. | Yes | None. Limits: the owner role can disable a trigger it owns, and a superuser bypasses all of them, so these are append-only protections, not tamper-proofing (the ADR-14 pattern). No ordinary role, the retention role included, can erase these rows: a retention or erasure path is a POL-10 owner decision. Follow-up bead: freeze inbound message provenance columns. | Real applicant data (staging and pilot) |
+| **Correspondence evidence.** Extend the append-only protections to immutable audit records and frozen identity and content fields. Do not freeze operational state or drafts. | **9kg.1 (correspondence migration 0015):** triggers refuse, for every role, an update or delete of a staff item resolution, an inbound message location or an approved message's question link; any change to an approved message other than its disposition, and its deletion; and any change to an approved or retired template version other than approved to retired, and its deletion; a template version is always inserted as a draft. All five tables refuse truncation. Drafts (staff message drafts, draft template versions) and delivery state (dispositions, outbound messages) stay updatable. | Yes | None. Limits: the owner role can disable a trigger it owns, and a superuser bypasses all of them, so these are append-only protections, not tamper-proofing (the ADR-14 pattern). No ordinary role, the retention role included, can erase these rows: a retention or erasure path is a POL-10 owner decision. The follow-up, freezing inbound message provenance and the outbound and reply-link identity columns, is 9kg.5 (migration 0017, section 10.13). | Real applicant data (staging and pilot) |
 | **Mail-text readers.** Correspondence operators and decision-makers may read the sanitized text their work needs. Template-owner, collector-restart, pause-only or generic staff authority alone does not grant it. | The reply page needs `confirm_question_outcome`, `resolve_exception` or `resolve_identity_exception` (operator and decision-maker permissions). A template owner reaches only template pages. Pause-only or restart-only users reach no reply text; the item page shows the sender address and codes, not the body. | Yes | None in P2 | None |
 | **Automatic pauses.** A routine resume does not clear a system safety pause; that needs decision-maker review, a reason, and the cause addressed. | **9kg.2:** `resume()` still needs `resume_automation`. A system safety pause (actor `system...`: a hard bounce, the loop threshold, or an agreement declined, expired or cancelled at the provider) also needs `decide_uncertain_send` (decision-maker) and a reason of at least 10 characters. Every pause is refused (`pause_cause_open`) while one of those causes' staff items is still open, whoever paused first, so a staff resume cannot clear a system cause that arrived behind it. Resuming never resolves an identity, delivery or agreement-integrity item; each keeps its own path. The three agreement causes are settled on the agreements screen and then recorded by the correspondence decision-maker with a reason (`agreement_decided`; the role decided by the owner, D-46). The resume event records who, the reason and whether the pause was a system pause; a refused resume is recorded too (`automation_resume_refused`, with the code and the open causes). The staff screen shows the resume form for a system pause only to a decision-maker, with a required reason. Limit: the pause row is protected in code, not by the database (the application role may delete it). | Yes | None | Real mail |
 | **Hard bounces.** No automated or staff mail goes to an address with an unresolved hard bounce; resuming or revising is no bypass. | **9kg.3:** an open `hard_bounce` item holds every P2 send in the handler, whatever its kind (questions, reminders, staff messages and resends), and the S1 verification send. A send with an exchange already in flight still goes to reconciliation first, which sends nothing. The send stays queued with its attempt refunded and looks again hourly (`CATALYST_HARD_BOUNCE_RECHECK_SECONDS`). Confirming a staff message, and a resend or revision decision, are refused up front (`hard_bounce_open`). Documenso distribution uses the same rule (`correspondence.staff_items.hard_bounce_open`) but is protective rather than held: a refused distribution fails to a staff item, and after the bounce is resolved staff cancel and reissue that agreement on the agreements screen (no automatic resume). The item is no longer acknowledge-only: only `address_usable_again`, needing `decide_uncertain_send` (decision-maker) and a reason of at least 10 characters, resolves it. The resolution is recorded and releases the held sends at once; each re-checks everything under lock. The automation pause the bounce set is cleared separately (9kg.2). | Yes | None | Real mail |
@@ -1356,3 +1356,45 @@ pull request.
 
 **Sign-off.** The owner accepted this closeout and signed off GATE-P2 for synthetic P2 on 2026-10-13 (D-33 in
 `011`). The excluded scope and the before-real-use conditions above stand.
+
+### 10.13 Provenance freezes for every role (9kg.5, 2026-10-23)
+
+**Finding (security review of PR #44, MEDIUM 3).** An inbound message's provenance and the identity of an outbound
+attempt and a reply link were fixed only by the application role's column grants: the owner, or any role granted
+UPDATE later, could rewrite them.
+
+**Built (correspondence migration 0017, the 0015 pattern; internal-launch batch item 6).** Three `BEFORE UPDATE OR
+DELETE` triggers refuse the change for every role, with a tuple compare of the frozen columns; `DELETE` is refused and
+`catalyst_no_truncate` refuses `TRUNCATE`, as in 0015.
+
+| Table | Frozen at insert | Still updatable |
+|---|---|---|
+| `InboundMessage` | `public_id`, `mailbox_ref`, the headers (`message_id_header`, `in_reply_to`, `references`, `from_address`, `from_normalized`, `auto_markers`, `date_header`, `internal_date`), `received_at`, `size`, `original_sha256`, `attachments`, `is_derivative` | status, classification, exception reason, processed time, application and approved-message links, trust (`auth_evidence`, `trust_decision`, `from_matches_verified_address`, `identity_state`) and the derivative columns re-derivation writes |
+| `OutboundMessage` | application, pending action, attempt number, template key and version, recipient, approved message, attempt series, rendered digest; `message_id` is set once (empty may be filled, a value never changes) | status, protocol phase, reply code, `sent_at`, `server_accepted_at`, filed-copy state, `created_at` (the owner ages an attempt in tests; it is not identity) |
+| `QuestionReplyLink` | question, inbound message | state, outcome, actor, `updated_at` |
+
+**The audited retention path, kept open for erasure.** The freeze must never block the erasure `9kg.32` builds under
+POL-10 (`029` section 6.2). The inbound and outbound functions therefore carry one branch, the ADR-14 retention
+exception of `applications` migration 0002: a session whose login is a member of the retention role and that has set
+`catalyst.retention_reason` (ten characters or more) may change the personal columns only (inbound: `from_address`,
+`from_normalized`, `message_id_header`, `in_reply_to`, `references`, `attachments`; outbound: `recipient`), and the
+trigger records the change in `applications_retentionaudit` with a digest of the row before the change (application
+`0` when the message was never associated). The fixed provenance stays frozen on that path too, and deletion is
+refused to it: erasure anonymizes. Nothing is granted to the retention role by this migration. The branch is checked
+on `session_user`, so `9kg.32`'s security-definer erase function (EXECUTE for the retention role only) passes it while
+the update runs as the owner; `9kg.32` may replace the reason-and-audit condition with its erasure-audit row and the
+tombstone allow-list, and the frozen tuples stay. The two functions that write the audit row are `SECURITY DEFINER`
+owned by the owner, with a fixed `search_path` and no public EXECUTE; the reply-link function writes nothing.
+
+**Tests (`tests/test_provenance_freezes.py`).** Every frozen column refuses an update by the application role (its
+grants) and by the owner (the trigger); the updatable columns still update through both; no role deletes or truncates,
+the retention role with a reason included; the retention path anonymizes the personal columns through a stand-in
+security-definer function (with and without an application), writes the audit row, refuses the owner, refuses without a
+reason, and refuses a fixed column even with one; `message_id` is set once; the migration reverses and reapplies with
+the rows kept. The harness lists the six triggers in its expected set (`tests/conftest.py`), and the role suite counts
+them (`tests/test_db_roles.py`).
+
+**Not decided here (named in the same review, owner decisions):** whether a `StaffMessageDraft` is frozen once an
+approved message links to it, and whether a disposition may leave a terminal state. Both stay as 9kg.1 left them.
+
+**Limits.** As in 0015: the owner can disable or drop a trigger it owns, and a superuser bypasses them.

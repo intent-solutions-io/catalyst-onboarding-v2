@@ -71,6 +71,9 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 - Hardening: correspondence evidence append-only (#44); hard bounces block every send (#45); system pauses need a
   decision-maker (#46); a quarter-faster test suite (#40)
 - Preparation: P5 specification, P6 readiness matrix and PL cutover plan, `023` and `024` (#48)
+- Hardening (internal-launch batch item 6): the database freezes inbound message provenance and the identity
+  columns of outbound attempts and reply links for every role, with the audited retention path left open for
+  erasure (correspondence migration 0017, `016` section 10.13)
 
 ### Changed
 

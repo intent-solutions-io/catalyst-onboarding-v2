@@ -1505,6 +1505,20 @@ P6_SUPPORTING = {
         "test_processing::test_9kg_2_every_system_pause_reason_is_a_resumable_cause_with_a_resolution",
         "test_processing::test_9kg_2_the_screen_offers_a_system_resume_only_to_a_decision_maker_with_a_required_reason",
     ],
+    "9kg.5 the database freezes inbound provenance and outbound and reply-link identity for every role (internal-launch batch item 6)": [
+        "test_provenance_freezes::test_9kg5_a_frozen_inbound_column_refuses_an_update_for_every_role",
+        "test_provenance_freezes::test_9kg5_the_updatable_inbound_columns_still_update_through_the_application_role_and_the_owner",
+        "test_provenance_freezes::test_9kg5_no_role_deletes_or_truncates_inbound_messages",
+        "test_provenance_freezes::test_9kg5_the_audited_retention_path_anonymizes_the_personal_inbound_columns_and_nothing_else",
+        "test_provenance_freezes::test_9kg5_a_frozen_outbound_identity_column_refuses_an_update_for_every_role",
+        "test_provenance_freezes::test_9kg5_an_outbound_message_id_is_set_once",
+        "test_provenance_freezes::test_9kg5_the_outbound_delivery_columns_still_update_and_the_owner_still_ages_an_attempt",
+        "test_provenance_freezes::test_9kg5_no_role_deletes_or_truncates_outbound_attempts",
+        "test_provenance_freezes::test_9kg5_the_audited_retention_path_anonymizes_an_outbound_recipient",
+        "test_provenance_freezes::test_9kg5_a_reply_link_keeps_its_question_and_message_and_is_never_deleted",
+        "test_provenance_freezes::test_9kg5_the_freeze_functions_are_owned_fixed_and_not_executable_by_the_application_role",
+        "test_provenance_freezes::test_9kg5_the_freeze_migration_reverses_and_reapplies_and_keeps_the_rows",
+    ],
 }
 
 # Cases with no pytest evidence of their own: shown only by a live script (026 section 16).

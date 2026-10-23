@@ -273,6 +273,12 @@ EXPECTED_TRIGGERS = {
     ("correspondence_approvedmessage", "catalyst_no_truncate"),
     ("correspondence_messagetemplateversion", "catalyst_template_version_frozen"),
     ("correspondence_messagetemplateversion", "catalyst_no_truncate"),
+    ("correspondence_inboundmessage", "catalyst_inbound_provenance_frozen"),  # 9kg.5
+    ("correspondence_inboundmessage", "catalyst_no_truncate"),
+    ("correspondence_outboundmessage", "catalyst_outbound_identity_frozen"),
+    ("correspondence_outboundmessage", "catalyst_no_truncate"),
+    ("correspondence_questionreplylink", "catalyst_reply_link_identity_frozen"),
+    ("correspondence_questionreplylink", "catalyst_no_truncate"),
     ("provisioning_provisioningrequest", "catalyst_provisioning_request_fixed"),  # P5 5B.1
     ("provisioning_addressreservation", "catalyst_provisioning_reservation_fixed"),
     ("provisioning_provisioningattempt", "catalyst_provisioning_attempt_fixed"),
