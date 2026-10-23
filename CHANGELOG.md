@@ -71,6 +71,9 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 - Hardening: correspondence evidence append-only (#44); hard bounces block every send (#45); system pauses need a
   decision-maker (#46); a quarter-faster test suite (#40)
 - Preparation: P5 specification, P6 readiness matrix and PL cutover plan, `023` and `024` (#48)
+- Internal launch, repo-only batch item 3 (`029` section 13.3): the staff role matrix, the owner-run
+  `grant_staff_role` command, the append-only grant record and the P4 and P5 role groups; the qualification
+  authority read from configuration (`9kg.30`, `029` section 17.1)
 
 ### Changed
 

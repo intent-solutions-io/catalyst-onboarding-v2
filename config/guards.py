@@ -197,10 +197,10 @@ def assessment_problems(settings, environ: Mapping[str, str]) -> list[str]:
 
 
 def decision_problems(settings, environ: Mapping[str, str]) -> list[str]:
-    """018 section 7 (P3 3B.4): the decision authority and the selection policy are fixed in code, never taken from
-    the environment; the authority is None (POL-05 undecided) or the one rule the code implements."""
-    problems = [f"{name} may not be set from the environment" for name in
-                ("CATALYST_QUALIFICATION_AUTHORITY", "CATALYST_SELECTION_POLICY") if name in environ]
+    """018 section 7 (P3 3B.4): the selection policy is fixed in code, never taken from the environment; the decision
+    authority is configuration (9kg.30) but takes only "explicit_permission", the one rule the code implements, or
+    stays unset (POL-05 undecided: everyone refused)."""
+    problems = ["CATALYST_SELECTION_POLICY may not be set from the environment"] if "CATALYST_SELECTION_POLICY" in environ else []
     if getattr(settings, "CATALYST_QUALIFICATION_AUTHORITY", None) not in (None, "explicit_permission"):
         problems.append("CATALYST_QUALIFICATION_AUTHORITY must be None or 'explicit_permission'")
     policy = getattr(settings, "CATALYST_SELECTION_POLICY", "")

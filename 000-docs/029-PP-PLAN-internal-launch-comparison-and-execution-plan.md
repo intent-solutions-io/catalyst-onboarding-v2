@@ -692,6 +692,43 @@ their production values are the decisions above.
   the canary. No other research was needed: the GitHub questions were answered by the readback above, and the
   retention, legal and provider-account questions are the owner's.
 
+## 17. Records of the repo-only batch (section 13.3), 2026-10-23
+
+Each record states the recommended default it built on; the owner's later decision changes a value, not a design.
+
+### 17.1 Staff roles and the grant command (`9kg.30`)
+
+**Built:** `accounts/roles.py` (the role matrix), `manage.py grant_staff_role` (grant or revoke one role for one
+account, owner-run as the migration owner), the append-only record `accounts.StaffRoleGrant` (migration accounts
+0006) and the P4 and P5 role groups (agreements 0009, provisioning 0007). Tests: `tests/test_staff_roles.py`.
+
+- **Default built on:** D-D4 (section 14): the owner is the decision group; the role names are the ones the designs
+  use (`016` F; `018` section 7; `021` section 9; `023` sections 8 and 15). `211.7.8` names the production holders;
+  that changes no code.
+- **Groups and permission sets are defined by migration, membership by the command.** Group roles: the S1 read-only
+  group; the three P2 groups; the P3 `Assessment operator` and `Evidence source owner`; new P4 groups `Agreement
+  operator` (view, operate), `Agreement decision-maker` (view, uncertain decisions, cancel and reissue and stop,
+  integrity holds, document retrieval, required details) and `Agreement template owner`; new P5 groups
+  `Provisioning operator` (view, operate) and `Provisioning decision-maker` (the same plus `close_application`,
+  POL-12). The command refuses a group whose permissions differ from the matrix, so a role never quietly carries more
+  than it says.
+- **Direct roles, never a group:** `qualification-decision-maker` (`assessments.record_qualification_decision`, which
+  `decisions.can_decide` accepts only as a direct grant) and `provisioning-approver` (`provisioning.approve_provisioning`,
+  P5-D-3). The qualification grant is refused until the authority is configured.
+- **The qualification authority is configuration, not code:** `CATALYST_QUALIFICATION_AUTHORITY` is read from the
+  environment (unset: everyone refused, POL-05 undecided) and the start-up guard accepts only `explicit_permission`,
+  the one rule the code implements; `CATALYST_SELECTION_POLICY` stays code-only (TEST-P3-53 amended accordingly). The
+  launch host sets the value when `211.7.8` is recorded, with no release.
+- **The grant record's home (a design decision):** its own table in `accounts`, not the application history (a grant
+  is about a staff account, not an applicant) and not the admin log (which the application role may not write).
+  Every grant and revocation inserts one row naming the account, the role, the group or permission, the approval
+  reference the owner cites (`--approval-ref`, required) and the command actor; the strict append-only and
+  no-truncate triggers protect it for every role, the application role reads it, and the backup role reads it.
+  A no-op (already held, not held) writes nothing.
+- **Superusers** hold no role (refused by the command, as on the staff site). **No raw SQL** in any filed step: a test
+  scans `000-docs` for grant statements and `manage.py shell`.
+- **Reviewer:** `catalyst-django-operator` (the roster in `008`); the owner approves the role names.
+
 ## Appendix A. Reconciliation of the 2026-10-22 audit findings
 
 The refreshed application audit of 2026-10-22 (a private review pack; only its repository-relevant findings are

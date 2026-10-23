@@ -760,7 +760,7 @@ P3_CASES = {
         "test_decision::test_review_the_backstop_refuses_another_applications_decision_and_a_decided_insert",
     ],
     "TEST-P3-53": [
-        "test_decision::test_p3_53_after_pol05_a_superuser_or_ungranted_staff_is_refused_and_the_setting_is_code_only",
+        "test_decision::test_p3_53_after_pol05_a_superuser_or_ungranted_staff_is_refused_and_the_setting_takes_one_rule",
         "test_decision::test_review_a_group_grant_never_confers_the_decision",
     ],
     "TEST-P3-54": [

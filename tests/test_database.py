@@ -59,6 +59,8 @@ APPROVED_MIGRATIONS = {
     ("otp_static", "0001_initial"), ("otp_static", "0002_throttling"), ("otp_static", "0003_add_timestamps"),
     ("accounts", "0004_login_throttle"), ("accounts", "0005_two_factor_grants"),
     ("assessments", "0009_fetcher_role_grants"),  # 9kg.24: the evidence fetcher's own narrower role
+    # 9kg.30: the append-only staff role grant record and the P4 and P5 role groups (accounts.roles)
+    ("accounts", "0006_staff_role_grants"), ("agreements", "0009_staff_groups"), ("provisioning", "0007_staff_groups"),
 }
 
 

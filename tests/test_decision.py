@@ -70,7 +70,7 @@ def test_p3_04_no_decision_authority_refuses_everyone_including_superusers(c, mo
     assert not QualificationDecision.objects.exists() and Application.objects.get(pk=app.pk).stage == "awaiting_decision"
 
 
-def test_p3_53_after_pol05_a_superuser_or_ungranted_staff_is_refused_and_the_setting_is_code_only(d, monkeypatch):
+def test_p3_53_after_pol05_a_superuser_or_ungranted_staff_is_refused_and_the_setting_takes_one_rule(d, monkeypatch):
     app = ready_app(d, monkeypatch)
     for user in (staff(d, "root-p3", superuser=True), staff(d, "operator-p3", "Assessment operator")):
         with pytest.raises(PermissionDenied):
@@ -79,7 +79,12 @@ def test_p3_53_after_pol05_a_superuser_or_ungranted_staff_is_refused_and_the_set
     class Fake:
         CATALYST_QUALIFICATION_AUTHORITY = "anyone"
     assert guards.decision_problems(Fake, {})
-    assert guards.decision_problems(type("S", (), {})(), {"CATALYST_QUALIFICATION_AUTHORITY": "explicit_permission"})
+    # 9kg.30: the authority is configuration (the launch host sets it once 211.7.8 names the holders), but it takes
+    # only the one rule the code implements; the selection policy stays code-only.
+    environ = {"CATALYST_QUALIFICATION_AUTHORITY": "explicit_permission"}
+    assert not guards.decision_problems(type("S", (), {"CATALYST_QUALIFICATION_AUTHORITY": "explicit_permission"})(), environ)
+    assert guards.decision_problems(type("S", (), {"CATALYST_QUALIFICATION_AUTHORITY": "anyone"})(), {"CATALYST_QUALIFICATION_AUTHORITY": "anyone"})
+    assert guards.decision_problems(type("S", (), {})(), {"CATALYST_SELECTION_POLICY": "SP-L2-1"})
 
 
 # --- TEST-P3-44, 45, 46, 52: the decision, its follow-on, races, history, the backstop -----------------------------
