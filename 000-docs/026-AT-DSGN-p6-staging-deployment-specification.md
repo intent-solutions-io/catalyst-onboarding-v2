@@ -251,6 +251,7 @@ checked from Buzz itself, never assumed (VERIFIED in the private alerting runboo
 | Backup freshness | the backup receipt | no | older than 26 hours, or failed |
 | Restore drill overdue | the drill receipt | no | older than 35 days |
 | A check itself failed | exit 2 from any health command | yes | any |
+| Aged waits (stages, staff items, pauses, replies, sent agreements, activation) | `aged_waits_health` (9kg.51, section 17) | yes | per class, over its own threshold; only the classes in the page list page |
 
 **Dead-man coverage:** the health timer writes a start marker and a success marker, and a separate estate sweep
 alerts on a stale success marker; an outside-in probe of the public intake path; a planted-fault test per signal on
@@ -1400,7 +1401,9 @@ specification text; nothing is built.
 **6C, the GATE-STAGING evidence map and the after-action report (026 sections 11 and 12, task 14).**
 
 - **The map:** `tests/acceptance.py` `P6_CASES` maps 37 of the 38 cases to the tests that prove them. The 38th,
-  TEST-P6-27, is shown only live (`P6_LIVE_ONLY`). `P6_SUPPORTING` holds the one P6 design rule that is not a case.
+  TEST-P6-27, is shown only live (`P6_LIVE_ONLY`). `P6_SUPPORTING` holds the P6 design rules that are not cases: the
+  9kg.2 pause rule and, since PR #87, the five internal-launch groups (`9kg.30`, `9kg.50`, `9kg.51`, `oc4.12`, `9kg.47`),
+  which sit inside GATE-STAGING's supporting map by design (every staff-path test gates a full run).
 - **The gate:** `tests/conftest.py` reports GATE-STAGING and gates it in a full run like GATE-S1 to GATE-P5.
 - **Two new tests:**
   - every case in this section is gated or live-only, never both and never neither;
@@ -1518,3 +1521,34 @@ item 6, 2026-10-23).**
   variable or secret (`tests/test_staging_compose.py`). The full suite runs with the narrowed environment.
 - **Staging is unchanged:** the administrator's password was already a file mounted only into the database, the
   operator-run provisioning and the restore service (section 5; the 6B.5b and 6B.13 records).
+
+## 17. The aged-waits health part (9kg.51, 2026-10-23)
+
+`029` section 5.2 listed the waits with no bound once the first-generation owner notices retire: an application in
+`assessing`, `awaiting_decision` or `on_hold`; an open staff item; a pause; a reply awaiting staff processing; a
+sent agreement awaiting the applicant's signature or the countersignature; a `provision_activate` action requeued
+because the provider was unavailable. Built, in `config.system_health.aged_waits_health`, one part of the health
+report (`catalyst_health`, the staging adapter `health.sh`, the Buzz floor):
+
+- **One class per wait.** Each class is counted past its own threshold and its oldest age is printed
+  (`waiting`, `aged`, `oldest_seconds`, `threshold_seconds`, `pages`). A stage's age runs from the latest transition
+  event into that stage; the others from the row's own time (opened, created, received, last status change).
+- **Thresholds and paging are the owner's values** (`211.7.2`, `211.7.7`): `CATALYST_HEALTH_AGED_WAIT_<CLASS>_SECONDS`
+  each defaults to the pending-age target `CATALYST_HEALTH_PENDING_AGE_SECONDS` (3600 s, a placeholder), and
+  `CATALYST_HEALTH_AGED_WAITS_PAGE` (default: every class) names the classes that raise the anomaly
+  `aged_waits.<class>`, which the floor delivers as high; a class outside the list is counted and printed, audit only.
+- **Codes only.** No identifier of an application, item, message or agreement is in the report (tested). No action
+  is taken and no mail is sent: the part is a signal, staff act on their screens.
+- **Age semantics (review of 2026-10-23).** `assessing`, `awaiting_decision` and `on_hold` age from the latest
+  transition event into the stage; `open_staff_items` from `opened_at`; `pauses` from `created_at` and count
+  application pauses only (the restore hold is a `system` pause with its own signal, `catalyst_post_restore`);
+  `replies_awaiting_processing` from `received_at`; `issued_agreements` from the instance's `updated_at`, the last
+  status change, not the send itself; `provisioning_activation` from the action's `created_at`.
+- **Default page list.** Until the owner sets values, only the three classes that are bad in themselves page:
+  `replies_awaiting_processing`, `issued_agreements`, `provisioning_activation`; the stage, item and pause classes
+  are counted and printed, audit only. The health report also carries `decision.qualification_authority_configured`.
+- **Deferred:** a `held_followons` class (held `issue_nda` and `send_decline` actions past an age) is not built; the
+  main session files its bead.
+
+Tests: `tests/test_system_health.py` (`9kg.51` in `tests/acceptance.py` P6_SUPPORTING): every class fresh raises
+nothing, past its threshold raises its code, and clears when resolved; thresholds and paging per class.

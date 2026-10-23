@@ -10,7 +10,8 @@ Staff attention, one rule for the dossier, the list column and the list filter (
 - while contact is unverified and the application open: an active, unexpired challenge whose send is
   missing or ended in anything but queued, running or done (failed, uncertain, cancelled, held), so the
   applicant has no working link and nothing automatic will produce one;
-- once contact is verified: no next-stage action.
+- once contact is verified: no next-stage action;
+- an application awaiting the qualification decision or on hold (the decision-maker owes the next step).
 Every other next step belongs to the applicant, the system, or nobody yet (blocked in this slice).
 """
 
@@ -46,6 +47,11 @@ REASONS = {
     "send_rejected_permanent": "a send was rejected permanently",
     "send_refused": "a send was refused before sending",
     "filed_copy_failed": "a copy could not be filed",
+    "assessment_failed": "an assessment run failed; staff may rerun it or record a human-only assessment",
+    "assessment_capped": "the assessment budget for this snapshot is spent; the human-only decision form is the way on",
+    "assessment_input_changed": "the assessment input changed before the run; a reassessment was needed",
+    "assessment_pack_refused": "the prompt pack was refused; no assessment can run",
+    "assessment_suspended": "refused by suspension: model advice is disabled, a human-only assessment applies (oc4.12)",
 }
 
 
@@ -78,6 +84,7 @@ def attention_q() -> Q:
         | Q(Exists(AutomationPause.objects.filter(subject_type="application", subject_id=OuterRef("public_ref"))))
         | (Q(contact_verified_at__isnull=True) & ~Q(stage__in=TERMINAL_STAGES) & Q(Exists(stuck_link)))
         | (Q(contact_verified_at__isnull=False) & ~Q(stage__in=TERMINAL_STAGES) & ~Q(Exists(next_stage)))
+        | Q(stage__in=("awaiting_decision", "on_hold"))  # a decision is owed (9kg.50 review)
     )
 
 
@@ -143,7 +150,14 @@ def next_steps(application) -> list[Step]:
     if application.stage == "evidence":
         return steps + [Step("System", "Evidence is being collected from approved sources (P3)")]
     if application.stage == "assessing":
-        return steps + [Step("Blocked", "Evidence collection is complete; the assessment step arrives with P3 task 3B.2")]
+        if application.staff_items.filter(status="open", reason_code__in=("assessment_suspended", "assessment_capped")).exists():
+            return steps + [Step("Staff", "The assessment is refused by suspension or capped: record a human-only decision on the"
+                                 " decision screen", attention=True)]
+        return steps + [Step("System", "Assessing: a run is queued or waiting; a failed run opens a staff item")]
+    if application.stage == "awaiting_decision":  # 9kg.50 review: the decision-maker owes the next step
+        return steps + [Step("Staff", "Awaiting the qualification decision: record it on the decision screen", attention=True)]
+    if application.stage == "on_hold":
+        return steps + [Step("Staff", "On hold: the way on is an admit or a decline on the decision screen", attention=True)]
     if action.status == PendingAction.Status.HELD:
         return steps + [Step("Blocked", "Start evidence collection is held until the owner releases it (activation command, 018 4.1)")]
     return steps + [Step("Blocked", f"Start evidence collection is {action.status}")]
@@ -154,7 +168,8 @@ def _verification_step(application, paused: bool) -> Step:
     if challenge is None:
         return Step("Applicant", "No active verification link; a new submission of the form issues one")
     if not challenge.unexpired:
-        return Step("Applicant", "The verification link expired; a new submission of the form issues a new one")
+        return Step("Applicant", "The verification link expired; a new submission of the form issues a new one"
+                    " (or staff resend it from the correspondence screen)")
     send = PendingAction.objects.filter(idempotency_key=send_verification_key(challenge.public_id)).first()
     Status = PendingAction.Status
     if send is None:
@@ -165,5 +180,5 @@ def _verification_step(application, paused: bool) -> Step:
         return Step("System", f"The verification message is waiting to be sent (attempt {send.attempts} of {send.max_attempts} so far)")
     if send.status == Status.DONE:
         return Step("Applicant", "Confirm the email address (the message was accepted by the local mail sink, which is not proof of delivery)")
-    return Step("Staff", f"The verification send ended {send.status} and is not retried; the applicant has no working link",
-                attention=True)
+    return Step("Staff", f"The verification send ended {send.status} and is not retried; the applicant has no working link"
+                " (staff can resend it from the correspondence screen)", attention=True)

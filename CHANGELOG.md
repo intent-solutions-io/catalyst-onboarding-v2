@@ -71,6 +71,19 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 - Hardening: correspondence evidence append-only (#44); hard bounces block every send (#45); system pauses need a
   decision-maker (#46); a quarter-faster test suite (#40)
 - Preparation: P5 specification, P6 readiness matrix and PL cutover plan, `023` and `024` (#48)
+- Internal launch, repo-only batch item 3 (`029` section 13.3): the staff role matrix, the owner-run
+  `grant_staff_role` command, the append-only grant record and the P4 and P5 role groups; the qualification
+  authority read from configuration (`9kg.30`, `029` section 17.1)
+- The staff path back from a hold through the decision service and form, and the staff verification resend on the
+  correspondence screen with its limit (`9kg.50`, `018` section 19, `016` section 10.14)
+- The `aged_waits` health part: every unbounded wait counted past its own threshold with its oldest age, paging
+  per class by the owner's values, codes only (`9kg.51`, `026` section 17)
+- The human-only assessment path completed for a launch with model advice disabled: the suspension record, the
+  structured human-only reason, the decision digest and record carrying the policy, pack, evidence manifest and
+  runs, the policy-to-pack binding guard, "refused by suspension" labels and the selection scorecard command
+  (`oc4.12`; `oc4.10` items 1 to 3; `018` section 20, `011` section 4.1)
+- Staff screens for the shell-only agreement states: the decisions on an unknown Documenso create, distribute and
+  cancel on the agreements screen, and the agreement template approval screen (`9kg.47`, `021` section 20)
 - Internal launch, PL batch 2 (`029` section 13.3; beads `9kg.37`, `9kg.38`): the deploy operation (`CATALYST_DEPLOY_ID`)
   binds the pre-deploy backup to the deploy by id, digest and time, and the deployment receipt is a gate, built on
   D-I's recommended default: `deploy.sh` refuses an image other than the approved one, an unapproved commit label and
@@ -84,7 +97,7 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   health report and the release receipt
 - Hardening (internal-launch batch item 6): the database freezes inbound message provenance and the identity
   columns of outbound attempts and reply links for every role, with the audited retention path left open for
-  erasure (correspondence migration 0017, `016` section 10.13)
+  erasure (correspondence migration 0017, `016` section 10.14)
 - Test hygiene (internal-launch batch item 6): the administrator database login reaches only the role-provisioning
   step of the test container and the CI job; the superuser-refusal probes and the tests that act as the
   administrator use a probe-only pair read by `tests/support.py` alone (`026` section 16)

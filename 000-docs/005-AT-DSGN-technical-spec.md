@@ -149,7 +149,7 @@ stored), signing keys, retention audit. Migration `accounts.0003_staff_view`, ru
 application role `django_session` SELECT, INSERT, UPDATE and DELETE and `django_admin_log` SELECT only
 (read-only staff never write a log entry), and creates the group "Read-only staff" with exactly the view
 permissions on the eight slice models (not RetentionAudit). Accounts are created by the owner with
-`manage.py add_readonly_staff <username>`; the application role cannot insert users, memberships or
+`manage.py add_readonly_staff <username> --approval-ref <decision>` (since `9kg.30` every grant is recorded); the application role cannot insert users, memberships or
 permissions, or change `is_staff`, `is_superuser` or `is_active`. POL-13 (roles, MFA, staff host) stays
 open for GATE-STAGING; session cookie flags are a deployment gate (`006`).
 

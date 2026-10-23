@@ -169,6 +169,12 @@ synthetic work only. Every live value and every live operation stays a separate 
 **Carried from P4 (D-46):** the correspondence decision-maker resolves routine agreement causes, and one qualified
 person may record and confirm required details as two audited actions.
 
+*Amended 2026-10-23 (`9kg.30`, `029` section 17.1), pending the owner's ratification of the role names:*
+`operate_provisioning`, `view_provisioningrequest` and `close_application` are carried by the named groups
+`Provisioning operator` and `Provisioning decision-maker` (provisioning migration 0007), granted only by the owner-run
+`grant_staff_role` command. `approve_provisioning` stays a direct, named grant per person (P5-D-3), made by the same
+command and recorded the same way.
+
 ## 9. Acceptance plan (GATE-P5), amended 0.2.0
 
 TEST-P5-01 to TEST-P5-05 keep their meaning from `004`. The numbered cases below are mapped in `tests/acceptance.py`
@@ -480,7 +486,7 @@ None of these blocks synthetic work:
   - evidence is append-only;
   - a checklist attestation by the creator is refused;
   - nothing is deleted or truncated.
-- **Permissions:** `approve_provisioning` and `operate_provisioning`, assigned to no group.
+- **Permissions:** `approve_provisioning` (a direct named grant, P5-D-3) and `operate_provisioning` (carried by a named group since `9kg.30`, pending the owner's ratification; originally assigned to no group).
 - **`agreements.completion.prerequisites`:** one function for the P4 hand-off and every P5 boundary.
   `fresh_read_problem` is the fresh Documenso read, outside any transaction, and opens the D-43 integrity hold on a
   mismatch.
@@ -661,7 +667,7 @@ applicant-centred staff screen (TEST-P5-19, 20).
 
   It never deletes mailbox data, never suspends a whole hosting user or domain, and never reopens or closes twice
   (P5-D-10).
-- **Staff `close_application`:** needs the `close_application` permission (assigned to no group) and a reason. It
+- **Staff `close_application`:** needs the `close_application` permission (carried by the `Provisioning decision-maker` group since `9kg.30`, pending the owner's ratification; originally assigned to no group) and a reason. It
   covers a closure, and a withdrawal the applicant asked for through staff (the staff-mediated path of P5-D-8).
 - **The applicant's withdrawal** (`request_withdrawal_link`, `/withdraw/<token>/`):
   - Staff send a one-time link on the applicant's request.

@@ -9,7 +9,7 @@ Selection policy: {{ policy_ref }}.</p>
 <h2>Clarification questions</h2>
 {% if questions %}<ul>{% for q in questions %}<li><bdi>{{ q.text|visible }}</bdi> ({{ q.criterion_id }}; {{ q.approval_state }}, {{ q.status }})</li>{% endfor %}</ul>{% else %}<p>None.</p>{% endif %}
 <h2>Decision</h2>
-<p>The decision will cite snapshot {{ state.snapshot|truncatechars:17 }}{% if state.run %} and run {{ state.run.public_id }}{% endif %}. If anything changes before you submit, the decision is refused and this page shows the new state.</p>
+<p>The decision will cite snapshot {{ state.snapshot|truncatechars:17 }}{% if state.run %} and run {{ state.run.public_id }}{% endif %}, the policy reference {{ state.policy_ref }}, the pack {{ state.pack.name }} ({{ state.pack_sha256|truncatechars:17 }}, rubric {{ state.rubric_version }}), the evidence manifest ({% for e in state.evidence_manifest %}{{ e.claim }}: {{ e.state }}{% if not forloop.last %}; {% endif %}{% empty %}none{% endfor %}) and every run ({% for r in state.runs %}{{ r.status }}{% if r.error_code %} {{ r.error_code }}{% endif %}, {{ r.requests_used }} request(s){% if not forloop.last %}; {% endif %}{% empty %}none{% endfor %}). If anything changes before you submit, the decision is refused and this page shows the new state.</p>
 {% if not authority %}<p>No decision authority is configured (POL-05). Nobody can record a decision.</p>
 {% elif not may_decide %}<p>You may not record a decision.</p>
 {% elif not decidable %}<p>This application is not at a stage where a decision can be recorded ({{ application.stage }}).</p>
@@ -17,14 +17,14 @@ Selection policy: {{ policy_ref }}.</p>
 {% else %}
 <form method="post" action="{% url 'assessments_staff:decide' application.public_ref %}">{% csrf_token %}
 <input type="hidden" name="digest" value="{{ state.digest }}">
-<p>For each criterion, record what the evidence shows (capability) and how much evidence there is (strength) separately. Missing or private evidence is never evidence against the applicant.</p>
-<table><tr><th>Criterion</th><th>Capability</th><th>Strength of evidence</th><th>Your reasoning</th></tr>
-{% for c in criteria %}<tr><td>{{ c.id }}</td>
+<p>For each criterion, record what the evidence shows (capability) and how much evidence there is (strength) separately (019 section 5: two facts, never one score). <strong>Not evidence of low ability:</strong> no public portfolio, confidential or private work, a missing certification, a non-traditional career, a different communication style or English fluency beyond what the role needs; with no evidence, capability is <em>unknown</em>. <strong>Equivalent evidence routes:</strong> every criterion accepts more than one route; an applicant who cannot use one is offered another, and the alternative is recorded. The same criteria apply to every applicant.</p>
+<table><tr><th>Criterion</th><th>Definition</th><th>Capability</th><th>Strength of evidence</th><th>Your reasoning</th></tr>
+{% for c in criteria %}<tr><td>{{ c.id }}{% if c.required %} (required){% endif %}</td><td>{{ c.definition }}</td>
 <td><select name="cap-{{ c.id }}" required><option value="">choose</option>{% for v in capability %}<option value="{{ v }}">{{ v }}</option>{% endfor %}</select></td>
 <td><select name="str-{{ c.id }}" required><option value="">choose</option>{% for v in strength %}<option value="{{ v }}">{{ v }}</option>{% endfor %}</select></td>
 <td><input name="note-{{ c.id }}" maxlength="500" required></td></tr>{% endfor %}
 </table>
-{% if not state.run %}<p>Model advice is unavailable or suspended for this snapshot. This is a human-only assessment (D-35).</p>
+{% if not state.run %}<p>Model advice is unavailable or suspended for this snapshot. This is a human-only assessment (D-35), recorded with the structured reason <code>{{ state.human_only_code }}</code>{% if state.suspension_ref %} citing the suspension record {{ state.suspension_ref }}{% endif %}, the same criteria and the same snapshot.</p>
 <label>Why a human-only assessment <input name="human_only_reason" maxlength="300" required></label>{% endif %}
 <label>Outcome <select name="outcome" required><option value="">choose</option>{% for o in outcomes %}<option value="{{ o }}">{{ o }}</option>{% endfor %}</select></label>
 <label>Reason code <input name="reason_code" maxlength="40" pattern="[a-z][a-z_]{2,39}" required></label>

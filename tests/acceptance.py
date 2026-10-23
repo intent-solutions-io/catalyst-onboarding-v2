@@ -760,7 +760,7 @@ P3_CASES = {
         "test_decision::test_review_the_backstop_refuses_another_applications_decision_and_a_decided_insert",
     ],
     "TEST-P3-53": [
-        "test_decision::test_p3_53_after_pol05_a_superuser_or_ungranted_staff_is_refused_and_the_setting_is_code_only",
+        "test_decision::test_p3_53_after_pol05_a_superuser_or_ungranted_staff_is_refused_and_the_setting_takes_one_rule",
         "test_decision::test_review_a_group_grant_never_confers_the_decision",
     ],
     "TEST-P3-54": [
@@ -1511,6 +1511,53 @@ P6_SUPPORTING = {
     "9kg.2 a system pause resumes only past its cause (pre-staging hardening)": [
         "test_processing::test_9kg_2_every_system_pause_reason_is_a_resumable_cause_with_a_resolution",
         "test_processing::test_9kg_2_the_screen_offers_a_system_resume_only_to_a_decision_maker_with_a_required_reason",
+    ],
+    "9kg.51 every unbounded wait has an age bound in the health report (029 section 5.2)": [
+        "test_system_health::test_9kg_51_each_aged_wait_raises_its_code_and_clears_when_resolved",
+        "test_system_health::test_9kg_51_thresholds_and_paging_are_per_wait_class",
+        "test_system_health::test_9kg_51_the_default_page_list_is_the_three_bad_classes_and_the_authority_flag_is_reported",
+    ],
+    "9kg.30 the staff role matrix, the grant command and the append-only grant record (029 section 17.1)": [
+        "test_staff_roles::test_every_permission_a_staff_screen_checks_has_a_grant_path",
+        "test_staff_roles::test_each_group_role_confers_exactly_its_matrix_set",
+        "test_staff_roles::test_the_direct_roles_are_never_carried_by_a_group_and_the_decision_needs_the_authority",
+        "test_staff_roles::test_superusers_unknown_roles_drifted_groups_and_a_missing_approval_are_refused",
+        "test_staff_roles::test_the_grant_record_is_append_only_for_every_role_and_names_no_secret",
+        "test_staff_roles::test_a_role_granted_by_the_command_opens_exactly_its_screens",
+        "test_staff_roles::test_no_runbook_or_design_step_grants_with_raw_sql_or_a_shell",
+        "test_staff_roles::test_every_group_membership_has_a_latest_grant_row",
+    ],
+    "9kg.50 the hold exit through the decision service and the staff verification resend (018 section 19, 016 section 10.14)": [
+        "test_hold_and_resend::test_an_on_hold_case_comes_back_to_a_decision_through_the_service",
+        "test_hold_and_resend::test_an_on_hold_case_comes_back_through_the_decision_form_and_a_refused_user_sees_403",
+        "test_hold_and_resend::test_a_human_only_hold_can_also_leave_through_the_form",
+        "test_hold_and_resend::test_staff_resend_supersedes_the_challenge_and_sends_the_same_message",
+        "test_hold_and_resend::test_a_resend_is_refused_beyond_the_limit_after_verification_and_without_the_permission",
+        "test_hold_and_resend::test_a_resend_is_refused_while_a_hard_bounce_is_open",
+        "test_hold_and_resend::test_the_dossier_flags_a_case_awaiting_decision_or_on_hold_and_links_the_decision_screen",
+    ],
+    "oc4.12 the human-only assessment path completed for a launch with model advice disabled (018 section 20)": [
+        "test_human_only::test_the_decision_service_and_screen_never_import_the_model_layer",
+        "test_human_only::test_a_run_refused_under_the_suspension_is_labelled_so_and_leaves_assessing_through_the_decision_form",
+        "test_human_only::test_a_capped_snapshot_leaves_assessing_through_the_decision_form_and_no_close_action_exists",
+        "test_human_only::test_the_digest_carries_the_policy_and_a_bound_policy_still_records_the_pack_and_rubric",
+        "test_human_only::test_the_guard_refuses_a_policy_that_is_unbound_or_bound_to_a_synthetic_pack",
+        "test_human_only::test_a_human_only_decision_never_rests_on_free_text_alone",
+        "test_human_only::test_human_only_decisions_are_counted_on_the_scorecard_without_identifiers",
+        "test_human_only::test_model_output_is_shown_as_nonbinding",
+        "test_human_only::test_the_evidence_manifest_names_every_state_and_a_new_failed_run_changes_the_digest",
+        "test_human_only::test_a_paused_application_under_the_suspension_is_refused_at_once_not_requeued",
+    ],
+    "9kg.47 staff screens for the shell-only agreement states (021 section 20)": [
+        "test_agreement_screens::test_an_unknown_create_is_decided_on_the_screen_and_refused_without_the_permission",
+        "test_agreement_screens::test_an_unknown_distribute_is_decided_on_the_screen_and_cancelling_needs_the_manage_permission",
+        "test_agreement_screens::test_an_unknown_cancel_is_decided_on_the_screen_and_refused_without_the_permission",
+        "test_agreement_screens::test_a_template_version_is_approved_on_its_own_screen_by_the_digest_shown",
+        "test_agreement_screens::test_agreement_items_point_at_the_agreements_screen",
+        "test_agreement_screens::test_the_screen_refuses_a_reconciliation_in_progress_a_signed_and_an_observed_complete_agreement",
+        "test_agreement_screens::test_the_cancel_button_is_absent_for_verified_cancelled_and_superseded_rows",
+        "test_agreement_screens::test_a_second_template_version_becomes_current_and_a_repeat_approval_is_a_no_op",
+        "test_agreement_screens::test_a_withdrawal_stops_an_agreement_the_provider_reports_complete_but_unverified",
     ],
     # PL-A batch item 1 (029 section 13.3): the public endpoints' limits with the proxy's client identity.
     "9kg.29 every public endpoint is limited per client and per subject, keyed on the proxy's client identity": [

@@ -195,7 +195,8 @@ def test_p3_02_no_model_outside_the_test_mode_refuses_before_any_reservation(a, 
     run_worker()
     run = AssessmentRun.objects.get(application=app)
     assert (run.status, run.error_code, seen["calls"]) == ("refused", "model_not_authorized", 0)
-    assert AssessmentInvocation.objects.count() == 0 and open_items(app, "assessment_failed") == 1
+    assert AssessmentInvocation.objects.count() == 0  # oc4.12: a refusal under the suspension is not a failure
+    assert open_items(app, "assessment_suspended") == 1 and open_items(app, "assessment_failed") == 0
 
 
 # --- TEST-P3-03, 23, 24, 29, 57: injection, flags, minimization ------------------------------------------------

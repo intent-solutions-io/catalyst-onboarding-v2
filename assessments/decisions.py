@@ -3,23 +3,32 @@ P3-D-16; D-35: per-criterion rationale, the selection-policy reference, and the 
 
 `record_decision` is one transaction with the application locked. It refuses unless:
 
-- **authority** is configured: `CATALYST_QUALIFICATION_AUTHORITY` is fixed in code and is `None` until POL-05 is
-  recorded; while it is `None` everyone is refused, superusers included (TEST-P3-04). Once set, the actor must be
-  an authenticated, active, non-superuser human holding `assessments.record_qualification_decision` by explicit
-  grant (no group carries it);
+- **authority** is configured: `CATALYST_QUALIFICATION_AUTHORITY` is a guarded setting (9kg.30: read from the
+  environment, accepted only as `explicit_permission` or unset) and is unset until POL-05 is recorded; while unset
+  everyone is refused, superusers included (TEST-P3-04). Once set, the actor must be an authenticated, active,
+  non-superuser human holding `assessments.record_qualification_decision` by explicit grant (no group carries it;
+  the owner-run `grant_staff_role` command grants it);
 - **what the decision-maker saw is still true**: the decision digest shown on the screen (the current snapshot
   manifest, the clarification question set, and the run relied on) equals the one recomputed now (TEST-P3-51);
 - **the assessment is valid**: the latest succeeded run is on the current snapshot (a re-fetch or a newly confirmed
   answer makes it stale: reassess first), no run is in flight and no evidence item is pending; or, when model
   advice is unavailable for this snapshot or suspended, a **recorded human-only assessment** (D-35) with a reason;
-- **the stage** is compare-and-set from `awaiting_decision` (or from `assessing` for a human-only assessment after
-  a failed run); no identity-affecting staff item is open; `admit` is refused while automation is paused;
+- **the stage** is compare-and-set from `awaiting_decision`, from `on_hold` (9kg.50: the staff path back from a hold
+  to an admit or a decline, never a second hold) or from `assessing` for a human-only assessment after a failed run;
+  no identity-affecting staff item is open; `admit` is refused while automation is paused;
 - **every rubric criterion** has a human rationale with capability and strength of evidence recorded separately.
 
 Then: the `QualificationDecision` row, the stage move (`admitted`, `declined` or `on_hold`), an event, and one
 held follow-on for P4 (`issue_nda:<application>` for admit, `send_decline:<application>` for decline; nothing for
 hold). A database trigger refuses any move into a decided stage without a decision row inserted in the same
 transaction (TEST-P3-52). No model output is read to choose anything here.
+
+oc4.12 (019 decision 4; 018 section 20): the decision digest binds, and the decision records in `decision_inputs`,
+the policy reference (the synthetic rubric's `none-approved` reference stated openly until a policy is bound), the
+pack digest and rubric version, the snapshot digest with an evidence manifest (present, unavailable, refused,
+size-limited, claims-only, pending) and every run with its status, error code and requests spent. A human-only
+decision carries a structured reason (`HUMAN_ONLY_CODES`), derived from the state, never free text alone; under
+the launch-wide suspension of model advice it is `advice_suspended` and cites the suspension record.
 """
 
 import hashlib
@@ -37,7 +46,7 @@ from applications.stages import StageConflict, transition
 from correspondence.models import Question, StaffItem
 from correspondence.processing import RESOLUTIONS
 from correspondence.common import Refused as NoteRefused
-from correspondence.staff_items import clean_note as _clean_note
+from correspondence.staff_items import clean_note as _clean_note, resolve_item
 from workflow.models import AutomationPause, PendingAction
 
 from . import pack as packs, snapshot
@@ -49,6 +58,9 @@ FOLLOW_ON = {"admit": "issue_nda", "decline": "send_decline"}  # held; P4 and PO
 CAPABILITY = ("shown", "partly_shown", "not_shown", "unknown")
 EVIDENCE_STRENGTH = ("strong", "moderate", "weak", "none")
 FAILED = ("refused", "invalid_output", "failed", "capped", "abandoned")
+# oc4.12: why a human-only assessment applies, in order of precedence (the first that holds).
+HUMAN_ONLY_CODES = ("advice_suspended", "run_capped", "run_failed", "run_cap_reached", "returned_without_reassessment")
+EVIDENCE_STATES = ("present", "size_limited", "unavailable", "refused", "pending", "claims_only")
 _REASON_CODE = re.compile(r"^[a-z][a-z_]{2,39}$")
 NOTE_MAX = 500
 # Staff items that concern who the applicant is: a decision waits until they are resolved (018 section 7).
@@ -74,9 +86,74 @@ def can_decide(user) -> bool:
 
 
 def policy_ref(pack) -> str:
-    """The selection policy the decision applies (019 section 6). Until an approved policy is activated, the
-    synthetic rubric stands in, and the reference says so."""
-    return settings.CATALYST_SELECTION_POLICY or f"none-approved:{pack.name}:rubric-{pack.rubric_version}"
+    """The selection policy the decision applies (019 section 6). While no policy is active: with model advice off
+    (the internal cohort) the literal `CATALYST_NO_POLICY_LABEL` (030 Q8, D-M); otherwise the synthetic rubric stands
+    in and the reference says so. The pack, its digest and the rubric version are recorded in their own columns
+    whatever this says."""
+    if settings.CATALYST_SELECTION_POLICY:
+        return settings.CATALYST_SELECTION_POLICY
+    if settings.CATALYST_ASSESSMENT_MODEL == "none":
+        return settings.CATALYST_NO_POLICY_LABEL
+    return f"none-approved:{pack.name}:rubric-{pack.rubric_version}"
+
+
+def bound_pack() -> str:
+    """The pack the active policy was approved with (oc4.10 item 1), or "" when no policy is active."""
+    policy = settings.CATALYST_SELECTION_POLICY
+    return (settings.CATALYST_SELECTION_POLICY_PACKS or {}).get(policy, "") if policy else ""
+
+
+def evidence_manifest(application, manifest) -> list:
+    """018 section 20: one state per claim, for the record and the digest: `present` (a capture), `size_limited` (a
+    truncated capture), `unavailable`, `refused`, `pending`, or `claims_only` (no approved source: the claim went to the
+    assessment as a statement only)."""
+    from .models import EvidenceCapture
+
+    by_claim = {entry["claim"]: entry for entry in manifest["items"]}
+    truncated = set(EvidenceCapture.objects.filter(pk__in=[e["capture"] for e in by_claim.values() if e["capture"]],
+                                                   truncated=True).values_list("pk", flat=True))
+    version = application.versions.get(public_id=manifest["version"])
+    claims = (version.submitted_fields or {}).get("claims") or {}
+    refs = [f"work:{i}" for i in range(1, len(claims.get("work") or []) + 1)]
+    refs += [f"credential:{i}" for i in range(1, len(claims.get("credentials") or []) + 1)]
+    out = []
+    for ref in sorted({*refs, *by_claim}):
+        entry = by_claim.get(ref)
+        if entry is None:
+            state = "claims_only"
+        elif entry["status"] == "fetched":
+            state = "size_limited" if entry["capture"] in truncated else "present"
+        else:
+            state = entry["status"]
+        out.append({"claim": ref, "state": state})
+    return out
+
+
+def runs_summary(application) -> list:
+    return [{"run": str(r.public_id), "status": r.status, "error_code": r.error_code, "requests_used": r.requests_used}
+            for r in AssessmentRun.objects.filter(application=application).order_by("id")]
+
+
+def human_only_code(application, run, current: str, succeeded, in_flight: bool) -> str:
+    """The one source of the human-only rule (D-35, oc4.12): the structured reason a human-only assessment applies
+    now, or "" when none does. Never while a valid run exists for the current snapshot, a run is in flight or there
+    is no snapshot. A capped snapshot is an exit only while CATALYST_CAPPED_EXIT is "human_only" (oc4.8)."""
+    if succeeded is not None or in_flight or not current:
+        return ""
+    if settings.CATALYST_ASSESSMENT_MODEL == "none":
+        return "advice_suspended"
+    capped_exit = settings.CATALYST_CAPPED_EXIT == "human_only"
+    on_current = run is not None and run.snapshot_sha256 == current
+    if on_current and run.status == "capped":
+        return "run_capped" if capped_exit else ""
+    if on_current and run.status in FAILED:
+        return "run_failed"
+    if application.stage in (Stage.AWAITING_DECISION, Stage.ON_HOLD):
+        return "returned_without_reassessment"  # handed back without a reassessment (the round cap, or none could be queued)
+    if (application.stage == Stage.ASSESSING  # no run can be queued any more: the run cap is reached
+            and AssessmentRun.objects.filter(application=application).count() >= settings.CATALYST_ASSESSMENT_RUNS_PER_APPLICATION):
+        return "run_cap_reached" if capped_exit else ""
+    return ""
 
 
 def _sha(value) -> str:
@@ -103,20 +180,20 @@ def decision_state(application) -> dict:
     questions = sorted([str(q), s, a] for q, s, a in Question.objects.filter(application=application).exclude(round=0)
                        .values_list("public_id", "status", "approval_state"))
     in_flight = AssessmentRun.objects.filter(application=application, status__in=("queued", "reserved")).exists()
-    # Human-only (D-35) when no valid run exists for the current snapshot and none is coming: advice suspended, the
-    # run for this snapshot failed, or the application was handed back to staff without a reassessment (the round
-    # cap, or a reassessment that could not be queued). Never while a run is in flight or a valid one exists.
-    human_only_allowed = succeeded is None and not in_flight and current != "" and (
-        settings.CATALYST_ASSESSMENT_MODEL == "none"
-        or (run is not None and run.snapshot_sha256 == current and run.status in FAILED)
-        or application.stage == Stage.AWAITING_DECISION
-        or (application.stage == Stage.ASSESSING  # no run can be queued any more: the run cap is reached
-            and AssessmentRun.objects.filter(application=application).count() >= settings.CATALYST_ASSESSMENT_RUNS_PER_APPLICATION))
+    # Human-only (D-35): computed once, in `human_only_code`; allowed exactly when a code applies.
+    code = human_only_code(application, run, current, succeeded, in_flight)
+    human_only_allowed = code != ""
+    evidence = evidence_manifest(application, manifest) if manifest is not None else []
+    runs = runs_summary(application)
+    policy = policy_ref(pack) if pack is not None else ""
     return {"pack": pack, "manifest": manifest, "snapshot": current, "run": succeeded, "latest_run": run,
             "stale_run": run is not None and succeeded is None and run.status == "succeeded",
             "questions": questions, "human_only_allowed": human_only_allowed,
-            "digest": _sha({"snapshot": current, "questions": questions,
-                            "run": str(succeeded.public_id) if succeeded else ""})}
+            "policy_ref": policy, "pack_sha256": pack.sha256 if pack else "", "rubric_version": pack.rubric_version if pack else 0,
+            "evidence_manifest": evidence, "runs": runs, "human_only_code": code,
+            "suspension_ref": settings.CATALYST_MODEL_ADVICE_SUSPENSION_REF if code == "advice_suspended" else "",
+            "digest": _sha({"snapshot": current, "questions": questions, "run": str(succeeded.public_id) if succeeded else "",
+                            "policy": policy, "pack_sha256": pack.sha256 if pack else "", "evidence": evidence, "runs": runs})}
 
 
 def _rationale(pack, rationale: dict) -> dict:
@@ -165,7 +242,9 @@ def record_decision(application_id: int, user, *, outcome: str, reason_code: str
         if state["pack"] is None or state["manifest"] is None:
             raise Refused("no_snapshot")
         if expected_digest != state["digest"]:
-            raise Refused("changed_since_shown")  # a re-fetch, a confirmed answer, a question set change, a new run
+            raise Refused("changed_since_shown")  # a re-fetch, a confirmed answer, a question set change, a new run, a policy change
+        if settings.CATALYST_SELECTION_POLICY and state["pack"].name != bound_pack():
+            raise Refused("policy_not_bound_to_pack")  # oc4.10 item 1: a policy labels only decisions under its own pack
         if AssessmentRun.objects.filter(application=application, status__in=("queued", "reserved")).exists():
             raise Refused("assessment_in_flight")
         version = application.versions.get(public_id=state["manifest"]["version"])
@@ -174,14 +253,16 @@ def record_decision(application_id: int, user, *, outcome: str, reason_code: str
         if human_only:
             if not state["human_only_allowed"]:
                 raise Refused("human_only_assessment_not_allowed")  # never a shortcut past a working assessment
-            run, from_stages = None, (Stage.AWAITING_DECISION, Stage.ASSESSING)
+            run, from_stages = None, (Stage.AWAITING_DECISION, Stage.ASSESSING, Stage.ON_HOLD)
         else:
             run = state["run"]
             if run is None:
                 raise Refused("no_valid_assessment")  # P3-D-10: rerun, or reassess after new evidence or answers
-            from_stages = (Stage.AWAITING_DECISION,)
+            from_stages = (Stage.AWAITING_DECISION, Stage.ON_HOLD)
         if application.stage not in from_stages:
             raise Refused("stage_not_decidable")
+        if application.stage == Stage.ON_HOLD and outcome == "hold":
+            raise Refused("already_on_hold")  # 9kg.50: the way off a hold is a decision, not another hold
         if StaffItem.objects.filter(application=application, status="open", reason_code__in=IDENTITY_ITEMS).exists():
             raise Refused("identity_item_open")
         if Question.objects.filter(application=application, approval_state=Question.Approval.APPROVED,
@@ -191,14 +272,20 @@ def record_decision(application_id: int, user, *, outcome: str, reason_code: str
                                                                  subject_id=application.public_ref).exists():
             raise Refused("admit_refused_while_paused")
         checked = _rationale(state["pack"], rationale)
+        code = state["human_only_code"] if human_only else ""
+        inputs = {"policy": state["policy_ref"], "pack": state["pack"].name, "pack_sha256": state["pack_sha256"],
+                  "rubric_version": state["rubric_version"], "snapshot": state["snapshot"],
+                  "evidence": state["evidence_manifest"], "runs": state["runs"], "questions": state["questions"],
+                  "human_only_code": code, "suspension_ref": state["suspension_ref"] if human_only else ""}
         try:
             with transaction.atomic():
                 decision = QualificationDecision.objects.create(
                     application=application, adopted_version=version, run=run, outcome=outcome,
                     basis=QualificationDecision.Basis.HUMAN_ONLY if human_only else QualificationDecision.Basis.MODEL_ASSISTED,
-                    human_only_reason=human_only_reason, reason_code=reason_code, reason_text=reason_text,
+                    human_only_reason=human_only_reason, human_only_code=code, reason_code=reason_code, reason_text=reason_text,
                     rationale=checked, snapshot_sha256=state["snapshot"], decision_digest=state["digest"],
-                    policy_ref=policy_ref(state["pack"]), actor_ref=actor)
+                    policy_ref=state["policy_ref"], prompt_pack=state["pack"].name, prompt_pack_sha256=state["pack_sha256"],
+                    rubric_version=state["rubric_version"], decision_inputs=inputs, actor_ref=actor)
         except IntegrityError as exc:
             constraint = getattr(getattr(exc.__cause__, "diag", None), "constraint_name", "")
             if constraint == "decision_one_final_per_application":
@@ -206,7 +293,8 @@ def record_decision(application_id: int, user, *, outcome: str, reason_code: str
             raise Refused("decision_invalid") from None
         try:
             transition(application.pk, from_stages, STAGE_FOR[outcome], event_kind=f"qualification_{outcome}",
-                       data={"decision": str(decision.public_id), "basis": decision.basis, "policy": decision.policy_ref},
+                       data={"decision": str(decision.public_id), "basis": decision.basis, "policy": decision.policy_ref,
+                             "human_only_code": code},
                        actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
         except StageConflict:
             raise Refused("stage_not_decidable") from None
@@ -220,6 +308,11 @@ def record_decision(application_id: int, user, *, outcome: str, reason_code: str
             ApplicationEvent.objects.create(application=application, kind="questions_withdrawn_by_decision",
                                             actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor,
                                             data={"decision": str(decision.public_id), "questions": withdrawn})
+        if human_only:  # oc4.12: the suspended (or capped) item is answered by this decision; it must not page forever
+            for item in StaffItem.objects.filter(application=application, status=StaffItem.Status.OPEN,
+                                                 reason_code__in=("assessment_suspended", "assessment_capped")):
+                resolve_item(item, code="human_only_decision", actor_ref=actor, effects={"decision": str(decision.public_id)},
+                             actor_type=ApplicationEvent.ActorType.STAFF)
         kind = FOLLOW_ON.get(outcome)
         if kind:
             PendingAction.objects.create(kind=kind, subject_type="application", subject_id=application.public_ref,

@@ -32,12 +32,13 @@ SECRETS = [*PASSWORDS.values(), superuser_login()[1]]
 # Trigger inventory (003 ADR-14): append-only on versions and events (2), no-truncate on versions, events,
 # audit and adoptions (4), audit immutability (1), adoption immutability (1).
 TRIGGERS = ("catalyst_append_only", "catalyst_no_truncate", "catalyst_audit_immutable", "catalyst_adoption_immutable")
-TRIGGER_COUNT = 41  # 8 from S1, 2 on evidence captures (P3 3B.1), 2 on qualification decisions (P3 3B.4),
+TRIGGER_COUNT = 43  # 8 from S1, 2 on evidence captures (P3 3B.1), 2 on qualification decisions (P3 3B.4),
 # 2 on agreement recipients (P4 4B.1), 2 on provider observations (P4 4B.2), 5 on custody and details (4B.3),
 # 8 on correspondence evidence (9kg.1), 3 no-truncate on inbound messages, outbound attempts and reply links (9kg.5),
 # 5 on provisioning records (P5 5B.1), 1 on credential setups (5B.2),
 # 2 on revocations and withdrawals (5B.3),
-# 1 no-truncate on invitations (9kg.43; applications 0005, after the baseline)
+# 1 no-truncate on invitations (9kg.43; applications 0005, after the baseline),
+# 2 on staff role grants (9kg.30; accounts 0007, after the baseline)
 SLICE_TABLES = [
     "applications_application", "applications_submissionversion", "applications_contactchallenge",
     "applications_versionadoption", "applications_applicationevent", "applications_retentionaudit",
@@ -398,15 +399,15 @@ def test_history_protection_migrations_reverse_and_reapply_and_keep_data(connect
     assert count() == 0
     manage_as_owner("migrate", "applications", "0003", "--verbosity", "0")
     # assessments (P3: captures and decisions) and agreements (P4: recipients) depend on applications 0003, so they
-    # stayed reversed, as did the invitation table (applications 0005, 9kg.43)
-    assert count() == TRIGGER_COUNT - 33  # correspondence (9kg.1, 9kg.5), provisioning (5B.1) and the invitation table stayed reversed
+    # stayed reversed, as did the invitation table (applications 0005, 9kg.43) and the staff role grants (accounts 0007, 9kg.30)
+    assert count() == TRIGGER_COUNT - 35  # correspondence (9kg.1, 9kg.5), provisioning (5B.1), the invitation table and the grant record stayed reversed
     manage_as_owner("migrate", "assessments", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 29
+    assert count() == TRIGGER_COUNT - 31
     manage_as_owner("migrate", "agreements", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 20
+    assert count() == TRIGGER_COUNT - 22
     manage_as_owner("migrate", "correspondence", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 9
-    manage_as_owner("migrate", "provisioning", "--verbosity", "0")
+    assert count() == TRIGGER_COUNT - 11
+    manage_as_owner("migrate", "provisioning", "--verbosity", "0")  # provisioning 0007 brings the grant record (accounts 0007)
     assert count() == TRIGGER_COUNT - 1  # only the invitation no-truncate (applications 0005) is still reversed
     manage_as_owner("migrate", "applications", "--verbosity", "0")
     assert count() == TRIGGER_COUNT
