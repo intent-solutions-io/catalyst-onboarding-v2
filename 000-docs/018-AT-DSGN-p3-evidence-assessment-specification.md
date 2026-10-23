@@ -1087,3 +1087,25 @@ Released by the owner ("release 3C"). Verification only; no feature was added.
 13. `on_hold` has no exit in P3 (section 17): what follows a hold is POL-05 or POL-12.
 14. The open inputs of `019` section 13 (domain expert, operational delegate, private evaluation location,
     scorecard minimums).
+
+## 19. The staff path back from a hold (9kg.50, 2026-10-23)
+
+Section 17 recorded that `on_hold` had no exit in P3. The internal launch (`029` section 5.2) needs one that is a
+decision, not a closure, so the decision service now accepts `on_hold` as a source stage:
+
+- `record_decision` moves a held application to `admitted` or `declined` under exactly the rules of any decision:
+  the configured authority and the direct grant (`can_decide`), the digest shown, no run in flight, no pending
+  evidence, no open identity item, admit refused while paused, a rationale per criterion. A model-assisted decision
+  needs a succeeded run on the current snapshot; otherwise the recorded human-only assessment applies, which is
+  allowed from `on_hold` as it is from `awaiting_decision`. A second hold is refused (`already_on_hold`): the way
+  off a hold is a decision.
+- The transition is the ordinary compare-and-set with its event (`qualification_admit` or `qualification_decline`,
+  `from: on_hold`, the staff actor), the same-transaction database backstop applies, and the held follow-on
+  (`issue_nda` or `send_decline`) is created as for any admit or decline. The hold decision stays as history (one
+  admit or decline per application; holds are not limited).
+- The decision screen offers the form on a held case with `hold` removed from the outcomes; a viewer without the
+  permission sees no form and a POST is refused (403), as before.
+
+Tests: `tests/test_hold_and_resend.py` (the service, the form, the refused user, the human-only hold). The default
+built on: the route is the existing authority-gated decision form, never a free close action (`029` section 13.3;
+`oc4.12` records the same for a capped snapshot).

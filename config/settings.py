@@ -169,6 +169,9 @@ def number(name: str, default: str | None = None, cast=int, minimum=1):
 # Verification challenge lifetime (POL-02 open: no production value is proposed). Required, so no number
 # is invented here; compose and CI pass a synthetic value.
 CATALYST_CHALLENGE_LIFETIME_SECONDS = number("CATALYST_CHALLENGE_LIFETIME_SECONDS")
+# 9kg.50: how many times staff may resend the verification message for one application (a new challenge each time,
+# the old one superseded; the applicant-facing message is the same). A synthetic default until 211.7.7 (POL-02).
+CATALYST_VERIFICATION_RESEND_LIMIT = number("CATALYST_VERIFICATION_RESEND_LIMIT", "3", minimum=0)
 
 # Verification links (ADR-16, D-24). Built from this base URL, never from a request's Host header (the
 # worker has no request). The signing key is dedicated: independent of SECRET_KEY, with fallback keys for

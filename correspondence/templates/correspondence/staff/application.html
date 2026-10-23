@@ -15,6 +15,11 @@
 <form method="post" action="{% url 'correspondence_staff:pause' application.public_ref %}">{% csrf_token %}
 <label>Reason <input name="reason" minlength="10" maxlength="500" required></label> <button>Pause automation</button></form>
 {% endif %}
+{% if not application.contact_verified_at %}<h2>Contact verification</h2>
+<p>Contact is not verified. {{ resends_used }} of {{ resend_limit }} staff resend(s) used. A resend supersedes the current link and sends the same verification message again; the applicant sees nothing different.</p>
+{% if can_resend and resends_used < resend_limit %}<form method="post" action="{% url 'correspondence_staff:resend_verification' application.public_ref %}">{% csrf_token %}
+<label>Note (optional, for the record) <input name="note" maxlength="150"></label> <button>Resend the verification message</button></form>{% endif %}
+{% endif %}
 <h2>Questions</h2>
 <table><tr><th>Question</th><th>Approval</th><th>Status</th><th></th></tr>
 {% for q in questions %}

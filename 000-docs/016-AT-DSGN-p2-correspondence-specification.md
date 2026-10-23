@@ -1356,3 +1356,21 @@ pull request.
 
 **Sign-off.** The owner accepted this closeout and signed off GATE-P2 for synthetic P2 on 2026-10-13 (D-33 in
 `011`). The excluded scope and the before-real-use conditions above stand.
+
+### 10.13 The staff verification resend (9kg.50, 2026-10-23)
+
+The wait "verification sent, unconfirmed" had no staff recovery (`029` section 5.2): a failed send was not retried
+and only a new submission issued a new link. Built, on the correspondence application screen:
+
+- `staff_actions.resend_verification`, under `send_staff_message` (a staff-authorized send, the matrix in F), one
+  locked transaction: the application must be open with contact unverified, no hard bounce open (9kg.3), and the
+  resends under `CATALYST_VERIFICATION_RESEND_LIMIT` (3, a synthetic default until POL-02's values, `211.7.7`).
+- The resend goes through intake's own path (`applications.services.reissue_challenge`): the active challenge is
+  superseded and a new one is issued with the same lifetime, the same `send_verification` action and the same
+  message, so the applicant sees exactly what issuance sends; the superseded link answers "no longer valid" as it
+  always did. The event `verification_resent` carries the resend number and the note only, never a challenge
+  identifier or link (S1-T7).
+- The screen shows the resends used and offers the action only while it could do anything; a refusal shows its
+  code; a holder of another correspondence permission reaches the page but the act is refused.
+
+Tests: `tests/test_hold_and_resend.py`. The dossier's next-step text now names this path.

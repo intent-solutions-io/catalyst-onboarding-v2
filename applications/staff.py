@@ -154,7 +154,8 @@ def _verification_step(application, paused: bool) -> Step:
     if challenge is None:
         return Step("Applicant", "No active verification link; a new submission of the form issues one")
     if not challenge.unexpired:
-        return Step("Applicant", "The verification link expired; a new submission of the form issues a new one")
+        return Step("Applicant", "The verification link expired; a new submission of the form issues a new one"
+                    " (or staff resend it from the correspondence screen)")
     send = PendingAction.objects.filter(idempotency_key=send_verification_key(challenge.public_id)).first()
     Status = PendingAction.Status
     if send is None:
@@ -165,5 +166,5 @@ def _verification_step(application, paused: bool) -> Step:
         return Step("System", f"The verification message is waiting to be sent (attempt {send.attempts} of {send.max_attempts} so far)")
     if send.status == Status.DONE:
         return Step("Applicant", "Confirm the email address (the message was accepted by the local mail sink, which is not proof of delivery)")
-    return Step("Staff", f"The verification send ended {send.status} and is not retried; the applicant has no working link",
-                attention=True)
+    return Step("Staff", f"The verification send ended {send.status} and is not retried; the applicant has no working link"
+                " (staff can resend it from the correspondence screen)", attention=True)

@@ -12,8 +12,9 @@ P3-D-16; D-35: per-criterion rationale, the selection-policy reference, and the 
 - **the assessment is valid**: the latest succeeded run is on the current snapshot (a re-fetch or a newly confirmed
   answer makes it stale: reassess first), no run is in flight and no evidence item is pending; or, when model
   advice is unavailable for this snapshot or suspended, a **recorded human-only assessment** (D-35) with a reason;
-- **the stage** is compare-and-set from `awaiting_decision` (or from `assessing` for a human-only assessment after
-  a failed run); no identity-affecting staff item is open; `admit` is refused while automation is paused;
+- **the stage** is compare-and-set from `awaiting_decision`, from `on_hold` (9kg.50: the staff path back from a hold
+  to an admit or a decline, never a second hold) or from `assessing` for a human-only assessment after a failed run;
+  no identity-affecting staff item is open; `admit` is refused while automation is paused;
 - **every rubric criterion** has a human rationale with capability and strength of evidence recorded separately.
 
 Then: the `QualificationDecision` row, the stage move (`admitted`, `declined` or `on_hold`), an event, and one
@@ -109,7 +110,7 @@ def decision_state(application) -> dict:
     human_only_allowed = succeeded is None and not in_flight and current != "" and (
         settings.CATALYST_ASSESSMENT_MODEL == "none"
         or (run is not None and run.snapshot_sha256 == current and run.status in FAILED)
-        or application.stage == Stage.AWAITING_DECISION
+        or application.stage in (Stage.AWAITING_DECISION, Stage.ON_HOLD)
         or (application.stage == Stage.ASSESSING  # no run can be queued any more: the run cap is reached
             and AssessmentRun.objects.filter(application=application).count() >= settings.CATALYST_ASSESSMENT_RUNS_PER_APPLICATION))
     return {"pack": pack, "manifest": manifest, "snapshot": current, "run": succeeded, "latest_run": run,
@@ -174,14 +175,16 @@ def record_decision(application_id: int, user, *, outcome: str, reason_code: str
         if human_only:
             if not state["human_only_allowed"]:
                 raise Refused("human_only_assessment_not_allowed")  # never a shortcut past a working assessment
-            run, from_stages = None, (Stage.AWAITING_DECISION, Stage.ASSESSING)
+            run, from_stages = None, (Stage.AWAITING_DECISION, Stage.ASSESSING, Stage.ON_HOLD)
         else:
             run = state["run"]
             if run is None:
                 raise Refused("no_valid_assessment")  # P3-D-10: rerun, or reassess after new evidence or answers
-            from_stages = (Stage.AWAITING_DECISION,)
+            from_stages = (Stage.AWAITING_DECISION, Stage.ON_HOLD)
         if application.stage not in from_stages:
             raise Refused("stage_not_decidable")
+        if application.stage == Stage.ON_HOLD and outcome == "hold":
+            raise Refused("already_on_hold")  # 9kg.50: the way off a hold is a decision, not another hold
         if StaffItem.objects.filter(application=application, status="open", reason_code__in=IDENTITY_ITEMS).exists():
             raise Refused("identity_item_open")
         if Question.objects.filter(application=application, approval_state=Question.Approval.APPROVED,

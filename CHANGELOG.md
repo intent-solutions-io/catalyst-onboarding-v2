@@ -74,6 +74,8 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 - Internal launch, repo-only batch item 3 (`029` section 13.3): the staff role matrix, the owner-run
   `grant_staff_role` command, the append-only grant record and the P4 and P5 role groups; the qualification
   authority read from configuration (`9kg.30`, `029` section 17.1)
+- The staff path back from a hold through the decision service and form, and the staff verification resend on the
+  correspondence screen with its limit (`9kg.50`, `018` section 19, `016` section 10.13)
 
 ### Changed
 

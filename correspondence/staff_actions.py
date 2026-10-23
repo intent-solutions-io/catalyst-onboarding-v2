@@ -156,6 +156,43 @@ def decide_uncertain_send(message_id: int, user, decision: str, note: str = "") 
     return result
 
 
+VERIFICATION_RESENT = "verification_resent"
+
+
+def resend_verification(application_id: int, user, note: str = "") -> int:
+    """9kg.50 (029 section 5.2): staff queue the verification message again for an applicant who has no working link
+    (a failed or cancelled send, an expired link). Under the staff-send permission, one locked transaction: the
+    application must be open with contact unverified, no hard bounce may be open (every send path, 9kg.3), and the
+    resends are bounded (CATALYST_VERIFICATION_RESEND_LIMIT). The active challenge is superseded and a new one is
+    issued through the intake path itself (applications.services.reissue_challenge), so the message, lifetime and
+    handler are the ones issuance uses. Returns the number of this resend. The event names no challenge or token."""
+    from applications.models import OPEN_STAGES
+    from applications.services import reissue_challenge
+
+    require(user, "send_staff_message")
+    note = clean_note(note)
+    actor = actor_ref(user)
+    with transaction.atomic():
+        application = _lock_application(application_id)
+        if application.contact_verified_at is not None:
+            raise Refused("contact_already_verified")
+        if application.stage not in OPEN_STAGES:
+            raise Refused("application_closed")
+        if hard_bounce_open(application):
+            raise Refused("hard_bounce_open")
+        number = ApplicationEvent.objects.filter(application=application, kind=VERIFICATION_RESENT).count() + 1
+        if number > settings.CATALYST_VERIFICATION_RESEND_LIMIT:
+            raise Refused("resend_limit_reached")
+        reissue_challenge(application)
+        event(application, VERIFICATION_RESENT, {"resend_number": number, "note": note},
+              actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
+    return number
+
+
+def resends_used(application) -> int:
+    return ApplicationEvent.objects.filter(application=application, kind=VERIFICATION_RESENT).count()
+
+
 def restart_collector(cursor_id: int, user, note: str = ""):
     """016 B1 and F: only `restart_collector` (decision-maker) resumes a blocked cursor; it is separate from
     ordinary retry. Resolves the cursor's open items with the immutable resolution record."""
