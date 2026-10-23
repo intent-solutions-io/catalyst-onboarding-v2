@@ -8,6 +8,7 @@ These tests commit (`privileged_reset`), like the worker and staff tests they co
 """
 
 import importlib
+import json
 import logging
 import re
 import subprocess
@@ -522,26 +523,56 @@ def test_the_evidence_register_names_known_proofs_scripts_beads_and_boundaries_f
     shown and the boundary its residual bead blocks; a live-only case has no pytest proof; the shape-only cases
     are exactly those 028 section 4 names."""
     cases = sorted({*acceptance.P6_CASES, *acceptance.P6_LIVE_ONLY})
-    assert sorted(acceptance.P6_EVIDENCE) == [c for c in cases if c in acceptance.P6_EVIDENCE]
-    assert not set(acceptance.P6_EVIDENCE) - set(cases)
-    for script in acceptance.DRILLS:
-        assert (ROOT / script).is_file(), script
+    assert set(acceptance.P6_EVIDENCE) == set(cases)  # an explicit entry per case, no optimistic default
+    assert acceptance.check_register() == []
+    for script, drill in acceptance.DRILLS.items():
+        assert (ROOT / script).is_file() and acceptance.REVISION.match(drill["revision"]) and drill["record"], script
+    for bead in acceptance.RESIDUAL_BOUNDARIES:
+        assert re.fullmatch(r"9kg\.\d+(\.\d+)?", bead)
+    used = set()
     for case in cases:
         row = acceptance.evidence(case)
-        assert row["proofs"] and all(t in acceptance.PROOF_TYPES for t, _ in row["proofs"]), case
-        assert all(where in acceptance.DRILLS for t, where in row["proofs"] if t == "drill"), case
-        assert all(where for t, where in row["proofs"] if t != "pytest"), case  # every other proof says where
-        assert len(row["environment"]) == len(row["revision"]) == len(row["proofs"])
+        assert row["proofs"] and all(p["type"] in acceptance.PROOF_TYPES for p in row["proofs"]), case
+        for proof in row["proofs"]:
+            assert proof["where"] and proof["environment"] and proof["record"], (case, proof)
+            if proof["type"] != "pytest":
+                assert acceptance.REVISION.match(proof["revision"]), (case, proof)  # a commit or a run id
+            else:
+                assert proof["revision"] == "this run"
         assert (row["pytest"] is None) == (case in acceptance.P6_LIVE_ONLY), case
         if row["partial"]:
-            assert re.fullmatch(r"9kg\.\d+(\.\d+)?", row["partial"]) and row["residual"], case
-            assert row["partial"] in acceptance.RESIDUAL_BOUNDARIES and row["boundary"] != "unknown", case
+            used.add(row["partial"])
+            assert row["residual"] and row["boundary"] == acceptance.RESIDUAL_BOUNDARIES[row["partial"]], case
         else:
             assert row["residual"] is None and row["boundary"] == "GATE-STAGING", case
+    assert used == set(acceptance.RESIDUAL_BOUNDARIES)  # no stale or unused residual bead
+    assert acceptance.evidence("TEST-P6-26")["proofs"][1]["environment"].startswith("a stand-in")  # honoured, not derived
     shape = [c for c in cases if acceptance.evidence(c)["pytest"] == "shape"]
     assert shape == ["TEST-P6-08", "TEST-P6-24", "TEST-P6-25", "TEST-P6-26", "TEST-P6-31"]
     # Every partial case's pytest evidence, where it has any, is still gated: a partial case is never exempt.
     assert all(c in acceptance.P6_CASES for c in cases if acceptance.evidence(c)["partial"] and acceptance.evidence(c)["pytest"])
+
+
+def test_the_evidence_register_refuses_optimistic_defaults(monkeypatch):
+    """A case with no entry, an unknown drill, a partial case without its residual, a residual bead with no boundary
+    and a proof with no commit or run id are refused as data, never filled in."""
+    monkeypatch.setattr(acceptance, "P6_EVIDENCE", {**acceptance.P6_EVIDENCE})
+    del acceptance.P6_EVIDENCE["TEST-P6-03"]
+    assert [p for p in acceptance.check_register() if "TEST-P6-03" in p] == ["TEST-P6-03: no evidence register entry"]
+    for entry, message in (
+            ({"proofs": [("drill", "scripts/nope.sh")]}, "unknown drill script"),
+            ({"partial": "9kg.27"}, "partial without a residual"),
+            ({"partial": "9kg.999", "residual": "x"}, "has no boundary"),
+            ({"proofs": [("inspected", "a run")]}, "needs a commit or run id"),
+            ({"proofs": [("inspected", "a run", "not-a-sha", "record")]}, "needs a commit or run id"),
+            ({"proofs": [("walk", "x", "178da42", "r")]}, "unknown proof type"),
+            ({"proofs": []}, "no proofs")):
+        acceptance.P6_EVIDENCE["TEST-P6-03"] = entry
+        with pytest.raises(acceptance.RegisterError, match=message):
+            acceptance.evidence("TEST-P6-03")
+        assert any("TEST-P6-03" in p for p in acceptance.check_register())
+    acceptance.P6_EVIDENCE["TEST-P6-03"] = {"proofs": [("drill", "scripts/staging_check.sh")]}  # a gated case without pytest
+    assert "TEST-P6-03: a live-only case has no pytest proof and a gated case has one" in acceptance.check_register()
 
 
 def test_the_evidence_register_reproduces_aar_028_per_case_and_in_total():
@@ -563,10 +594,11 @@ def test_the_evidence_register_reproduces_aar_028_per_case_and_in_total():
     unchanged = {c for c in recorded if not acceptance.P6_EVIDENCE.get(c, {}).get("since_028")}
     assert len(unchanged) == 38  # nothing has moved since 028 yet
     assert (summary["full"], summary["partial"], summary["live_only"]) == (21, 17, ["TEST-P6-27"])
-    assert summary["proven_this_run"] == 20  # the 21st full case is live-only: recorded, never a pytest result
+    # 21 full, less the live-only case (recorded, never a pytest result) and the two full shape-only cases (08, 26).
+    assert summary["proven_this_run"] == 18
     # A partial case is never proven, whatever its gate result, and a failed full case is not proven either.
     rows = acceptance.register({c: "PASS" if c != "TEST-P6-02" else "FAIL" for c in acceptance.P6_CASES})
-    assert acceptance.summarise(rows)["proven_this_run"] == 19
+    assert acceptance.summarise(rows)["proven_this_run"] == 17
     assert not any(r["proven_this_run"] for r in rows if r["partial"])
 
 
@@ -587,8 +619,10 @@ acceptance.P6_LIVE_ONLY = {"TEST-P6-03": "scripts/staging_check.sh"}
 acceptance.P6_EVIDENCE = {
     "TEST-P6-01": {"proofs": [("drill", "scripts/deploy_drill.sh"), "pytest"], "pytest": "shape", "partial": "9kg.37",
                    "residual": "the rest"},
+    "TEST-P6-02": {},
     "TEST-P6-03": {"proofs": [("drill", "scripts/staging_check.sh")]},
 }
+%s
 """
 
 
@@ -596,21 +630,43 @@ def test_the_report_prints_the_register_and_counts_partial_live_only_and_support
     """The report shape (9kg.44): numbered cases are counted apart from supporting groups; a live-only case is
     printed as LIVE ONLY, never as a pytest result; a partial case shows its residual bead and boundary; the
     register totals say full, partial and proven-this-run separately."""
-    (tmp_path / "conftest.py").write_text(REGISTER_PROBE_CONFTEST)
+    register_file = tmp_path / "out" / "register.json"
+    register_file.parent.mkdir()
+    (tmp_path / "conftest.py").write_text(REGISTER_PROBE_CONFTEST % "")
     (tmp_path / "test_probe.py").write_text("def test_ran():\n    assert True\n\ndef test_other():\n    assert True\n")
+    env = support.child_env(PYTHONPATH=str(ROOT), CATALYST_EVIDENCE_REGISTER=str(register_file), GITHUB_SHA="f" * 40)
     result = subprocess.run([sys.executable, "-m", "pytest", "-p", "tests.conftest", "-q", "-p", "no:cacheprovider"],
-                            cwd=tmp_path, env=support.child_env(PYTHONPATH=str(ROOT)), capture_output=True, text=True,
-                            timeout=120)
+                            cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
     out = result.stdout
     assert result.returncode == 0, out
-    lines = {line.split()[0]: line for line in out.splitlines() if line.startswith(("TEST-P6-", "a design", "numbered", "evidence", "shape"))}
+    printed = out.splitlines()
+    lines = {line.split()[0]: line for line in printed if line.startswith(("TEST-P6-", "a design", "numbered", "evidence", "shape", "run commit"))}
+    assert lines["run"] == "run commit: " + "f" * 40  # the header stamps the run's commit
     assert "PASS" in lines["TEST-P6-01"] and "[drill,pytest:shape; partial->9kg.37; up to release preparation (9kg.31.4)]" in lines["TEST-P6-01"]
+    assert printed[printed.index(lines["TEST-P6-01"]) + 1] == (
+        "    drill@staging stack on the dev box/74cbb53; pytest@test containers (CI and scripts/test.sh)/this run; residual: the rest")
     assert "[pytest:behaviour; full; up to GATE-STAGING]" in lines["TEST-P6-02"]
+    assert printed[printed.index(lines["TEST-P6-02"]) + 1] == "    pytest@test containers (CI and scripts/test.sh)/this run"
     assert "LIVE ONLY" in lines["TEST-P6-03"] and "no pytest evidence" in lines["TEST-P6-03"] and "PASS" not in lines["TEST-P6-03"]
     assert "[drill; full; up to GATE-STAGING]" in lines["TEST-P6-03"]
+    assert printed[printed.index(lines["TEST-P6-03"]) + 1] == "    drill@staging stack on the dev box/a5a19fd"
     assert "numbered cases: PASS 2, FAIL 0, INCOMPLETE 0, NOT RUN 0; supporting groups: PASS 1, FAIL 0, INCOMPLETE 0, NOT RUN 0; live-only 1 (not a pytest result) (full run: GATE-STAGING requires every case PASS)" in lines["numbered"]
-    assert lines["evidence"] == "evidence register: full 2 (PASS this run 1, live-only recorded 1), partial 1 (residual beads: 9kg.37 (01))"
+    assert lines["evidence"] == ("evidence register: full 2 (proven by this run 1, of which shape-only are excluded: 1 shape-only, "
+                                 "1 live-only recorded), partial 1 (residual beads: 9kg.37 (01))")
     assert lines["shape-only"] == "shape-only pytest evidence (behaviour shown by a drill): TEST-P6-01; live-only: TEST-P6-03"
+    # register.json, written at the end of the full run: rows, commit, digest when known, each proof's record pointer.
+    written = json.loads(register_file.read_text())
+    assert written["commit"] == "f" * 40 and written["image_digest"] is None and written["gate"] == "GATE-STAGING"
+    assert [r["case"] for r in written["rows"]] == ["TEST-P6-01", "TEST-P6-02", "TEST-P6-03"]
+    assert written["rows"][0]["proofs"][0]["record"].startswith("026 section 16") and written["rows"][0]["result"] == "PASS"
+    assert written["rows"][2]["result"] == "LIVE ONLY" and written["summary"]["proven_this_run"] == 1
+    # A full run with a broken register (an entry missing) fails the run, and writes nothing.
+    register_file.unlink()
+    (tmp_path / "conftest.py").write_text(REGISTER_PROBE_CONFTEST % 'del acceptance.P6_EVIDENCE["TEST-P6-02"]')
+    broken = subprocess.run([sys.executable, "-m", "pytest", "-p", "tests.conftest", "-q", "-p", "no:cacheprovider"],
+                            cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
+    assert broken.returncode == 1 and "FAILED GATE: evidence register: TEST-P6-02: no evidence register entry" in broken.stdout
+    assert "2 passed" in broken.stdout and not register_file.exists()
 
 
 def test_every_p6_test_is_mapped():

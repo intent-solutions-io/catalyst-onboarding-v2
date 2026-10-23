@@ -26,9 +26,12 @@ The container-level boundary is the explicit, synthetic environment the test ser
 (compose.yaml) and config.guards, which refuses provider credentials at start-up."""
 
 import ipaddress
+import json
 import os
 import re
+import shutil
 import socket
+import subprocess
 import threading
 import time
 import uuid
@@ -153,6 +156,38 @@ def pytest_sessionfinish(session, exitstatus):
     )
     if session.exitstatus == 0 and (_skipped or (_acceptance["full"] and set(_acceptance["statuses"].values()) != {"PASS"})):
         session.exitstatus = 1
+    # 9kg.44: the register is checked as data in a full run, and written for the go/no-go package.
+    _acceptance["register_problems"] = acceptance.check_register() if _acceptance["full"] else []
+    if _acceptance["full"] and _acceptance["register_problems"] and session.exitstatus == 0:
+        session.exitstatus = 1
+    if _acceptance["full"] and not _acceptance["register_problems"]:
+        write_register(_acceptance["statuses"])
+
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def run_commit() -> str:
+    """The commit this run tests: CI's, else git's, else unrecorded (the test image has no git)."""
+    if os.environ.get("GITHUB_SHA"):
+        return os.environ["GITHUB_SHA"]
+    if shutil.which("git"):
+        probe = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True)
+        if probe.returncode == 0:
+            return probe.stdout.strip()
+    return "unrecorded"
+
+
+def write_register(statuses) -> str:
+    """register.json (CATALYST_EVIDENCE_REGISTER, or the repository root): the rows, this run's commit and image
+    digest when known, each proof's record pointer and the summary, so the go/no-go package reads it."""
+    rows = acceptance.register(statuses)
+    path = os.environ.get("CATALYST_EVIDENCE_REGISTER") or os.path.join(ROOT, "register.json")
+    with open(path, "w", encoding="utf-8") as out:
+        json.dump({"gate": "GATE-STAGING", "commit": run_commit(), "image_digest": os.environ.get("CATALYST_IMAGE") or None,
+                   "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "rows": rows,
+                   "summary": acceptance.summarise(rows)}, out, indent=1, sort_keys=True)
+    return path
 
 
 def pytest_terminal_summary(terminalreporter):
@@ -167,16 +202,24 @@ def pytest_terminal_summary(terminalreporter):
     full = _acceptance["full"]
     for title, gate, cases, supporting in acceptance.gates():
         terminalreporter.section(title)
-        register = {row["case"]: row for row in acceptance.register(statuses)} if gate == "GATE-STAGING" else {}
+        register = {}
+        if gate == "GATE-STAGING":
+            terminalreporter.write_line(f"run commit: {run_commit()}")
+            problems = _acceptance.get("register_problems") or ([] if full else acceptance.check_register())
+            for problem in problems:
+                terminalreporter.write_line(f"FAILED GATE: evidence register: {problem}", red=True)
+            if not problems:
+                register = {row["case"]: row for row in acceptance.register(statuses)}
         for case in cases:
-            line = f"{case:<34} {statuses[case]:<10} {len(cases[case])} mapped tests"
+            terminalreporter.write_line(f"{case:<34} {statuses[case]:<10} {len(cases[case])} mapped tests"
+                                        + ("   " + describe_evidence(register[case]) if case in register else ""))
             if case in register:
-                line += "   " + describe_evidence(register[case])
-            terminalreporter.write_line(line)
+                terminalreporter.write_line(describe_proofs(register[case]))
         # A live-only case is never a pytest result: it is listed, not counted with PASS (9kg.44).
         for case, row in register.items():
             if row["result"] == "LIVE ONLY":
                 terminalreporter.write_line(f"{case:<34} {'LIVE ONLY':<10} no pytest evidence   " + describe_evidence(row))
+                terminalreporter.write_line(describe_proofs(row))
         for group in supporting:
             terminalreporter.write_line(f"{group:<34} {statuses[group]:<10} {len(supporting[group])} mapped tests")
         counts = {case: statuses[case] for case in cases}
@@ -198,17 +241,26 @@ def pytest_terminal_summary(terminalreporter):
 def describe_evidence(row: dict) -> str:
     """One register row as the report prints it: proof types in order, the pytest kind, completeness with the
     residual bead, and the approval boundary (9kg.44)."""
-    proofs = ",".join(t if t != "pytest" else f"pytest:{row['pytest']}" for t, _ in row["proofs"])
+    proofs = ",".join(p["type"] if p["type"] != "pytest" else f"pytest:{row['pytest']}" for p in row["proofs"])
     completeness = f"partial->{row['partial']}" if row["partial"] else "full"
     return f"[{proofs}; {completeness}; up to {row['boundary']}]"
+
+
+def describe_proofs(row: dict) -> str:
+    """The second, indented line: each proof as type@environment/revision, then the residual of a partial case."""
+    line = "    " + "; ".join(f"{p['type']}@{p['environment']}/{p['revision']}" for p in row["proofs"])
+    if row["partial"]:
+        line += f"; residual: {row['residual']}"
+    return line
 
 
 def register_summary(summary: dict) -> list[str]:
     residual = ", ".join(f"{bead} ({', '.join(c.removeprefix('TEST-P6-') for c in cases)})"
                          for bead, cases in sorted(summary["residual"].items()))
     return [
-        f"evidence register: full {summary['full']} (PASS this run {summary['proven_this_run']}, live-only recorded "
-        f"{len(summary['live_only'])}), partial {summary['partial']} (residual beads: {residual or 'none'})",
+        f"evidence register: full {summary['full']} (proven by this run {summary['proven_this_run']}, of which shape-only "
+        f"are excluded: {len(summary['shape_only'])} shape-only, {len(summary['live_only'])} live-only recorded), "
+        f"partial {summary['partial']} (residual beads: {residual or 'none'})",
         "shape-only pytest evidence (behaviour shown by a drill): "
         + ", ".join(summary["shape_only"]) + "; live-only: " + ", ".join(summary["live_only"] or ["none"]),
     ]
