@@ -14,9 +14,7 @@ import ssl
 
 from django.conf import settings
 
-from config import guards
-
-from .transport import peer_allowed, tls_context
+from .transport import _host_allowed, peer_allowed, tls_context
 
 
 def classify(exc: BaseException) -> "MailboxError":
@@ -51,7 +49,7 @@ _DATE = re.compile(rb'INTERNALDATE ("[^"]*")')
 class MailboxClient:
     def __init__(self, timeout: float):
         host = settings.CATALYST_MAIL_HOST
-        if not host or not guards.mail_host_allowed(settings.CATALYST_ENV, host, settings.CATALYST_MAIL_TEST_HOST):
+        if not host or not _host_allowed():
             raise MailboxError("not_configured")
         if not settings.CATALYST_MAIL_USER:
             raise MailboxError("not_configured")  # IMAP selection needs an authenticated session
@@ -140,6 +138,12 @@ class MailboxClient:
         self.examine(folder)
         data = self._ok(self.imap.uid("SEARCH", "HEADER", "Message-ID", f'"{message_id}"'))
         return [int(x) for x in (data[0] or b"").split()]
+
+    def uids_since(self, date: str) -> list[int]:
+        """UIDs of the messages whose internal date is on or after `date` (`dd-Mon-yyyy`), in the selected folder
+        (RFC 9051 SINCE: a calendar day; the Sent reader, 9kg.49)."""
+        data = self._ok(self.imap.uid("SEARCH", "SINCE", date))
+        return sorted(int(x) for x in (data[0] or b"").split())
 
     def append(self, folder: str, data: bytes) -> None:
         self._ok(self.imap.append(f'"{folder}"', None, None, data))

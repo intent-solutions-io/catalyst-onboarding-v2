@@ -5,6 +5,7 @@ them reports a problem, so every process (web server, management command, future
 start; the same functions back a system check for ``manage.py check`` output.
 """
 
+import hashlib
 import ipaddress
 import re
 from urllib.parse import urlsplit
@@ -91,10 +92,22 @@ def is_loopback_literal(host: str) -> bool:
         return False
 
 
-def mail_host_allowed(environment: str, host: str, test_host: str) -> bool:
+# 9kg.49: the environments in which the production mail-host allow-list applies. Admitting an environment here is
+# the release decision (`production` is not in ALLOWED_ENVIRONMENTS until the owner's go, 029 section 13); the
+# allow-list rule is built and tested so that decision changes one constant, not the guard.
+LIVE_ENVIRONMENTS = frozenset({"production"})
+MAIL_PROCESS_ROLES = frozenset({"web", "worker"})  # the only roles that may reach the production mail host
+SENT_FOLDER_SOURCE = "correspondence.sent_reader.SentFolderSource"
+HOST_NAME = re.compile(r"[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?)+")
+
+
+def mail_host_allowed(environment: str, host: str, test_host: str, allowed_hosts=(), role: str = "") -> bool:
     """016 section 6, A-4 (D-28, amends REQ-022): a literal loopback address in `development`, `test` and `staging`,
     or, in `test` only, the one named test-service host. Names other than that one are refused, so a
-    real provider can never be configured outside production."""
+    real provider can never be configured outside production. 9kg.49: in a live environment, exactly a host named
+    in the configured allow-list, for the web and worker roles only (never a fetcher, never a management process)."""
+    if environment in LIVE_ENVIRONMENTS:
+        return bool(host) and host.lower() in {h.lower() for h in allowed_hosts} and role in MAIL_PROCESS_ROLES
     if environment not in ALLOWED_ENVIRONMENTS:
         return False
     if is_loopback_literal(host):
@@ -102,20 +115,46 @@ def mail_host_allowed(environment: str, host: str, test_host: str) -> bool:
     return environment == "test" and bool(test_host) and host == test_host
 
 
+def mail_allow_list_problems(settings) -> list[str]:
+    """9kg.49: the allow-list is exact, non-empty in a live environment, empty everywhere else; a mailbox login whose
+    digest is denied (the first-generation mailbox) is refused in every environment."""
+    environment = getattr(settings, "CATALYST_ENV", "")
+    allowed = list(getattr(settings, "CATALYST_MAIL_ALLOWED_HOSTS", []) or [])
+    problems = []
+    for host in allowed:
+        if not isinstance(host, str) or not host.isascii() or not HOST_NAME.fullmatch(host) or is_loopback_literal(host):
+            problems.append("CATALYST_MAIL_ALLOWED_HOSTS entries must be plain lower-case host names, never addresses")
+            break
+    if environment in LIVE_ENVIRONMENTS:
+        if not allowed:
+            problems.append("CATALYST_MAIL_ALLOWED_HOSTS must name the production mail host outside the synthetic environments")
+    elif allowed:
+        problems.append("CATALYST_MAIL_ALLOWED_HOSTS is allowed only in a live environment (synthetic and development use loopback)")
+    user = getattr(settings, "CATALYST_MAIL_USER", "") or ""
+    denied = {d.lower() for d in (getattr(settings, "CATALYST_MAIL_DENIED_USER_SHA256", []) or [])}
+    if denied and user and hashlib.sha256(user.strip().lower().encode()).hexdigest() in denied:
+        problems.append("CATALYST_MAIL_USER is a denied mailbox (the first-generation mailbox is never a v2 source)")
+    return problems
+
+
 def mail_problems(settings) -> list[str]:
     host = getattr(settings, "CATALYST_MAIL_HOST", "")
     test_host = getattr(settings, "CATALYST_MAIL_TEST_HOST", "")
-    problems = []
+    allowed = getattr(settings, "CATALYST_MAIL_ALLOWED_HOSTS", []) or []
+    role = getattr(settings, "CATALYST_PROCESS_ROLE", "") or ""
+    problems = mail_allow_list_problems(settings)
     if test_host and settings.CATALYST_ENV != "test":
         problems.append("CATALYST_MAIL_TEST_HOST is allowed only in the test environment")
-    if host and not mail_host_allowed(settings.CATALYST_ENV, host, test_host):
-        problems.append("CATALYST_MAIL_HOST must be a literal loopback address (or the named test host in test)")
+    if host and not mail_host_allowed(settings.CATALYST_ENV, host, test_host, allowed, role):
+        problems.append("CATALYST_MAIL_HOST must be a literal loopback address (or the named test host in test"
+                        ", or an allow-listed host for a live web or worker process)")
     if (getattr(settings, "CATALYST_MAIL_USER", "") or getattr(settings, "CATALYST_MAIL_PASSWORD", "")) and (
-            not host or not mail_host_allowed(settings.CATALYST_ENV, host, test_host)):
+            not host or not mail_host_allowed(settings.CATALYST_ENV, host, test_host, allowed, role)):
         problems.append("mail credentials are set without an allowed local mail host")
-    if getattr(settings, "CATALYST_SEND_EVIDENCE_SOURCE", "") and settings.CATALYST_ENV != "test":
-        # 016 A5 and 8.3: no evidence source is admissible until a separately authorized provider check.
-        problems.append("CATALYST_SEND_EVIDENCE_SOURCE is allowed only in the test environment")
+    source = getattr(settings, "CATALYST_SEND_EVIDENCE_SOURCE", "")
+    if source and source != SENT_FOLDER_SOURCE and settings.CATALYST_ENV != "test":
+        # 016 A5 and 8.3; 9kg.49: the read-only Sent reader is the one production source; anything else is test-only.
+        problems.append("CATALYST_SEND_EVIDENCE_SOURCE may name only the Sent-folder reader outside the test environment")
     sent, collected = getattr(settings, "CATALYST_MAIL_SENT_FOLDER", ""), getattr(settings, "CATALYST_MAIL_COLLECT_FOLDER", "INBOX")
     if sent and sent == collected:
         problems.append("CATALYST_MAIL_SENT_FOLDER must differ from CATALYST_MAIL_COLLECT_FOLDER (016 3.6)")
@@ -133,6 +172,8 @@ def mail_problems(settings) -> list[str]:
         problems.append("CATALYST_MAIL_TLS must be 'starttls' or 'none'")
     elif tls == "none" and host and not is_loopback_literal(host):
         problems.append("CATALYST_MAIL_TLS=none is allowed only for a loopback mail host")
+    if settings.CATALYST_ENV in LIVE_ENVIRONMENTS and getattr(settings, "CATALYST_MAIL_CA_FILE", ""):
+        problems.append("CATALYST_MAIL_CA_FILE (a replaced trust store) is not allowed in a live environment")
     return problems
 
 

@@ -14,6 +14,7 @@ import re
 import socketserver
 import ssl
 import threading
+from datetime import datetime
 
 # serve_forever checks for shutdown every poll_interval (0.5 s by default), and stop() waits for it: a
 # short interval keeps each test's teardown from waiting up to half a second per server (bead catalyst-v2-egz).
@@ -110,11 +111,16 @@ class ScriptedIMAP:
                 elif verb == "UID SEARCH":
                     folder = outer.folders[self.selected]
                     match = re.fullmatch(r"UID (\d+):\*", args.strip(), re.I)
+                    since = re.fullmatch(r"SINCE (\d{1,2}-[A-Za-z]{3}-\d{4})", args.strip(), re.I)
                     if match:
                         start = int(match.group(1))
                         uids = [u for u, _, _ in folder.messages if u >= start]
                         if not uids and folder.messages:
                             uids = [folder.messages[-1][0]]  # the n:* quirk: the highest UID even when below n
+                    elif since:  # RFC 9051: the internal date is on or after the day (the Sent reader, 9kg.49)
+                        floor = datetime.strptime(since.group(1), "%d-%b-%Y").date()
+                        uids = [u for u, _, date in folder.messages
+                                if datetime.strptime(date.strip('"').split(" ")[0], "%d-%b-%Y").date() >= floor]
                     else:
                         header = re.fullmatch(r'HEADER (\S+) "?([^"]*)"?', args.strip(), re.I)
                         needle = header.group(2).lower().encode() if header else b"\x00"

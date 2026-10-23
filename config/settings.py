@@ -380,9 +380,20 @@ CATALYST_MAIL_RECONCILE_CHECKS = number("CATALYST_MAIL_RECONCILE_CHECKS", "3")
 CATALYST_MAIL_RECONCILE_GRACE_SECONDS = number("CATALYST_MAIL_RECONCILE_GRACE_SECONDS", "300", minimum=0)
 if CATALYST_MAIL_SEND_DEADLINE_SECONDS * 2 > CATALYST_WORKER_LEASE_SECONDS:
     raise ImproperlyConfigured("CATALYST_MAIL_SEND_DEADLINE_SECONDS must be at most half of CATALYST_WORKER_LEASE_SECONDS")
-# Admissible reconciliation evidence (016 A5): none until a provider check verifies a source (8.3). A
-# dotted path to a class with `find(message_id)`; tests point it at a declared synthetic source.
+# Admissible reconciliation evidence (016 A5): a dotted path to a class with `find(message_id)` and `within(since)`.
+# 9kg.49: the production value is the read-only Sent-folder reader (correspondence.sent_reader.SentFolderSource),
+# allowed in every environment; any other source only in `test` (config.guards). Whether the provider's Sent
+# copies are made only on acceptance is the mail canary's finding (016 8.3), not this setting's.
 CATALYST_SEND_EVIDENCE_SOURCE = os.environ.get("CATALYST_SEND_EVIDENCE_SOURCE", "")
+CATALYST_MAIL_SENT_SCAN_LIMIT = number("CATALYST_MAIL_SENT_SCAN_LIMIT", "500")  # newest copies one read may fetch
+# 9kg.49: the exact production mail-host allow-list (lower-case host names; the one the production environment
+# may connect to, for the web and worker roles only). Required and non-empty in a live environment, refused in
+# the synthetic ones and in development, where only loopback (or the named test host) is ever allowed.
+CATALYST_MAIL_ALLOWED_HOSTS = [h.strip().lower() for h in os.environ.get("CATALYST_MAIL_ALLOWED_HOSTS", "").split(",") if h.strip()]
+# 9kg.49: SHA-256 digests (lower-case hex) of mailbox logins that may never be configured as this service's
+# mailbox: the first-generation service's own mailbox, so v2 can never become a second poller or reader of it.
+# Digests, not names: the repository is public and names nothing.
+CATALYST_MAIL_DENIED_USER_SHA256 = [d.strip().lower() for d in os.environ.get("CATALYST_MAIL_DENIED_USER_SHA256", "").split(",") if d.strip()]
 
 # P4 agreements (021; 4B.1). Synthetic only: the provider is a local fake Documenso in `test`. The URL, the pinned
 # address, the trust store and the API token are fixed in code and empty everywhere else, so nothing can reach a

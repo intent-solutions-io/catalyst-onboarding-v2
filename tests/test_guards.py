@@ -60,7 +60,9 @@ def test_all_problems_combines_every_rule():
         CATALYST_ENV="production",
         EMAIL_BACKEND="django.core.mail.backends.smtp.EmailBackend",
     )
-    assert len(guards.all_problems(settings, {"SMTP_PASSWORD": "x"})) == 4
+    # the engine, the environment, the backend, the provider variable, and (9kg.49) a live environment's empty
+    # mail-host allow-list
+    assert len(guards.all_problems(settings, {"SMTP_PASSWORD": "x"})) == 5
 
 
 def test_system_check_reports_a_problem_introduced_after_startup(settings):
@@ -225,3 +227,79 @@ def test_6b1_review_staging_builds_only_the_test_model(settings):
                 agent.build_model()
     settings.CATALYST_ENV = "test"
 
+
+
+# --- 9kg.49: the production mail-host allow-list and the denied first-generation mailbox ----------------------------
+
+HOST = "mail.synthetic.example.test"
+
+
+def live(**values):
+    base = dict(CATALYST_ENV="production", CATALYST_MAIL_HOST=HOST, CATALYST_MAIL_ALLOWED_HOSTS=[HOST],
+                CATALYST_PROCESS_ROLE="web", CATALYST_MAIL_TLS="starttls", CATALYST_MAIL_SENT_FOLDER="Sent",
+                CATALYST_MAIL_COLLECT_FOLDER="INBOX", CATALYST_MAIL_USER="synthetic-user", CATALYST_MAIL_PASSWORD="x",
+                CATALYST_SEND_EVIDENCE_SOURCE=guards.SENT_FOLDER_SOURCE)
+    return SimpleNamespace(**{**base, **values})
+
+
+def test_9kg_49_the_allow_list_admits_exactly_the_named_host_for_live_web_and_worker_processes():
+    for role, ok in (("web", True), ("worker", True), ("fetcher", False), ("", False)):
+        assert guards.mail_host_allowed("production", HOST, "", [HOST], role) is ok, role
+    assert guards.mail_host_allowed("production", HOST.upper(), "", [HOST], "web")  # names compare case-insensitively
+    for other in ("other.synthetic.example.test", "127.0.0.1", "", "mail.synthetic.example.test.evil.test"):
+        assert not guards.mail_host_allowed("production", other, "", [HOST], "web"), other
+    assert not guards.mail_host_allowed("production", HOST, "", [], "web")  # an empty list admits nothing
+    assert guards.mail_problems(live()) == []
+    assert guards.mail_problems(live(CATALYST_PROCESS_ROLE="fetcher"))
+    assert any("must name the production mail host" in p for p in guards.mail_problems(live(CATALYST_MAIL_ALLOWED_HOSTS=[])))
+    assert any("not allowed in a live environment" in p for p in guards.mail_problems(live(CATALYST_MAIL_CA_FILE="/x/ca.pem")))
+    for bad in (["127.0.0.1"], ["Mail.Example.Test"], ["mail.example.test;x"], ["mail"], ["mail.example.test。evil"]):
+        assert any("plain lower-case host names" in p for p in guards.mail_problems(live(CATALYST_MAIL_ALLOWED_HOSTS=bad))), bad
+    # Outside a live environment the list is refused: test, staging and development never leave loopback.
+    for environment in ("test", "staging", "development"):
+        problems = guards.mail_problems(SimpleNamespace(CATALYST_ENV=environment, CATALYST_MAIL_HOST="127.0.0.1",
+                                                        CATALYST_MAIL_ALLOWED_HOSTS=[HOST], CATALYST_MAIL_TLS="none"))
+        assert any("allowed only in a live environment" in p for p in problems), environment
+        assert not guards.mail_host_allowed(environment, HOST, "", [HOST], "web")
+    assert "production" not in guards.ALLOWED_ENVIRONMENTS  # admitting the environment itself is the release decision
+
+
+def test_9kg_49_the_first_generation_mailbox_can_never_be_a_source():
+    import hashlib
+
+    legacy = "legacy-synthetic@example.test"
+    denied = [hashlib.sha256(legacy.encode()).hexdigest()]
+    for environment, host in (("test", "127.0.0.1"), ("staging", "127.0.0.1"), ("production", HOST)):
+        kwargs = dict(live(CATALYST_ENV=environment, CATALYST_MAIL_HOST=host, CATALYST_MAIL_DENIED_USER_SHA256=denied,
+                           CATALYST_MAIL_ALLOWED_HOSTS=[HOST] if environment == "production" else [],
+                           CATALYST_SEND_EVIDENCE_SOURCE="", CATALYST_MAIL_TLS="starttls").__dict__)
+        for user in (legacy, legacy.upper(), f" {legacy} "):
+            problems = guards.mail_problems(SimpleNamespace(**{**kwargs, "CATALYST_MAIL_USER": user}))
+            assert any("denied mailbox" in p for p in problems), (environment, user)
+            assert legacy not in " ".join(problems)  # the message names no mailbox
+        assert not any("denied" in p for p in guards.mail_problems(SimpleNamespace(**{**kwargs, "CATALYST_MAIL_USER": "v2-synthetic"})))
+
+
+def test_9kg_49_only_the_sent_folder_reader_is_an_evidence_source_outside_test():
+    mail = dict(CATALYST_MAIL_SENT_FOLDER="Sent", CATALYST_MAIL_COLLECT_FOLDER="INBOX", CATALYST_MAIL_TLS="starttls")
+    assert guards.mail_problems(staging(CATALYST_SEND_EVIDENCE_SOURCE=guards.SENT_FOLDER_SOURCE, **mail)) == []
+    assert any("Sent-folder reader" in p for p in guards.mail_problems(
+        staging(CATALYST_SEND_EVIDENCE_SOURCE="tests.smtp_server.ServerEvidence", **mail)))
+    assert guards.mail_problems(SimpleNamespace(CATALYST_ENV="test", CATALYST_SEND_EVIDENCE_SOURCE="tests.smtp_server.ServerEvidence",
+                                                CATALYST_MAIL_TLS="none")) == []
+    assert guards.mail_problems(live(CATALYST_SEND_EVIDENCE_SOURCE="tests.smtp_server.ServerEvidence"))
+
+
+def test_9kg_49_a_live_peer_must_be_the_allow_listed_host_on_a_global_address(settings):
+    from correspondence import transport
+
+    settings.CATALYST_ENV, settings.CATALYST_MAIL_HOST, settings.CATALYST_MAIL_TEST_HOST = "production", HOST, ""
+    settings.CATALYST_MAIL_ALLOWED_HOSTS, settings.CATALYST_PROCESS_ROLE = [HOST], "web"
+    assert transport.peer_allowed("11.22.33.44") and transport.peer_allowed("2600:1f18:1:2::3")
+    for private in ("127.0.0.1", "10.0.0.5", "169.254.1.1", "::1", "224.0.0.1", "not-an-address"):
+        assert not transport.peer_allowed(private), private
+    settings.CATALYST_PROCESS_ROLE = "fetcher"
+    assert not transport.peer_allowed("11.22.33.44")  # the role, not only the host, is part of the rule
+    settings.CATALYST_PROCESS_ROLE, settings.CATALYST_MAIL_HOST = "web", "other.synthetic.example.test"
+    assert not transport.peer_allowed("11.22.33.44")
+    settings.CATALYST_ENV = "test"

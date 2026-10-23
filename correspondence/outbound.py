@@ -542,18 +542,35 @@ class ReconcileSend:
             return
         digests = {message.content_sha256, *unknown.values_list("rendered_sha256", flat=True)} - {""}
         source = evidence_source()
-        records = list(source.find(message_id(message.send_ref))) if source else []  # no lock is held here
+        unreadable = ""
+        try:
+            records = list(source.find(message_id(message.send_ref))) if source else []  # no lock is held here
+        except Exception as exc:
+            # 9kg.49: a source that cannot be read (the mailbox unreachable, TLS refused, the folder missing) is not
+            # "no evidence": the outcome stays unknown, staff are told at once, and nothing is checked again blindly.
+            unreadable = str(getattr(exc, "code", "") or type(exc).__name__.lower())[:64]
+            records = []
         found = next((r for r in records if admissible(r, message, digests)), None)
         n = _reconciles(message, series).count()
+        data = {"send_ref": str(message.send_ref), "check": n, "copies": len(records)}
 
         def write():
             if found is not None:
                 # The send's own action finished uncertain; its work is complete. Items opened earlier (the poison
                 # rule opens one at once) no longer need a decision.
                 accept_by_evidence(message, found, f"pending_action:{claim.id}")
+            elif unreadable:
+                event(message.application, "send_evidence_unreadable", {**data, "code": unreadable},
+                      actor_ref=f"pending_action:{claim.id}")
+                open_item(SEND_OUTCOME_UNKNOWN, str(message.send_ref), application=message.application,
+                          approved_message=message, pending_action_id=claim.id)
             elif n < settings.CATALYST_MAIL_RECONCILE_CHECKS:
                 enqueue_reconcile(message, series, n + 1)
             else:
+                # Absence is not proof of non-send (016 A5): the folder showed no admissible copy over the bounded
+                # checks, which is recorded as a fact for staff; the message stays active, nothing is resent.
+                event(message.application, "send_evidence_absent", data, actor_ref=f"pending_action:{claim.id}")
                 open_item(SEND_OUTCOME_UNKNOWN, str(message.send_ref), application=message.application,
                           approved_message=message, pending_action_id=claim.id)
-        ledger.finish(claim, self, status=Status.DONE, write=write)
+        ledger.finish(claim, self, status=Status.DONE, error=f"evidence_unreadable:{unreadable}" if unreadable else "",
+                      write=write)

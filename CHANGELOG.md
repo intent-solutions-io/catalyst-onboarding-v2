@@ -75,6 +75,10 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   reconciliation of effects after the backup point in the post-restore step (journal replay per app, provider reads
   outside the transaction, per-effect staff items, the owner's manual resolution, a lift that refuses on missing
   evidence) and the restore drill extended with an effect after the backup (`9kg.33`)
+- PL batch item 4: the read-only Sent-folder evidence source (EXAMINE and BODY.PEEK only, by Message-ID or by
+  window, bounded), the reconcile handler's handling of an unreadable source and of a recorded absence, the exact
+  production mail-host allow-list for live web and worker processes, and the denied-mailbox rule that keeps the
+  first-generation mailbox from ever being a v2 source (`9kg.49`)
 
 ### Changed
 

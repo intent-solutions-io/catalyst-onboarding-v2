@@ -241,7 +241,7 @@ three exist in v2 but stay disabled at launch by default (mailbox provisioning, 
 | Question sent, awaiting reply | applicant | reminder cadence and maximum (POL-06 synthetic values), then `escalate_unanswered` to staff; after escalation, the staff item's age (`9kg.51`) | staff item | built; the post-escalation bound is `9kg.51` |
 | Reply awaiting staff processing | staff | none today (reminders and escalation are held while a reply is pending, so the case stalls silently) | staff item | **missing** bound (`9kg.51`) |
 | Reply unmatched, unverified, sender-mismatched, or on a closed application | staff | none today | staff exception item (the unmatched rule for a misdirected first-generation reply is `dy7.2`) | built; bound `9kg.51` |
-| Uncertain send | worker, then staff | reconcile by Sent-folder read; unknown goes to a staff item | staff decide resend or abandon (decision-maker) | built against the fake; **the live Sent reader is not built** (`9kg.49`) |
+| Uncertain send | worker, then staff | reconcile by Sent-folder read; unknown goes to a staff item | staff decide resend or abandon (decision-maker) | built against the fake, the read-only Sent reader and the mail-host allow-list included (`9kg.49`, `016` section 10.12a); the live proof is the mail canary |
 | Mailbox cursor in resync, recovery or blocked; SMTP transport blocked | worker | health anomaly codes | staff item; the owner for a transport block | built; live proof in the mail canary |
 | Hard bounce | staff | immediate block of every send | decision-maker recovery after the cause is addressed | built (`9kg.3`) |
 | Paused (staff or system) | staff | shown with reason; age bound `9kg.51` | resume by the right role; system pauses need review | built; database guard open (`9kg.6`) |

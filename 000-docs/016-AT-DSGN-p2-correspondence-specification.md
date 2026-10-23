@@ -1269,6 +1269,41 @@ offered template approval). Applied:
 Recorded: in P2 each approval creates one message per question (a revision carries the same questions), so a
 message mixing a withdrawn and a live question cannot arise yet.
 
+### 10.12a The read-only Sent-folder evidence source and the production mail-host allow-list (9kg.49, 2026-10-23)
+
+Found by the correspondence review of 2026-10-23 (PL-A, `029` section 5.2): no Sent-folder reader existed, the guards
+refused any evidence source outside the test environment, and the mail-host guard admitted only loopback, so the live
+reconcile of an uncertain send could not run. Built in PL batch item 4:
+
+- **`correspondence/sent_reader.py`, `SentFolderSource`:** the production value of `CATALYST_SEND_EVIDENCE_SOURCE`.
+  It reads `CATALYST_MAIL_SENT_FOLDER` over the TLS-only IMAP client with EXAMINE and BODY.PEEK and never APPENDs,
+  STOREs, EXPUNGEs or SELECTs: a reader that could write would be a second filer. `find(message_id)` serves the
+  ordinary A5 reconciliation; `within(since)` enumerates the folder by internal date (IMAP `SINCE`, a calendar day,
+  so the read starts a day early), bounded by `CATALYST_MAIL_SENT_SCAN_LIMIT` newest copies, for the post-restore
+  reconciliation (`026` section 16, 9kg.33). Every copy becomes an `Evidence` record of origin `provider` with its
+  Message-ID, `To` address, canonical content digest and whether it carries `X-Catalyst-Filed-Copy`; the A5
+  admissibility rule is unchanged, so Catalyst's own filed copy is never evidence, and absence of a copy is never
+  "not sent".
+- **`ReconcileSend`:** a source that cannot be read (mailbox unreachable, TLS refused, the folder missing) is not
+  "no evidence": the action ends with `evidence_unreadable:<code>`, the event `send_evidence_unreadable` and the
+  `send_outcome_unknown` item at once, and nothing is checked again blindly. Checks that find no admissible copy end
+  as before, now with the event `send_evidence_absent` (the check number and the copies read) so staff see the fact
+  they decide on. Records carry codes only.
+- **The allow-list** (`config.guards`): `CATALYST_MAIL_ALLOWED_HOSTS` is an exact list of lower-case host names,
+  required and non-empty in a live environment (`LIVE_ENVIRONMENTS`, today `production`), refused in test, staging
+  and development, which never leave loopback (or the named test host in test). In a live environment
+  `mail_host_allowed` admits exactly a listed host, for the web and worker roles only (never the fetcher or a
+  management process), the connected peer must be a global unicast address, and a replaced trust store
+  (`CATALYST_MAIL_CA_FILE`) is refused. Admitting `production` to `ALLOWED_ENVIRONMENTS` is the release decision
+  (`029` section 13, `9kg.31.4`): the rule changes one constant, not the guard.
+- **The first-generation mailbox** can never be configured as a v2 source: `CATALYST_MAIL_DENIED_USER_SHA256` holds
+  SHA-256 digests of denied mailbox logins (the repository names no mailbox), and a `CATALYST_MAIL_USER` whose
+  digest is listed refuses to start in every environment. There is no second poller of that mailbox.
+- **Still the canary's finding (8.3):** whether the provider's Sent copies are created only on acceptance, which
+  decides whether A5 has admissible evidence live. Until then the reader is proven against the fake only.
+- **Evidence:** `tests/test_inbound.py` and `tests/test_guards.py` (the eight `9kg_49` tests, mapped under
+  `P6_SUPPORTING`).
+
 ### 10.12 GATE-P2 acceptance closeout (owner direction, 2026-10-13)
 
 The owner reviewed `e049870` and held GATE-P2 sign-off for one bounded closeout. The concern: a mapped test

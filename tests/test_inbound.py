@@ -19,6 +19,7 @@ from django.core.exceptions import PermissionDenied
 from django.db.models.functions import Now
 from psycopg import errors
 
+from applications.models import ApplicationEvent
 from correspondence import inbound, mime, outbound, staff_actions, transport
 from correspondence.health import collector_health
 from correspondence.imap import MailboxClient, MailboxError
@@ -865,3 +866,98 @@ def test_5b2_a_quoted_setup_link_is_removed_like_a_confirmation_link():
     text = mime.derive(raw, max_text_chars=10_000).text
     assert "SETUPTOKEN" not in text and "7890" not in text and mime.REDACTED in text and "Thanks!" in text
 
+
+
+# --- 9kg.49: the read-only Sent-folder evidence source (016 A5 and 8.3; 029 section 5.2) ---------------------------
+
+SENT_READER = "correspondence.sent_reader.SentFolderSource"
+
+
+def unknown_send(env, settings, monkeypatch, copy=True, folder="Sent"):
+    """A send whose exchange ends without a reply (unknown), with the provider's Sent copy present or not."""
+    from tests.test_outbound import no_blind_retry
+
+    no_blind_retry(monkeypatch)
+    env.use(ScriptedSMTP({"end": "silent"}))
+    settings.CATALYST_SEND_EVIDENCE_SOURCE = SENT_READER
+    settings.CATALYST_MAIL_SENT_FOLDER = folder
+    _, message = ask(env)
+    if copy:  # the provider's own record of the accepted message: the same bytes, no filed-copy header
+        env.imap.deliver(outbound.build_email(message, message.frozen_subject, message.frozen_body), folder="Sent")
+    before = len(env.imap.folders["Sent"].messages)
+    env.imap.commands.clear()
+    run_worker()
+    message.refresh_from_db()
+    return message, before
+
+
+def test_9kg_49_an_uncertain_send_is_settled_as_sent_by_a_provider_copy_in_the_sent_folder(mailbox, settings, monkeypatch):
+    message, before = unknown_send(mailbox, settings, monkeypatch)
+    assert message.disposition == "accepted_by_evidence" and attempts(message) == [(1, 0, "unknown")]
+    [action] = sends(message)
+    assert (action.status, action.last_error) == ("done", "accepted_by_evidence")
+    assert len(mailbox.server.messages) == 1 and items(message) == []  # never resent, nothing for staff
+    assert ApplicationEvent.objects.filter(kind="message_accepted_by_evidence").count() == 1
+    commands = set(mailbox.imap.commands)
+    assert "EXAMINE" in commands and not commands & {"SELECT", "APPEND", "STORE", "EXPUNGE", "UID STORE"}  # read-only
+    assert len(mailbox.imap.folders["Sent"].messages) == before  # the reader never writes
+    assert all(body == 0 or items_ == "(BODY.PEEK[])" for _, items_, body in mailbox.imap.fetches)  # peek, never a flag
+
+
+def test_9kg_49_no_copy_and_an_old_attempt_stays_unknown_with_the_absence_recorded_for_staff(mailbox, settings, monkeypatch):
+    message, before = unknown_send(mailbox, settings, monkeypatch, copy=False)
+    assert message.disposition == "active" and attempts(message) == [(1, 0, "unknown")]  # absence proves nothing
+    assert [i.reason_code for i in items(message)] == ["send_outcome_unknown"] and len(mailbox.server.messages) == 1
+    [absent] = ApplicationEvent.objects.filter(kind="send_evidence_absent")
+    assert absent.data == {"send_ref": str(message.send_ref), "check": settings.CATALYST_MAIL_RECONCILE_CHECKS, "copies": 0}
+    assert PendingAction.objects.filter(kind="reconcile_send").count() == settings.CATALYST_MAIL_RECONCILE_CHECKS
+    assert len(mailbox.imap.folders["Sent"].messages) == before == 0
+
+
+def test_9kg_49_a_folder_that_cannot_be_read_leaves_a_staff_item_and_checks_nothing_blindly(mailbox, settings, monkeypatch, caplog):
+    message, _ = unknown_send(mailbox, settings, monkeypatch, copy=False, folder="Missing")
+    assert message.disposition == "active" and attempts(message) == [(1, 0, "unknown")]
+    [item] = items(message)
+    assert item.reason_code == "send_outcome_unknown" and item.status == "open"
+    [unreadable] = ApplicationEvent.objects.filter(kind="send_evidence_unreadable")
+    assert unreadable.data["code"] == "folder_missing" and set(unreadable.data) == {"send_ref", "check", "copies", "code"}
+    [reconcile] = PendingAction.objects.filter(kind="reconcile_send")  # no second blind check
+    assert (reconcile.status, reconcile.last_error) == ("done", "evidence_unreadable:folder_missing")
+    mailbox.imap.stop()  # the mailbox host unreachable: the same, with its code
+    settings.CATALYST_MAIL_SENT_FOLDER = "Sent"
+    from correspondence.imap import MailboxError
+    from correspondence.sent_reader import SentFolderSource
+
+    with pytest.raises(MailboxError) as refused:
+        SentFolderSource().find(outbound.message_id(message.send_ref))
+    assert refused.value.code in ("unreachable", "tls_refused")
+    text = " ".join(f"{r.getMessage()} {reconcile.last_error} {item.dedupe_key}" for r in caplog.records)
+    assert "@" not in text and "synthetic project" not in text  # codes only
+
+
+def test_9kg_49_the_reader_enumerates_a_window_read_only_and_marks_a_filed_copy(mailbox, settings):
+    from correspondence import mime
+    from correspondence.sent_reader import SentFolderSource
+
+    settings.CATALYST_MAIL_SENT_FOLDER = "Sent"
+    _, message = sent_question(mailbox)  # accepted by the server, so Catalyst files its own copy (A4)
+    provider = outbound.build_email(message, message.frozen_subject, message.frozen_body)
+    mailbox.imap.folders["Sent"].add(provider, internaldate='"01-Jan-2026 09:00:00 +0000"')  # an old provider copy
+    assert len(mailbox.imap.folders["Sent"].messages) == 2
+    mailbox.imap.commands.clear()
+    everything = SentFolderSource().within(None)
+    assert {r.filed_by_catalyst for r in everything} == {True, False} and all(r.origin == "provider" for r in everything)
+    assert all(r.message_id == outbound.message_id(message.send_ref) and r.recipient == message.recipient
+               and r.content_sha256 == message.content_sha256 for r in everything)
+    filed = next(r for r in everything if r.filed_by_catalyst)
+    assert not outbound.admissible(filed, message, {message.content_sha256})  # 016 A5: our own copy is never evidence
+    assert outbound.admissible(next(r for r in everything if not r.filed_by_catalyst), message, {message.content_sha256})
+    from datetime import UTC, datetime
+
+    recent = SentFolderSource().within(datetime(2026, 10, 1, tzinfo=UTC))  # the window excludes the January copy
+    assert len(recent) == 1 and recent[0].filed_by_catalyst
+    assert "UID SEARCH" in mailbox.imap.commands and not set(mailbox.imap.commands) & {"SELECT", "APPEND", "STORE", "EXPUNGE"}
+    assert len(mailbox.imap.folders["Sent"].messages) == 2  # nothing written
+    assert mime.FILED_COPY_HEADER.encode() not in provider
+    settings.CATALYST_MAIL_SENT_SCAN_LIMIT = 1
+    assert len(SentFolderSource().within(None)) == 1  # bounded: the newest copy only

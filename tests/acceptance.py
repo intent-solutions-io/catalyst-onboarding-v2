@@ -1521,6 +1521,16 @@ P6_SUPPORTING = {
         "test_startup::test_9kg_33_a_deployment_needs_an_effect_journal_directory_outside_the_repository",
         "test_guards::test_9kg_33_the_effect_journal_directory_is_required_outside_the_local_environments",
     ],
+    "9kg.49 the read-only Sent-folder evidence source and the production mail-host allow-list (029 section 5.2)": [
+        "test_inbound::test_9kg_49_an_uncertain_send_is_settled_as_sent_by_a_provider_copy_in_the_sent_folder",
+        "test_inbound::test_9kg_49_no_copy_and_an_old_attempt_stays_unknown_with_the_absence_recorded_for_staff",
+        "test_inbound::test_9kg_49_a_folder_that_cannot_be_read_leaves_a_staff_item_and_checks_nothing_blindly",
+        "test_inbound::test_9kg_49_the_reader_enumerates_a_window_read_only_and_marks_a_filed_copy",
+        "test_guards::test_9kg_49_the_allow_list_admits_exactly_the_named_host_for_live_web_and_worker_processes",
+        "test_guards::test_9kg_49_the_first_generation_mailbox_can_never_be_a_source",
+        "test_guards::test_9kg_49_only_the_sent_folder_reader_is_an_evidence_source_outside_test",
+        "test_guards::test_9kg_49_a_live_peer_must_be_the_allow_listed_host_on_a_global_address",
+    ],
 }
 
 # Cases with no pytest evidence of their own: shown only by a live script (026 section 16).

@@ -67,13 +67,23 @@ def tls_context() -> ssl.SSLContext:
     return ssl.create_default_context(cafile=settings.CATALYST_MAIL_CA_FILE or None)
 
 
+def _host_allowed() -> bool:
+    return guards.mail_host_allowed(settings.CATALYST_ENV, settings.CATALYST_MAIL_HOST, settings.CATALYST_MAIL_TEST_HOST,
+                                    getattr(settings, "CATALYST_MAIL_ALLOWED_HOSTS", []) or [],
+                                    getattr(settings, "CATALYST_PROCESS_ROLE", "") or "")
+
+
 def peer_allowed(peer_ip: str) -> bool:
-    """The connected peer must be loopback, or (in `test` only) the named test service on a private
-    address. Checked after connect and before any further command."""
+    """The connected peer must be loopback, or (in `test` only) the named test service on a private address, or
+    (9kg.49, a live environment with the allow-listed host) a global unicast address: the production host resolves
+    to the public internet, never to loopback, a private range or a link-local one. Checked after connect and
+    before any further command."""
     try:
         address = ipaddress.ip_address(peer_ip)
     except ValueError:
         return False
+    if settings.CATALYST_ENV in guards.LIVE_ENVIRONMENTS:
+        return _host_allowed() and address.is_global and not address.is_multicast
     if address.is_loopback:
         return True
     host, test_host = settings.CATALYST_MAIL_HOST, settings.CATALYST_MAIL_TEST_HOST
@@ -109,7 +119,7 @@ def _send_body(smtp: smtplib.SMTP, payload: bytes) -> None:
 
 def send(message_bytes: bytes, mail_from: str, recipient: str) -> SendResult:
     host = settings.CATALYST_MAIL_HOST
-    if not host or not guards.mail_host_allowed(settings.CATALYST_ENV, host, settings.CATALYST_MAIL_TEST_HOST):
+    if not host or not _host_allowed():
         return SendResult(TRANSPORT_BLOCKED, "connect", None, hard=True)
     deadline = time.monotonic() + settings.CATALYST_MAIL_SEND_DEADLINE_SECONDS
 
