@@ -387,6 +387,27 @@ def process_role_problems(settings, kind: str) -> list[str]:
     return problems
 
 
+INTAKE_FIXED = ("CATALYST_INTAKE_MODE", "CATALYST_CLIENT_IDENTITY")
+INTAKE_MODES = ("invitation", "open")
+CLIENT_IDENTITY_SOURCES = ("proxy", "direct")
+
+
+def intake_problems(settings, environ: Mapping[str, str]) -> list[str]:
+    """9kg.29 and 9kg.43: the intake mode and the client-identity source are fixed in code, never from the
+    environment; the mode is "invitation" (the default) or "open", nothing else, so an unset or mistyped value refuses
+    start-up instead of opening the form; the identity source is "proxy" everywhere the web process listens on the
+    proxy's socket (026 section 8) and may be "direct" only in test and development."""
+    problems = [f"{name} may not be set from the environment" for name in INTAKE_FIXED if name in environ]
+    if getattr(settings, "CATALYST_INTAKE_MODE", None) not in INTAKE_MODES:
+        problems.append("CATALYST_INTAKE_MODE must be 'invitation' (the default) or 'open'")
+    source = getattr(settings, "CATALYST_CLIENT_IDENTITY", None)
+    if source not in CLIENT_IDENTITY_SOURCES:
+        problems.append("CATALYST_CLIENT_IDENTITY must be 'proxy' or 'direct'")
+    elif source == "direct" and getattr(settings, "CATALYST_ENV", "") not in ("test", "development"):
+        problems.append("CATALYST_CLIENT_IDENTITY must be 'proxy' outside test and development (the web process listens on the proxy's socket)")
+    return problems
+
+
 def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return (
         database_problems(settings.DATABASES)
@@ -402,6 +423,7 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + host_problems(settings)
         + secret_problems(settings, environ)
         + process_role_problems(settings, _process_kind())
+        + intake_problems(settings, environ)
     )
 
 

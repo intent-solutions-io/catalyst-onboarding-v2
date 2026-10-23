@@ -15,7 +15,7 @@ from django.utils.html import format_html, format_html_join
 
 from config.staff_admin import ReadOnlyModelAdmin, ReadOnlyTabularInline
 
-from . import staff
+from . import invitations, staff
 from .models import Application, ApplicationEvent, ContactChallenge, SubmissionVersion, VersionAdoption
 
 
@@ -125,10 +125,10 @@ class ApplicationAdmin(ReadOnlyModelAdmin):
     ordering = ("-created_at", "-id")
     fieldsets = [
         ("Applicant", {"fields": ("display_name", "email", "stage", "created_at", "updated_at")}),
-        ("Status", {"fields": ("contact_state", "adopted_version", "staff_attention", "next_step", "outstanding_work")}),
+        ("Status", {"fields": ("intake", "contact_state", "adopted_version", "staff_attention", "next_step", "outstanding_work")}),
     ]
     readonly_fields = ("display_name", "email", "stage", "created_at", "updated_at",
-                       "contact_state", "adopted_version", "staff_attention", "next_step", "outstanding_work")
+                       "intake", "contact_state", "adopted_version", "staff_attention", "next_step", "outstanding_work")
     inlines = [VersionInline, ChallengeInline, EventInline, OutboundInline]
 
     def get_queryset(self, request):
@@ -163,6 +163,11 @@ class ApplicationAdmin(ReadOnlyModelAdmin):
     @admin.display(description="staff attention", ordering="needs_attention")
     def attention(self, obj):
         return format_html('<strong class="errornote">{}</strong>', "Needs staff attention") if obj.needs_attention else "-"
+
+    @admin.display(description="intake mode")
+    def intake(self, obj):
+        """9kg.43: the launch mode, and this applicant's invitation where the mode needs one (never a token)."""
+        return invitations.describe(obj)
 
     @admin.display(description="contact")
     def contact_state(self, obj):

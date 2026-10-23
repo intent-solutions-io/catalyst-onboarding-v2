@@ -495,6 +495,26 @@ if CATALYST_ENV not in LOCAL_ENVIRONMENTS:
     CSRF_TRUSTED_ORIGINS = [CATALYST_PUBLIC_BASE_URL]
     # Deliberate (026 P6-D-3, section 8): HSTS stays short and covers no subdomains and no preload list.
     SILENCED_SYSTEM_CHECKS = ["security.W005", "security.W021"]
+
+# 9kg.29 (029 section 4.1; REQ-027): the public endpoints' limits, counted in PostgreSQL per fixed window
+# (config.throttle). Owner settings (POL-16): these are synthetic placeholders, one window length for every bucket.
+CATALYST_THROTTLE_WINDOW_SECONDS = number("CATALYST_THROTTLE_WINDOW_SECONDS", "600")
+CATALYST_THROTTLE_INTAKE_PER_CLIENT = number("CATALYST_THROTTLE_INTAKE_PER_CLIENT", "10")  # form posts per client
+CATALYST_THROTTLE_INTAKE_PER_ADDRESS = number("CATALYST_THROTTLE_INTAKE_PER_ADDRESS", "3")  # verification issuance per address key
+CATALYST_THROTTLE_LINK_PER_CLIENT = number("CATALYST_THROTTLE_LINK_PER_CLIENT", "30")  # confirm, setup and withdraw requests per client
+CATALYST_THROTTLE_LINK_PER_TOKEN = number("CATALYST_THROTTLE_LINK_PER_TOKEN", "10")  # requests per link token
+CATALYST_THROTTLE_WEBHOOK_PER_CLIENT = number("CATALYST_THROTTLE_WEBHOOK_PER_CLIENT", "120")
+# The client identity the limits key on (config.client_identity). Fixed in code: "proxy" wherever the web process
+# listens on the proxy's socket (the proxy overwrites X-Forwarded-For with the peer address and trusts no proxy, 026
+# section 8), "direct" in the local environments, where the test client or the development server is the peer.
+# config.guards refuses any other value, an environment-sourced value, and "direct" outside the local environments.
+CATALYST_CLIENT_IDENTITY = "direct" if CATALYST_ENV in LOCAL_ENVIRONMENTS else "proxy"
+# 9kg.43 (029 sections 4.1 and 7): who may apply. "invitation": only an address holding a live invitation issued by the
+# owner-run `catalyst_invite` (applications.invitations); "open": anyone. Fixed in code, so changing it is a release
+# whose receipt records the mode; never read from the environment (config.guards). The shipped default is
+# invitation-only; the test suite opens it per test (tests/conftest.py) and proves the default from a fresh process.
+CATALYST_INTAKE_MODE = "invitation"
+CATALYST_INVITATION_LIFETIME_SECONDS = number("CATALYST_INVITATION_LIFETIME_SECONDS", str(14 * 86400))
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},

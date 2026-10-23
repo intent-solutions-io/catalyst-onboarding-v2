@@ -4,13 +4,21 @@ GET shows the form and never consumes the token. POST commits. Every refusal is 
 expired, cancelled or superseded link cannot be told apart). The password field is never re-rendered, nothing typed is
 kept, and the POST parameters are marked sensitive so no error report can show them. Responses under the setup path
 are private and no-referrer (`config.redaction`).
+
+Both pages are limited per client and per token (9kg.29, config.throttle): a burst gets the one 429 page before any
+lookup, so an unknown token is refused exactly like a known one; a POST with the store down is refused with the 503
+page, a GET is still served.
 """
 
+from django.conf import settings
 from django.http import HttpResponse
 from django.shortcuts import render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.debug import sensitive_post_parameters, sensitive_variables
 from django.views.decorators.http import require_http_methods
+
+from config import throttle
+from config.client_identity import client_identity
 
 from . import credentials
 
@@ -19,11 +27,21 @@ def _closed(request, status=404):
     return render(request, "provisioning/setup_closed.html", status=status)
 
 
+def _limited(request, token, scope):
+    """The throttle for a link page: client and token buckets; writes fail closed, reads open."""
+    throttle.enforce(request, (f"{scope}-client", client_identity(request), settings.CATALYST_THROTTLE_LINK_PER_CLIENT),
+                     (f"{scope}-token", token, settings.CATALYST_THROTTLE_LINK_PER_TOKEN), issuance=request.method == "POST")
+
+
 @never_cache
 @sensitive_variables("password", "confirm")
 @sensitive_post_parameters("password", "confirm")
 @require_http_methods(["GET", "POST"])
 def setup(request, token):
+    try:
+        _limited(request, token, "setup")
+    except throttle.Refused as refused:
+        return refused.response
     if request.method == "GET":
         found = credentials.live_setup(token)
         if found is None:
@@ -52,6 +70,10 @@ def withdraw(request, token):
     """P5-D-8: GET shows what withdrawing means; POST commits. One uniform page for any link that cannot be used."""
     from . import closure
 
+    try:
+        _limited(request, token, "withdraw")
+    except throttle.Refused as refused:
+        return refused.response
     if request.method == "GET":
         if closure.live_withdrawal(token) is None:
             return render(request, "provisioning/link_closed.html", status=404)
@@ -59,4 +81,3 @@ def withdraw(request, token):
     if not closure.confirm_withdrawal(token):
         return render(request, "provisioning/link_closed.html", status=404)
     return render(request, "provisioning/withdrawn.html")
-

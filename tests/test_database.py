@@ -52,6 +52,7 @@ APPROVED_MIGRATIONS = {
     ("correspondence", "0015_evidence_protection"),  # 9kg.1
     ("provisioning", "0001_provisioning_records"), ("provisioning", "0002_provisioning_protection"),  # P5 5B.1
     ("correspondence", "0016_welcome_kind"),  # 5B.2
+    ("correspondence", "0017_provenance_freezes"),  # 9kg.5 (internal-launch batch item 6)
     ("provisioning", "0003_credential_setup"), ("provisioning", "0004_credential_setup_protection"),
     ("provisioning", "0005_revocation_and_withdrawal"), ("provisioning", "0006_revocation_and_withdrawal_protection"),  # 5B.3
     # 6B.9: django-otp's TOTP and recovery-code tables, the login throttle, their grants and device protection.
@@ -59,8 +60,10 @@ APPROVED_MIGRATIONS = {
     ("otp_static", "0001_initial"), ("otp_static", "0002_throttling"), ("otp_static", "0003_add_timestamps"),
     ("accounts", "0004_login_throttle"), ("accounts", "0005_two_factor_grants"),
     ("assessments", "0009_fetcher_role_grants"),  # 9kg.24: the evidence fetcher's own narrower role
+    ("accounts", "0006_request_throttle"),  # 9kg.29: the public-endpoint throttle buckets
+    ("applications", "0004_invitation"), ("applications", "0005_invitation_protection"),  # 9kg.43: invitation-only intake
     # 9kg.30: the append-only staff role grant record and the P4 and P5 role groups (accounts.roles)
-    ("accounts", "0006_staff_role_grants"), ("agreements", "0009_staff_groups"), ("provisioning", "0007_staff_groups"),
+    ("accounts", "0007_staff_role_grants"), ("agreements", "0009_staff_groups"), ("provisioning", "0007_staff_groups"),
     ("assessments", "0010_decision_inputs_and_human_only_code"),  # oc4.12: what a decision records, completed
 }
 

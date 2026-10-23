@@ -826,4 +826,4 @@ from tests or a shell. Built, under the existing permissions and the section 9 s
 
 Tests: `tests/test_agreement_screens.py` (one test per action, a refusal without the permission, the recorded event
 or approval). The on-hold exit, the verification resend and the aged-waits bounds are `9kg.50` and `9kg.51` (`018`
-section 19, `016` section 10.13, `026` section 17).
+section 19, `016` section 10.14, `026` section 17).

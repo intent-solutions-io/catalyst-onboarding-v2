@@ -43,7 +43,7 @@ def unprotect(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("accounts", "0005_two_factor_grants"),
+        ("accounts", "0006_request_throttle"),
         ("applications", "0003_protect_version_adoption"),  # the strict append-only function (0002) and the S1 chain
     ]
     operations = [

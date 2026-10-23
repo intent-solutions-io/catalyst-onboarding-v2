@@ -34,6 +34,6 @@ def remove_groups(apps, schema_editor):
 
 class Migration(migrations.Migration):
     # The last of the 9kg.30 migrations: a database at this head always carries the whole role matrix and the grant
-    # record (accounts 0006), so the command finds both or neither.
-    dependencies = [("provisioning", "0006_revocation_and_withdrawal_protection"), ("accounts", "0006_staff_role_grants")]
+    # record (accounts 0007), so the command finds both or neither.
+    dependencies = [("provisioning", "0006_revocation_and_withdrawal_protection"), ("accounts", "0007_staff_role_grants")]
     operations = [migrations.RunPython(add_groups, remove_groups)]

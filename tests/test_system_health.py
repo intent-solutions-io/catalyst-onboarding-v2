@@ -49,7 +49,7 @@ def test_6b4_a_quiet_system_is_healthy(p2):
     code, report = health()
     assert code == 0 and report["anomalies"] == []
     for part in ("worker", "queue", "agreements", "provisioning", "bounces", "sends", "collector", "replies",
-                 "reminders", "mail"):
+                 "reminders", "mail", "sessions", "intake"):
         assert part in report and "anomalies" in report[part]
 
 

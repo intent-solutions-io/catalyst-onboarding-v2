@@ -47,3 +47,14 @@ class LoginThrottle(models.Model):
     failures = models.PositiveIntegerField(default=0)
     locked_until = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class RequestThrottle(models.Model):
+    """One bucket of the public-endpoint limits (9kg.29, config.throttle). `key` is sha256(scope:value): never a client
+    address, an address key or a token. `count` is the requests admitted in the fixed window that began at
+    `window_start`, both judged by the database clock. Rows untouched for a day are swept with the sessions."""
+
+    key = models.CharField(max_length=64, unique=True)
+    count = models.PositiveIntegerField(default=1)
+    window_start = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
