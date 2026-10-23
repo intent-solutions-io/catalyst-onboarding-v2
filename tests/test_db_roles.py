@@ -336,19 +336,26 @@ def test_a_temporary_table_cannot_divert_the_audit_record(connect):
 
 
 @pytest.mark.django_db
-def test_privileged_trigger_function_has_a_fixed_search_path_and_no_public_execute():
+def test_every_catalyst_function_has_a_fixed_search_path_an_owner_and_no_application_execute():
+    """Catalog-driven (9kg.6 review): every function named catalyst_* in public, whoever added it, is owned by the
+    migration owner, runs with the trusted search_path and grants the application role no EXECUTE. SECURITY DEFINER
+    may differ per function (the audited retention path needs it; a plain guard does not)."""
     with connection.cursor() as cursor:
         cursor.execute(
-            "SELECT p.prosecdef, p.proconfig, pg_get_userbyid(p.proowner),"
+            "SELECT p.proname, p.prosecdef, p.proconfig, pg_get_userbyid(p.proowner),"
             " has_function_privilege(%s, p.oid, 'EXECUTE')"
-            " FROM pg_proc p WHERE p.oid = 'public.catalyst_history_append_only()'::regprocedure",
+            " FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
+            " WHERE n.nspname = 'public' AND p.proname LIKE 'catalyst\\_%%' ORDER BY 1",
             [ROLES["app"]],
         )
-        security_definer, config, owner, app_can_execute = cursor.fetchone()
-    assert security_definer is True
-    assert "search_path=public, pg_temp" in config
-    assert owner == ROLES["owner"]
-    assert app_can_execute is False
+        functions = cursor.fetchall()
+    assert len(functions) >= 20 and {"catalyst_history_append_only", "catalyst_pause_resume_guard", "catalyst_event_txid",
+                                     "catalyst_restore_hold_fixed"} <= {f[0] for f in functions}
+    for name, security_definer, config, owner, app_can_execute in functions:
+        assert config and "search_path=public, pg_temp" in config, name
+        assert owner == ROLES["owner"], name
+        assert app_can_execute is False, name
+    assert dict((f[0], f[1]) for f in functions)["catalyst_history_append_only"] is True  # the audited retention path
 
 
 # --- the ORM through the application role ---------------------------------------------------------------

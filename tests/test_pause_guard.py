@@ -47,9 +47,15 @@ def test_9kg6_a_bare_delete_or_update_by_the_application_role_is_refused(connect
     app = connect("app")
     app_id, _, _ = new_application(app)
     subject = pause(app, app_id)
-    refused(app, "automation_resumed event for the application in the same transaction",
+    refused(app, "automation_resumed event for the application, recorded by staff",
             ("DELETE FROM workflow_automationpause WHERE subject_id = %s", [subject]))
     assert paused(app, subject)
+    # Every resume is a staff act: a system actor, or staff with no actor reference, does not clear a staff pause.
+    for actor_type, actor_ref in (("system", ""), ("system", "system:correspondence"), ("applicant", "user:1"), ("staff", "")):
+        refused(app, "recorded by staff with an actor reference",
+                (RESUMED, [app_id, actor_type, actor_ref, json.dumps({"note": "a note of ten+ chars"})]),
+                ("DELETE FROM workflow_automationpause WHERE subject_id = %s", [subject]))
+        assert paused(app, subject)
     # The application role holds no UPDATE grant, so the privilege refuses first; the trigger answers the owner.
     refused(app, "permission denied|UPDATE refused", ("UPDATE workflow_automationpause SET reason = 'edited' WHERE subject_id = %s", [subject]))
     refused(app, "permission denied|UPDATE refused", ("UPDATE workflow_automationpause SET actor_ref = 'user:2' WHERE subject_id = %s", [subject]))
@@ -86,7 +92,9 @@ def test_9kg6_a_system_pause_clears_only_with_a_staff_resume_event_with_a_note_i
             ("system", "", {"note": "a system cannot resume itself"}),
             ("staff", "", {"note": "no actor reference"}),
             ("staff", "user:1", {}),
-            ("staff", "user:1", {"note": ""})):
+            ("staff", "user:1", {"note": ""}),
+            ("staff", "user:1", {"note": "nine char"}),  # 9: below the service's minimum of 10
+            ("staff", "user:1", {"note": "   padded   "})):  # blanks do not count
         refused(app, "clearing a system pause needs an automation_resumed event recorded by staff",
                 (RESUMED, [app_id, actor_type, actor_ref, json.dumps(data)]), delete)
         assert paused(app, subject)
@@ -95,7 +103,7 @@ def test_9kg6_a_system_pause_clears_only_with_a_staff_resume_event_with_a_note_i
     app.commit()
     refused(app, "clearing a system pause", delete)
     assert paused(app, subject)
-    app.execute(RESUMED, [app_id, "staff", "user:1", json.dumps({"note": "cause addressed"})])
+    app.execute(RESUMED, [app_id, "staff", "user:1", json.dumps({"note": "ten chars!"})])  # exactly ten
     app.execute(*delete)
     app.commit()
     assert not paused(app, subject)
@@ -117,6 +125,60 @@ def test_9kg6_a_staff_pause_clears_with_the_resume_event_even_inside_a_savepoint
     app.execute("DELETE FROM workflow_automationpause WHERE subject_id = %s", [subject])
     app.commit()
     assert not paused(app, subject)
+
+
+def test_9kg6_no_earlier_event_and_no_rolled_back_savepoint_event_clears_a_staff_pause(connect):
+    """An event from any earlier transaction (the migration's included: its rows carry the migration's own
+    transaction id) and an event whose savepoint was rolled back are not this transaction's resume."""
+    app = connect("app")
+    app_id, _, _ = new_application(app)
+    subject = pause(app, app_id)
+    delete = ("DELETE FROM workflow_automationpause WHERE subject_id = %s", [subject])
+    app.execute(RESUMED, [app_id, "staff", "user:1", json.dumps({"note": "an earlier transaction"})])
+    app.commit()
+    refused(app, "in the same transaction", delete)
+    assert paused(app, subject)
+    app.execute("SAVEPOINT s")
+    app.execute(RESUMED, [app_id, "staff", "user:1", json.dumps({"note": "rolled back with its savepoint"})])
+    app.execute("ROLLBACK TO SAVEPOINT s")
+    refused(app, "in the same transaction", delete)
+    assert paused(app, subject)
+    # The pre-existing events of this application (the migration-time shape) do not help either: only this
+    # transaction's event does.
+    assert app.execute("SELECT count(*) FROM applications_applicationevent WHERE application_id = %s", [app_id]).fetchone()[0] >= 2
+    app.rollback()
+
+
+def test_9kg6_an_unknown_subject_type_is_guarded_and_cannot_be_cleared(connect):
+    """Only the restore hold's `system` rows are exempt; a pause of any other subject type has no application to
+    join and is refused outright (fail closed)."""
+    app = connect("app")
+    subject = uuid.uuid4()
+    app.execute("INSERT INTO workflow_automationpause (subject_type, subject_id, reason, actor_ref)"
+                " VALUES ('mailbox', %s, 'synthetic', 'user:1')", [subject])
+    app.commit()
+    refused(app, "automation_resumed event", ("DELETE FROM workflow_automationpause WHERE subject_id = %s", [subject]))
+    refused(app, "permission denied|UPDATE refused", ("UPDATE workflow_automationpause SET reason = 'x' WHERE subject_id = %s", [subject]))
+    owner = connect("owner")
+    refused(owner, "UPDATE refused", ("UPDATE workflow_automationpause SET reason = 'x' WHERE subject_id = %s", [subject]))
+    refused(owner, "automation_resumed event", ("DELETE FROM workflow_automationpause WHERE subject_id = %s", [subject]))
+    assert paused(app, subject)
+
+
+def test_9kg6_the_transaction_marker_is_on_no_read_surface():
+    """created_txid is the guard's business: it reaches no admin field list, template, form or serialised dict."""
+    import re
+    from pathlib import Path
+
+    from applications.admin import EventInline
+
+    assert "created_txid" not in EventInline.fields
+    root = Path(__file__).resolve().parent.parent
+    where = {str(p.relative_to(root)) for app in ("accounts", "agreements", "applications", "assessments", "config",
+                                                   "correspondence", "provisioning", "workflow")
+             for p in (root / app).rglob("*") if p.is_file() and p.suffix in (".py", ".html", ".txt")
+             and "migrations" not in p.parts and re.search(r"\bcreated_txid\b", p.read_text())}
+    assert where == {"applications/models.py", "assessments/models.py", "agreements/models.py"}, where
 
 
 def test_9kg6_the_event_transaction_marker_is_always_the_databases_own(connect):
