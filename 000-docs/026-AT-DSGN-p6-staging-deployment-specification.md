@@ -431,6 +431,30 @@ must carry a `since_028` note in its entry, so the AAR stays historical and the 
 apart silently) and checks the report shape in a child run. Deferred to a later task, since it needs git state:
 marking a proof for review when an implementation file listed against it changes.
 
+### 11.2 The personal-data scan (`9kg.40`, TEST-P6-35, 2026-10-23)
+
+`config/personal_data_scan.py` (standard library only, so the host runs it with its own `python3`) scans four
+input classes for personal data: the committed evidence (`EVIDENCE_PATHS`: the after-action reports, the
+compatibility and first-slice evidence, this specification with its section 16 records, and `029`), backup and
+restore-drill receipts, alert text (a log or stdin) and the deployment receipt. Its patterns are classes, not
+people: an email address outside the reserved example domains, a phone number with separators, a street address,
+a fixture person's name (a receipt carrying even a synthetic applicant's name has a leak), a secret assignment
+whose value is not marked synthetic or redacted, a bearer token, a private-key block, a long mixed-case token (a
+digest is hex and allowed; a slug of joined words is a name) and an IPv4 address that is neither loopback,
+unspecified, link-local nor a documentation address. It prints the location and the pattern's name, never the
+matched value; it exits 0 clean, 1 on a hit and 2 when nothing was scanned or an input could not be read, so an
+empty result is meaningful only when something was read.
+
+It runs in CI with the suite (`tests/test_personal_data_scan.py`: the committed evidence passes; a planted
+synthetic address, name, phone, email and token in each input class fails the scan with the value never printed;
+zero files or an unreadable input fails closed; reserved addresses, digests, run ids, timestamps and CIDR ranges
+are not hits) and on the host in the receipt step: `receipt.sh` now writes the deployment receipt to a pending
+file, scans it together with the pre-deploy backup's receipt, and only then moves it into `receipts/`; a hit
+removes the pending file and fails the step, which the deploy wrapper and the alert floor see. The step is tested
+under docker stubs. Not yet shown: that receipt step run live on a host (the register carries TEST-P6-35 as partial
+against the dark deploy, `9kg.31.5`). The scan does not replace the alert message rule in `health.sh` (codes only)
+or gitleaks (credentials in history); it adds the personal-data check `009` section 5.1 listed as manual.
+
 ## 12. 6B task graph (proposed)
 
 R = repository-local (reviewed PRs, synthetic tests only). H = needs a separate host authorization from the owner.

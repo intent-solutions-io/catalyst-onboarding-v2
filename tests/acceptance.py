@@ -1481,6 +1481,15 @@ P6_CASES = {
         "test_backup_commands::test_6b7_a_database_error_reports_only_its_class_and_code_never_the_row",
         "test_backup_commands::test_6b7_a_tampered_or_world_readable_set_is_refused",
         "test_staging_alerts::test_6b12_an_alert_carries_signal_codes_and_nothing_else",
+        # 9kg.40: the scan over committed evidence, receipts, alert text and the deployment receipt
+        "test_personal_data_scan::test_9kg40_a_planted_sentinel_in_each_input_class_fails_the_scan_and_the_value_is_never_printed",
+        "test_personal_data_scan::test_9kg40_the_scan_fails_closed_on_zero_files_or_an_unreadable_input",
+        "test_personal_data_scan::test_9kg40_the_committed_evidence_passes_the_scan",
+        "test_personal_data_scan::test_9kg40_reserved_addresses_digests_run_ids_and_ranges_are_not_personal_data",
+        "test_personal_data_scan::test_9kg40_email_and_token_patterns_catch_what_fixture_names_alone_would_miss",
+        "test_personal_data_scan::test_9kg40_the_fixture_person_names_are_the_ones_the_scan_knows",
+        "test_personal_data_scan::test_9kg40_the_host_receipt_step_blocks_on_a_hit_and_keeps_no_receipt",
+        "test_personal_data_scan::test_9kg40_the_receipt_step_scans_before_the_receipt_counts",
     ],
     "TEST-P6-36": [
         "test_secret_rotation::test_6b10a_a_routine_link_key_rotation_keeps_links_in_hand_working_while_the_old_key_is_a_fallback",
@@ -1557,6 +1566,7 @@ RESIDUAL_BOUNDARIES = {  # the earliest boundary each residual bead blocks (029 
     "9kg.38": "release preparation (9kg.31.4)",
     "9kg.39": "enabling fetching",
     "9kg.40": "the first real-data receipt",
+    "9kg.31.5": "the go/no-go (9kg.31.6)",
 }
 STAGING_CHECK, DEPLOY_DRILL, ALERT_DRILL, RESTORE_DRILL, CUTOVER = (
     ("drill", "scripts/staging_check.sh"), ("drill", "scripts/deploy_drill.sh"), ("drill", "scripts/alert_drill.sh"),
@@ -1604,8 +1614,9 @@ P6_EVIDENCE = {
     "TEST-P6-32": {"proofs": ["pytest", STAGING_CHECK]},
     "TEST-P6-33": {"proofs": ["pytest", STAGING_CHECK]},
     "TEST-P6-34": {"partial": "9kg.27", "residual": "live, with the webhook mounted at the pilot"},
-    "TEST-P6-35": {"proofs": ["pytest", RESTORE_DRILL, ALERT_DRILL], "partial": "9kg.40",
-                   "residual": "a check over committed evidence and the deployment receipt"},
+    "TEST-P6-35": {"proofs": ["pytest", RESTORE_DRILL, ALERT_DRILL], "partial": "9kg.31.5",
+                   "residual": "the receipt step's scan run live on a host (9kg.40 built it; CI runs it over the committed "
+                               "evidence and the step is tested under stubs)"},
     "TEST-P6-36": {"partial": "9kg.27",
                    "residual": "the administrator's password and provider tokens (procedures only, 027)"},
     "TEST-P6-37": {"proofs": ["pytest", ATTESTATION_RUN]},

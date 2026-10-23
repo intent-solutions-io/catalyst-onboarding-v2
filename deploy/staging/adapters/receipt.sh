@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # After a promotion: write the deployment receipt (026 section 4), no personal data. The checks that decide promotion
 # run in smoke.sh, before it; this is the record, and it fails (for the operator and the alert floor) if the serving
-# release no longer reads back as intended or the pre-deploy backup's receipt is missing.
+# release no longer reads back as intended or the pre-deploy backup's receipt is missing. The receipt counts only
+# once the personal-data scan (config/personal_data_scan.py; 9kg.40, TEST-P6-35) has passed over it and over the
+# pre-deploy backup's receipt: a hit withholds the receipt (nothing is kept) and fails the step.
 source "$(dirname "$0")/lib.sh"
 : "${CATALYST_BACKUP_RECEIPT:?the receipt path of the pre-deploy backup, which predeploy.sh prints}"
 [ -e "$CATALYST_BACKUP_RECEIPT" ] || fail "the pre-deploy backup's receipt does not exist"
@@ -15,7 +17,8 @@ ids="$(compose exec -T web python manage.py check --deploy --fail-level WARNING 
 "$(dirname "$0")/smoke.sh" >/dev/null 2>&1 && ready=pass || ready=fail
 mkdir -p "$CATALYST_DEPLOY_STATE/receipts"
 out="$CATALYST_DEPLOY_STATE/receipts/$(date -u +%Y%m%dT%H%M%SZ).json"
-python3 - "$image" "$label" "$facts" "$check" "$ready" "$CATALYST_BACKUP_RECEIPT" "${CATALYST_EXPECTED_COMMIT:-}" > "$out" <<'PY'
+pending="$(mktemp "$CATALYST_DEPLOY_STATE/receipts/.pending.XXXXXX")"
+python3 - "$image" "$label" "$facts" "$check" "$ready" "$CATALYST_BACKUP_RECEIPT" "${CATALYST_EXPECTED_COMMIT:-}" > "$pending" <<'PY'
 import datetime, json, sys
 image, label, facts, check, ready, backup, expected = sys.argv[1:]
 print(json.dumps({"at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"), "image": image,
@@ -23,6 +26,12 @@ print(json.dumps({"at": datetime.datetime.now(datetime.timezone.utc).isoformat(t
                   "check_deploy": check, "smoke_readback": ready, "pre_deploy_backup_receipt": backup},
                  indent=2, sort_keys=True))
 PY
+# The scan prints locations and pattern names only, never a value; it fails closed on an unreadable input.
+if ! PYTHONPATH="$REPO" python3 -m config.personal_data_scan --class receipt "$pending" "$CATALYST_BACKUP_RECEIPT"; then
+  rm -f "$pending"
+  fail "receipt withheld: the personal-data scan did not pass over the deployment receipt and the pre-deploy backup receipt"
+fi
+mv -f "$pending" "$out"
 problems=()
 [ -z "${CATALYST_EXPECTED_COMMIT:-}" ] || [ "$label" = "$CATALYST_EXPECTED_COMMIT" ] || problems+=("not the intended commit")
 [ "$check" = pass ] || problems+=("check --deploy $check")

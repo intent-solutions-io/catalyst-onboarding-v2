@@ -73,7 +73,9 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 - Preparation: P5 specification, P6 readiness matrix and PL cutover plan, `023` and `024` (#48)
 - Internal-launch batch 5 (`029` section 13.3): the GATE-STAGING evidence register, read by the per-gate report,
   which prints proof types, completeness, residual beads and the approval boundary per case and counts partial and
-  live-only cases apart from PASS (`9kg.44`)
+  live-only cases apart from PASS (`9kg.44`); the personal-data scan over committed evidence, receipts, alert text and
+  the deployment receipt, with positive controls, run by the suite and by the host's receipt step, which withholds a
+  receipt on a hit (`9kg.40`, TEST-P6-35)
 
 ### Changed
 
