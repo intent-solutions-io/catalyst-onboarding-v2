@@ -3,11 +3,20 @@
 | Field | Value |
 |---|---|
 | Document | `006-LS-STAT-status` |
-| Last updated | 2026-10-17 |
-| Source revision | PR #36 (3C, GATE-P3 signed off, D-36) |
+| Last updated | 2026-10-23 |
+| Source revision | `main` `45f8b93` (PR #80, 6C) plus the PL-A planning PR |
 | Classification | Public |
 
-> **Status (2026-10-17): P1, P2 and P3 accepted for synthetic work.** GATE-P3 signed off 2026-10-17 (D-36). GATE-S1 signed off 2026-10-11 (D-26), GATE-P2 signed off 2026-10-13 (D-33). P3: `018` approved (D-34); 3B.1 evidence collection (PR #30), 3B.2 bounded assessment with test models only (PR #32) and 3B.3 clarification (PR #34) and 3B.4 qualification decision (PR #35) merged; 3C verification merged (PR #36); GATE-P3 signed off (D-36; after-action report `020`); 3E (live synthetic evaluation) needs separate authorization. The candidate selection-quality contract was approved 2026-10-14 (D-35; `011` section 11, `019`). No deployment, no real applicant data, no live model call; the gates below stay open.
+> **Status (2026-10-23): P1 to P5 accepted for synthetic work; P6 staging built, drilled on the dev box and signed
+> off (GATE-STAGING, D-50, 2026-10-22); the internal production launch is planned (`029`, handoff PL-A, PROPOSED)
+> and not authorized.** GATE-S1 (D-26), GATE-P2 (D-33), GATE-P3 (D-36), GATE-P4 (D-45), GATE-P5 (D-48). Full-run
+> CI 39797287619 at `d1e67e0`: 1353 passed; every gate PASS (GATE-STAGING 38, 17 of its cases partly proven per
+> `028` section 4). Nothing is deployed; no real applicant data, live model, live Documenso, real mailbox or live
+> provider key is used. The first production deployment is an invited internal cohort (the owner's dogfooding
+> pilot) with its own gate (GATE-PILOT), decisions and go; see `029` sections 7, 13 and 14 and the "Next steps"
+> below. The work graph lives in Beads (`bd ready`).
+>
+> **Previous banner (2026-10-17): P1, P2 and P3 accepted for synthetic work.** GATE-P3 signed off 2026-10-17 (D-36). GATE-S1 signed off 2026-10-11 (D-26), GATE-P2 signed off 2026-10-13 (D-33). P3: `018` approved (D-34); 3B.1 evidence collection (PR #30), 3B.2 bounded assessment with test models only (PR #32) and 3B.3 clarification (PR #34) and 3B.4 qualification decision (PR #35) merged; 3C verification merged (PR #36); GATE-P3 signed off (D-36; after-action report `020`); 3E (live synthetic evaluation) needs separate authorization. The candidate selection-quality contract was approved 2026-10-14 (D-35; `011` section 11, `019`). No deployment, no real applicant data, no live model call; the gates below stay open.
 >
 > (Previous banner, 2026-10-11: "first slice complete; P2 specified and approved for synthetic work; 2B.1 authorized, not yet built".)
 
@@ -66,7 +75,19 @@
 
 ## Next steps
 
-Current (2026-10-17):
+Current (2026-10-23, from `029` section 13):
+
+1. The owner reviews the PL-A planning PR (`029`): the launch manifest (section 7), the decision brief (section
+   14) and the first repo-only batch (section 13.3).
+2. The first repo-only batch, under one bounded authorization: invitation mode, rate limits, the receipt and backup
+   gates, the N+1 revert drill, the staff permission command, the human-only assessment path, effect reconciliation
+   after restore, the evidence register, the personal-data scan, the pause-row guard.
+3. Separately authorized batches: the GitHub protections (`9kg.35`); the read-only host preflight (`9kg.42`); the
+   provider canaries (`9kg.31.1` to `.3`); after POL-10, the erasure path, replay and custody encryption.
+4. Then release preparation, the dark deploy, the owner's go/no-go (GATE-PILOT for the internal cohort), the
+   deployment, verification and the observation period; wider enrollment is a later decision.
+
+History (as of 2026-10-17):
 
 1. The open selection-quality inputs (`019` section 13): domain expert, operational delegate, private evaluation location.
 2. P4: `021` approved (D-37); the read-only Documenso check done and 4B.1 merged (D-38, PR #38); 4B.2 released (D-39, draft pull request); next, the release of 4B.3; the P3 owner decisions (`018` section 18), first POL-05.

@@ -1,10 +1,12 @@
 # CLAUDE.md
 
 Entry point for Claude Code in **catalyst-onboarding-v2**, the documentation-first, Django-native
-Solution Catalyst onboarding platform for Intent Solutions. Synthetic only: the first slice (GATE-S1, D-26) and the
-P2 correspondence loop (GATE-P2, D-33) and P3 evidence, assessment and decision (GATE-P3, D-36; spec `018`) are
-accepted. Selection-quality governance (approved D-35) is in
-`011` section 11 and `019`. Repository: https://github.com/intent-solutions-io/catalyst-onboarding-v2 (public).
+Solution Catalyst onboarding platform for Intent Solutions. Synthetic only: P1 to P5 are accepted for synthetic
+work (GATE-S1 D-26, GATE-P2 D-33, GATE-P3 D-36, GATE-P4 D-45, GATE-P5 D-48) and P6 staging is built, drilled on
+the dev box and signed off (GATE-STAGING, D-50). The first production deployment, an invited internal cohort, is
+planned in `029` (handoff PL-A) and not authorized; its gate is GATE-PILOT and its work graph is in Beads.
+Selection-quality governance (approved D-35) is in `011` section 11 and `019`. Repository:
+https://github.com/intent-solutions-io/catalyst-onboarding-v2 (public).
 
 ## Read first
 

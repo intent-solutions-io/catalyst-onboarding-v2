@@ -3,10 +3,10 @@
 | Field | Value |
 |---|---|
 | Document | `024-PP-PLAN-p6-readiness-and-pl-cutover-plan` |
-| Version | 0.1.0 (preparation under D-40) |
-| Status | **PROPOSED, preparation only.** No staging or VPS, DNS, proxy, secret, or production database change was made or is authorized. No real data was exported or imported, and no legacy code was ported. GATE-STAGING, GATE-PILOT and GATE-CUTOVER stay with the owner. |
+| Version | 0.2.0 (0.1.0 was the preparation under D-40; 0.2.0, 2026-10-23, records the P6 outcome, the gate boundaries and the PL coexistence scope for the internal launch, section 5) |
+| Status | **PROPOSED; the readiness record.** Section 1's gaps are now closed or carried as `029` section 13 states; GATE-STAGING is signed off (D-50). No VPS, DNS, proxy, secret or production database change is authorized by this document. No real data was exported or imported, and no legacy code was ported. GATE-PILOT and GATE-CUTOVER stay with the owner. |
 | Owner | Jeremy Longshore |
-| Date | 2026-10-18 |
+| Date | 2026-10-18; section 5 added 2026-10-23 |
 | Epics | P6 `catalyst-v2-9kg`; PL `catalyst-v2-dy7` |
 | Builds on | `003` (architecture, ADR-14 roles, "Learn and Django routing"); `009` section 5.5 (GitHub protections, releases); `011` POL-10, POL-13, POL-14, POL-15; `021` sections 16 to 18 (webhook, custody); `023` (P5) |
 | Superseded for P6 design by | `026` (handoff 6A, 2026-10-18): this matrix stays the readiness record; `026` holds the P6 design, decisions and acceptance plan |
@@ -127,3 +127,26 @@ These are not changed by any synthetic acceptance:
 - P5 itself.
 
 **A synthetic P4 pass is not a production-ready onboarding service.**
+
+## 5. The internal production launch and PL coexistence (2026-10-23)
+
+- **Outcome of section 1.** Rows 1 to 5, 7 to 10 and 13 (the staging secrets pattern) are built and drilled on the
+  dev box (PRs #59 to #80; `026` section 16; `028`); row 12 is half done (the release workflow is fixed; the GitHub
+  protections are not applied); rows 6 (abuse controls), 11 (routing), the open half of 12 and 14 (custody
+  encryption, erasure) are carried as beads `9kg.29`, `dy7.3`, `9kg.35`, `9kg.34` and `9kg.32`. GATE-STAGING is
+  signed off for that scope (D-50).
+- **The pilot is a production launch.** The owner's direction of 2026-10-23 makes the first deployment an
+  invited internal cohort on the production host with real data; `029` holds the comparison with the live
+  first-generation service, the launch manifest, the work graph and the decision brief. GATE-PILOT is its boundary
+  (`011` section 7).
+- **PL now means coexistence first.** The first-generation service has been live with real applicants since
+  2026-10-01 (recorded operator knowledge; its deployed revision is confirmed only at the host preflight). Section
+  3's principles stand, with these additions for the internal launch: no first-generation case moves; v2 touches no
+  first-generation case, mailbox, envelope, webhook target or timer (`dy7.2` is the ownership register and the
+  guards); v2 has its own applicant mailbox and its own Documenso webhook target (P6-D-10); the internal cohort
+  reaches v2 on a dedicated host name unless the owner decides otherwise (`211.7.3`), because the first-generation
+  service serves the same entry path family and a setup-link prefix on the learning host (`029` section 4.6); the
+  rehearsal against the live baseline (`dy7.3`) precedes any routing change, and a routing rollback is never a data
+  rollback.
+- **The POL-15 decisions of section 3.3** are now carried by `211.7.3`; which records move, the coexistence period
+  and the cohort order stay open until the public cutover is planned.

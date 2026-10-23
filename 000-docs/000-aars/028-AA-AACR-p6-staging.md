@@ -13,8 +13,9 @@
 > Everything ran on the dev box with synthetic data. No production host, Learn configuration, provider key or real
 > applicant was touched.
 
-- **Status:** filed for the owner. **GATE-STAGING is not signed off**: that is the owner's decision, on the statement
-  in section 9.
+- **Status:** filed for the owner. **GATE-STAGING was signed off on 2026-10-22 (D-50, `011` section 4)** on the
+  statement in section 9, with the partial clauses of section 4 accepted and carried as beads. (At filing, 2026-10-22,
+  this line read "GATE-STAGING is not signed off: that is the owner's decision, on the statement in section 9.")
 - **Lane:** full. Every task had an independent review, and every review found something (section 5).
 - **Epic:** "Prepare staging, deployment, backup with demonstrated restore, monitoring and the reversible Learn
   routing cutover" (bead `catalyst-v2-9kg`).
@@ -66,7 +67,7 @@
 | 6C evidence map and this report | this PR |
 | A persistent staging stack, with host timers, scheduled backups and receipts | **deferred** to the pilot host (beads `9kg.20` to `9kg.22`) |
 | The live Learn switch | **not started**: needs the cutover plan and the owner's go |
-| GATE-STAGING sign-off | **not done; the owner's decision** |
+| GATE-STAGING sign-off | **not done at filing; the owner's decision** (signed off 2026-10-22, D-50) |
 
 ## 3. Architecture and tradeoffs
 
