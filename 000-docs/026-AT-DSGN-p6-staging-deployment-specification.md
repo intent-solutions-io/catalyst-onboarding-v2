@@ -1612,8 +1612,8 @@ personal-data scan and the pause-row guard (TEST-P6-35).**
   count check then reads the same number before and after. The same check fails on `main` today; batch 2's
   60-of-60 record predates that merge. Carried as a follow-up for the drill (an invitation issued by
   `catalyst_invite` before each submit, or the open mode for the drill's stack), not fixed here.
-- **Case status in the register:** TEST-P6-10, 24 and 25 are full since batch 2 (`since_028` notes name PR #84);
-  TEST-P6-35 stays partial against the dark deploy with the unwired surfaces named (section 11.2).
+- **Case status in the register:** TEST-P6-10 and 24 are full since batch 2 (`since_028` notes name PR #84);
+  TEST-P6-25 is partial against `9kg.63` until the drill issues an invitation and runs green; TEST-P6-35 stays partial against the dark deploy with the unwired surfaces named (section 11.2).
 - **Evidence:** `tests/test_personal_data_scan.py` (the receipt step under docker stubs: a planted value in the
   release facts or in the bound backup receipt withholds the receipt; a bound receipt that is gone fails closed; a
   clean deploy keeps exactly one receipt at mode 0640), `tests/test_acceptance.py` (the register) and
