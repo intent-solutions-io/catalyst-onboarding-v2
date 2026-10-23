@@ -362,7 +362,7 @@ def resume_agreements(application_id: int, user) -> None:
     stay. It also re-runs the sequence after staff fixed what stopped it (a missing template, a contact to verify
     again). It never clears an automation pause, a delivery block or an agreement-integrity hold, and withdrawal and
     closure are not resumable here (POL-12, P5)."""
-    from .completion import RESUMED_EVENT, STOPPED_EVENT, enqueue_advance, integrity_hold_open
+    from .completion import RESUMED_EVENT, enqueue_advance, integrity_hold_open
 
     require(user, "manage_agreements")
     actor = f"user:{user.pk}"

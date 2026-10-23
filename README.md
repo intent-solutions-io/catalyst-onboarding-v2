@@ -48,6 +48,7 @@ them afterwards. No credentials are needed and nothing external is contacted.
 scripts/test.sh                                            # full suite; fails unless every acceptance case of every gate passes
 PYTEST_ARGS="-v tests/test_p4_journey.py" scripts/test.sh  # one area (a selected run is reported, not gated)
 scripts/check-docs.sh                                      # Markdown lint and document index check
+ruff check .                                               # Python lint (ruff 0.16.2, rules in pyproject.toml); pip-audit: 000-docs/009 section 5.1
 ```
 
 `tests/acceptance.py` maps every acceptance case of GATE-S1 to GATE-P5 and GATE-STAGING to the tests that prove

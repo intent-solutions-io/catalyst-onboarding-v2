@@ -391,7 +391,10 @@ def test_history_protection_migrations_reverse_and_reapply_and_keep_data(connect
     app_id, version_id, _ = new_application(app)
     adoption_id = new_adoption(app)
     owner = connect("owner", autocommit=True)
-    count = lambda: len(trigger_states(owner))
+
+    def count():
+        return len(trigger_states(owner))
+
     assert count() == TRIGGER_COUNT
     manage_as_owner("migrate", "applications", "0002", "--verbosity", "0")
     assert count() == 6  # 0003 reversed (with every later migration that depends on it): 0002 intact
@@ -420,8 +423,10 @@ def test_history_protection_migrations_reverse_and_reapply_and_keep_data(connect
 
 def test_grant_migrations_reverse_and_reapply(connect):
     owner = connect("owner", autocommit=True)
-    app_can = lambda table, privilege: owner.execute(
-        "SELECT has_table_privilege(%s, %s, %s)", [ROLES["app"], table, privilege]).fetchone()[0]
+
+    def app_can(table, privilege):
+        return owner.execute("SELECT has_table_privilege(%s, %s, %s)", [ROLES["app"], table, privilege]).fetchone()[0]
+
     assert app_can("workflow_pendingaction", "INSERT")
     manage_as_owner("migrate", "workflow", "0001", "--verbosity", "0")
     assert not app_can("workflow_pendingaction", "INSERT") and not app_can("workflow_pendingaction", "SELECT")
@@ -848,8 +853,11 @@ def test_6b6_the_backup_role_reads_every_sequence_and_can_never_draw_or_set_one(
 
 def test_6b6_reversing_the_grant_migration_revokes_and_reapplying_restores_it(connect):
     owner = connect("owner", autocommit=True)
-    can = lambda: owner.execute("SELECT has_table_privilege(%s, 'applications_application', 'SELECT')",
-                                [ROLES["backup"]]).fetchone()[0]
+
+    def can():
+        return owner.execute("SELECT has_table_privilege(%s, 'applications_application', 'SELECT')",
+                             [ROLES["backup"]]).fetchone()[0]
+
     assert can()
     manage_as_owner("migrate", "workflow", "0002", "--verbosity", "0")
     assert not can()

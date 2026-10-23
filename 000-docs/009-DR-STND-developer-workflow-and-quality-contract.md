@@ -108,6 +108,7 @@ This is the single source for how work is authorized. `CLAUDE.md` and `AGENTS.md
 | Markdown | `npx --yes markdownlint-cli2@0.23.2 "**/*.md"` | broken formatting that hides content | 2.1-2.7 s warm; in CI (action pinned by commit) |
 | Doc index | `bash scripts/check-docs.sh index` (CI step "Every filed doc appears in 000-docs/000-INDEX.md" calls it) | filed documents nobody can find | 0.07 s; in CI |
 | Agent definitions | **CI:** the step "Agent definitions stay read-only and well formed" in `ci.yml` (frontmatter parses, 14 fields, name matches file, no Write/Edit/Bash/Agent/Task/NotebookEdit/Skill granted, Agent denied, model allowed, no permission bypass). **Local, when definitions change:** `claude plugin validate .claude/agents` plus the Intent Solutions validator behind `/validate-agent` (maintainer's tooling, not vendored here) | malformed or over-privileged specialists | CI step 0.09 s locally; IS validator 2.4 s for eleven (owner-local) |
+| Python lint and dependency audit | **CI:** the step "Python lint and dependency audit (ruff, pip-audit; 009 section 5.1)" in the docs job, on every pull request. **Local:** `ruff check .` (ruff 0.16.2; rules in `pyproject.toml`) and, from a virtual environment with `pip install --require-hashes --no-deps -r requirements/lint.txt`, `python -m pip_audit --disable-pip --no-deps --require-hashes -r requirements/base.txt -r requirements/dev.txt -r requirements/docs.txt -r requirements/lint.txt` | undefined and unused names, import and comparison mistakes, syntax errors; a locked dependency with a known vulnerability | ruff 0.45 s over 286 files; pip-audit 4.8 s with a warm cache, 10.3 s with a fresh one, over 57 distinct locked distributions; the hash-locked tool install 21 s (2026-10-23, bead `catalyst-v2-9kg.46`) |
 | Runtime tests | `scripts/test.sh` locally (a unique Compose project per run; it provisions the three database roles, then runs the suite; cleanup removes only that run's resources); CI job "Runtime checks (Python 3.14.8, PostgreSQL 16.15)" with the same digest-pinned images, aggregated into the required check | settings, start-up guards, data-model constraints, database roles and append-only protection, migrations; a skip, xfail or xpass fails the run | 130 tests, 61.2 s of tests, 88 s wall locally (2026-10-10, 1B.2 branch) |
 | Secrets | **CI:** gitleaks 8.30.1 (checksum-verified download) over full Git history, redacted output | credentials in the public repository | 0.32 s locally over history; 1.1 s over the working tree |
 | Sensitive content beyond secrets | manual diff review for personal data, private paths, internal access details, agreement text | public exposure | NOT MEASURED; manual only (gitleaks finds credentials, not personal data) |
@@ -138,6 +139,23 @@ place, is proposal P4. Until then "same version as CI" holds only while the acti
 | Runtime-code PR | any change to code, tests, dependencies, migrations, CI, hooks or test selection (these are **not** docs-only) | the complete hermetic unit and PostgreSQL integration suite while it is small, plus critical safety invariants | substitute SQLite for PostgreSQL locking or schema tests; select a subset before measurement shows the need and the selection map is itself tested |
 | High-risk change | schema or data preservation, auth or permissions, signing gate, inbox correlation, retry and reconciliation, provisioning | the specific invariant tests for that area, before merge | defer them to a nightly run |
 | Release evidence | explicit, human-authorized release | full journey, recovery, restore, deployment and rollback rehearsal, approved provider canaries in isolated staging | real applicant email, live signing requests or production writes from ordinary CI |
+
+**Python lint and dependency audit (added 2026-10-23, bead `catalyst-v2-9kg.46`).** One step in the documentation job, so
+every pull request reports it under the existing required check and no job or check name changed (section 5.5; the
+release gate's two names are unchanged). Scope: ruff's default rule set (`E4`, `E7`, `E9`, `F`) over every tracked Python
+file, with `F811` ignored under `tests/` because test modules import fixtures from other test modules and then name them as
+test parameters; `pip-audit` over the four hash-locked requirement files, reading them without installing anything and
+failing on any known vulnerability, fixed or not (a waiver is an explicit `--ignore-vuln` with its reason in the
+workflow). Both tools are hash-locked in `requirements/lint.txt`, compiled like `docs.txt`. Measured on the development
+host: ruff 0.45 s, pip-audit 4.8 s warm and 10.3 s with a fresh cache, the tool install 21 s; the step runs after the
+runtime job, so it adds its own seconds to a pipeline the runtime job's 18 minutes already bound. The CI figure is on its
+pull request. At `main` `c26e1c0` the default rules found 240 items: 214 `F811` (scoped out as above), 16 unused imports
+(removed), one placeholder-less f-string in a migration (the `f` removed; the SQL is byte-identical), two ambiguous
+names (`l` to `link`), five lambda assignments and one unused variable in tests, and one undefined name: a provisioning
+retry callback read the `except` clause's variable, which Python unbinds when the clause ends; the callback runs inside
+the clause today, so no behaviour changed, and the value is now bound before the callback is built. Not adopted, each
+needing the owner (proposal P11): `ruff format` (234 of 286 files would change), import sorting (94 files), the `B` and
+`UP` rule groups (11 items), a type checker, CodeQL.
 
 ### 5.4 Targets (proposed, not achieved)
 
@@ -275,6 +293,7 @@ applicant-assessment agents.
 | P8 | Run agent-definition validation in CI | **done**: a scoped check on every PR (0.09 s), keeping one stable required check |
 | P9 | Add an automated secret scan to CI | **done**: gitleaks over full history; personal-data and private-path review stays manual |
 | P10 | Decide whether bead history should stay public through `refs/dolt/data` | **decided**: public for sanitized engineering work only (section 3) |
+| P11 | Widen the Python lint beyond ruff's default rules: `ruff format`, import sorting, the `B` and `UP` groups, a type checker, CodeQL | proposed 2026-10-23 (section 5.3); the default rules and `pip-audit` are in CI |
 
 ## 8. Branches and worktrees
 

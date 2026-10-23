@@ -101,6 +101,9 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 - Test hygiene (internal-launch batch item 6): the administrator database login reaches only the role-provisioning
   step of the test container and the CI job; the superuser-refusal probes and the tests that act as the
   administrator use a probe-only pair read by `tests/support.py` alone (`026` section 16)
+- Python lint and dependency audit (bead `9kg.46`): ruff's default rules and `pip-audit` over the hash-locked requirement
+  files run as one step of the CI docs job on every pull request, tools hash-locked in `requirements/lint.txt`, with the
+  26 findings fixed and the fixture-import redefinitions scoped out (`009` sections 5.1 and 5.3)
 
 ### Changed
 

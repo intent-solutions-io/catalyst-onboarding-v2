@@ -346,7 +346,7 @@ def test_review_the_setup_token_is_redacted_from_django_request_logs(pv, monkeyp
 
 
 def test_review_the_checklist_path_never_calls_the_api_for_the_credential(pv, monkeypatch, settings):
-    from provisioning import core, services
+    from provisioning import services
 
     settings.CATALYST_PROVISIONING_METHOD = "checklist"
     app, request = approved(pv, monkeypatch)

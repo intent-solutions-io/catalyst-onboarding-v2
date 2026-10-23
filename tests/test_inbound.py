@@ -19,7 +19,7 @@ from django.core.exceptions import PermissionDenied
 from django.db.models.functions import Now
 from psycopg import errors
 
-from correspondence import inbound, mime, outbound, staff_actions, transport
+from correspondence import inbound, mime, outbound, staff_actions
 from correspondence.health import collector_health
 from correspondence.imap import MailboxClient, MailboxError
 from correspondence.models import (
@@ -27,7 +27,6 @@ from correspondence.models import (
     InboundMessageLocation,
     MailboxCursor,
     OutboundMessage,
-    Question,
     QuestionReplyLink,
     StaffItem,
     StaffItemResolution,
@@ -38,11 +37,9 @@ from tests.smtp_server import ScriptedSMTP
 from tests.test_outbound import (  # helpers only, never test functions
     ask,
     attempts,
-    items,
     p2,  # noqa: F401  (fixture)
     ready,  # noqa: F401  (fixture)
     run_worker,
-    sends,
     staff,
     wait_until,
 )
