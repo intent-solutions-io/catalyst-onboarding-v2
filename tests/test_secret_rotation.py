@@ -130,8 +130,7 @@ def test_6b10a_a_rotated_role_password_takes_effect_and_the_old_one_stops_workin
     from django.db import connection
 
     script = [sys.executable, "scripts/provision_db_roles.py"]
-    admin = {"CATALYST_DB_ADMIN_USER": os.environ["CATALYST_DB_ADMIN_USER"],
-             "CATALYST_DB_ADMIN_PASSWORD": os.environ["CATALYST_DB_ADMIN_PASSWORD"], "CATALYST_ENV": "test"}
+    admin = {**support.superuser_probe(), "CATALYST_ENV": "test"}  # this test acts as the administrator (6hl.10)
     old, new = os.environ["CATALYST_DB_RETENTION_PASSWORD"], "synthetic-rotated-retention-" + "Kp4Lm6Nb8Vc0" * 3
 
     def login(password):

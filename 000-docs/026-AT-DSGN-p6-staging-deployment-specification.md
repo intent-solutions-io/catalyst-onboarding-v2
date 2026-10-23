@@ -1563,10 +1563,37 @@ and the N+1 revert drill (TEST-P6-10, 24, 25).**
 - **Case status:** TEST-P6-10, 24 and 25 move from partly (`028` section 4, bead `9kg.27`) to proven for the
   synthetic stack; `028` stays the point-in-time record of the sign-off.
 
+**6hl.10, the administrator login reaches only the role-provisioning step (026 section 5; internal-launch batch
+item 6, 2026-10-23).**
+
+- **Finding (security review of the PR #11 closeout, finding 3):** `compose.yaml` and `ci.yml` set
+  `CATALYST_DB_ADMIN_USER` and `CATALYST_DB_ADMIN_PASSWORD` for the whole test container and CI job, so pip, the venv
+  and the pytest process itself held the bootstrap administrator's login. Child processes were already stripped of it
+  (`tests/support.py`), and the values are synthetic.
+- **Built:** the two variables exist only where `scripts/provision_db_roles.py` runs: an `env` prefix on that command
+  in `compose.yaml`, and a step-level `env` on the provisioning step in `ci.yml`. The pytest process, pip and the venv
+  never see them. The superuser-refusal probes and the tests that must act as the administrator (the staging
+  provisioning check, password rotation, the restore command and the restore rehearsal) take the login from one
+  probe-only pair, `CATALYST_TEST_SUPERUSER_PROBE_USER` and `CATALYST_TEST_SUPERUSER_PROBE_PASSWORD`, through
+  `tests.support.superuser_probe()`; no application, provisioning or deployment code reads those names, and a test
+  proves it by reading the source tree. `child_env()` strips both prefixes, so a child receives the administrator login
+  only when a test passes it explicitly.
+- **What the test process holds:** in the test cluster the probe pair carries the bootstrap superuser's own login,
+  because PostgreSQL has no lesser role that can prove "a superuser connection is refused". The gain is structural: the
+  names every operational path consumes (`catalyst_restore`, the provisioning script, the staging compose) are absent
+  from the test process and from every child it spawns, so nothing can act as the administrator by inheritance; the
+  probe name is read by test code alone, and only where a test states that it needs the administrator.
+- **Tests (`tests/test_db_roles.py`):** the pytest process holds no `CATALYST_DB_ADMIN_*` name; the probe name is read
+  nowhere outside `tests/support.py`; a child process receives neither prefix; a spawned worker's environment carries
+  neither (`tests/test_worker.py`); and the staging `web`, `worker` and `fetcher` services carry no administrator
+  variable or secret (`tests/test_staging_compose.py`). The full suite runs with the narrowed environment.
+- **Staging is unchanged:** the administrator's password was already a file mounted only into the database, the
+  operator-run provisioning and the restore service (section 5; the 6B.5b and 6B.13 records).
+
 **PL batch 5 (`029` section 13.3, item 5; beads `9kg.44`, `9kg.40` and `9kg.6`): the evidence register, the
 personal-data scan and the pause-row guard (TEST-P6-35).**
 
-- **Designs:** section 11.1 (the register), section 11.2 (the scan) and `016` section 10.13 (the guard).
+- **Designs:** section 11.1 (the register), section 11.2 (the scan) and `016` section 10.14 (the guard).
 - **The deploy drill with the scanning receipt step**, `scripts/deploy_drill.sh` with the estate wrapper on the dev
   box, run twice on 2026-10-23 at the branch's head. The first run was 44 of 60: the drill's fixture migrations
   (`0005_drill`, `0005_expand`, `0006_contract`, `0007_staged` in `workflow`) collided with the guard's

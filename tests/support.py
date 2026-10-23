@@ -7,13 +7,29 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ADMIN_PREFIX = "CATALYST_DB_ADMIN_"
+# 6hl.10: the test process never holds CATALYST_DB_ADMIN_* (compose.yaml and ci.yml give it to the provisioning
+# step alone). The superuser-refusal probes, and the tests that must act as the administrator, take the login from
+# this probe-only pair, read here and nowhere else; no application, provisioning or deployment code knows the name.
+PROBE_PREFIX = "CATALYST_TEST_SUPERUSER_PROBE_"
+STRIPPED_PREFIXES = (ADMIN_PREFIX, PROBE_PREFIX)
+
+
+def superuser_login():
+    """The probe-only superuser login as (user, password), for a test that states it acts as the administrator."""
+    return os.environ[PROBE_PREFIX + "USER"], os.environ[PROBE_PREFIX + "PASSWORD"]
+
+
+def superuser_probe():
+    """The administrator variables a child needs when a test passes the login back in, explicitly."""
+    user, password = superuser_login()
+    return {"CATALYST_DB_ADMIN_USER": user, "CATALYST_DB_ADMIN_PASSWORD": password}
 
 
 def child_env(**overrides):
-    """The environment for a child process: this process's synthetic environment without the bootstrap
-    administrator's login (CATALYST_DB_ADMIN_*), plus `overrides` (a value of None removes a name). Only the
-    probe that proves superuser refusal passes administrator credentials back in, explicitly."""
-    env = {k: v for k, v in os.environ.items() if not k.startswith(ADMIN_PREFIX)}
+    """The environment for a child process: this process's synthetic environment without the administrator's
+    login (CATALYST_DB_ADMIN_*, never present anyway) and without the probe pair, plus `overrides` (a value of
+    None removes a name). Only a test that states it acts as the administrator passes the login in, explicitly."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith(STRIPPED_PREFIXES)}
     env["DJANGO_SETTINGS_MODULE"] = "config.settings"
     env.update(overrides)
     return {k: v for k, v in env.items() if v is not None}

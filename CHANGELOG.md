@@ -1,15 +1,15 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 ## [v0.1.0] - 2026-10-09
 
 - feat: initial project setup with governance, filed planning docs and beads (planning phase, no code) (d0f6719)
 - bd init: initialize beads issue tracking (e585d2e)
 - bd init: initialize beads issue tracking (8dc5045)
-
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
@@ -90,6 +90,12 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   fail closed for issuance and open for reading; invitation-only intake by default, enforced inside the intake
   transaction, spent once at confirmation, issued only by the owner-run `catalyst_invite`, shown in the dossier, the
   health report and the release receipt
+- Hardening (internal-launch batch item 6): the database freezes inbound message provenance and the identity
+  columns of outbound attempts and reply links for every role, with the audited retention path left open for
+  erasure (correspondence migration 0017, `016` section 10.13)
+- Test hygiene (internal-launch batch item 6): the administrator database login reaches only the role-provisioning
+  step of the test container and the CI job; the superuser-refusal probes and the tests that act as the
+  administrator use a probe-only pair read by `tests/support.py` alone (`026` section 16)
 
 ### Changed
 
@@ -102,5 +108,8 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 
 - The release workflow refuses to tag, push or publish unless every required CI check succeeded on the
   release commit (#18)
+- Two LOW findings of the 2026-10-22 audit (bead `9kg.48`): `pyproject.toml` declares the tagged version 0.1.0 (it said
+  0.0.0 while `version.txt` said 0.1.0), the CI docs job installs its one dependency hash-locked from
+  `requirements/docs.txt` instead of by version alone, and this file's preamble sits above the first release entry
 
 [Unreleased]: https://github.com/intent-solutions-io/catalyst-onboarding-v2/commits/main

@@ -1,4 +1,4 @@
-"""9kg.6 (security review of PR #46, HIGH 2; ADR-14 pattern; 016 section 10.13): the automation pause row of an
+"""9kg.6 (security review of PR #46, HIGH 2; ADR-14 pattern; 016 section 10.14): the automation pause row of an
 application is cleared only together with an audited resume. The application role keeps DELETE on
 workflow_automationpause (the resume service needs it), so the rule is a deferred constraint trigger, for every role:
 a DELETE of a pause is refused at commit unless the same top-level transaction inserted an `automation_resumed`

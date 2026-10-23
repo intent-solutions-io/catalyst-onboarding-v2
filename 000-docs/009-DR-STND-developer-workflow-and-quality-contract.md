@@ -243,8 +243,8 @@ No smaller lane is selected by change type yet. The lane table above is the desi
   - **Proposed** (needs the owner): a protected `release` environment limited to `main` with a required reviewer.
     That is the only control that enforces this against someone with write access.
   - `dry_run` defaults to true, and the checkout action is pinned to a commit.
-  - Today `pyproject.toml` says 0.0.0 while `version.txt` says 0.1.0 and `v0.1.0` is tagged. The next prepared
-    release aligns both.
+  - `pyproject.toml` said 0.0.0 while `version.txt` said 0.1.0 and `v0.1.0` was tagged; the two were aligned at 0.1.0 on
+    2026-10-23 (a LOW finding of the 2026-10-22 audit), without a release, so the gate's two sources agree.
 
 ### 5.6 Test integrity
 

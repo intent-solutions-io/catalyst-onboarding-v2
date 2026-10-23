@@ -570,8 +570,10 @@ def worker_check(tmp_path, **overrides):
     ("admin", "connects as superuser"),
 ])
 def test_a_worker_process_refuses_a_privileged_login(privileged_reset, tmp_path, role_key, reason):
-    user = support.os.environ["CATALYST_DB_ADMIN_USER"] if role_key == "admin" else settings.CATALYST_DB_ROLES[role_key]
-    password = support.os.environ[f"CATALYST_DB_{role_key.upper()}_PASSWORD"]
+    if role_key == "admin":
+        user, password = support.superuser_login()  # the probe-only pair (6hl.10)
+    else:
+        user, password = settings.CATALYST_DB_ROLES[role_key], support.os.environ[f"CATALYST_DB_{role_key.upper()}_PASSWORD"]
     code, out, err = worker_check(tmp_path, CATALYST_DB_USER=user, CATALYST_DB_PASSWORD=password,
                                   CATALYST_PROCESS="management")  # a stale value does not exempt the worker
     assert code != 0
