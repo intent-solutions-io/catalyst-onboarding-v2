@@ -584,9 +584,10 @@ def test_6hl10_the_probe_login_is_read_by_the_test_support_module_only():
                   if path.is_file() and path.suffix in (".py", ".yaml", ".yml", ".sh", ".toml", ".txt", ".cfg")
                   and not set(path.relative_to(ROOT).parts) & set(skipped)
                   and name in path.read_text(encoding="utf-8", errors="replace"))
-    # Where the value is set (the local compose file and CI) and the one reader. Nothing under config/, scripts/,
-    # deploy/ or an application package knows the name, so no runtime path can pick the login up by accident.
-    assert hits == [".github/workflows/ci.yml", "compose.yaml", "tests/support.py"]
+    # Where the value is set (the local compose file, CI and the dispatched targeted lane, 9kg.45) and the one reader.
+    # Nothing under config/, scripts/, deploy/ or an application package knows the name, so no runtime path can pick
+    # the login up by accident.
+    assert hits == [".github/workflows/ci.yml", ".github/workflows/targeted.yml", "compose.yaml", "tests/support.py"]
 
 
 @pytest.mark.parametrize(

@@ -157,6 +157,64 @@ the clause today, so no behaviour changed, and the value is now bound before the
 needing the owner (proposal P11): `ruff format` (234 of 286 files would change), import sorting (94 files), the `B` and
 `UP` rule groups (11 items), a type checker, CodeQL.
 
+**Targeted iteration lane (added 2026-10-23, bead `catalyst-v2-9kg.45`).** Fast feedback on a task without omitting a
+test from the merge gate. The pull request's required check "Runtime checks (Python 3.14.8, PostgreSQL 16.15)" stays
+the complete suite, and so does the release-candidate gate (`scripts/require_green_ci.py` reads only the two required
+names); a targeted run is reported, never gated (`tests/acceptance.py` marks a selected subset "not gated").
+
+- *Selection rule.* `scripts/select_tests.py` maps changed paths to test modules and prints pytest arguments:
+  `git diff --name-only origin/main... | xargs python3 scripts/select_tests.py`. The map is derived from the code each
+  time (no hand-kept list to drift): every test module's first-party imports, read with `ast` and followed through the
+  test modules and helpers it imports (the fixture chains). A change under an application package (outside
+  `migrations/`) selects every test module that reaches that package; a change to a test module or helper selects it
+  and every module that imports it. Everything else runs the whole suite: `config/` (settings, URLs and guards load in
+  every test), migrations, `tests/conftest.py`, the worker child scripts, requirements, the Dockerfile, compose files,
+  `deploy/`, `scripts/`, `.github/`, prose. So does a selection above half of the test modules.
+  `python3 scripts/select_tests.py --table` prints the whole map.
+- *The map is tested* (`tests/test_select_tests.py`, as the "Runtime-code PR" row requires before any subset is
+  selected): every test module is reachable through it; a package change selects every module whose source imports
+  that package (a regex reading, independent of the `ast` walk); fixture chains are followed; unmapped paths and wide
+  selections run the whole suite; the eleven test modules no package change reaches are pinned by name, so a new one
+  is a decision. Known blind spot, which is why the lane never gates: a view reached only through a URL, a management
+  command called by name, or a template.
+- *Where it runs.* Locally, `PYTEST_ARGS="$(git diff --name-only origin/main... | xargs python3 scripts/select_tests.py)"
+  scripts/test.sh`. In CI, the dispatch-only workflow "Targeted runtime checks" (`targeted.yml`): same digest-pinned
+  images, roles and settings as `ci.yml`; a `selection` input that reaches pytest only through an environment
+  variable, is validated before any other step and is split by `xargs` (never a script body); the slowest 25 tests
+  listed. It adds no required check, no path filter and no change to an existing job; `tests/test_release_gate.py`
+  checks that it stays dispatch-only, outside the gate's names and on the same pinned images. A dispatch needs the
+  workflow on `main`, so its hosted-runner time is read off the first dispatch after merge.
+
+The map at `main` `3477231` plus this change (55 test modules), with each row's measured share of the suite from the
+2026-10-23 profile (section 5.4; shares from the development-host run of the 1,452-test suite, the hosted-runner
+minutes scaled to that suite's hosted run of 1,149 s; module counts are today's, test counts the profiled suite's):
+
+| Changed path | Modules selected | Tests | Share of suite time | About, on a hosted runner | Lane result |
+|---|---|---|---|---|---|
+| `accounts/` | 8 of 55 | 129 | 10 % | 2 min | targeted |
+| `provisioning/` | 9 | 176 | 33 % | 6 min | targeted |
+| `agreements/` | 17 | 324 | 55 % | 10.5 min | targeted (module count under half; time over half) |
+| `assessments/` | 27 | 622 | 62 % | 12 min | whole suite (over half the modules) |
+| `correspondence/` | 39 | 1,104 | 84 % | 16 min | whole suite |
+| `workflow/` | 42 | 1,191 | 86 % | 16.5 min | whole suite |
+| `applications/` | 43 | 1,266 | 92 % | 17.5 min | whole suite |
+| one test module that no other imports (34 of the 55) | 1 | its own | 0 to 8 % | seconds to 1.5 min | targeted |
+| `tests/test_provisioning.py` (9 modules borrow its fixtures) | 9 | 176 | 33 % | 6 min | targeted |
+| `tests/test_outbound.py`, `tests/smtp_server.py` | 34 | 921 | 80 % | 15 min | whole suite |
+| `tests/support.py` | 46 | 1,245 | 99 % | 19 min | whole suite |
+| anything unmapped (above) | all | all | 100 % | 19 min | whole suite |
+
+**What this shows:**
+the lane pays off for a change to one test module, to `accounts/` or to `provisioning/`; a change to the core packages
+(`applications`, `workflow`, `correspondence`) reaches nearly every module through the journey fixtures, so the only
+real lever for those is making the full run itself faster (proposals P12 and P13). The half-the-modules threshold
+lets `agreements/` through at 55 % of the time; that is acceptable for a lane that never gates, and switching the
+threshold to measured time is part of P14.
+
+Measured locally on 2026-10-23: the selection for a change to `accounts/roles.py` (8 modules, 147 tests, including
+the new `test_staff_roles`) passed in 721 s pytest, 791 s wall, on the shared development host under a load average
+of 16 to 25, where the full suite had taken 4,478 s wall an hour earlier under comparable load: about a sixth.
+
 ### 5.4 Targets (proposed, not achieved)
 
 Documentation lane under 2 minutes; focused local tests under 90 seconds; ordinary PR CI under 5
@@ -209,12 +267,58 @@ The table counts only phases of 0.5 s or more. Its rows do not sum to the 260 s 
 CI on the last measured head took 15 min 51 s for the runtime job (run 39068959123, before this change). The CI
 figure after this change is recorded on its pull request (#40). The 5-minute target remains unmet.
 
-**Lanes in CI today:** two jobs run on every pull request:
+**Runtime lane, profiled again 2026-10-23** (bead `catalyst-v2-9kg.45`). Two sources, because the development host
+was shared:
 
-- the runtime job, the full suite in the pinned containers;
-- the documentation job, Markdown and index.
+- *Hosted runner, `main`* (`ubuntu-latest`, job "Runtime checks", read from the run logs):
 
-No smaller lane is selected by change type yet. The lane table above is the design for that.
+  | Run | Commit | Tests | pytest time | Per test | Job, start to end |
+  |---|---|---|---|---|---|
+  | 39992632511 | `f4d3eb9` | 1,353 | 1,066 s | 0.79 s | 18 min 20 s |
+  | 39994957725 | `a3cf764` | 1,353 | 969 s | 0.72 s | 16 min 46 s |
+  | 40008137841 | `b2d9277` | 1,359 | 1,060 s | 0.78 s | 18 min 17 s |
+  | 40011063747 | `c4b0f03` | 1,385 | 849 s | 0.61 s | 14 min 40 s |
+  | 40022677028 | `c26e1c0` | 1,451 | 1,149 s | 0.79 s | 19 min 41 s |
+  | 40033214741 | `3477231` | 1,498 | 1,246 s | 0.83 s | 21 min 23 s |
+
+  Against the 2026-10-18 baseline (919 tests, 759 s after the fixture-server change, 0.83 s per test on the
+  development host; 15 min 51 s for the job on CI before it): the suite has grown by 63 % in tests and the time with
+  it; the cost per test stays in the same range (0.61 to 0.83 s). The same suite varies by about 10 % between hosted runs (969 s and 1,066 s for
+  1,353 tests). Setup before the tests (container, dependency install, roles) is 23 to 32 s per run; the docs job,
+  which waits for the runtime job, 8 to 12 s; the image build and scan ("Build and scan the image", a separate
+  workflow running alongside) about 2 minutes. No image is built in the runtime lane.
+- *Development host*, `scripts/test.sh` with `--durations=0 --durations-min=0`, the `c26e1c0` suite plus the lint
+  fixes: 1,452 passed, nothing skipped; 4,408 s pytest, 4,478 s wall. It ran beside nine other sessions' test
+  containers (load average 13 rising to 30), 3.8 times its hosted time, so its absolute seconds are void and only its
+  shares are used:
+
+  | Phase | Share | Note |
+  |---|---|---|
+  | Call | 71 % | 3,118 s; the test bodies |
+  | Setup | 19 % | 827 s; counting phases of 0.5 s or more, 18 % against 2 % on 2026-10-18 (13 s of 759 s). Led by the journey fixtures: `test_provisioning_screen` 4.9 s per test (its `released` fixture replays the applicant journey to a released address), then `test_provisioning`, `test_reminders`, `test_backup_commands`, `test_inbound` |
+  | Teardown | 10 % | 446 s, about half of it in phases under 0.5 s |
+
+  By cost class, as shares of the whole run: start-up refusal subprocesses (`test_startup`) 8 %; backup and restore
+  (`test_backup_commands`, `test_restore_rehearsal`, `test_post_restore`) 13 %; database roles with the two
+  migration reverse-and-reapply tests (79 s and 43 s under load) 5.5 %; the acceptance-gate self-test about 1 %. The
+  slowest single test is the restore rehearsal (2.7 %). The database reset was not instrumented again; 2026-10-18
+  measured 0.12 s each, part of the setup share. The log is not committed; the shares above are summed from its
+  `--durations` table by phase and by module.
+
+**Cause of the growth and what would help (not done here).** Test count, not slower tests. The setup share is the
+one cost that grew faster than the suite: journey fixtures that replay an applicant's path for each test. Caching
+that state per module, or building it directly instead of through the journey, is the largest repo-only saving in
+reach; it changes test set-up across many modules and is a separate bead for the owner to schedule. The 5-minute
+target stays unmet; only sharding (P12) brings the required check near it without dropping a test.
+
+**Lanes in CI today:**
+
+- on every pull request, the runtime job (the full suite in the pinned containers) and the documentation job
+  (Markdown, index, agent definitions, Python lint and dependency audit, secret scan), which waits for the runtime job
+  and is the aggregating required check; the image workflow builds and scans the image;
+- on dispatch only, "Targeted runtime checks" (`targeted.yml`, section 5.3), never a required check.
+
+Selection by change type exists only as the targeted lane's hint; nothing is skipped on a pull request.
 
 ### 5.5 GitHub Actions rules
 
@@ -294,6 +398,9 @@ applicant-assessment agents.
 | P9 | Add an automated secret scan to CI | **done**: gitleaks over full history; personal-data and private-path review stays manual |
 | P10 | Decide whether bead history should stay public through `refs/dolt/data` | **decided**: public for sanitized engineering work only (section 3) |
 | P11 | Widen the Python lint beyond ruff's default rules: `ruff format`, import sorting, the `B` and `UP` groups, a type checker, CodeQL | proposed 2026-10-23 (section 5.3); the default rules and `pip-audit` are in CI |
+| P12 | Shard the full run across three runners by measured module time, each shard a job, the aggregating docs job needing all of them, so the required check nears the 5-minute target without dropping a test | proposed 2026-10-23 (section 5.4); changes the runtime job's shape, the release gate's names and test, and the merge-guard registration outside this repository |
+| P13 | Skip the runtime job on documentation-only pull requests through a job-level condition, the aggregating docs job then accepting "skipped" for that case only | proposed 2026-10-23; changes what the required check means and what `scripts/require_green_ci.py` accepts (today it refuses `completed/skipped`) |
+| P14 | Promote the targeted lane: run it automatically on pull requests (as an extra, non-required signal first, or as a required check with the full run moved to merge or release), and switch its "more than half" threshold from module count to measured time | proposed 2026-10-23 (section 5.3); the full run stays the release-candidate gate in every variant; changing the full run's trigger is the owner's |
 
 ## 8. Branches and worktrees
 
