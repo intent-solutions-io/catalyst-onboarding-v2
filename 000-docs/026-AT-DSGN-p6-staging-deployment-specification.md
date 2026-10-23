@@ -4,7 +4,7 @@
 |---|---|
 | Document | `026-AT-DSGN-p6-staging-deployment-specification` |
 | Version | 0.2.0 (0.1.1 applies the security and privacy review, section 15; 0.2.0 records the owner's approval, D-49) |
-| Status | **APPROVED by the owner 2026-10-19 with every recommendation (D-49 in `011`).** 6B's repository-local tasks are released for synthetic work. Each host task (6B tasks 11 to 13), the pilot and the cutover still needs its own authorization. The owner still sets the values the decisions leave to them: RPO and RTO targets (P6-D-7), alert thresholds and who is paged (P6-D-9), rotation intervals (P6-D-15), and applies the `main` ruleset and protected `release` environment (P6-D-5). |
+| Status | **APPROVED by the owner 2026-10-19 with every recommendation (D-49 in `011`); GATE-STAGING signed off 2026-10-22 (D-50) for the dev-box scope, with the 17 partly proven cases of `028` section 4 carried as beads (`029` section 13).** 6B's repository-local tasks are released for synthetic work. Each host task (6B tasks 11 to 13), the pilot and the cutover still needs its own authorization. The owner still sets the values the decisions leave to them: RPO and RTO targets (P6-D-7), alert thresholds and who is paged (P6-D-9), rotation intervals (P6-D-15), and applies the `main` ruleset and protected `release` environment (P6-D-5). |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-18 |
 | Epic | P6 `catalyst-v2-9kg` ("Prepare staging, deployment, backup with demonstrated restore, monitoring and the reversible Learn routing cutover") |

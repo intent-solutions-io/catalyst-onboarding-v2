@@ -4,7 +4,7 @@
 |---|---|
 | Document | `011-PP-PLAN-master-blueprint` (the only master blueprint for this repository) |
 | Version | 1.2.0 (current status corrected and the candidate selection-quality contract added, section 11, 2026-10-14; 1.1.0 recorded the ADR decisions of 2026-10-10) |
-| Status | **APPROVED IN SCOPE** (section 10): project direction, amended requirements and the bounded synthetic first-slice scope; later owner decisions D-16 to D-49 are recorded in section 4. **Current (2026-10-17):** GATE-S1 (D-26) and GATE-P2 (D-33) signed off for synthetic work; P3 accepted for synthetic work: GATE-P3 signed off 2026-10-17 (D-36); P4 accepted for synthetic work: GATE-P4 signed off 2026-10-18 (D-45); P5 accepted for synthetic work: GATE-P5 signed off 2026-10-18 (D-48); P6 specification `026` approved 2026-10-19 (D-49), 6B repository-local tasks released. **Not approved:** the open policies of section 6 beyond their recorded synthetic decisions, live model use, real applicant data, provider writes, deployment and release; implementation only as each handoff is released. Items marked PROPOSED stay proposals; section 11 and `019` were approved on 2026-10-14 (D-35). |
+| Status | **APPROVED IN SCOPE** (section 10): project direction, amended requirements and the bounded synthetic first-slice scope; later owner decisions D-16 to D-50 are recorded in section 4. **Current (2026-10-23):** GATE-S1 (D-26) and GATE-P2 (D-33) signed off for synthetic work; P3 accepted for synthetic work: GATE-P3 signed off 2026-10-17 (D-36); P4 accepted for synthetic work: GATE-P4 signed off 2026-10-18 (D-45); P5 accepted for synthetic work: GATE-P5 signed off 2026-10-18 (D-48); P6 specification `026` approved 2026-10-19 (D-49); 6B built and drilled on the dev box; GATE-STAGING signed off 2026-10-22 for synthetic staging on the dev box (D-50); the internal production launch (the owner's dogfooding pilot) is planned in `029` (handoff PL-A, PROPOSED) and not authorized. **Not approved:** the open policies of section 6 beyond their recorded synthetic decisions, live model use, real applicant data, provider writes, deployment and release; implementation only as each handoff is released. Items marked PROPOSED stay proposals; section 11 and `019` were approved on 2026-10-14 (D-35). |
 | Owner | Jeremy Longshore (product owner and approver) |
 | Reviewers | `catalyst-django-architect` (build design), `catalyst-independent-qa` (independent review); results in section 9 |
 | Date | 2026-10-09 |
@@ -12,9 +12,11 @@
 | Conventions | Intent Blueprint Docs 3.0.0 (stable IDs, evidence status, lifecycle links); doc-filing v4.5 |
 | Supersedes | nothing; the earlier planning drafts named in section 2 were not available |
 
-> **Status (2026-10-17): synthetic only.** Application code exists only for released handoffs (P1, P2, and P3
-> 3B.1 to 3B.4). Nothing is deployed and no real applicant data is used. An assistant recommendation in this
-> document is a proposal, never an owner decision. (Until 2026-10-10 this banner read "PRELIMINARY, subject to
+> **Status (2026-10-23): synthetic only; the internal production launch is planned, not authorized.** P1 to P5
+> are built and accepted for synthetic work; P6 staging is built, drilled on the dev box and signed off (D-50).
+> Nothing is deployed and no real applicant data is used. The first production deployment is an internal cohort
+> (the owner's dogfooding pilot), planned in `029` with its own gate (GATE-PILOT), its own decisions and its own
+> go. An assistant recommendation in this document is a proposal, never an owner decision. (Until 2026-10-10 this banner read "PRELIMINARY, subject to
 > review", with code limited to the 1B.1 skeleton; history in sections 4 and 10.)
 
 ## 1. How to read the build contract
@@ -330,6 +332,19 @@ summarized here by decision. Its full scope is recorded in D-40.
   - **The same-transaction verification backstop** stays, proven by direct database tests. It is not tamper-proof
     against a compromised privileged role.
 
+**D-50, GATE-STAGING (2026-10-22).** The owner signed off GATE-STAGING in session ("i sign off gate-staging, go
+build the pilot plan") on the statement proposed in `028` section 9: synthetic staging on the dev box only, on the
+full-run gate at the final head of PR #80 (CI run 39797287619 at `d1e67e0`, merged as `45f8b93`; 1353 passed;
+GATE-STAGING PASS 38, GATE-S1 25, P2 54, P3 60, P4 40, P5 29; FAIL 0, INCOMPLETE 0, NOT RUN 0) and the live drills
+recorded in `026` section 16. The owner accepts that 17 cases are only partly proven, with the gaps listed in `028`
+section 4 and carried on beads `9kg.27`, `9kg.25`, `9kg.28` and their splits (`029` section 13). TEST-P6-26 is
+proven on a synthetic stand-in of the Learn site only. Not authorized by D-50: a persistent staging or pilot host;
+a production deploy; reading or changing Learn's live proxy configuration; enabling the webhook or real inbound
+mail; live provider keys; real applicants or real personal data in any backup (erasure replay first). The RPO and
+RTO targets, alert thresholds, rotation intervals and scan policy remain open (`029` section 14). The owner's next
+direction of 2026-10-23 ("Our pilot will be go live and we dogfood ourselves") is the planning instruction for
+handoff PL-A (`029`), not a launch authorization.
+
 ### 4.2 Decision summary
 
 Decision records with rationale live in `003` section "Architecture decisions". This table is the
@@ -369,6 +384,7 @@ summary a reader needs first.
 | D-30 | POL-13, P2 role matrix (`016` section F) for synthetic operation only: operators handle routine correspondence; identity-affecting resolutions, uncertain-send decisions and collector restarts need the decision-maker role; template approval stays with the owner. MFA, network restriction and production staff access remain undecided | OWNER-DECIDED 2026-10-12 (P2 slice) | section 4.1; `016` F |
 | D-31 | POL-19 fail-closed: a mismatched or unverifiable identity produces a staff exception with no automatic positive effect and no identity or dossier change; only the decision-maker resolves identity-affecting cases | OWNER-DECIDED 2026-10-12 | section 4.1; `016` C3, C4, F |
 | D-34 | `018` (P3 evidence, assessment and qualification specification) version 0.2.1 approved with its recommended defaults `P3-D-1` to `P3-D-16` for synthetic P3; 3B.1 (`catalyst-v2-oc4.2`) released. Not authorized: a live model call, real fetching, real applicant data, 3B.2 to 3C (each needs its own release), a versioned release or a deployment. The decisions marked for GATE-PILOT or later (real fetching, the applicant notice, retention, live model use) stay conditions at those gates | OWNER-DECIDED 2026-10-14 | section 4.1; `018` section 8 |
+| D-50 | GATE-STAGING signed off for synthetic staging on the dev box: the full-run gate at PR #80's final head (CI run 39797287619; GATE-STAGING PASS 38 with every other gate PASS) and the live drills in `026` section 16; the 17 partly proven cases accepted with their gaps carried on beads; TEST-P6-26 proven on a stand-in only. Not authorized: a persistent staging or pilot host, a production deploy, reading or changing Learn's live proxy configuration, the webhook or real inbound mail, live provider keys, real applicants or real personal data in any backup. Open: RPO and RTO, alert thresholds, rotation intervals, the scan policy | OWNER-DECIDED 2026-10-22 | owner, in session ("i sign off gate-staging, go build the pilot plan"); `028` section 9; section 4.1 |
 | D-49 | `026` (P6 staging, deployment, backup and cutover specification) version 0.1.1 approved with every recommendation, P6-D-1 to P6-D-15: staging on the dev box on demand with secrets only in tmpfs; a `staging` environment with test-strict fakes; staff access from named staff devices with two-factor (option C rejected); the webhook on its own Caddy site, POST only; a CI-built attested image and the `main` ruleset and protected `release` environment before any deploy credential; settings read per-secret files, no `env_file`, a narrow guard change at pilot; a fourth backup role, nightly plus pre-deploy backups; the production data directory outside the archive roots with a `093` exception; R1/R2 separation and a separate v2 mailbox as the cutover premise; D-09 kept; never the commit over HTTP; erasure replay now and crypto-shredding before pilot; a separate fetcher process with no provider secret; the per-class rotation procedures. Released: 6B tasks 1 to 10a and 14 (repository-local, synthetic). Not authorized: the host tasks 11 to 13 (each needs its own go), any VPS, DNS, proxy, secret or provider change, real data, pilot, cutover, release, deployment. Still the owner's: RPO and RTO targets, alert thresholds and paging, rotation intervals, applying the GitHub protections | OWNER-DECIDED 2026-10-19 | owner, in session ("approve 026 as recommended and merge 58"); `026` section 10 |
 | D-48 | GATE-P5 signed off for synthetic P5: every TEST-P5 case and the five supporting groups (append-only records, 11.11 supersession and the watch, 11.5 credential recovery, P5-D-6, the removed-gate controls) PASS on PostgreSQL in CI at one head (CI run 39165187400 on `f3d7503`; 1144 passed; GATE-P5 PASS 29, GATE-P4 PASS 40, GATE-P3 PASS 60, GATE-P2 PASS 54, GATE-S1 PASS 25; FAIL 0, INCOMPLETE 0, NOT RUN 0), the independent QA and security reviews of each 5B task, the two-round independent traceability review (no blocker or high), after-action report `025` filed with its partial clauses (section 4) and its statement (section 9). The owner accepts the disclosed partials of TEST-P5-02, 04, 06, 07, 10, 12, 15, 17, 22 and 23 for synthetic work. Not a live-provider proof. Not authorized: a live MXroute adapter or key, a real domain or limits, real mailboxes or passwords, real applicant data, real role grants, release, deployment. Still open: the host-side collision check before the create (TEST-P5-06, P5-D-1), the withdrawal link's production lifetime and any notice after withdrawal | OWNER-DECIDED 2026-10-18 | owner, in session ("approve GATE-P5 and merge 57"); `025` |
 | D-47 | P5 decisions P5-D-1 to P5-D-11 for synthetic work, and the release of the amended 5A and 5B.1 to 5B.3 (`023` 0.2.0 section 8). Summary: one configured domain with staff-confirmed `firstname.lastname` and a numeric suffix, `example.test` only now; 1024 MB and 100 messages a day as labelled synthetic defaults, never unlimited or quota-0; the owner approves, delegates only by named grant; API-first against a local fake with a recorded checklist fallback, one adapter, no account-wide key in web or routine worker settings; verification by an authoritative mailbox read or a different named verifier, SMTP acceptance never proof, unknown accounts are conflicts; credentials by a one-time set-your-own-password flow (option a), option (b) only by separate approval; company mailbox only; explicit verified withdrawal (GET shows, POST commits); revoke without deleting, outcomes tracked separately, unsupported checks stay unresolved, never a whole-account suspend; no generic reopening; no automatic no-response closure. Not authorized: live MXroute or Documenso access, provider keys, real data, real mailboxes or passwords, real role grants, deployment, release; 5C and GATE-P5 stay with the owner | OWNER-DECIDED 2026-10-18 | owner directive after D-45; `023` sections 3 and 8 |
@@ -413,7 +429,11 @@ summary a reader needs first.
 Nothing here is invented. Each entry states the question, who decides, and the earliest milestone it
 actually blocks. Where the first slice needs a working value, it uses a labelled PROPOSED default
 that the owner can change without code redesign. Tracked by the bead "Obtain owner decisions on the
-open product policies listed in the master blueprint".
+open product policies listed in the master blueprint" (`catalyst-v2-211.7`), which since 2026-10-23 has scoped
+decision children so a task waits only on the policy it needs: POL-10 (`211.7.1`), POL-16 (`211.7.2`), POL-15 and
+the coexistence rules (`211.7.3`), POL-07, POL-08 and POL-17 for the internal cohort (`211.7.4`), POL-13 and
+POL-14 (`211.7.5`), POL-11 and POL-12 for existing members (`211.7.6`). The recommended defaults are in `029`
+section 14.
 
 | ID | Open question | Decides | Earliest milestone blocked | First-slice handling |
 |---|---|---|---|---|
@@ -464,8 +484,8 @@ its predecessor's gate passes and the policies it needs are decided. Later epics
 | P3 | Collect evidence, run the bounded MiniMax assessment, and record the authorized qualification decision | `catalyst-v2-oc4` | P2; POL-03, POL-04, POL-05 | GATE-P3 |
 | P4 | Issue and verify the NDA, User Agreement and other required agreements through Documenso with protected custody | `catalyst-v2-hdg` | P3; POL-07, POL-08, POL-09, POL-18; POL-10 for the provider's copy; a read-only check of the installed Documenso version before 4B.1 (`021` P4-D-2) | GATE-P4 |
 | P5 | Provision the approved mailbox, activate the applicant, and support withdrawal and recovery | `catalyst-v2-tuc` | P4; POL-11, POL-12 | GATE-P5 |
-| P6 | Prepare staging, deployment, backup with demonstrated restore, monitoring and the reversible Learn routing cutover | `catalyst-v2-9kg` | P5, PL; POL-10, POL-13, POL-14 | GATE-STAGING, GATE-PILOT, GATE-CUTOVER |
-| PL | Plan legacy data compatibility so no live first-generation record is discarded | `catalyst-v2-dy7` | P0 | feeds GATE-CUTOVER |
+| P6 | Prepare staging, deployment, backup with demonstrated restore, monitoring and the reversible Learn routing cutover | `catalyst-v2-9kg` | P5, PL; POL-10, POL-13, POL-14 | GATE-STAGING (signed off, D-50), GATE-PILOT (the internal launch milestone `9kg.31`), GATE-CUTOVER |
+| PL | Plan legacy data compatibility so no live first-generation record is discarded, and coexistence with the live first-generation service | `catalyst-v2-dy7` | P0 | feeds GATE-PILOT (coexistence) and GATE-CUTOVER |
 
 P6 is listed last for dependency, not as one late phase: staging preparation (environments, backups,
 monitoring) can be decomposed and started after P1 once the owner authorizes it. Every phase ships
@@ -550,6 +570,44 @@ through a versioned standard, a small evaluation and operational feedback". It d
 | `catalyst-v2-f1u.6` | Approve and activate the first selection policy SP-L2-1 on its evaluation evidence | `f1u.2`, `f1u.3`, `f1u.4`, `f1u.5`, `catalyst-v2-oc4.7` (and through it `oc4.9`), `catalyst-v2-9kg.1` to `.3` | before real use |
 | `catalyst-v2-f1u.7` | Build the selection-quality scorecard and the one-page owner report from existing records | `f1u.6` | pilot (P6) |
 | `catalyst-v2-f1u.8` | Validate selection against delivery outcomes after the pilot | `f1u.7` | after pilot |
+
+**Gate boundaries for one internal production launch (recorded 2026-10-23, handoff PL-A, `029`; no gate definition
+is weakened):**
+
+- **GATE-STAGING** concerns the accepted synthetic, dev-box scope and its disclosed limits (D-50). It authorizes no
+  host, provider, data or routing change.
+- **GATE-PILOT** is the readiness and authorization boundary for the first live internal cohort: the owner's
+  go/no-go on the completed package (`029` section 11), after the policies it names are decided, retention and
+  erasure are enforced, a restore from the production archive is demonstrated with erasure replay and effect
+  reconciliation, and the approved provider canaries pass in isolation. Its sign-off is recorded under its own
+  decision id with its exact scope; it enables only the capabilities the launch manifest names.
+- **GATE-CUTOVER** applies whenever live routing or execution ownership of a first-generation case changes,
+  including at the internal launch if that launch performs such a switch. A dark deployment on the target is an
+  explicitly authorized preflight step of the launch, never a second operating pilot service.
+- **Wider enrollment** (public intake on v2, more recipients, higher budgets, model data use, further access
+  products) needs a later scope decision and the additional evidence that applies; it is not a second deployment
+  architecture.
+
+**Internal launch and PL tasks (handoff PL-A, `029` section 13; created 2026-10-23).** The planning handoff is
+`dy7.1`; the milestone is `9kg.31`. Every host, provider, data and launch task is executable only under its own
+authorization; an authority label is not permission.
+
+| Bead | Title (short) | Depends on | Earliest boundary |
+|---|---|---|---|
+| `catalyst-v2-dy7.1` | Compare the live first-generation workflow, the approved journey and v2, and plan the internal launch | GATE-STAGING (D-50) | — |
+| `catalyst-v2-dy7.2` | Record ownership of every live first-generation case, mailbox poller, envelope, webhook target and timer; the cross-system guards | the legacy answers; `9kg.42` for the live facts | the launch manifest |
+| `catalyst-v2-dy7.3` | Rehearse routing, the error-log filter, socket ownership, reconciliation and rollback against the live baseline (awaits a go) | `9kg.42`, `dy7.2`, `211.7.3` | any routing change |
+| `catalyst-v2-9kg.42` | The read-only production-host preflight (awaits a go) | the owner's go | host preparation |
+| `catalyst-v2-9kg.28` | Host preparation: secrets, database access, backups with receipts, timers, the force-command (awaits a go) | `9kg.42`, `9kg.35`, `211.7.3`, `211.7.5` | the dark deploy |
+| `catalyst-v2-9kg.32`, `9kg.25`, `9kg.33`, `9kg.34` | The erasure path; erasure replay; effect reconciliation after restore; custody encryption | `211.7.1` (POL-10) for the first and last | real-data storage; the launch |
+| `catalyst-v2-9kg.35`, `9kg.36` | The `main` ruleset, the release environment, the merge-guard registration; the image scan in the required contract | the owner (GitHub-admin) | any deploy credential |
+| `catalyst-v2-9kg.37` to `9kg.40` | Receipt and pre-deploy-backup gates; the N+1 revert drill; egress deny of production hosts; the personal-data scan | — | release preparation; enabling fetching |
+| `catalyst-v2-9kg.43`, `9kg.29`, `9kg.30`, `9kg.41`, `9kg.44`, `9kg.47` | Invitation mode; rate limits; the permission command; the screen walkthrough; the evidence register; the shell-only operator paths | — | release preparation |
+| `catalyst-v2-oc4.11`, `oc4.12` | The decline notice; the human-only assessment path | `211.7.4`; `oc4.8` | release preparation |
+| `catalyst-v2-211.7.1` to `211.7.6` | The scoped policy decisions | the owner (and counsel) | see `029` section 14 |
+| `catalyst-v2-9kg.31` | The internal launch milestone (GATE-PILOT) | `dy7.1`, `dy7.2` | — |
+| `catalyst-v2-9kg.31.1` to `.3` | The mail, Documenso and MXroute canaries (await a go) | `211.7.3`, `211.7.4`, `211.7.6`, `dy7.2` | enabling each capability |
+| `catalyst-v2-9kg.31.4` to `.10` | Release preparation; the dark deploy; the go/no-go; the deployment; verification and observation; the defect queue; the wider-enrollment decision | in that order, with the beads above | the launch; wider enrollment |
 
 ## 8. Definition of success
 

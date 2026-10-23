@@ -16,7 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Phases P1 to P5 are implemented and accepted for synthetic work: GATE-S1 (2026-10-11, D-26), GATE-P2 (2026-10-13,
 D-33), GATE-P3 (2026-10-17, D-36) and GATE-P4 (2026-10-18, D-45), each recorded in `000-docs/011` section 4. P5 is
 built against a local fake of the documented MXroute operations (PRs #53 to #56). GATE-P5 was signed off for synthetic
-work on 2026-10-18 (D-48), with the after-action report `000-docs/000-aars/025`. Nothing is deployed and only synthetic data is used. No release
+work on 2026-10-18 (D-48), with the after-action report `000-docs/000-aars/025`. P6 staging (PRs #58 to #80: the
+`staging` environment and guards, secure cookies and sessions, health endpoints, a worker heartbeat and health
+command, the image and per-secret files, role provisioning, backup and restore with a restore hold and a post-restore
+step, the generated Caddyfile, staff two-factor, the deploy adapters and attested image, the rotation runbook `027`,
+the live staging cases, the egress proxy, alerts to Buzz, the measured restore drill, the dark deploy and cutover
+rehearsal, and the GATE-STAGING evidence map with the after-action report `028`) is built and drilled on the dev
+box; GATE-STAGING was signed off on 2026-10-22 (D-50). The internal production launch is planned in `000-docs/029`
+(handoff PL-A) with its work graph in Beads; nothing in it is authorized by the plan. Nothing is deployed and only synthetic data is used. No release
 has been cut since `v0.1.0`, which the templated workflow tagged automatically on the first push to `main`; it was
 not a planned release. The release workflow was corrected in PR #41: it is manual, dry-run by default, and publishes
 only an already-merged, CI-green commit of `main` without committing or pushing to it.
