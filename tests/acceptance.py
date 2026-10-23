@@ -1492,11 +1492,14 @@ P6_CASES = {
         "test_staging_alerts::test_6b12_an_alert_carries_signal_codes_and_nothing_else",
         # 9kg.40: the scan over committed evidence, receipts, alert text and the deployment receipt
         "test_personal_data_scan::test_9kg40_a_planted_sentinel_in_each_input_class_fails_the_scan_and_the_value_is_never_printed",
+        "test_personal_data_scan::test_9kg40_an_undecodable_stdin_is_reported_with_a_fixed_message_never_its_bytes",
         "test_personal_data_scan::test_9kg40_the_scan_fails_closed_on_zero_files_or_an_unreadable_input",
         "test_personal_data_scan::test_9kg40_the_committed_evidence_passes_the_scan",
-        "test_personal_data_scan::test_9kg40_reserved_addresses_digests_run_ids_and_ranges_are_not_personal_data",
+        "test_personal_data_scan::test_9kg40_reserved_addresses_digests_run_ids_paths_and_ranges_are_not_personal_data",
         "test_personal_data_scan::test_9kg40_email_and_token_patterns_catch_what_fixture_names_alone_would_miss",
-        "test_personal_data_scan::test_9kg40_the_fixture_person_names_are_the_ones_the_scan_knows",
+        "test_personal_data_scan::test_9kg40_a_value_split_across_a_wrapped_line_is_found_at_the_paragraphs_first_line",
+        "test_personal_data_scan::test_9kg40_every_fixture_person_name_is_on_the_scans_list_and_matched_whatever_its_case",
+        "test_personal_data_scan::test_9kg40_every_filed_document_of_an_evidence_class_is_in_the_scanned_set",
         "test_personal_data_scan::test_9kg40_the_host_receipt_step_blocks_on_a_hit_and_keeps_no_receipt",
         "test_personal_data_scan::test_9kg40_the_receipt_step_scans_before_the_receipt_counts",
     ],
@@ -1530,6 +1533,9 @@ P6_SUPPORTING = {
         "test_pause_guard::test_9kg6_the_migration_owner_is_refused_the_same_way_and_truncate_is_refused_for_every_role",
         "test_pause_guard::test_9kg6_a_system_pause_clears_only_with_a_staff_resume_event_with_a_note_in_the_same_transaction",
         "test_pause_guard::test_9kg6_a_staff_pause_clears_with_the_resume_event_even_inside_a_savepoint",
+        "test_pause_guard::test_9kg6_no_earlier_event_and_no_rolled_back_savepoint_event_clears_a_staff_pause",
+        "test_pause_guard::test_9kg6_an_unknown_subject_type_is_guarded_and_cannot_be_cleared",
+        "test_pause_guard::test_9kg6_the_transaction_marker_is_on_no_read_surface",
         "test_pause_guard::test_9kg6_the_event_transaction_marker_is_always_the_databases_own",
         "test_pause_guard::test_9kg6_the_supported_resume_path_clears_the_pause_and_work_resumes",
         "test_pause_guard::test_9kg6_the_restore_hold_keeps_its_own_rule",
@@ -1585,6 +1591,7 @@ P6_LIVE_ONLY = {
 #   partial      None (every clause shown) or the residual bead that carries the clauses not yet shown.
 #   residual     what is not yet shown (required with `partial`).
 #   note         anything the counts must not hide (a stand-in, an owner-set target).
+#   since_028    required when a case's completeness differs from 028 section 4: which bead and pull request moved it.
 # The approval boundary is derived: GATE-STAGING for a full case, or the earliest boundary the residual bead blocks
 # (RESIDUAL_BOUNDARIES, from 029 section 13.1) for a partial one.
 PROOF_TYPES = ("pytest", "drill", "inspected", "canary", "walkthrough")
@@ -1602,8 +1609,6 @@ RESIDUAL_BOUNDARIES = {  # the earliest boundary each residual bead blocks (029 
     "9kg.25": "real-data storage",
     "9kg.27": "the provider canaries (9kg.31.1 to .3)",
     "9kg.28": "the dark deploy (9kg.31.5)",
-    "9kg.37": "release preparation (9kg.31.4)",
-    "9kg.38": "release preparation (9kg.31.4)",
     "9kg.39": "enabling fetching",
     "9kg.31.5": "the go/no-go (9kg.31.6)",
 }
@@ -1625,7 +1630,8 @@ P6_EVIDENCE = {
     "TEST-P6-07": {"proofs": ["pytest", STAGING_CHECK]},
     "TEST-P6-08": {"proofs": [DEPLOY_DRILL, "pytest"], "pytest": "shape"},
     "TEST-P6-09": {"proofs": ["pytest", DEPLOY_DRILL]},
-    "TEST-P6-10": {"proofs": ["pytest", DEPLOY_DRILL], "partial": "9kg.37", "residual": "a receipt mismatch failing the deploy"},
+    "TEST-P6-10": {"proofs": ["pytest", DEPLOY_DRILL],
+                   "since_028": "9kg.37 (PR #84): the receipt is a gate; a mismatch refuses the deploy, drilled 60 of 60"},
     "TEST-P6-11": {"proofs": ["pytest", STAGING_CHECK], "partial": "9kg.28", "residual": "tmpfs for the secret files on the host"},
     "TEST-P6-12": {"proofs": ["pytest", STAGING_CHECK]},
     "TEST-P6-13": {"proofs": ["pytest", STAGING_CHECK], "partial": "9kg.27",
@@ -1641,10 +1647,10 @@ P6_EVIDENCE = {
     "TEST-P6-21": {"proofs": ["pytest", RESTORE_DRILL], "partial": "9kg.28", "residual": "the failed run's alert from the scheduled job"},
     "TEST-P6-22": {"proofs": ["pytest", RESTORE_DRILL], "note": "times measured; the owner sets the RPO and RTO targets"},
     "TEST-P6-23": {"proofs": ["pytest", RESTORE_DRILL]},
-    "TEST-P6-24": {"proofs": [DEPLOY_DRILL, "pytest"], "pytest": "shape", "partial": "9kg.37",
-                   "residual": "refusing a backup command that prints an older receipt's path"},
-    "TEST-P6-25": {"proofs": [RESTORE_DRILL, DEPLOY_DRILL, "pytest"], "pytest": "shape", "partial": "9kg.38",
-                   "residual": "migrating N+1 (expand) and reverting to N on that schema"},
+    "TEST-P6-24": {"proofs": [DEPLOY_DRILL, "pytest"], "pytest": "shape",
+                   "since_028": "9kg.37 (PR #84): a stale backup receipt and another deploy's backup are refused, drilled"},
+    "TEST-P6-25": {"proofs": [RESTORE_DRILL, DEPLOY_DRILL, "pytest"], "pytest": "shape",
+                   "since_028": "9kg.38 (PR #84): N+1 (expand) reverted to N on the expanded schema, and a contract revert refused, drilled"},
     "TEST-P6-26": {"proofs": [CUTOVER, "pytest"], "pytest": "shape",
                    "environment": "a stand-in Learn site beside the staging stack on the dev box",
                    "note": "proven on a stand-in Learn site; the live Learn read awaits its preconditions and the owner's go"},

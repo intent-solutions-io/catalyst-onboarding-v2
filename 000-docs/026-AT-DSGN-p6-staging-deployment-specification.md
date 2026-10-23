@@ -1562,3 +1562,29 @@ and the N+1 revert drill (TEST-P6-10, 24, 25).**
       it; a lost record refused; a tag refused; an unattested tarball refused.
 - **Case status:** TEST-P6-10, 24 and 25 move from partly (`028` section 4, bead `9kg.27`) to proven for the
   synthetic stack; `028` stays the point-in-time record of the sign-off.
+
+**PL batch 5 (`029` section 13.3, item 5; beads `9kg.44`, `9kg.40` and `9kg.6`): the evidence register, the
+personal-data scan and the pause-row guard (TEST-P6-35).**
+
+- **Designs:** section 11.1 (the register), section 11.2 (the scan) and `016` section 10.13 (the guard).
+- **The deploy drill with the scanning receipt step**, `scripts/deploy_drill.sh` with the estate wrapper on the dev
+  box, run twice on 2026-10-23 at the branch's head. The first run was 44 of 60: the drill's fixture migrations
+  (`0005_drill`, `0005_expand`, `0006_contract`, `0007_staged` in `workflow`) collided with the guard's
+  `0005_pause_resume_guard` ("conflicting migrations detected"), so every N+1, contract and staged case failed at
+  predeploy; the fixtures are renumbered `0006` to `0008` on the guard (and `tests/test_release.py`'s 9kg.38 pins
+  with them). The second run was 59 of 60. The receipt step's scan ran in every receipt case (the first release,
+  the promoted release, the approved-image control and the other-deploy receipt): `personal-data scan (receipt):
+  2 files, 32 lines, 0 hits` each time, over the deployment receipt and the bound backup receipt, and every
+  receipt was kept and read back as intended, so the scan sits in the step without changing a clean deploy. The one
+  failure, "the data is kept across the revert: both applicants are still there", is not the receipt step's: the
+  drill submits its applicants through the public form without an invitation, and since PL batch 1 (`9kg.43`,
+  PR #85) intake is invitation-only by default, so the submit gets the invited response and records nothing; the
+  count check then reads the same number before and after. The same check fails on `main` today; batch 2's
+  60-of-60 record predates that merge. Carried as a follow-up for the drill (an invitation issued by
+  `catalyst_invite` before each submit, or the open mode for the drill's stack), not fixed here.
+- **Case status in the register:** TEST-P6-10, 24 and 25 are full since batch 2 (`since_028` notes name PR #84);
+  TEST-P6-35 stays partial against the dark deploy with the unwired surfaces named (section 11.2).
+- **Evidence:** `tests/test_personal_data_scan.py` (the receipt step under docker stubs: a planted value in the
+  release facts or in the bound backup receipt withholds the receipt; a bound receipt that is gone fails closed; a
+  clean deploy keeps exactly one receipt at mode 0640), `tests/test_acceptance.py` (the register) and
+  `tests/test_pause_guard.py` (the guard, through real connections as each role); the drill log above.

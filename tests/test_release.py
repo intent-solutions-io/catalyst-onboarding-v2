@@ -289,15 +289,15 @@ def test_9kg_38_the_drill_reverts_n_plus_one_to_n_on_the_expanded_schema_and_ref
     forward-only, as the drill's does), and the script reverts through the wrapper with the data checked."""
     for app in release.APPS:
         (tmp_path / app / "migrations").mkdir(parents=True)
-    (tmp_path / "workflow" / "migrations" / "0005_expand.py").write_text(drill_migration("expand_migration"))
-    (tmp_path / "workflow" / "migrations" / "0006_contract.py").write_text(drill_migration("contract_migration"))
-    assert release.contracting(tmp_path, baseline={}) == {"workflow.0006_contract": ["RemoveField"]}
+    (tmp_path / "workflow" / "migrations" / "0006_expand.py").write_text(drill_migration("expand_migration"))
+    (tmp_path / "workflow" / "migrations" / "0007_contract.py").write_text(drill_migration("contract_migration"))
+    assert release.contracting(tmp_path, baseline={}) == {"workflow.0007_contract": ["RemoveField"]}
     drill = (ROOT / "scripts" / "deploy_drill.sh").read_text()
     steps = [drill.index(s) for s in (
         'wrapper "$expand"', 'op revert-to-n', '"$adapters/predeploy.sh" "$n"', 'wrapper "$n"',
-        '"$adapters/smoke.sh"\ncheck "the schema was not rolled back', 'FORWARD_ONLY: frozenset[str] = frozenset({\\"workflow.0006_contract\\"})',
+        '"$adapters/smoke.sh"\ncheck "the schema was not rolled back', 'FORWARD_ONLY: frozenset[str] = frozenset({\\"workflow.0007_contract\\"})',
         'wrapper "$contract"', 'op revert-across-contract', 'wrapper "$expand"; rc=$?\ncheck "a revert across a forward-only migration is refused',
-        'workflow.0006_contract.*restore instead')]
+        'workflow.0007_contract.*restore instead')]
     assert steps == sorted(steps)  # N+1 promoted, reverted to N through the wrapper, then the contract revert refused
     assert drill.count("submit n-") == 3 and '"$(applications)" = "$count"' in drill  # the data is checked, not assumed
     assert "drill_note" in drill_migration("expand_migration") and "null=True" in drill_migration("expand_migration")
