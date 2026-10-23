@@ -67,7 +67,9 @@ echo "== identity"
 gh api user --jq '"login: " + .login' || { echo "gh is not authenticated" >&2; exit 1; }
 owner_login=$(gh api user --jq .login)
 owner_id=$(gh api user --jq .id)
-if [ -n "${EXPECTED_LOGIN:-}" ] && [ "$owner_login" != "$EXPECTED_LOGIN" ]; then
+if [ -z "${EXPECTED_LOGIN:-}" ]; then
+  echo "WARNING: EXPECTED_LOGIN is unset; the authenticated account ($owner_login) becomes the environment reviewer" >&2
+elif [ "$owner_login" != "$EXPECTED_LOGIN" ]; then
   echo "authenticated as $owner_login, expected $EXPECTED_LOGIN; the reviewer would be the wrong account" >&2; exit 1
 fi
 perm=$(gh api "repos/$REPO" --jq '.permissions.admin')
@@ -110,20 +112,25 @@ fi
 
 echo "== applying environment"
 echo "$env_body" | gh api -X PUT "repos/$REPO/environments/$ENVIRONMENT" --input - --jq '"environment " + .name'
-if ! gh api "repos/$REPO/environments/$ENVIRONMENT/deployment-branch-policies" --jq '.branch_policies[].name' | grep -qx main; then
+policy_names=$(gh api "repos/$REPO/environments/$ENVIRONMENT/deployment-branch-policies" --jq '.branch_policies[].name')
+if ! printf '%s\n' "$policy_names" | grep -qx main; then
   gh api -X POST "repos/$REPO/environments/$ENVIRONMENT/deployment-branch-policies" \
     --input - --jq '"branch policy " + .name' <<< '{"name":"main","type":"branch"}'
 fi
 
 echo "== readback"
 gh api "repos/$REPO/rules/branches/main" --jq '.[] | .type + (if .parameters.required_status_checks then ": " + (.parameters.required_status_checks|map(.context)|join(" | ")) else "" end)'
-gh api "repos/$REPO/rulesets" --jq ".[] | select(.name==\"$RULESET_NAME\") | \"bypass actors: \" + (.bypass_actors|length|tostring) + \", enforcement: \" + .enforcement"
+rs_id=$(gh api "repos/$REPO/rulesets" --jq ".[] | select(.name==\"$RULESET_NAME\") | .id")
+rs_full=$(gh api "repos/$REPO/rulesets/$rs_id")   # the list endpoint omits bypass_actors; read the full object by id
+printf '%s' "$rs_full" | jq -r '"bypass actors: " + (if (.bypass_actors|type)=="array" then (.bypass_actors|length|tostring) else "FIELD MISSING" end) + ", enforcement: " + .enforcement + ", current user can bypass: " + (.current_user_can_bypass // "unknown")'
 gh api "repos/$REPO/environments/$ENVIRONMENT" --jq '"environment " + .name + ": " + (.protection_rules|map(.type)|join(", ")) + "; branch policy custom=" + (.deployment_branch_policy.custom_branch_policies|tostring)'
 gh api "repos/$REPO/environments/$ENVIRONMENT/deployment-branch-policies" --jq '"deployment branches: " + (.branch_policies|map(.name)|join(", "))'
 echo "== assertions"
 fail=0
-bypass=$(gh api "repos/$REPO/rulesets" --jq ".[] | select(.name==\"$RULESET_NAME\") | .bypass_actors | length")
-enf=$(gh api "repos/$REPO/rulesets" --jq ".[] | select(.name==\"$RULESET_NAME\") | .enforcement")
+bypass=$(printf '%s' "$rs_full" | jq -r 'if (.bypass_actors|type)=="array" then (.bypass_actors|length|tostring) else "missing" end')
+enf=$(printf '%s' "$rs_full" | jq -r .enforcement)
+cub=$(printf '%s' "$rs_full" | jq -r '.current_user_can_bypass // "unknown"')
+[ "$cub" != "always" ] || { echo "ASSERT FAILED: current user can always bypass"; fail=1; }
 got_checks=$(gh api "repos/$REPO/rules/branches/main" --jq '[.[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context] | sort | join("|")')
 want_checks=$(printf '%s' "$checks" | jq -r 'map(.context) | sort | join("|")')
 policies=$(gh api "repos/$REPO/environments/$ENVIRONMENT/deployment-branch-policies" --jq '[.branch_policies[] | select(.type=="branch") | .name] | sort | join("|")')
