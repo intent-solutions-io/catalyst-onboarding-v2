@@ -26,6 +26,8 @@ from django.views.decorators.debug import sensitive_variables
 from django.views.decorators.http import require_POST
 
 from applications.models import Application
+from config import throttle
+from config.client_identity import client_identity
 from workflow.models import PendingAction
 
 from . import handlers, provider
@@ -51,6 +53,11 @@ def documenso_webhook(request):
     length = request.META.get("CONTENT_LENGTH") or "0"
     if not LENGTH.fullmatch(length) or int(length) > settings.CATALYST_AGREEMENT_WEBHOOK_MAX_BYTES:
         return HttpResponse(status=413)
+    try:  # 9kg.29: per client, before the secret is compared; a bare 429, and a bare 503 with the store down
+        throttle.enforce(request, ("webhook-client", client_identity(request), settings.CATALYST_THROTTLE_WEBHOOK_PER_CLIENT),
+                         issuance=True, bare=True)
+    except throttle.Refused as refused:
+        return refused.response
     if not _authenticated(request):
         return HttpResponse(status=401)
     try:

@@ -605,6 +605,51 @@ Subsequent batches, each separately authorized: **GitHub-admin** (`9kg.35`, then
 then `9kg.28`, `9kg.31.5`, `dy7.3`); **legacy evidence** (`dy7.4`, which feeds `dy7.2`); **provider canaries** from
 the dark stack (`9kg.31.1` to `.3`); **after POL-10 and POL-09** (`9kg.32`, `9kg.25`, `9kg.34`).
 
+### 13.4 Batch item 1 as built: rate limits and invitation-only intake (`9kg.29`, `9kg.43`)
+
+Built 2026-10-23 under the section 13.3 authorization; repo-only, synthetic data, nothing deployed. The decisions
+recorded here are the implementer's defaults on the Django review of 2026-10-23; the owner's values (POL-16) replace
+the placeholders without redesign.
+
+- **Client identity** (`config.client_identity`): one value from one place, selected by `CATALYST_CLIENT_IDENTITY`,
+  fixed in code: `proxy` reads `X-Forwarded-For`, which the proxy overwrites with the peer address and trusts from no
+  one (section 4.6; `026` section 8), so the header is trusted because the web process listens only on the proxy's
+  socket; `direct` (test and development only) reads the peer. The value must be exactly one address literal: a list,
+  a blank or anything else is "no identity", and issuance is then refused. IPv4 buckets by address, IPv6 by its /64.
+  The guards refuse any other value, an environment-sourced value, and `direct` outside the local environments.
+- **Store** (`config.throttle`, `accounts.RequestThrottle`): a PostgreSQL table in the login-throttle pattern (hashed
+  key, fixed window, an F() increment under the row lock, the database clock, swept hourly with the staff sessions).
+  Chosen over a cache throttle because no cache backend is configured and a process-local counter would count per
+  worker process. Only `sha256(scope:value)` is stored: never a client address, an address key or a token.
+- **Buckets and refusal**: intake per client and per hashed address key (the address bucket limits verification
+  issuance only, never confirmation, so it cannot lock the holder out of a link they have); confirmation, password
+  setup and withdrawal per client and per token, on reads and writes; the webhook per client, before the secret is
+  compared. One 429 page for every endpoint and every bucket, so which bucket refused and whether an address or token
+  is known cannot be read from it; a refused request does not extend the window. The store unavailable or the
+  identity missing fails closed for issuance (503) and open for reading. The limits are `CATALYST_THROTTLE_*`
+  settings (window, intake per client and per address, link per client and per token, webhook per client) with
+  synthetic placeholders.
+- **Invitation mode** (`applications.invitations`, `applications.Invitation`, `manage.py catalyst_invite`):
+  `CATALYST_INTAKE_MODE` is fixed in code, `invitation` by default, `open` the only other value; an unset, mistyped
+  or environment-sourced value refuses start-up; the release receipt and the health report name the mode and the
+  dossier shows it per applicant. An invitation is an address-bound row on the existing email key (no bearer token:
+  the mail confirmation already proves control of the address, and a token would need redaction, a route and header
+  handling). Only the owner path inserts one: the application role has no INSERT, the row is the audit record
+  (issuer, time, expiry, fixed by trigger), a repeat issuance supersedes the live one. The check runs inside the
+  intake transaction after every write an invited submission makes and rolls the transaction back, so an uninvited,
+  expired, used, superseded or wrong-address submission gets the accepted submission's response and timing and
+  nothing is recorded. The invitation is spent at confirmation (one conditional update after the application and
+  challenge locks; a concurrent redemption admits one), never at acceptance, so an unconfirmed submission does not
+  burn it; a confirmation with none live is "no longer valid", the expired-challenge page. With the mode `open` the
+  intake is the S1 intake unchanged. The suite opens the mode and the limits per test and proves the shipped defaults
+  from a fresh process; the staging check invites its synthetic address before the dark-deploy submission.
+- **Evidence**: `tests/test_throttle.py` and `tests/test_invitation.py`, mapped as P6 design rules in
+  `tests/acceptance.py`; the migration round trip and the role, trigger and constraint inventories updated
+  (`tests/test_db_roles.py`, `tests/test_database.py`, `tests/test_acceptance.py`).
+- **Not done here**: the owner's limit values and lifetimes (POL-16, `211.7.2`); the host preflight for a Caddy
+  rate-limit module (`9kg.42`), which would add a second, outer layer and replaces nothing above; the live staging
+  check (`scripts/staging_check.sh`), which is a dev-box drill, not a CI test.
+
 ## 14. Decision brief (recommended choice, alternative, consequence, first task blocked)
 
 **Council record (2026-10-23).** Every row below was put to the seven-seat council in `030` under the owner's
