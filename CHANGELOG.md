@@ -23,7 +23,7 @@ step, the generated Caddyfile, staff two-factor, the deploy adapters and atteste
 the live staging cases, the egress proxy, alerts to Buzz, the measured restore drill, the dark deploy and cutover
 rehearsal, and the GATE-STAGING evidence map with the after-action report `028`) is built and drilled on the dev
 box; GATE-STAGING was signed off on 2026-10-22 (D-50). The internal production launch is planned in `000-docs/029`
-(handoff PL-A) with its work graph in Beads; nothing in it is authorized by the plan. Nothing is deployed and only synthetic data is used. No release
+(handoff PL-A) with its work graph in Beads; nothing in it is authorized by the plan. On 2026-10-23 the plan was merged (PR #81), its decision brief was adopted provisionally by the council record `000-docs/030` (D-51) and the repo-only batch of `029` section 13.3 and the erasure chain started. Nothing is deployed and only synthetic data is used. No release
 has been cut since `v0.1.0`, which the templated workflow tagged automatically on the first push to `main`; it was
 not a planned release. The release workflow was corrected in PR #41: it is manual, dry-run by default, and publishes
 only an already-merged, CI-green commit of `main` without committing or pushing to it.
@@ -71,7 +71,13 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 - Hardening: correspondence evidence append-only (#44); hard bounces block every send (#45); system pauses need a
   decision-maker (#46); a quarter-faster test suite (#40)
 - Preparation: P5 specification, P6 readiness matrix and PL cutover plan, `023` and `024` (#48)
-- PL-A batch item 1 (`029` section 13.4): every public endpoint rate-limited in PostgreSQL per client (the proxy's
+- Internal launch, PL batch 2 (`029` section 13.3; beads `9kg.37`, `9kg.38`): the deploy operation (`CATALYST_DEPLOY_ID`)
+  binds the pre-deploy backup to the deploy by id, digest and time, and the deployment receipt is a gate, built on
+  D-I's recommended default: `deploy.sh` refuses an image other than the approved one, an unapproved commit label and
+  a missing, stale, replaced or another deploy's backup before anything changes, so the wrapper reverts and holds; the
+  smoke runs `check --deploy`. The deploy drill adds the N+1 expand release reverted to N on the expanded schema with
+  the data kept, and a forward-only (contract) release whose revert is refused by name (`026` section 16)
+- PL-A batch item 1 (`029` section 13.3): every public endpoint rate-limited in PostgreSQL per client (the proxy's
   forwarded address, trusted by where the web process listens) and per hashed address or token, one uniform refusal,
   fail closed for issuance and open for reading; invitation-only intake by default, enforced inside the intake
   transaction, spent once at confirmation, issued only by the owner-run `catalyst_invite`, shown in the dossier, the

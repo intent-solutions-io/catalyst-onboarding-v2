@@ -1295,6 +1295,9 @@ P6_CASES = {
     ],
     "TEST-P6-10": [
         "test_release::test_6b10_release_facts_read_back_from_the_database",
+        "test_release::test_9kg_37_the_gate_allows_only_the_approved_image_with_its_backup_bound_and_the_recorded_revert",
+        "test_release::test_9kg_37_the_operation_commands_are_the_tested_functions",
+        "test_release::test_9kg_37_the_adapters_gate_on_the_operation_before_switching_and_the_smoke_decides_the_receipt",
     ],
     "TEST-P6-11": [
         "test_startup::test_6b5_staging_reads_each_secret_from_its_own_file",
@@ -1419,9 +1422,13 @@ P6_CASES = {
     ],
     "TEST-P6-24": [
         "test_release::test_6b10_the_adapters_take_only_content_references_and_smoke_through_the_readiness_cache",
+        "test_release::test_9kg_37_an_operation_binds_only_a_backup_taken_for_it_and_refuses_a_stale_or_missing_one",
+        "test_release::test_9kg_37_a_restarted_operation_takes_a_new_backup_and_bad_ids_or_commits_are_refused",
+        "test_release::test_9kg_37_the_gate_allows_only_the_approved_image_with_its_backup_bound_and_the_recorded_revert",
     ],
     "TEST-P6-25": [
         "test_release::test_6b10_forward_only_migrations_block_only_an_image_that_does_not_know_them",
+        "test_release::test_9kg_38_the_drill_reverts_n_plus_one_to_n_on_the_expanded_schema_and_refuses_the_contract_revert",
         "test_restore_rehearsal::test_9kg_7_backup_restore_elsewhere_and_verify_rows_files_roles_and_triggers",
     ],
     "TEST-P6-26": [

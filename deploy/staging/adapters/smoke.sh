@@ -2,7 +2,10 @@
 # DW_SMOKE_CMD, the promotion gate, fail-closed. In order: readiness answers 200 through the web socket (polled, since an
 # answer may be CACHE_SECONDS old); after a settle period, web, worker and fetcher still run exactly the recorded image
 # with no restart; the worker's and the fetcher's heartbeats are fresh; no migration is pending; the commit inside the
-# image is its label's; and, when configured, the public form answers through the proxy (curl -k: staging's internal CA).
+# image is its label's, and, when the serving image is the deploy operation's target, its label is the approved commit
+# (a revert names none: it returns to what was recorded); `check --deploy` is clean; and, when configured, the public
+# form answers through the proxy (curl -k: staging's internal CA). Everything the deployment receipt compares is
+# decided here, before promotion (9kg.37): the receipt is the record of a gate that already passed.
 source "$(dirname "$0")/lib.sh"
 expected="$(<"$POINTER")"
 expected_id="$(docker image inspect --format '{{.Id}}' "$expected")" || fail "the recorded image is not on this host"
@@ -24,10 +27,15 @@ for service in worker fetcher; do
   [[ "$age" =~ ^[0-9]+$ ]] && [ "$age" -lt "${CATALYST_HEARTBEAT_STALE_SECONDS:-30}" ] || fail "$service has no fresh heartbeat ($age)"
 done
 facts="$(compose exec -T web python manage.py catalyst_release receipt)" || fail "cannot read the release facts"
-label="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$expected")"
-# The intended commit, when the deploy step names one (6B.11's force-command will always): a wrong but self-consistent
-# image is refused. A revert names none, since it returns to whatever was recorded.
-[ -z "${CATALYST_EXPECTED_COMMIT:-}" ] || [ "$label" = "$CATALYST_EXPECTED_COMMIT" ] || fail "not the intended commit"
+label="$(image_label "$expected")"
+# The approved commit, from the deploy operation: the operation's target must carry it (a wrong but self-consistent
+# image is refused). The operation's previous image, a revert, has no expectation: it returns to what was recorded.
+# An operation that never started (deploy.sh refused the apply for that, and the wrapper restored the serving image)
+# carries no expectation either: only an operation's target does.
+if [ -n "${CATALYST_DEPLOY_ID:-}" ] && op="$(operation show 2>/dev/null)"; then
+  intended="$(python3 -c 'import json,sys;o=json.loads(sys.argv[1]);print((o["expected_commit"] or "") if o["target"] == sys.argv[2] else "")' "$op" "$expected")"
+  [ -z "$intended" ] || [ "$label" = "$intended" ] || fail "not the intended commit"
+fi
 python3 - "$facts" "$label" <<'PY' || fail "the release facts do not read back as intended"
 import json, sys
 facts, label = json.loads(sys.argv[1]), sys.argv[2]
@@ -36,6 +44,7 @@ problems = [p for p, bad in (("migrations pending", facts["migrations_pending"] 
 print("; ".join(problems), file=sys.stderr)
 sys.exit(1 if problems else 0)
 PY
+compose exec -T web python manage.py check --deploy --fail-level WARNING >/dev/null 2>&1 || fail "check --deploy is not clean"
 if [ -n "${CATALYST_SMOKE_URL:-}" ]; then
   code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 ${CATALYST_SMOKE_RESOLVE:+--resolve "$CATALYST_SMOKE_RESOLVE"} "$CATALYST_SMOKE_URL" || true)"
   [ "$code" = 200 ] || fail "the public form answered $code through the proxy"

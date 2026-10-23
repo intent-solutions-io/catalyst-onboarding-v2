@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document | `029-PP-PLAN-internal-launch-comparison-and-execution-plan` |
-| Version | 0.2.0 (draft for the owner's review; 0.2.0 applies the compliance audit of 2026-10-23: section 4.7, appendix A, section 16, the corrected batch and brief) |
+| Version | 0.3.0 (the council record `030` adopts the decision brief provisionally and amends the path, sections 13.2 and 14, 2026-10-23; 0.2.0 applied the compliance audit of 2026-10-23: section 4.7, appendix A, section 16, the corrected batch and brief) |
 | Status | **PROPOSED.** A planning record. Nothing in it is authorized by being written: no deployment, provider call, host access, credential, real-data action, erasure, routing change, release or gate sign-off. Every task below runs only under its own authorization. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-23 |
@@ -568,6 +568,16 @@ goes sit on the path (the protections, the preflight, the packet, the rehearsal)
 longest build is the erasure chain; the repo-only batch runs beside it. A digest that was never drilled with
 erasure, replay, reconciliation and custody encryption cannot reach the go/no-go.
 
+**Council amendments to the path (2026-10-23, `030` Q3, Q9 and Q10; D-51).** The erasure chain (`9kg.33`, then
+`9kg.32`, `9kg.34`, `9kg.25`) is built now as repo-only work beside the batch, with every retention value shipped
+as "undecided: refuse"; POL-10 and POL-09 move from gating the code to gating the first real submission and the
+go/no-go. Under the host go, the production host is proved first: the preflight, host preparation, a dark deploy of
+the current attested `main` digest with every activation held, the production restore drill (RPO and RTO
+measured) and the rehearsal; the launch candidate is then released (`9kg.31.4`, after the batch's last migration
+and the screen walkthrough `9kg.41`) and redeployed through the drilled wrapper. The remaining goes are three: the
+host lane, the provider canaries, and the launch. The protections (`9kg.35`) are applied by the owner's own hand
+from a prepared script before any deploy credential, with a scoped agent token from that moment.
+
 ### 13.3 The first ready repo-only batch (bounded authorization)
 
 Independent of every host and provider action, and small enough for one release. Three items proceed on the
@@ -641,6 +651,13 @@ the placeholders without redesign.
   check (`scripts/staging_check.sh`), which is a dev-box drill, not a CI test.
 
 ## 14. Decision brief (recommended choice, alternative, consequence, first task blocked)
+
+**Council record (2026-10-23).** Every row below was put to the seven-seat council in `030` under the owner's
+designation; the council adopted the recommended column on every row, provisionally, with the binding constraints
+`030` section 6 records (the Documenso fallback is "agreements disabled", never the shared team; the erasure chain is
+built now with every value "undecided: refuse" and POL-10/POL-09 gate the first real submission; the repository
+move is after launch or never; D-M carries four flip conditions and seven items that are not deferred). `011`
+records the adoption as D-51. The owner ratifies or overrides at the go/no-go or earlier in session.
 
 : Owner decisions, each with a recommended default.
 
