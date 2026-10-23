@@ -71,7 +71,8 @@ def environment_problems(environment: str) -> list[str]:
 
 
 def provider_problems(email_backend: str, environ: Mapping[str, str]) -> list[str]:
-    """Outside production nothing may reach a real provider (REQ-022, D-10)."""
+    """In every allowed environment nothing may reach a real provider (REQ-022, D-10): production is not an allowed
+    environment yet (ALLOWED_ENVIRONMENTS), so this holds wherever a Catalyst process can start today."""
     problems = []
     if email_backend not in SINK_EMAIL_BACKENDS:
         problems.append(f"EMAIL_BACKEND {email_backend!r} is not a local sink backend")
@@ -163,9 +164,9 @@ EVIDENCE_TEST_ONLY = ("CATALYST_EVIDENCE_ALLOWED_HOSTS", "CATALYST_EVIDENCE_FIXT
 
 
 def evidence_problems(settings, environ: Mapping[str, str]) -> list[str]:
-    """018 3.3 step 7 (P3 3B.1): evidence fetching is synthetic only. Outside `test`, no host may be fetchable, no
-    fixture address may be pinned and no custom trust store may be set; none of them may come from the
-    environment."""
+    """018 3.3 step 7 (P3 3B.1): evidence fetching is synthetic only. Outside `test` and `staging`, no host may be
+    fetchable, no fixture address may be pinned and no custom trust store may be set; in `staging` only `.test` hosts,
+    a loopback fixture address and an absolute trust-store path; none of them may come from the environment."""
     problems = [f"{name} may not be set from the environment" for name in EVIDENCE_TEST_ONLY if name in environ]
     environment = getattr(settings, "CATALYST_ENV", "")
     if not synthetic(environment):
@@ -185,8 +186,8 @@ def evidence_problems(settings, environ: Mapping[str, str]) -> list[str]:
 
 
 def assessment_problems(settings, environ: Mapping[str, str]) -> list[str]:
-    """018 5.5 (P3 3B.2): no live model anywhere. "test" (a PydanticAI test model) only in the test environment;
-    every other environment must say "none"; never from the environment."""
+    """018 5.5 (P3 3B.2): no live model anywhere. "test" (a PydanticAI test model) only in the test and
+    staging environments; every other environment must say "none"; never from the environment."""
     problems = ["CATALYST_ASSESSMENT_MODEL may not be set from the environment"] if "CATALYST_ASSESSMENT_MODEL" in environ else []
     mode = getattr(settings, "CATALYST_ASSESSMENT_MODEL", "none")
     if mode not in ("none", "test"):
@@ -233,8 +234,9 @@ AGREEMENT_TEST_ONLY = ("CATALYST_AGREEMENT_PROVIDER_URL", "CATALYST_AGREEMENT_PR
 
 def agreement_problems(settings, environ: Mapping[str, str]) -> list[str]:
     """021 section 10 (P4 4B.1; TEST-P4-20): no real Documenso. The provider URL, its pinned address, the trust store
-    and the token are fixed in code, never from the environment, and empty outside `test`. In `test` the URL must be
-    https and the pinned address a literal loopback address, so only the local fake can answer."""
+    and the token are fixed in code, never from the environment, and empty outside `test` and `staging`. In those two
+    the URL must be https on a `.test` host and the pinned address a literal loopback address, so only the local fake
+    can answer."""
     problems = [f"{name} may not be set from the environment" for name in AGREEMENT_TEST_ONLY if name in environ]
     if not synthetic(getattr(settings, "CATALYST_ENV", "")):
         for name in AGREEMENT_TEST_ONLY:
@@ -268,8 +270,8 @@ PROVISIONING_TEST_ONLY = ("CATALYST_PROVISIONING_ADAPTER", "CATALYST_PROVISIONIN
 
 def provisioning_problems(settings, environ: Mapping[str, str]) -> list[str]:
     """023 sections 3 and 11.1 (P5 5B.1; TEST-P5-23): no real mail host. The adapter and the domain are fixed in code,
-    never from the environment, and empty outside `test`. In `test` the adapter must be a test fake and the domain a
-    `.test` domain. No live adapter exists; building one is a pre-live gate (D-47)."""
+    never from the environment, and empty outside `test` and `staging`. In those two the adapter must be a test fake
+    and the domain a `.test` domain. No live adapter exists; building one is a pre-live gate (D-47)."""
     problems = [f"{name} may not be set from the environment" for name in PROVISIONING_TEST_ONLY if name in environ]
     # No mail-host credential may sit in a web or worker environment (023 11.1): the live key, if ever authorized,
     # belongs to the separate credential service only (security review of PR #53).

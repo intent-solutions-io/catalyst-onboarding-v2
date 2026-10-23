@@ -116,5 +116,13 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 - Two LOW findings of the 2026-10-22 audit (bead `9kg.48`): `pyproject.toml` declares the tagged version 0.1.0 (it said
   0.0.0 while `version.txt` said 0.1.0), the CI docs job installs its one dependency hash-locked from
   `requirements/docs.txt` instead of by version alone, and this file's preamble sits above the first release entry
+- The screen walkthrough (bead `9kg.41`, `029` appendix B): the staff verification resend acts once on a double
+  submit; the decision, clarification and agreement-details forms keep what was typed after a refusal (never the
+  decision's outcome); the dossier labels actions held on policy; the staff item page states each reason in plain
+  words and links the decision and evidence screens; the agreements screen names the countersignature wait and shows
+  each agreement's age; the provisioning screen shows an activation waiting on an unavailable provider; the staff
+  index lists the screens a role can open; the public pages wrap at phone width; stale help text and docstrings
+  corrected (the worker's help line, "in this slice", test-only where staging is allowed, "outside production", the
+  `016` line on a paused staff-send reconcile)
 
 [Unreleased]: https://github.com/intent-solutions-io/catalyst-onboarding-v2/commits/main

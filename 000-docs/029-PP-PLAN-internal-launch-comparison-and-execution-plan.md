@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document | `029-PP-PLAN-internal-launch-comparison-and-execution-plan` |
-| Version | 0.3.0 (the council record `030` adopts the decision brief provisionally and amends the path, sections 13.2 and 14, 2026-10-23; 0.2.0 applied the compliance audit of 2026-10-23: section 4.7, appendix A, section 16, the corrected batch and brief) |
+| Version | 0.4.0 (appendix B adds the screen and exceptional-state walkthrough, `9kg.41`, 2026-10-23; 0.3.0: the council record `030` adopts the decision brief provisionally and amends the path, sections 13.2 and 14, 2026-10-23; 0.2.0 applied the compliance audit of 2026-10-23: section 4.7, appendix A, section 16, the corrected batch and brief) |
 | Status | **PROPOSED.** A planning record. Nothing in it is authorized by being written: no deployment, provider call, host access, credential, real-data action, erasure, routing change, release or gate sign-off. Every task below runs only under its own authorization. |
 | Owner | Jeremy Longshore |
 | Date | 2026-10-23 |
@@ -841,3 +841,117 @@ repository). A prior assistant assertion counts as a lead, not proof; nothing cl
 
 Nothing in the audit was found superseded or unverifiable from the repository; the two states are listed for
 completeness. The audit's roadmap (week, month, quarter) is advisory and is replaced by section 13.
+
+## Appendix B. Screen and exceptional-state walkthrough (9kg.41)
+
+Walked on 2026-10-23 against `main` `3477231` plus this appendix's PR. Scope (council record `030` Q10): every wait
+state of section 5.2, the states the bead adds, and the refusals of the three disabled capabilities. Each state was
+driven with synthetic data through the real Django views using the Django test client in the pinned containers
+(`scripts/test.sh`). Where an earlier test already walks a state through its screen, the row cites that test. The
+walkthrough's own tests are in `tests/test_screen_walkthrough.py` (15 tests, mapped in `tests/acceptance.py` under
+P6 supporting `9kg.41`).
+
+**Phone and desktop.** The repository has no browser-test tooling (no Playwright or Selenium), so the phone check
+is a rendered-HTML check, not a rendered-pixel one. Every page template declares the phone viewport. The public pages
+(request access, received, confirm, set password, withdraw) now carry phone-width rules: long links and answers wrap,
+and form controls never overflow the screen. The request form keeps every typed value after a validation error. The
+staff screens are desktop-first tables used on named devices (section 7); on a phone, wide tables scroll sideways.
+
+**Outcome codes.** OK: the screen handles the state as it stands. FIXED: changed in this PR, with a test. GAP: found,
+larger than a small fix, recorded with a bead suggestion and not changed here.
+
+: The walkthrough, one row per state.
+
+| # | State | Screen (URL name) | Who acts | What the screen shows | Exit | Outcome and evidence |
+|---|---|---|---|---|---|---|
+| 1 | Verification sent, unconfirmed | public `applications:confirm`; staff `correspondence_staff:application` | applicant; staff for a resend | the answers and a Confirm button; on the staff page, the resends used and a warning when a usable link is out | confirm; staff resend (`resend_verification`) | FIXED: a double-submitted resend sent two messages. The form now names the resend it offers, and a repeat is refused as `resend_already_recorded` (`test_walk_a_double_submitted_verification_resend_sends_one_message`). Confirm twice: OK (`test_confirmation::test_s1_08_confirming_records_contact_control_once`). The challenge lifetime stays the only bound (section 5.2). |
+| 2 | Verification link expired or superseded | public `applications:confirm` | applicant | 410, "This link is not valid" | a new submission or a staff resend | OK (`test_confirmation::test_s1_09_an_expired_challenge_is_refused_by_the_database_clock`). GAP: an expiry prompts nothing (see GAP 1). |
+| 3 | Question sent, awaiting reply; unanswered after the last reminder | `correspondence_staff:queue`, `correspondence_staff:item` | applicant; then staff | the `escalate_unanswered` item, now with "What happened" in plain words | acknowledge (after acting) | FIXED: plain-language reason (`test_walk_an_unanswered_question_escalates_to_a_staff_item_with_plain_words`). |
+| 4 | Reply awaiting staff processing | `correspondence_staff:reply` | staff (confirm outcomes) | the escaped derivative and one outcome per question, none preselected | confirm the outcomes, or close without one | OK (`test_staff_screens::test_p2_42_reply_confirmation_shows_the_derivative_escaped_and_checks_its_digest`). |
+| 5 | Reply unmatched, unverified, from another sender, or for a closed application | `correspondence_staff:item` | staff; the decision-maker for identity | the message facts and only the lawful resolutions for the viewer | associate, dismiss, mark as spoofed, acknowledge | OK (`test_staff_screens::test_p2_42_identity_resolution_needs_the_decision_maker_through_the_screen`, `::test_p2_42_the_item_page_shows_the_evidence_and_offers_only_lawful_decisions`). |
+| 6 | Uncertain send | `correspondence_staff:item`, `send_decision` | the decision-maker | the attempts table, the decisions and the duplicate-risk note | authorize a resend, abandon, revise | OK: a second click is refused as `nothing_to_decide` (`test_walk_an_uncertain_send_is_decided_once_on_the_item_page`). The live Sent reader is `9kg.49`. |
+| 7 | Mailbox cursor blocked | `correspondence_staff:queue`, `item`, `restart` | the decision-maker | cursor state and reason under "Mail collection" | restart the collector | OK (`test_staff_screens::test_p2_52_restart_needs_the_decision_maker_through_the_screen`). |
+| 8 | Hard bounce | `correspondence_staff:item`, `resolve` | the decision-maker, with a reason | the reason in plain words, and the consequence of resolving | `address_usable_again` | OK: an operator sees no resolution, a short reason is refused, and a second submit is refused as `item_already_resolved` (`test_walk_a_hard_bounce_and_its_system_pause_through_the_queue_item_and_application_screens`). |
+| 9 | Paused by staff; system pause | `correspondence_staff:application`, `pause`, `resume` | staff; the decision-maker for a system pause | who paused, when and why; a system pause says it needs decision-maker review | resume (a reason of at least 10 characters for a system pause) | OK: a second resume is refused as `not_paused` (same test; `test_staff_screens::test_p2_42_pause_resume_withdraw_and_approve_through_the_screens`, `test_processing::test_9kg_2_the_screen_offers_a_system_resume_only_to_a_decision_maker_with_a_required_reason`). |
+| 10 | Assessment refused by suspension (model advice disabled) | `assessments_staff:decision`, `decide` | the decision-maker | "Refused by suspension", the suspension record, the human-only reason field | a human-only decision | OK (`test_human_only::test_a_run_refused_under_the_suspension_is_labelled_so_and_leaves_assessing_through_the_decision_form`). FIXED: the staff item page now links the decision screen and says that acknowledging does not move the case. GAP 2 records the remaining risk. |
+| 11 | Capped snapshot | `assessments_staff:decision`, `decide` | the decision-maker | the human-only form under `CATALYST_CAPPED_EXIT` | a human-only decision | OK (`test_human_only::test_a_capped_snapshot_leaves_assessing_through_the_decision_form_and_no_close_action_exists`); see GAP 2. |
+| 12 | Awaiting decision | `assessments_staff:decision`, `decide` | the decision-maker | the snapshot, the evidence manifest, the criteria; only the permitted outcomes | admit, hold, decline | FIXED: a refused decision redirected and lost every typed rationale. It now re-renders (409) with the reasoning kept and the outcome cleared ("choose the outcome again"). A second submit records nothing (`test_walk_a_refused_decision_keeps_the_typed_reasoning_never_the_outcome_and_a_second_submit_records_nothing`). |
+| 13 | Declined | `assessments_staff:decision`; the dossier | none | "not at a stage where a decision can be recorded (declined)"; the dossier now reads `send_decline: held on policy: no decline notice is sent until ...` | none | FIXED: the label (same test). GAP 3: no decline notice (`oc4.11`, already a release gate in section 7). |
+| 14 | Agreement sent, awaiting signature | `agreements_staff:agreements` | applicant | issue, signing and custody statuses; now the last status change and its age | the decision-maker cancels | FIXED: the age on the screen (`test_walk_the_countersignature_wait_is_named_and_every_agreement_shows_its_age`; `test_agreement_custody::test_p4_21_the_screen_shows_three_statuses_and_enforces_permissions`). |
+| 15 | Countersignature wait | `agreements_staff:agreements` | the countersigner (the owner, by hand), then the system | "partly signed"; the next action now names the remaining signer | the countersignature at the provider | FIXED: the next action said the applicant owed it (same test). |
+| 16 | Agreement held: declined, expired or cancelled at the provider | `agreements_staff:agreements`, `act` | the decision-maker | the status, "Automation is paused", the reissue button | reissue as a new instance; then resolve the pause cause | OK: a second reissue is refused as `already_superseded` (`test_walk_a_declined_agreement_is_reissued_once_from_the_screen`). |
+| 17 | Agreement held: integrity hold (recipient change) and custody failure | `agreements_staff:agreements`, `act` | the integrity decision-maker; the operator for custody | the hold, the fresh-read state and the dispositions; retry custody | continue, replace, escalate; retry custody | OK (`test_agreement_custody::test_p4_21_a_refused_integrity_disposition_keeps_the_typed_reason`). FIXED: a refused required-details draft lost the typed values (`test_walk_a_refused_details_draft_keeps_the_typed_values`). GAP 4: duplicate envelopes have no screen action (`9kg.53`). |
+| 18 | Uncertain Documenso create | `agreements_staff:agreements`, `act` | the decision-maker | the unknown attempt, its reconcile checks, the duplicate risk; no choice preselected | not sent and create again, or abandon | OK (`test_agreement_screens::test_an_unknown_create_is_decided_on_the_screen_and_refused_without_the_permission`). |
+| 19 | Uncertain distribute | same | the decision-maker | as above | send again, or cancel | OK (`test_agreement_screens::test_an_unknown_distribute_is_decided_on_the_screen_and_cancelling_needs_the_manage_permission`). |
+| 20 | Uncertain cancel | same | the agreement manager | "Decide the unknown cancel" | cancel again (reconciled) | OK (`test_agreement_screens::test_an_unknown_cancel_is_decided_on_the_screen_and_refused_without_the_permission`). |
+| 21 | Template approval (agreement and message templates) | `agreements_staff:templates`; `correspondence_staff:template` | the template owner | the digest shown; a repeat changes nothing | approve exactly this version | OK (`test_agreement_screens::test_a_template_version_is_approved_on_its_own_screen_by_the_digest_shown`, `test_staff_screens::test_p2_42_template_approval_through_the_screen_approves_exactly_what_was_shown`). FIXED: the staff index now lists both template screens for their holders (`test_walk_the_admin_index_lists_the_staff_screens_a_role_can_open`). |
+| 22 | On hold, and its exit | `assessments_staff:decision`, `decide` | the decision-maker | admit and decline offered, hold not | admit or decline | OK (`test_hold_and_resend::test_an_on_hold_case_comes_back_through_the_decision_form_and_a_refused_user_sees_403`). |
+| 23 | Aged waits | none: `manage.py catalyst_health` (`aged_waits.*`) | the owner, by alert | codes and ages per wait class | the matching screen above | OK (`test_system_health::test_9kg_51_each_aged_wait_raises_its_code_and_clears_when_resolved`). |
+| 24 | Provisioning held | `provisioning_staff:provisioning` | the owner | "Release provisioning (owner command activate_provisioning)" | the owner's command | OK (`test_walk_held_provisioning_names_the_owner_command`). |
+| 25 | Provisioning unknown create | `provisioning_staff:provisioning`, `act` | system, then the operator | the phase, the attempts, "Confirm whether the found mailbox is ours" | confirm ours or not ours | OK (`test_p5_journey::test_p5_24_the_journey_from_intake_to_activation_and_from_withdrawal_to_revocation_over_http`). |
+| 26 | Activation with the signing provider unavailable | `provisioning_staff:provisioning` | system; staff watch | "Password set; activation pending" and nothing else, so a stalled case looked busy | it retries on its own | FIXED: "Activation waits: provider_unavailable", with the first-queued time and the age (`test_walk_activation_waiting_on_an_unavailable_provider_is_shown_with_its_reason`). |
+| 27 | Withdrawal (link) and withdrawal racing provisioning | `provisioning_staff:act` (withdrawal link, close); public `withdrawal:withdraw` | the closer; the applicant | the links with their states; revocation per kind | the applicant confirms; staff close | OK: two link requests send one message (`test_walk_a_double_requested_withdrawal_link_sends_one_message`); the withdraw page acts once (`test_closure::test_p5_21_get_shows_post_commits_and_the_link_works_once`). The race is proven by service tests (`test_closure`), not on the screen. |
+| 28 | Unsupported revocation | `provisioning_staff:act` (`accept_exception`) | the approver | "no documented mechanism: owner decision" | accept as an exception, with a reason | OK (`test_provisioning_screen::test_p5_19_closing_through_the_screen_shows_revocation_and_the_owner_accepts_an_exception`). |
+| 29 | Restore hold | none: `manage.py catalyst_post_restore` | the owner | the review run | lift after both confirmations | OK by design (`test_post_restore::test_6b7b_lifting_needs_a_review_run_and_both_confirmations`). |
+| 30 | Disabled: model advice | `assessments_staff:decision` | the decision-maker | refused by suspension, never a failure; no model call | a human-only decision | OK (row 10). |
+| 31 | Disabled: evidence fetching | `assessments_staff:evidence` | nobody (the case moves on) | each claim `refused (no_approved_source)`, and "an unavailable or private source never counts against the applicant"; nothing fetched | assessment proceeds | OK (`test_walk_evidence_fetching_disabled_refuses_every_claim_visibly_and_the_case_moves_on`). |
+| 32 | Disabled: mailbox provisioning | `provisioning_staff:provisioning` | the owner | the held hand-off (row 24); without an adapter nothing is committed and staff are told | none at launch | OK (`test_provisioning::test_review_without_an_adapter_nothing_is_committed_and_staff_are_told`). |
+
+**Totals:** 32 states walked. 22 are OK as they stand, with one or more cited view tests. 10 were FIXED in this PR,
+each with a test: rows 1, 3, 12, 13, 14, 15, 17, 21 and 26, and the decision-screen link in row 10. Six GAPs are
+listed below: rows 2, 10, 11, 13 and 17 point at GAPs 1 to 4, and GAPs 5 and 6 cover all the screens. The double-submit check found one form that acted twice (row 1). Every other staff POST
+is either idempotent or refused on repeat by its service. The clarification form now refuses a duplicate question on
+the page and keeps the typed text (`test_walk_a_refused_clarification_keeps_the_typed_question_and_a_double_submit_stores_one`).
+
+**Also fixed (text only, the bead's sweep and audit item 8.9).** These changes affect no behaviour:
+
+- the worker's help line no longer says "local mail sink only in this slice";
+- the dossier no longer says "blocked in this slice" or "accepted by the local mail sink";
+- the admin site no longer says the staff actions "arrive in later phases";
+- the guard and settings docstrings that said test-only now say test and staging where the guard allows staging;
+- the provider guard and the mail-backend comment no longer say "outside production" (production is not an allowed
+  environment yet);
+- `016` no longer says a pause holds an unknown staff send's reconcile (reversed in its own 10.11).
+
+The staff index lists the screens each role can open, so the queue is reachable without knowing its address. The
+staff item page states each reason in plain words, and the dossier shares the same words.
+
+**GAPs (not changed here; each a bead suggestion):**
+
+1. *Verification expiry prompts nothing.* An expired link waits for the applicant to submit again, or for staff to
+   notice. Suggest: a bead to open a staff item, or to page through `aged_waits`, when an unverified application's
+   only link expires (POL-02 sets the lifetime).
+2. *An acknowledged suspended or capped item hides a stalled case.* `assessment_suspended` and `assessment_capped` are
+   acknowledge-only on the item page. Once acknowledged, the dossier's next step reads "System: Assessing: a run is
+   queued or waiting" when nothing runs. The item page now links the decision screen and warns about this. Suggest: a
+   bead to make both items resolvable only by the human-only decision, or to derive the dossier's assessing step from
+   the run state.
+3. *No decline notice.* Already `oc4.11`, a release gate (section 7).
+4. *Duplicate envelopes have no screen action.* Already `9kg.53`.
+5. *Resolution buttons show codes.* For example `address_usable_again` and `mark_spoof` are shown as codes, not
+   plain labels; the reason is now in plain words. Suggest: a small bead giving each resolution code a plain label,
+   with the tests that match on the codes updated.
+6. *No rendered phone check.* No browser tooling is installed. Suggest: before outside applicants (`9kg.31.10`), a bead
+   to add one browser check at phone width of the public pages, or to record a manual check on a phone in the go/no-go
+   package.
+
+### B.1 Screens the internal cohort will not exercise at launch (for the go/no-go package)
+
+The go/no-go package (section 11) lists these beside the screens the cohort did exercise. A screen in this list has
+synthetic evidence only.
+
+- **Provisioning (disabled by default, section 7):** the provisioning screen's approval, creation, unknown-create,
+  verification, credential and activation phases (rows 24 to 26); the public set-password page; revocation and the
+  unsupported-revocation exception (row 28). Withdrawal stays enabled, so the withdrawal link and page (row 27) can be
+  exercised; access revocation applies only where provisioning ran.
+- **Evidence fetching (disabled):** re-fetch, proceed without an item, and the evidence-source screens; every claim
+  is shown refused (row 31).
+- **Model advice (disabled):** the advisory reply reading on the reply screen, the assessment rerun, and model-assisted
+  decisions. Every decision is human-only (rows 10, 30).
+- **Agreement paths skipped for a member on file:** if `211.7.6` decides that an existing member's agreements on file
+  stand, then for that member the agreement sequence, the countersignature wait, custody and required details (rows 14
+  to 21) are not exercised.
+- **Provider-fault states, unless a canary provokes them:** the uncertain send (row 6), the uncertain Documenso
+  create, distribute and cancel (rows 18 to 20), and the integrity hold (row 17) appear only on a provider fault. Their
+  evidence is the synthetic tests cited above.
+- **Restore hold (row 29):** exercised only by the production restore drill (lane C, `030` Q10).

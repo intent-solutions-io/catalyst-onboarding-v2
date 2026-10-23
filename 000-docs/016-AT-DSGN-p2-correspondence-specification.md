@@ -1179,8 +1179,8 @@ resolution notes, and whether one decision-maker may both associate and confirm.
   - A staff message is previewed and then confirmed. Confirmation is refused if the confirming user is not
     the draft's author.
   - The message is sent under its own kind, `send_staff_message`, which is not automated (M5).
-  - Deviation: its reconciliation (`reconcile_send`) stays automated, so a pause also holds the
-    reconciliation of an unknown staff send until staff resume.
+  - Its reconciliation (`reconcile_send`) is not automated, so a pause never holds the reconciliation of an
+    unknown staff send (the deviation first recorded here was reversed in 10.11; corrected 2026-10-23, `9kg.41`).
 - The new permissions (`withdraw_question`, `send_staff_message`, `pause_automation` and `resume_automation`)
   go to operators and decision-makers, following the matrix.
 - Owner question: whether an operator may resume after an automatic pause (`hard_bounce` or

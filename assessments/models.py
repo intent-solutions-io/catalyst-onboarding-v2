@@ -6,7 +6,7 @@ authorized decision (3B.4) are later tables. None silently becomes another.
 
 - `EvidenceSource`: the owner-approved allow-list (POL-03). Versioned: an approved row is immutable for the
   application role, and a changed definition is a new version that needs approval. `fixture_only` sources exist
-  only for synthetic tests and are refused outside `test` (`config.guards.evidence_problems`).
+  only for synthetic runs and are refused outside `test` and `staging` (`assessments.fetch`, `config.guards.synthetic`).
 - `EvidenceItem`: one slot per claimed URL and approved source for the adopted version; its status is the only
   mutable part (`pending` to `fetched`, `unavailable` or `refused`).
 - `EvidenceCapture`: the immutable observation of one successful fetch: what was found, where and when, a bounded
