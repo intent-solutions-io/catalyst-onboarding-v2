@@ -23,7 +23,7 @@ step, the generated Caddyfile, staff two-factor, the deploy adapters and atteste
 the live staging cases, the egress proxy, alerts to Buzz, the measured restore drill, the dark deploy and cutover
 rehearsal, and the GATE-STAGING evidence map with the after-action report `028`) is built and drilled on the dev
 box; GATE-STAGING was signed off on 2026-10-22 (D-50). The internal production launch is planned in `000-docs/029`
-(handoff PL-A) with its work graph in Beads; nothing in it is authorized by the plan. Nothing is deployed and only synthetic data is used. No release
+(handoff PL-A) with its work graph in Beads; nothing in it is authorized by the plan. On 2026-10-23 the plan was merged (PR #81), its decision brief was adopted provisionally by the council record `000-docs/030` (D-51) and the repo-only batch of `029` section 13.3 and the erasure chain started. Nothing is deployed and only synthetic data is used. No release
 has been cut since `v0.1.0`, which the templated workflow tagged automatically on the first push to `main`; it was
 not a planned release. The release workflow was corrected in PR #41: it is manual, dry-run by default, and publishes
 only an already-merged, CI-green commit of `main` without committing or pushing to it.
