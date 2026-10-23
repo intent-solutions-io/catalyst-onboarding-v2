@@ -9,6 +9,7 @@ import pytest
 from django.core.management import call_command
 from django.utils import timezone
 
+from applications.models import Application
 from config import system_health
 from tests.mxroute_fake import FakeMailHost
 from tests.test_provisioning import (  # noqa: F401  (fixture chain and helpers)
@@ -211,3 +212,104 @@ def test_6b4_a_failing_check_exits_2_and_never_reports_a_finding(p2, monkeypatch
     with pytest.raises(SystemExit) as exit_:
         call_command("catalyst_health", stdout=StringIO(), stderr=err)
     assert exit_.value.code == 2 and "RuntimeError" in err.getvalue() and "secret details" not in err.getvalue()
+
+
+# --- 9kg.51 (029 section 5.2): the aged-waits part ------------------------------------------------------------------
+
+def aged_codes() -> list:
+    return sorted(c.split(".", 1)[1] for c in health()[1]["anomalies"] if c.startswith("aged_waits."))
+
+
+def test_9kg_51_each_aged_wait_raises_its_code_and_clears_when_resolved(k, monkeypatch, settings):
+    """One wait of every class, fresh (nothing raised), then past a short threshold (each code raised), then
+    resolved one by one (each code clears). Codes only; the oldest age is printed per class."""
+    from django.db import transaction
+
+    from correspondence.models import InboundMessage, StaffItem
+    from correspondence.staff_items import open_item
+    from tests.test_assessment import scripted, valid
+    from tests.test_decision import decide
+    from tests.test_evidence import collect, url
+    from workflow.models import AutomationPause
+
+    classes = settings.CATALYST_HEALTH_AGED_WAIT_CLASSES
+    signed = issued(k, monkeypatch)  # an NDA sent to sign, awaiting the applicant
+    scripted(monkeypatch, valid())
+    waiting = collect(k, email="waiting@example.test", work_url_1=url(k, "/w"), contribution="I wrote the parser.")
+    held = collect(k, email="held@example.test", work_url_1=url(k, "/w"), contribution="I wrote the parser.")
+    decide(k, held, "hold")
+    bad = valid(quote="A quote that appears nowhere in the evidence")
+    scripted(monkeypatch, bad, bad)
+    stuck = collect(k, email="stuck@example.test", work_url_1=url(k, "/w"), contribution="I wrote the parser.")
+    assert [a.stage for a in Application.objects.filter(pk__in=[waiting.pk, held.pk, stuck.pk]).order_by("pk")] == [
+        "awaiting_decision", "on_hold", "assessing"]
+    with transaction.atomic():
+        item = open_item("processing_error", "aged-waits-probe", application=waiting)
+    pause = AutomationPause.objects.create(subject_type="application", subject_id=held.public_ref, reason="synthetic", actor_ref="t")
+    reply = InboundMessage.objects.create(mailbox_ref="applicants", application=waiting, derived_text="A reply.",
+                                          derived_text_sha256="0" * 64, classification="human", trust_decision="trusted",
+                                          status="awaiting_processing", from_matches_verified_address=True)
+    activation = PendingAction.objects.create(kind="provision_activate", subject_type="application", subject_id=signed.public_ref,
+                                              idempotency_key="aged-waits-probe-activate")
+    report = health()[1]["aged_waits"]  # under the default thresholds (the pending-age target): every wait is fresh
+    assert aged_codes() == [] and set(report) == {*classes, "anomalies"}
+    assert all(report[name]["waiting"] >= 1 and report[name]["oldest_seconds"] >= 0 for name in classes), report
+    text = json.dumps(report)
+    for value in (str(waiting.public_ref), str(held.public_ref), str(stuck.public_ref), str(signed.public_ref),
+                  str(reply.public_id), str(item.public_id), "example.test"):
+        assert value not in text
+    settings.CATALYST_HEALTH_AGED_WAITS_PAGE = list(classes)  # every class pages here; the default is the three bad ones
+    settings.CATALYST_HEALTH_AGED_WAIT_SECONDS = {name: 3 for name in classes}
+    time.sleep(6)  # twice the threshold: a slow database never makes a wait look fresh, and the resolutions below
+    # are checked well inside the next three seconds
+    assert aged_codes() == sorted(classes) and health()[0] == 1
+    assert health()[1]["aged_waits"]["on_hold"]["oldest_seconds"] >= 3
+    # Resolving each wait clears its code (a new wait a resolution creates is fresh, so it raises nothing yet).
+    decide(k, waiting, "admit")
+    assert "awaiting_decision" not in aged_codes()
+    decide(k, held, "decline")
+    assert "on_hold" not in aged_codes()
+    decide(k, stuck, "hold", human_only_reason="Two failed runs; read every item myself.")
+    assert "assessing" not in aged_codes() and "on_hold" not in aged_codes()  # the new hold is fresh
+    StaffItem.objects.filter(pk=item.pk).update(status="resolved")
+    # The failed runs opened assessment items for the stuck case, which a human-only decision leaves to staff.
+    assert set(StaffItem.objects.filter(status="open").values_list("reason_code", flat=True)) == {"assessment_failed"}
+    StaffItem.objects.filter(status="open", application=stuck).update(status="resolved")
+    pause.delete()
+    InboundMessage.objects.filter(pk=reply.pk).update(status="processed")
+    PendingAction.objects.filter(pk=activation.pk).update(status="done")
+    assert aged_codes() == ["issued_agreements"]
+    sign_and_settle(k, signed, "nda")  # the applicant signed and the NDA is verified; the next agreement is fresh
+    assert aged_codes() == [] and health()[1]["aged_waits"]["issued_agreements"]["aged"] == 0
+
+
+def test_9kg_51_thresholds_and_paging_are_per_wait_class(p2, settings):
+    """The owner's values (211.7.2, 211.7.7): each class has its own threshold, and a class outside the page list is
+    counted with its age but raises no anomaly."""
+    from django.db import transaction
+
+    from correspondence.staff_items import open_item
+    from workflow.models import AutomationPause
+
+    app = Application.objects.create(email="probe@example.test", email_key="probe@example.test", display_name="Synthetic")
+    settings.CATALYST_HEALTH_AGED_WAIT_SECONDS = {**settings.CATALYST_HEALTH_AGED_WAIT_SECONDS, "pauses": 0.2,
+                                                  "open_staff_items": 3600}
+    settings.CATALYST_HEALTH_AGED_WAITS_PAGE = ["open_staff_items"]
+    AutomationPause.objects.create(subject_type="application", subject_id=app.public_ref, reason="synthetic", actor_ref="t")
+    with transaction.atomic():
+        open_item("processing_error", "aged-waits-paging", application=app)
+    time.sleep(0.5)
+    report = health()[1]["aged_waits"]
+    assert report["pauses"] == {"waiting": 1, "aged": 1, "oldest_seconds": 0, "threshold_seconds": 0, "pages": False}
+    assert report["open_staff_items"]["aged"] == 0 and report["open_staff_items"]["pages"] is True
+    assert report["anomalies"] == []  # an aged pause is counted and printed, but does not page
+    settings.CATALYST_HEALTH_AGED_WAITS_PAGE = list(settings.CATALYST_HEALTH_AGED_WAIT_CLASSES)
+    assert aged_codes() == ["pauses"]
+
+
+def test_9kg_51_the_default_page_list_is_the_three_bad_classes_and_the_authority_flag_is_reported(p2):
+    from config.settings import CATALYST_HEALTH_AGED_WAITS_PAGE  # the module default, not the test's override
+
+    assert CATALYST_HEALTH_AGED_WAITS_PAGE == ["replies_awaiting_processing", "issued_agreements", "provisioning_activation"]
+    report = health()[1]
+    assert report["decision"] == {"qualification_authority_configured": False, "anomalies": []}

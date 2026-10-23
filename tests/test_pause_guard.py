@@ -1,4 +1,4 @@
-"""9kg.6 (016 section 10.14; ADR-14): the automation pause row is cleared only by an audited resume, enforced in
+"""9kg.6 (016 section 10.15; ADR-14): the automation pause row is cleared only by an audited resume, enforced in
 PostgreSQL for every role. Proved through real connections as the application and owner roles (`connect`, from the
 privileged reset), since a deferred constraint trigger only speaks at commit, and through the staff service."""
 

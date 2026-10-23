@@ -110,6 +110,8 @@ CORRESPONDENCE_SCREEN_PERMISSIONS = ("approve_question", "withdraw_question", "p
 AGREEMENT_SCREEN_PERMISSIONS = ("view_agreementinstance", "operate_agreements", "manage_agreements",
                                 "decide_uncertain_agreement", "resolve_agreement_integrity",
                                 "retrieve_agreement_document", "confirm_required_details")
+# The P3 decision screen's permissions (assessments.staff_views.DECIDE; tests keep the two in step).
+DECISION_SCREEN_PERMISSIONS = ("review_evidence", "operate_evidence", "record_qualification_decision")
 # The P5 provisioning screen's permissions (provisioning.staff_views.SCREEN; tests keep the two in step).
 PROVISIONING_SCREEN_PERMISSIONS = ("view_provisioningrequest", "approve_provisioning", "operate_provisioning",
                                    "close_application")
@@ -143,10 +145,16 @@ class ApplicationAdmin(ReadOnlyModelAdmin):
             user.has_perm(f"agreements.{name}") for name in AGREEMENT_SCREEN_PERMISSIONS)
         provisioning_allowed = user.is_active and user.is_staff and not user.is_superuser and any(
             user.has_perm(f"provisioning.{name}") for name in PROVISIONING_SCREEN_PERMISSIONS)
+        templates_allowed = user.is_active and user.is_staff and not user.is_superuser and user.has_perm(
+            "agreements.approve_agreement_template")  # 9kg.47: the template screen (agreements.staff_views.TEMPLATES)
+        decision_allowed = user.is_active and user.is_staff and not user.is_superuser and any(
+            user.has_perm(f"assessments.{name}") for name in DECISION_SCREEN_PERMISSIONS)  # 9kg.50: the decision screen
         return super().changeform_view(request, object_id, form_url, {**(extra_context or {}),
                                                                       "correspondence_link": allowed,
                                                                       "agreements_link": agreements_allowed,
-                                                                      "provisioning_link": provisioning_allowed})
+                                                                      "provisioning_link": provisioning_allowed,
+                                                                      "agreement_templates_link": templates_allowed,
+                                                                      "decision_link": decision_allowed})
 
     @admin.display(boolean=True, description="contact verified")
     def contact_verified(self, obj):

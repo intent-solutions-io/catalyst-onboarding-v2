@@ -269,7 +269,7 @@ DATABASE_CONSTRAINTS = {
     "assessment_invocation_one_per_attempt", "assessment_invocation_status_valid",
     "question_text_unique_while_live", "reply_interpretation_one_per_attempt", "reply_interpretation_status_valid",
     "reply_interpretation_finished_has_time",
-    "decision_outcome_valid", "decision_basis_valid", "decision_basis_matches_run", "decision_one_final_per_application",
+    "decision_outcome_valid", "decision_basis_valid", "decision_basis_matches_run", "decision_one_final_per_application", "decision_human_only_has_code",
     # P4 4B.1 (021 section 3)
     "agreement_template_one_per_version", "agreement_template_status_valid", "agreement_template_approved_has_actor",
     "agreement_issue_status_valid", "agreement_signing_status_valid", "agreement_custody_status_valid",
@@ -680,10 +680,12 @@ def test_every_p6_test_is_mapped():
     p6_files = ("test_web_security", "test_health", "test_system_health", "test_image", "test_backup_commands",
                 "test_post_restore", "test_restore_rehearsal", "test_staging_proxy", "test_staff_two_factor",
                 "test_fetcher_role", "test_staging_compose", "test_release", "test_secret_rotation", "test_egress",
-                "test_staging_alerts", "test_cutover")
+                "test_staging_alerts", "test_cutover",
+                # PR #87 (029 section 13.3 batch item 3): every test of the four new files is a named design rule
+                "test_staff_roles", "test_hold_and_resend", "test_human_only", "test_agreement_screens")
     found = set()
     for path in sorted((ROOT / "tests").glob("test_*.py")):
-        pattern = r"^(?:async )?def (test_\w+)" if path.stem in p6_files else r"^(?:async )?def (test_(?:6b|9kg|p6)\w*)"
+        pattern = r"^(?:async )?def (test_\w+)" if path.stem in p6_files else r"^(?:async )?def (test_(?:6b|9kg|p6|oc4)\w*)"
         found |= {f"{path.stem}::{n}" for n in re.findall(pattern, path.read_text(), flags=re.M)}
     earlier = {name.split("[", 1)[0] for _, gate, cases, supporting in acceptance.gates() if gate != "GATE-STAGING"
                for names in (*cases.values(), *supporting.values()) for name in names}

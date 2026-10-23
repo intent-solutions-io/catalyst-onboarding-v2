@@ -274,7 +274,8 @@ RUN_IDENTITY = {"marker": f"catalyst-test-run:{uuid.uuid4()}"}
 # permissions come from migrations and are kept.
 # The agreement types are the P4-D-1 inventory seeded by migration (like the groups), so the reset keeps them.
 SLICE_TABLES = re.compile(r"^((applications|workflow|correspondence|assessments|provisioning)_|agreements_(?!agreementtype$)|accounts_user"
-                          r"|django_session$|django_admin_log$|accounts_loginthrottle$|accounts_requestthrottle$|otp_)")  # 6B.9, 9kg.29
+                          r"|django_session$|django_admin_log$|accounts_loginthrottle$|accounts_requestthrottle$|otp_"
+                          r"|accounts_staffrolegrant$)")  # 6B.9: throttles and staff devices; 9kg.29; 9kg.30: the grant record
 RESET_TRIGGER = "catalyst_no_truncate"
 _session = {}
 
@@ -393,6 +394,7 @@ EXPECTED_TRIGGERS = {
     ("provisioning_accessrevocation", "catalyst_access_revocation_fixed"),  # P5 5B.3
     ("provisioning_withdrawalconfirmation", "catalyst_withdrawal_confirmation_fixed"),
     ("provisioning_accessrevocation", "catalyst_no_truncate"), ("provisioning_withdrawalconfirmation", "catalyst_no_truncate"),
+    ("accounts_staffrolegrant", "catalyst_append_only"), ("accounts_staffrolegrant", "catalyst_no_truncate"),  # 9kg.30
     ("applications_invitation", "catalyst_invitation_fixed"), ("applications_invitation", "catalyst_no_truncate"),  # 9kg.43
 }
 

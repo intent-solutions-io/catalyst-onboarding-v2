@@ -145,6 +145,10 @@
         "CATALYST_CHALLENGE_LIFETIME_SECONDS": "3600",
         "CATALYST_EMAIL_FILE_PATH": "/var/lib/catalyst/mail",
         "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-worker.beat",
+        "CATALYST_QUALIFICATION_AUTHORITY": "${CATALYST_QUALIFICATION_AUTHORITY:-}",
+        "CATALYST_VERIFICATION_RESEND_LIMIT": "${CATALYST_VERIFICATION_RESEND_LIMIT:-3}",
+        "CATALYST_HEALTH_AGED_WAITS_PAGE": "${CATALYST_HEALTH_AGED_WAITS_PAGE:-replies_awaiting_processing,issued_agreements,provisioning_activation}",
+        "CATALYST_HEALTH_PENDING_AGE_SECONDS": "${CATALYST_HEALTH_PENDING_AGE_SECONDS:-3600}",
         "CATALYST_DB_USER": "catalyst_owner"
       },
       "secrets": [
@@ -235,6 +239,10 @@
         "CATALYST_CHALLENGE_LIFETIME_SECONDS": "3600",
         "CATALYST_EMAIL_FILE_PATH": "/var/lib/catalyst/mail",
         "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-worker.beat",
+        "CATALYST_QUALIFICATION_AUTHORITY": "${CATALYST_QUALIFICATION_AUTHORITY:-}",
+        "CATALYST_VERIFICATION_RESEND_LIMIT": "${CATALYST_VERIFICATION_RESEND_LIMIT:-3}",
+        "CATALYST_HEALTH_AGED_WAITS_PAGE": "${CATALYST_HEALTH_AGED_WAITS_PAGE:-replies_awaiting_processing,issued_agreements,provisioning_activation}",
+        "CATALYST_HEALTH_PENDING_AGE_SECONDS": "${CATALYST_HEALTH_PENDING_AGE_SECONDS:-3600}",
         "CATALYST_DB_USER": "catalyst_backup"
       },
       "secrets": [
@@ -308,6 +316,10 @@
         "CATALYST_CHALLENGE_LIFETIME_SECONDS": "3600",
         "CATALYST_EMAIL_FILE_PATH": "/var/lib/catalyst/mail",
         "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-worker.beat",
+        "CATALYST_QUALIFICATION_AUTHORITY": "${CATALYST_QUALIFICATION_AUTHORITY:-}",
+        "CATALYST_VERIFICATION_RESEND_LIMIT": "${CATALYST_VERIFICATION_RESEND_LIMIT:-3}",
+        "CATALYST_HEALTH_AGED_WAITS_PAGE": "${CATALYST_HEALTH_AGED_WAITS_PAGE:-replies_awaiting_processing,issued_agreements,provisioning_activation}",
+        "CATALYST_HEALTH_PENDING_AGE_SECONDS": "${CATALYST_HEALTH_PENDING_AGE_SECONDS:-3600}",
         "CATALYST_DB_USER": "catalyst_owner",
         "CATALYST_DB_ADMIN_USER": "catalyst_admin"
       },
@@ -382,6 +394,10 @@
         "CATALYST_CHALLENGE_LIFETIME_SECONDS": "3600",
         "CATALYST_EMAIL_FILE_PATH": "/var/lib/catalyst/mail",
         "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-worker.beat",
+        "CATALYST_QUALIFICATION_AUTHORITY": "${CATALYST_QUALIFICATION_AUTHORITY:-}",
+        "CATALYST_VERIFICATION_RESEND_LIMIT": "${CATALYST_VERIFICATION_RESEND_LIMIT:-3}",
+        "CATALYST_HEALTH_AGED_WAITS_PAGE": "${CATALYST_HEALTH_AGED_WAITS_PAGE:-replies_awaiting_processing,issued_agreements,provisioning_activation}",
+        "CATALYST_HEALTH_PENDING_AGE_SECONDS": "${CATALYST_HEALTH_PENDING_AGE_SECONDS:-3600}",
         "CATALYST_DB_USER": "catalyst_app"
       },
       "secrets": [
@@ -442,6 +458,10 @@
         "CATALYST_CHALLENGE_LIFETIME_SECONDS": "3600",
         "CATALYST_EMAIL_FILE_PATH": "/var/lib/catalyst/mail",
         "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-worker.beat",
+        "CATALYST_QUALIFICATION_AUTHORITY": "${CATALYST_QUALIFICATION_AUTHORITY:-}",
+        "CATALYST_VERIFICATION_RESEND_LIMIT": "${CATALYST_VERIFICATION_RESEND_LIMIT:-3}",
+        "CATALYST_HEALTH_AGED_WAITS_PAGE": "${CATALYST_HEALTH_AGED_WAITS_PAGE:-replies_awaiting_processing,issued_agreements,provisioning_activation}",
+        "CATALYST_HEALTH_PENDING_AGE_SECONDS": "${CATALYST_HEALTH_PENDING_AGE_SECONDS:-3600}",
         "CATALYST_DB_USER": "catalyst_app"
       },
       "secrets": [
@@ -509,6 +529,10 @@
         "CATALYST_CHALLENGE_LIFETIME_SECONDS": "3600",
         "CATALYST_EMAIL_FILE_PATH": "/var/lib/catalyst/mail",
         "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-fetcher.beat",
+        "CATALYST_QUALIFICATION_AUTHORITY": "${CATALYST_QUALIFICATION_AUTHORITY:-}",
+        "CATALYST_VERIFICATION_RESEND_LIMIT": "${CATALYST_VERIFICATION_RESEND_LIMIT:-3}",
+        "CATALYST_HEALTH_AGED_WAITS_PAGE": "${CATALYST_HEALTH_AGED_WAITS_PAGE:-replies_awaiting_processing,issued_agreements,provisioning_activation}",
+        "CATALYST_HEALTH_PENDING_AGE_SECONDS": "${CATALYST_HEALTH_PENDING_AGE_SECONDS:-3600}",
         "CATALYST_DB_USER": "catalyst_fetcher",
         "CATALYST_PROCESS_ROLE": "fetcher",
         "CATALYST_EVIDENCE_PROXY": "egress:3128"

@@ -147,8 +147,11 @@ def decision(request, public_ref):
         "application": application, "version": version, "claims": claims, "rows": rows, "state": state,
         "newer_versions": application.versions.filter(version_number__gt=version.version_number).count() if version else 0,
         "run": state["run"] or state["latest_run"], "authority": settings.CATALYST_QUALIFICATION_AUTHORITY is not None,
-        "may_decide": may, "outcomes": [o for o in decisions.STAGE_FOR if may and not (o == "admit" and paused)],
-        "decidable": application.stage == "awaiting_decision" or (application.stage == "assessing" and state["human_only_allowed"]),
+        "may_decide": may, "outcomes": [o for o in decisions.STAGE_FOR if may and not (o == "admit" and paused)
+                                        and not (o == "hold" and application.stage == "on_hold")],
+        # 9kg.50: a held case comes back to a decision here (admit or decline), never through a free close action.
+        "decidable": application.stage in ("awaiting_decision", "on_hold")
+        or (application.stage == "assessing" and state["human_only_allowed"]),
         "capability": decisions.CAPABILITY, "strength": decisions.EVIDENCE_STRENGTH,
         "criteria": state["pack"].criteria if state["pack"] else [],
         "policy_ref": decisions.policy_ref(state["pack"]) if state["pack"] else "",

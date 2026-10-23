@@ -19,6 +19,7 @@ urlpatterns = [
     path("applications/<uuid:public_ref>/pause/", v.pause, name="pause"),
     path("applications/<uuid:public_ref>/resume/", v.resume, name="resume"),
     path("applications/<uuid:public_ref>/message/preview/", v.preview_message, name="preview_message"),
+    path("applications/<uuid:public_ref>/verification/resend/", v.resend_verification, name="resend_verification"),  # 9kg.50
     path("drafts/<uuid:public_id>/confirm/", v.confirm_message, name="confirm_message"),
     path("questions/<uuid:public_id>/approve/", v.approve, name="approve"),
     path("questions/<uuid:public_id>/withdraw/", v.withdraw, name="withdraw"),

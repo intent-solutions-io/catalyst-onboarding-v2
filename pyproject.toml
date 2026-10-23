@@ -11,3 +11,4 @@ license = "Apache-2.0"
 DJANGO_SETTINGS_MODULE = "config.settings"
 testpaths = ["tests"]
 addopts = "-p no:cacheprovider --strict-markers"
+markers = ["worker_setup: the set-up runs the worker, so the human-only tripwire is armed after it (tests/test_human_only.py)"]

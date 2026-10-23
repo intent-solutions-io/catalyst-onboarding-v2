@@ -64,7 +64,12 @@ BASELINE: dict[str, str] = {
     "workflow": "0004_restore_hold_protection",
 }
 # Later migrations that contracting() flags but a reviewer found safe for the previous image, with the reason.
-EXPAND_SAFE: dict[str, str] = {}
+EXPAND_SAFE: dict[str, str] = {
+    "assessments.0010_decision_inputs_and_human_only_code": (
+        "adds columns with database defaults and a CHECK constraint created NOT VALID: a previous image inserts decisions "
+        "without the new columns (defaults fill them) and never a human-only row without a code it does not know, because "
+        "its human-only rows are refused by the decision service's digest check first; nothing is removed or renamed"),
+}
 
 
 def known() -> list[str]:
