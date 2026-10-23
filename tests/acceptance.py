@@ -1630,6 +1630,7 @@ RESIDUAL_BOUNDARIES = {  # the earliest boundary each residual bead blocks (029 
     "9kg.28": "the dark deploy (9kg.31.5)",
     "9kg.39": "enabling fetching",
     "9kg.31.5": "the go/no-go (9kg.31.6)",
+    "9kg.63": "release preparation (9kg.31.4)",
 }
 REVISION = re.compile(r"^([0-9a-f]{7,40}|[0-9]{8,})$")  # a commit, or a workflow run id
 STAGING_CHECK, DEPLOY_DRILL, ALERT_DRILL, RESTORE_DRILL, CUTOVER = (
@@ -1668,8 +1669,11 @@ P6_EVIDENCE = {
     "TEST-P6-23": {"proofs": ["pytest", RESTORE_DRILL]},
     "TEST-P6-24": {"proofs": [DEPLOY_DRILL, "pytest"], "pytest": "shape",
                    "since_028": "9kg.37 (PR #84): a stale backup receipt and another deploy's backup are refused, drilled"},
-    "TEST-P6-25": {"proofs": [RESTORE_DRILL, DEPLOY_DRILL, "pytest"], "pytest": "shape",
-                   "since_028": "9kg.38 (PR #84): N+1 (expand) reverted to N on the expanded schema, and a contract revert refused, drilled"},
+    "TEST-P6-25": {"proofs": [RESTORE_DRILL, DEPLOY_DRILL, "pytest"], "pytest": "shape", "partial": "9kg.63",
+                   "residual": "the deploy drill's data-kept check in the N+1 block fails under the invitation-only intake "
+                               "default since PR #85 (59 of 60 on 2026-10-23); the drill must issue an invitation before "
+                               "each submission and be re-run green; 9kg.38 (PR #84) drilled the N+1 expand reverted to N on "
+                               "the expanded schema and a contract revert refused, 60 of 60, before PR #85 changed the default"},
     "TEST-P6-26": {"proofs": [CUTOVER, "pytest"], "pytest": "shape",
                    "environment": "a stand-in Learn site beside the staging stack on the dev box",
                    "note": "proven on a stand-in Learn site; the live Learn read awaits its preconditions and the owner's go"},

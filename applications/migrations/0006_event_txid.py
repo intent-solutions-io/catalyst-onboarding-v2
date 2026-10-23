@@ -1,4 +1,4 @@
-"""9kg.6 (ADR-14 pattern; 016 section 10.13): every history event carries the top-level transaction id that inserted
+"""9kg.6 (ADR-14 pattern; 016 section 10.14): every history event carries the top-level transaction id that inserted
 it, so a database guard can require an event "in the same transaction" (the pause guard, workflow 0005). The value is
 always the database's own: a BEFORE INSERT trigger overwrites whatever was supplied, as assessments 0008 does for
 qualification decisions. Existing rows take the migration's transaction id, which no later transaction can match."""
