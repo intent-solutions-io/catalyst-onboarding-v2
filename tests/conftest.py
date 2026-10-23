@@ -126,9 +126,7 @@ def case_status(names, outcomes):
 def pytest_sessionfinish(session, exitstatus):
     config = session.config
     outcomes = _acceptance["outcomes"]
-    groups = {**acceptance.CASES, **acceptance.SUPPORTING, **acceptance.P2_CASES, **acceptance.P3_CASES,
-              **acceptance.P3_SUPPORTING, **acceptance.P4_CASES, **acceptance.P4_SUPPORTING, **acceptance.P5_CASES,
-              **acceptance.P5_SUPPORTING, **acceptance.P6_CASES, **acceptance.P6_SUPPORTING}
+    groups = acceptance.groups()
     _acceptance["statuses"] = {case: case_status(names, outcomes) for case, names in groups.items()}
     mapped = {name for names in groups.values() for name in names}
     _acceptance["full"] = (
@@ -148,23 +146,54 @@ def pytest_terminal_summary(terminalreporter):
     statuses = _acceptance["statuses"]
     if not any(s != "NOT RUN" for s in statuses.values()):
         return  # nothing mapped ran (a child probe or an unrelated file): no report
-    for title, gate, groups in (
-            ("first-slice acceptance (005 S1.7)", "GATE-S1", {**acceptance.CASES, **acceptance.SUPPORTING}),
-            ("P2 correspondence acceptance (016 section 7)", "GATE-P2", acceptance.P2_CASES),
-            ("P3 evidence and assessment acceptance (018 section 9)", "GATE-P3",
-             {**acceptance.P3_CASES, **acceptance.P3_SUPPORTING}),
-            ("P4 agreements acceptance (021 section 12)", "GATE-P4", {**acceptance.P4_CASES, **acceptance.P4_SUPPORTING}),
-            ("P5 provisioning acceptance (023 section 9)", "GATE-P5",
-             {**acceptance.P5_CASES, **acceptance.P5_SUPPORTING}),
-            ("P6 staging acceptance (026 section 11; live evidence in 026 section 16)", "GATE-STAGING",
-             {**acceptance.P6_CASES, **acceptance.P6_SUPPORTING})):
+    full = _acceptance["full"]
+    for title, gate, cases, supporting in acceptance.gates():
         terminalreporter.section(title)
-        part = {case: statuses[case] for case in groups}
-        for case, status in part.items():
-            terminalreporter.write_line(f"{case:<34} {status:<10} {len(groups[case])} mapped tests")
-        summary = ", ".join(f"{s} {list(part.values()).count(s)}" for s in ("PASS", "FAIL", "INCOMPLETE", "NOT RUN"))
-        scope = f"full run: {gate} requires every case PASS" if _acceptance["full"] else "selected subset: not gated"
-        terminalreporter.write_line(f"{summary} ({scope})", green=_acceptance["full"] and set(part.values()) == {"PASS"})
+        register = {row["case"]: row for row in acceptance.register(statuses)} if gate == "GATE-STAGING" else {}
+        for case in cases:
+            line = f"{case:<34} {statuses[case]:<10} {len(cases[case])} mapped tests"
+            if case in register:
+                line += "   " + describe_evidence(register[case])
+            terminalreporter.write_line(line)
+        # A live-only case is never a pytest result: it is listed, not counted with PASS (9kg.44).
+        for case, row in register.items():
+            if row["result"] == "LIVE ONLY":
+                terminalreporter.write_line(f"{case:<34} {'LIVE ONLY':<10} no pytest evidence   " + describe_evidence(row))
+        for group in supporting:
+            terminalreporter.write_line(f"{group:<34} {statuses[group]:<10} {len(supporting[group])} mapped tests")
+        counts = {case: statuses[case] for case in cases}
+        summary = "numbered cases: " + ", ".join(f"{s} {list(counts.values()).count(s)}"
+                                                 for s in ("PASS", "FAIL", "INCOMPLETE", "NOT RUN"))
+        if supporting:
+            groups = [statuses[g] for g in supporting]
+            summary += "; supporting groups: " + ", ".join(f"{s} {groups.count(s)}" for s in ("PASS", "FAIL", "INCOMPLETE", "NOT RUN"))
+        if register:
+            summary += f"; live-only {len([r for r in register.values() if r['result'] == 'LIVE ONLY'])} (not a pytest result)"
+        scope = f"full run: {gate} requires every case PASS" if full else "selected subset: not gated"
+        all_pass = {statuses[g] for g in (*cases, *supporting)} == {"PASS"}
+        terminalreporter.write_line(f"{summary} ({scope})", green=full and all_pass)
+        if register:
+            for line in register_summary(acceptance.summarise(list(register.values()))):
+                terminalreporter.write_line(line)
+
+
+def describe_evidence(row: dict) -> str:
+    """One register row as the report prints it: proof types in order, the pytest kind, completeness with the
+    residual bead, and the approval boundary (9kg.44)."""
+    proofs = ",".join(t if t != "pytest" else f"pytest:{row['pytest']}" for t, _ in row["proofs"])
+    completeness = f"partial->{row['partial']}" if row["partial"] else "full"
+    return f"[{proofs}; {completeness}; up to {row['boundary']}]"
+
+
+def register_summary(summary: dict) -> list[str]:
+    residual = ", ".join(f"{bead} ({', '.join(c.removeprefix('TEST-P6-') for c in cases)})"
+                         for bead, cases in sorted(summary["residual"].items()))
+    return [
+        f"evidence register: full {summary['full']} (PASS this run {summary['proven_this_run']}, live-only recorded "
+        f"{len(summary['live_only'])}), partial {summary['partial']} (residual beads: {residual or 'none'})",
+        "shape-only pytest evidence (behaviour shown by a drill): "
+        + ", ".join(summary["shape_only"]) + "; live-only: " + ", ".join(summary["live_only"] or ["none"]),
+    ]
 
 
 # --- database roles and the privileged reset (D-21) -----------------------------------------------------

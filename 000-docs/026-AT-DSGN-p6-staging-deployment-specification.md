@@ -406,6 +406,31 @@ as GATE-S1 to GATE-P5, in 6C.
 | TEST-P6-37 | The image has a vulnerability scan and a bill of materials, and contains no test, git or beads content. |
 | TEST-P6-38 | A planted sentinel never reaches an alert delivered to Buzz. |
 
+### 11.1 The evidence register (`9kg.44`, 2026-10-23)
+
+A gate count can be read as more than it proves. `tests/acceptance.py` therefore carries, beside the case map, an
+evidence register (`P6_EVIDENCE`): per numbered case, the proof types in order (`pytest`, the gated run; `drill`, a
+script above run on the staging stack and recorded in section 16; `inspected`, a configuration or run read and
+recorded; `canary`, one real delivery through a real provider; `walkthrough`), what the gated tests show
+(`behaviour`, or `shape` where they pin only the code's shape and a drill shows the behaviour: TEST-P6-08, 24, 25, 26
+and 31), the environment and revision of each proof (the test containers and "this run" for pytest; the staging
+stack and the pull request whose section 16 record holds the drill), completeness (`full`, or `partial` with the
+residual bead and what it still has to show) and the approval boundary the evidence is good up to (GATE-STAGING for a
+full case; for a partial one, the earliest boundary its residual bead blocks, from `029` section 13.1). A case
+without an entry is pytest-only, full and GATE-STAGING.
+
+The per-gate report in `tests/conftest.py` reads the register, not this text. For every gate it now counts the
+numbered cases apart from the supporting groups; for GATE-STAGING it prints each case's proofs, completeness and
+boundary on its line, lists TEST-P6-27 as `LIVE ONLY` (never as a pytest result) and ends with the register totals:
+full cases (PASS this run, and live-only recorded) and partial cases with their residual beads. The gate itself is
+unchanged: a full run still needs every numbered case and supporting group PASS. `tests/test_acceptance.py` checks
+the register (every case covered; every proof type, script, residual bead and boundary known; the live-only case has
+no pytest proof; the shape-only cases are exactly those above), checks that it reproduces after-action report `028`
+section 4 case by case (21 proven, one of them on a stand-in, and 17 partly; a later change to a case's completeness
+must carry a `since_028` note in its entry, so the AAR stays historical and the register and the report cannot drift
+apart silently) and checks the report shape in a child run. Deferred to a later task, since it needs git state:
+marking a proof for review when an implementation file listed against it changes.
+
 ## 12. 6B task graph (proposed)
 
 R = repository-local (reviewed PRs, synthetic tests only). H = needs a separate host authorization from the owner.

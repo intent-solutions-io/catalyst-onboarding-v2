@@ -416,6 +416,8 @@ acceptance.P5_CASES = {}
 acceptance.P5_SUPPORTING = {}
 acceptance.P6_CASES = {}
 acceptance.P6_SUPPORTING = {}
+acceptance.P6_LIVE_ONLY = {}
+acceptance.P6_EVIDENCE = {}
 """
 
 
@@ -432,7 +434,8 @@ def gate_probe(tmp_path, mapped, *args):
 def test_the_gate_fails_a_full_run_with_a_case_not_pass_and_spares_a_selected_subset(tmp_path):
     complete = gate_probe(tmp_path, ["test_probe::test_ran", "test_probe::test_other"])
     assert complete.returncode == 0, complete.stdout
-    assert "TEST-PROBE" in complete.stdout and "PASS 1, FAIL 0, INCOMPLETE 0, NOT RUN 0 (full run" in complete.stdout
+    assert "TEST-PROBE" in complete.stdout
+    assert "numbered cases: PASS 1, FAIL 0, INCOMPLETE 0, NOT RUN 0 (full run" in complete.stdout
     missing = gate_probe(tmp_path, ["test_probe::test_ran", "test_probe::test_never_written"])
     assert missing.returncode == 1, missing.stdout  # every test passed: the gate alone fails the run
     assert "2 passed" in missing.stdout and "INCOMPLETE 1" in missing.stdout and "(full run" in missing.stdout
@@ -512,6 +515,103 @@ def test_the_p6_acceptance_map_names_exactly_the_cases_in_026():
         assert case in (ROOT / script.split(",")[0]).read_text(), case  # the script names the case it shows
 
 
+def test_the_evidence_register_names_known_proofs_scripts_beads_and_boundaries_for_every_p6_case():
+    """9kg.44: the register is data the report reads. Every numbered case has an entry (defaults are pytest, full,
+    GATE-STAGING); every proof type, drill script and residual bead is known; a partial case names what is not yet
+    shown and the boundary its residual bead blocks; a live-only case has no pytest proof; the shape-only cases
+    are exactly those 028 section 4 names."""
+    cases = sorted({*acceptance.P6_CASES, *acceptance.P6_LIVE_ONLY})
+    assert sorted(acceptance.P6_EVIDENCE) == [c for c in cases if c in acceptance.P6_EVIDENCE]
+    assert not set(acceptance.P6_EVIDENCE) - set(cases)
+    for script in acceptance.DRILLS:
+        assert (ROOT / script).is_file(), script
+    for case in cases:
+        row = acceptance.evidence(case)
+        assert row["proofs"] and all(t in acceptance.PROOF_TYPES for t, _ in row["proofs"]), case
+        assert all(where in acceptance.DRILLS for t, where in row["proofs"] if t == "drill"), case
+        assert all(where for t, where in row["proofs"] if t != "pytest"), case  # every other proof says where
+        assert len(row["environment"]) == len(row["revision"]) == len(row["proofs"])
+        assert (row["pytest"] is None) == (case in acceptance.P6_LIVE_ONLY), case
+        if row["partial"]:
+            assert re.fullmatch(r"9kg\.\d+(\.\d+)?", row["partial"]) and row["residual"], case
+            assert row["partial"] in acceptance.RESIDUAL_BOUNDARIES and row["boundary"] != "unknown", case
+        else:
+            assert row["residual"] is None and row["boundary"] == "GATE-STAGING", case
+    shape = [c for c in cases if acceptance.evidence(c)["pytest"] == "shape"]
+    assert shape == ["TEST-P6-08", "TEST-P6-24", "TEST-P6-25", "TEST-P6-26", "TEST-P6-31"]
+    # Every partial case's pytest evidence, where it has any, is still gated: a partial case is never exempt.
+    assert all(c in acceptance.P6_CASES for c in cases if acceptance.evidence(c)["partial"] and acceptance.evidence(c)["pytest"])
+
+
+def test_the_evidence_register_reproduces_aar_028_per_case_and_in_total():
+    """The register says, per case, what after-action report 028 section 4 recorded: 21 proven (one on a stand-in)
+    and 17 partly. The AAR stays historical; a later change to a case's completeness carries a `since_028` note in
+    its entry, so the register and the report can only drift apart deliberately."""
+    aar = (ROOT / "000-docs/000-aars/028-AA-AACR-p6-staging.md").read_text()
+    table = aar[aar.index("\n## 4. "):aar.index("\n## 5. ")]
+    recorded = dict(re.findall(r"^\| (TEST-P6-\d\d) \| (proven on a stand-in|proven|partly) \|", table, flags=re.M))
+    assert len(recorded) == 38
+    assert [c for c, s in recorded.items() if s == "proven on a stand-in"] == ["TEST-P6-26"]
+    assert "proven on a stand-in" in acceptance.evidence("TEST-P6-26")["note"] or "stand-in" in acceptance.evidence("TEST-P6-26")["note"]
+    for case, status in recorded.items():
+        row = acceptance.evidence(case)
+        expected = "partial" if status == "partly" else "full"
+        if row["completeness"] != expected:
+            assert acceptance.P6_EVIDENCE[case].get("since_028"), f"{case}: {status} in 028, {row['completeness']} here"
+    summary = acceptance.summarise(acceptance.register({c: "PASS" for c in acceptance.P6_CASES}))
+    unchanged = {c for c in recorded if not acceptance.P6_EVIDENCE.get(c, {}).get("since_028")}
+    assert len(unchanged) == 38  # nothing has moved since 028 yet
+    assert (summary["full"], summary["partial"], summary["live_only"]) == (21, 17, ["TEST-P6-27"])
+    assert summary["proven_this_run"] == 20  # the 21st full case is live-only: recorded, never a pytest result
+    # A partial case is never proven, whatever its gate result, and a failed full case is not proven either.
+    rows = acceptance.register({c: "PASS" if c != "TEST-P6-02" else "FAIL" for c in acceptance.P6_CASES})
+    assert acceptance.summarise(rows)["proven_this_run"] == 19
+    assert not any(r["proven_this_run"] for r in rows if r["partial"])
+
+
+REGISTER_PROBE_CONFTEST = """
+from tests import acceptance
+acceptance.CASES = {}
+acceptance.SUPPORTING = {}
+acceptance.P2_CASES = {}
+acceptance.P3_CASES = {}
+acceptance.P3_SUPPORTING = {}
+acceptance.P4_CASES = {}
+acceptance.P4_SUPPORTING = {}
+acceptance.P5_CASES = {}
+acceptance.P5_SUPPORTING = {}
+acceptance.P6_CASES = {"TEST-P6-01": ["test_probe::test_ran"], "TEST-P6-02": ["test_probe::test_other"]}
+acceptance.P6_SUPPORTING = {"a design rule": ["test_probe::test_ran"]}
+acceptance.P6_LIVE_ONLY = {"TEST-P6-03": "scripts/staging_check.sh"}
+acceptance.P6_EVIDENCE = {
+    "TEST-P6-01": {"proofs": [("drill", "scripts/deploy_drill.sh"), "pytest"], "pytest": "shape", "partial": "9kg.37",
+                   "residual": "the rest"},
+    "TEST-P6-03": {"proofs": [("drill", "scripts/staging_check.sh")]},
+}
+"""
+
+
+def test_the_report_prints_the_register_and_counts_partial_live_only_and_supporting_apart_from_pass(tmp_path):
+    """The report shape (9kg.44): numbered cases are counted apart from supporting groups; a live-only case is
+    printed as LIVE ONLY, never as a pytest result; a partial case shows its residual bead and boundary; the
+    register totals say full, partial and proven-this-run separately."""
+    (tmp_path / "conftest.py").write_text(REGISTER_PROBE_CONFTEST)
+    (tmp_path / "test_probe.py").write_text("def test_ran():\n    assert True\n\ndef test_other():\n    assert True\n")
+    result = subprocess.run([sys.executable, "-m", "pytest", "-p", "tests.conftest", "-q", "-p", "no:cacheprovider"],
+                            cwd=tmp_path, env=support.child_env(PYTHONPATH=str(ROOT)), capture_output=True, text=True,
+                            timeout=120)
+    out = result.stdout
+    assert result.returncode == 0, out
+    lines = {line.split()[0]: line for line in out.splitlines() if line.startswith(("TEST-P6-", "a design", "numbered", "evidence", "shape"))}
+    assert "PASS" in lines["TEST-P6-01"] and "[drill,pytest:shape; partial->9kg.37; up to release preparation (9kg.31.4)]" in lines["TEST-P6-01"]
+    assert "[pytest:behaviour; full; up to GATE-STAGING]" in lines["TEST-P6-02"]
+    assert "LIVE ONLY" in lines["TEST-P6-03"] and "no pytest evidence" in lines["TEST-P6-03"] and "PASS" not in lines["TEST-P6-03"]
+    assert "[drill; full; up to GATE-STAGING]" in lines["TEST-P6-03"]
+    assert "numbered cases: PASS 2, FAIL 0, INCOMPLETE 0, NOT RUN 0; supporting groups: PASS 1, FAIL 0, INCOMPLETE 0, NOT RUN 0; live-only 1 (not a pytest result) (full run: GATE-STAGING requires every case PASS)" in lines["numbered"]
+    assert lines["evidence"] == "evidence register: full 2 (PASS this run 1, live-only recorded 1), partial 1 (residual beads: 9kg.37 (01))"
+    assert lines["shape-only"] == "shape-only pytest evidence (behaviour shown by a drill): TEST-P6-01; live-only: TEST-P6-03"
+
+
 def test_every_p6_test_is_mapped():
     """Every test written for P6 (the files that hold only P6 tests, and the 6b, 9kg and p6 tests in shared files) is
     a staging case, a named P6 design rule, or already part of an earlier gate."""
@@ -523,10 +623,8 @@ def test_every_p6_test_is_mapped():
     for path in sorted((ROOT / "tests").glob("test_*.py")):
         pattern = r"^(?:async )?def (test_\w+)" if path.stem in p6_files else r"^(?:async )?def (test_(?:6b|9kg|p6)\w*)"
         found |= {f"{path.stem}::{n}" for n in re.findall(pattern, path.read_text(), flags=re.M)}
-    earlier = {name.split("[", 1)[0] for names in {
-        **acceptance.CASES, **acceptance.SUPPORTING, **acceptance.P2_CASES, **acceptance.P3_CASES,
-        **acceptance.P3_SUPPORTING, **acceptance.P4_CASES, **acceptance.P4_SUPPORTING, **acceptance.P5_CASES,
-        **acceptance.P5_SUPPORTING}.values() for name in names}
+    earlier = {name.split("[", 1)[0] for _, gate, cases, supporting in acceptance.gates() if gate != "GATE-STAGING"
+               for names in (*cases.values(), *supporting.values()) for name in names}
     p6 = {name.split("[", 1)[0] for names in {**acceptance.P6_CASES, **acceptance.P6_SUPPORTING}.values()
           for name in names}
     assert sorted(found - p6 - earlier) == []
@@ -537,9 +635,7 @@ def test_every_p6_test_is_mapped():
 
 def test_every_mapped_test_exists():
     missing = []
-    for names in {**acceptance.CASES, **acceptance.SUPPORTING, **acceptance.P2_CASES, **acceptance.P3_CASES,
-                  **acceptance.P3_SUPPORTING, **acceptance.P4_CASES, **acceptance.P4_SUPPORTING, **acceptance.P5_CASES,
-                  **acceptance.P5_SUPPORTING, **acceptance.P6_CASES, **acceptance.P6_SUPPORTING}.values():
+    for names in acceptance.groups().values():
         assert names
         for name in names:
             module, function = name.split("::")

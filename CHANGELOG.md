@@ -71,6 +71,9 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 - Hardening: correspondence evidence append-only (#44); hard bounces block every send (#45); system pauses need a
   decision-maker (#46); a quarter-faster test suite (#40)
 - Preparation: P5 specification, P6 readiness matrix and PL cutover plan, `023` and `024` (#48)
+- Internal-launch batch 5 (`029` section 13.3): the GATE-STAGING evidence register, read by the per-gate report,
+  which prints proof types, completeness, residual beads and the approval boundary per case and counts partial and
+  live-only cases apart from PASS (`9kg.44`)
 
 ### Changed
 

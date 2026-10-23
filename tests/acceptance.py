@@ -1221,12 +1221,14 @@ P5_SUPPORTING = {
 }
 
 
-# P6 staging plan (026 section 11; GATE-STAGING, unsigned): each case names the tests that prove it in a full run (P6
-# task 6C). Most cases are also shown live on the staging stack by the scripts named in P6_LIVE, whose results 026
-# section 16 records; a live script is not a pytest run, so it is evidence beside the gate, not part of it.
+# P6 staging plan (026 section 11; GATE-STAGING, signed D-50): each case names the tests that prove it in a full run
+# (P6 task 6C). Most cases are also shown live on the staging stack by the drill scripts named in P6_EVIDENCE below
+# (TEST-P6-27 only there: P6_LIVE_ONLY), whose results 026 section 16 records; a live script is not a pytest run, so
+# it is evidence beside the gate, not part of it.
 # P6_SUPPORTING holds the P6 tests that are design rules rather than a numbered case; every P6 test is mapped.
 # For TEST-P6-08, 24, 25, 26 and 31 the mapped tests pin the code's shape (adapters, workflow, route sets); the
-# behaviour is shown by the drills, so a PASS there is not behaviour evidence on its own (028 section 4).
+# behaviour is shown by the drills, so a PASS there is not behaviour evidence on its own (028 section 4). The
+# evidence register (P6_EVIDENCE) carries that per case, so the report prints it instead of this comment.
 P6_CASES = {
     "TEST-P6-01": [
         "test_image::test_6b5_the_base_image_is_the_digest_the_tests_run_on",
@@ -1511,6 +1513,176 @@ P6_SUPPORTING = {
 P6_LIVE_ONLY = {
     "TEST-P6-27": "scripts/staging_check.sh, the dark deploy",
 }
+
+
+# --- the evidence register (9kg.44) -------------------------------------------------------------------------------
+#
+# A gate count can be read as more than it proves: a PASS on a case whose tests pin only the code's shape, or a case
+# whose live clauses are still open, prints like any other. The register records, per P6 case, how each clause is
+# shown, so tests/conftest.py prints partial and live-only cases apart from PASS. It is data the report reads, not
+# prose: tests/test_acceptance.py checks that every case has an entry, that each proof type, script and residual bead
+# is known, and that the register reproduces the per-case status of after-action report 028 section 4 (21 proven, one
+# of them on a stand-in, and 17 partly). Historical counts stay historical in the AARs; this is the current state.
+#
+# Entry fields (every one optional; `evidence()` fills the defaults):
+#   proofs       how the case is shown, in order: "pytest" (the gated run), ("drill", "scripts/<name>.sh") (a live
+#                drill on the staging stack, recorded in 026 section 16), ("inspected", <what>) (a configuration or
+#                run read and recorded), ("canary", <what>) (one real delivery through a real provider) or
+#                ("walkthrough", <what>) (a screen walkthrough). Default: ["pytest"].
+#   pytest       what the gated tests show: "behaviour" (default) or "shape" (they pin the code's shape; the
+#                behaviour is a drill's, so a PASS is not behaviour evidence on its own; 028 section 4).
+#   partial      None (every clause shown) or the residual bead that carries the clauses not yet shown.
+#   residual     what is not yet shown (required with `partial`).
+#   boundary     the approval boundary the evidence is good up to: GATE-STAGING for a full case, or the earliest
+#                boundary the residual bead blocks (029 section 13.1) for a partial one.
+#   environment  where the pytest proof ran; drills carry their own (DRILLS). Default: the test containers.
+#   note         anything the counts must not hide (a stand-in, an owner-set target).
+PROOF_TYPES = ("pytest", "drill", "inspected", "canary", "walkthrough")
+TEST_ENVIRONMENT = "test containers (CI and scripts/test.sh)"
+DRILL_ENVIRONMENT = "staging stack on the dev box (026 section 16)"
+# The drill scripts, with the pull request whose record in 026 section 16 is their revision.
+DRILLS = {
+    "scripts/staging_check.sh": "the live staging cases, PR #75 (dark deploy, PR #79)",
+    "scripts/deploy_drill.sh": "the deploy drill, PR #73",
+    "scripts/alert_drill.sh": "the alert drill, PR #77",
+    "scripts/restore_drill.sh": "the measured restore drill, PR #78",
+    "scripts/cutover_rehearsal.sh": "the cutover rehearsal, PR #79",
+}
+RESIDUAL_BOUNDARIES = {  # the earliest boundary each residual bead blocks (029 section 13.1)
+    "9kg.20": "host preparation (9kg.28)",
+    "9kg.22": "host preparation (9kg.28)",
+    "9kg.25": "real-data storage",
+    "9kg.27": "the provider canaries (9kg.31.1 to .3)",
+    "9kg.37": "release preparation (9kg.31.4)",
+    "9kg.38": "release preparation (9kg.31.4)",
+    "9kg.39": "enabling fetching",
+    "9kg.40": "the first real-data receipt",
+}
+STAGING_CHECK, DEPLOY_DRILL, ALERT_DRILL, RESTORE_DRILL, CUTOVER = (
+    ("drill", "scripts/staging_check.sh"), ("drill", "scripts/deploy_drill.sh"), ("drill", "scripts/alert_drill.sh"),
+    ("drill", "scripts/restore_drill.sh"), ("drill", "scripts/cutover_rehearsal.sh"))
+ATTESTATION_RUN = ("inspected", "image run 39780920293 on main 178da42: build, content check, SBOM, scan, attestation")
+P6_EVIDENCE = {
+    "TEST-P6-01": {"proofs": ["pytest", STAGING_CHECK, ATTESTATION_RUN], "partial": "9kg.20",
+                   "residual": "verifying the attestation on the host with the force-command"},
+    "TEST-P6-02": {"proofs": ["pytest", STAGING_CHECK]},
+    "TEST-P6-04": {"proofs": ["pytest", STAGING_CHECK]},
+    "TEST-P6-05": {"proofs": ["pytest", STAGING_CHECK, DEPLOY_DRILL]},
+    "TEST-P6-06": {"proofs": ["pytest", STAGING_CHECK]},
+    "TEST-P6-07": {"proofs": ["pytest", STAGING_CHECK]},
+    "TEST-P6-08": {"proofs": [DEPLOY_DRILL, "pytest"], "pytest": "shape"},
+    "TEST-P6-09": {"proofs": ["pytest", DEPLOY_DRILL]},
+    "TEST-P6-10": {"proofs": ["pytest", DEPLOY_DRILL], "partial": "9kg.37", "residual": "a receipt mismatch failing the deploy"},
+    "TEST-P6-11": {"proofs": ["pytest", STAGING_CHECK], "partial": "9kg.20", "residual": "tmpfs for the secret files on the host"},
+    "TEST-P6-12": {"proofs": ["pytest", STAGING_CHECK]},
+    "TEST-P6-13": {"proofs": ["pytest", STAGING_CHECK], "partial": "9kg.27",
+                   "residual": "the webhook secret, mounted only at the pilot"},
+    "TEST-P6-14": {"proofs": ["pytest", STAGING_CHECK]},
+    "TEST-P6-15": {"proofs": ["pytest", STAGING_CHECK], "partial": "9kg.20", "residual": "the named-device network restriction"},
+    "TEST-P6-16": {"proofs": ["pytest", STAGING_CHECK], "partial": "9kg.27",
+                   "residual": "live enabled refusals, size and source limits"},
+    "TEST-P6-17": {"proofs": ["pytest", ALERT_DRILL]},
+    "TEST-P6-18": {"partial": "9kg.27", "residual": "live, once staging has inbound mail (the pilot)"},
+    "TEST-P6-19": {"proofs": ["pytest", ALERT_DRILL], "partial": "9kg.27", "residual": "the uncertain send and custody states live"},
+    "TEST-P6-20": {"proofs": ["pytest", ALERT_DRILL]},
+    "TEST-P6-21": {"proofs": ["pytest", RESTORE_DRILL], "partial": "9kg.22", "residual": "the failed run's alert from the scheduled job"},
+    "TEST-P6-22": {"proofs": ["pytest", RESTORE_DRILL], "note": "times measured; the owner sets the RPO and RTO targets"},
+    "TEST-P6-23": {"proofs": ["pytest", RESTORE_DRILL]},
+    "TEST-P6-24": {"proofs": [DEPLOY_DRILL, "pytest"], "pytest": "shape", "partial": "9kg.37",
+                   "residual": "refusing a backup command that prints an older receipt's path"},
+    "TEST-P6-25": {"proofs": [RESTORE_DRILL, DEPLOY_DRILL, "pytest"], "pytest": "shape", "partial": "9kg.38",
+                   "residual": "migrating N+1 (expand) and reverting to N on that schema"},
+    "TEST-P6-26": {"proofs": [CUTOVER, "pytest"], "pytest": "shape",
+                   "note": "proven on a stand-in Learn site; the live Learn read awaits its preconditions and the owner's go"},
+    "TEST-P6-27": {"proofs": [STAGING_CHECK]},
+    "TEST-P6-28": {"proofs": ["pytest", STAGING_CHECK], "partial": "9kg.39",
+                   "residual": "the fetcher's proxy admits any public name, so production hosts are not denied by name"},
+    "TEST-P6-29": {"proofs": ["pytest", RESTORE_DRILL], "partial": "9kg.25", "residual": "erasure replay after a restore"},
+    "TEST-P6-30": {"proofs": ["pytest", STAGING_CHECK]},
+    "TEST-P6-31": {"proofs": ["pytest", STAGING_CHECK], "pytest": "shape", "partial": "9kg.20",
+                   "residual": "the deploy force-command on the host"},
+    "TEST-P6-32": {"proofs": ["pytest", STAGING_CHECK]},
+    "TEST-P6-33": {"proofs": ["pytest", STAGING_CHECK]},
+    "TEST-P6-34": {"partial": "9kg.27", "residual": "live, with the webhook mounted at the pilot"},
+    "TEST-P6-35": {"proofs": ["pytest", RESTORE_DRILL, ALERT_DRILL], "partial": "9kg.40",
+                   "residual": "a check over committed evidence and the deployment receipt"},
+    "TEST-P6-36": {"partial": "9kg.27",
+                   "residual": "the administrator's password and provider tokens (procedures only, 027)"},
+    "TEST-P6-37": {"proofs": ["pytest", ATTESTATION_RUN]},
+    "TEST-P6-38": {"proofs": ["pytest", ALERT_DRILL, ("canary", "one real delivery read back from Buzz, PR #77")]},
+}
+
+
+def gates():
+    """The gates in report order: (title, gate, numbered cases, supporting groups). Read at call time, so a probe
+    that replaces the module's maps is reported by the same code."""
+    return (
+        ("first-slice acceptance (005 S1.7)", "GATE-S1", CASES, SUPPORTING),
+        ("P2 correspondence acceptance (016 section 7)", "GATE-P2", P2_CASES, {}),
+        ("P3 evidence and assessment acceptance (018 section 9)", "GATE-P3", P3_CASES, P3_SUPPORTING),
+        ("P4 agreements acceptance (021 section 12)", "GATE-P4", P4_CASES, P4_SUPPORTING),
+        ("P5 provisioning acceptance (023 section 9)", "GATE-P5", P5_CASES, P5_SUPPORTING),
+        ("P6 staging acceptance (026 section 11; evidence register 9kg.44; live evidence in 026 section 16)",
+         "GATE-STAGING", P6_CASES, P6_SUPPORTING),
+    )
+
+
+def groups():
+    """Every gated group (numbered cases and supporting groups of every gate) mapped to its tests."""
+    merged = {}
+    for _, _, cases, supporting in gates():
+        merged.update(cases)
+        merged.update(supporting)
+    return merged
+
+
+def evidence(case: str) -> dict:
+    """The register entry for a P6 case, defaults filled: a case without an entry is pytest-only, full, GATE-STAGING."""
+    entry = dict(P6_EVIDENCE.get(case, {}))
+    proofs = [("pytest", None) if p == "pytest" else tuple(p) for p in entry.get("proofs", ["pytest"])]
+    partial = entry.get("partial")
+    return {
+        "case": case,
+        "proofs": proofs,
+        "pytest": entry.get("pytest", "behaviour") if any(t == "pytest" for t, _ in proofs) else None,
+        "environment": [TEST_ENVIRONMENT if t == "pytest" else DRILL_ENVIRONMENT if t == "drill" else "recorded"
+                        for t, _ in proofs],
+        "revision": ["this run" if t == "pytest" else DRILLS.get(w, "unrecorded") if t == "drill" else w for t, w in proofs],
+        "completeness": "partial" if partial else "full",
+        "partial": partial,
+        "residual": entry.get("residual"),
+        "boundary": RESIDUAL_BOUNDARIES.get(partial, "unknown") if partial else "GATE-STAGING",
+        "note": entry.get("note"),
+    }
+
+
+def register(statuses: dict) -> list[dict]:
+    """The P6 register rows for one run: each numbered case with this run's gate result (LIVE ONLY for a case with
+    no pytest evidence, which is never a pytest result), in case order."""
+    rows = []
+    for case in sorted({*P6_CASES, *P6_LIVE_ONLY}):
+        row = evidence(case)
+        row["result"] = "LIVE ONLY" if case in P6_LIVE_ONLY else statuses.get(case, "NOT RUN")
+        row["proven_this_run"] = row["completeness"] == "full" and row["result"] == "PASS"  # never a live-only case
+        rows.append(row)
+    return rows
+
+
+def summarise(rows: list[dict]) -> dict:
+    """What the counts must say apart from PASS: full and partial cases, how many were proven this run, the live-only
+    and shape-only cases, and the residual beads with their cases."""
+    residual = {}
+    for row in rows:
+        if row["partial"]:
+            residual.setdefault(row["partial"], []).append(row["case"])
+    return {
+        "full": sum(r["completeness"] == "full" for r in rows),
+        "partial": sum(r["completeness"] == "partial" for r in rows),
+        "proven_this_run": sum(r["proven_this_run"] for r in rows),
+        "live_only": [r["case"] for r in rows if r["result"] == "LIVE ONLY"],
+        "shape_only": [r["case"] for r in rows if r["pytest"] == "shape"],
+        "residual": residual,
+    }
 
 
 def key(nodeid: str) -> str:
