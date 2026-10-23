@@ -95,12 +95,12 @@ def definition() -> dict:
     # The fallback file is empty except during a routine link-key rotation (027): it holds the previous key.
     keys = [mount("secret_key"), mount("verification_key"), mount("verification_fallback_keys")]
     migrated = {"migrate": {"condition": "service_completed_successfully"}}
-    web = catalyst([], "catalyst_app", [*keys, mount("app_password", "db_password")],
+    web = catalyst([], "catalyst_app", [*keys, mount("app_password", "db_password")], process_role="web",
                    volumes=["catalyst-run:/run/catalyst", EFFECTS], depends=migrated)
     del web["command"]  # the image's fixed gunicorn command (no access log, 0660 socket)
     worker = catalyst(["python", "manage.py", "run_worker", "--exclude", "fetch_evidence"], "catalyst_app",
-                      [*keys, mount("app_password", "db_password")], volumes=["catalyst-mail:/var/lib/catalyst/mail", EFFECTS],
-                      depends=migrated)
+                      [*keys, mount("app_password", "db_password")], process_role="worker",
+                      volumes=["catalyst-mail:/var/lib/catalyst/mail", EFFECTS], depends=migrated)
     fetcher = catalyst(["python", "manage.py", "run_worker", "--only", "fetch_evidence"], "catalyst_fetcher",
                        [mount("secret_key"), mount("fetcher_password", "db_password")], process_role="fetcher",
                        networks=("backend", "fetch"), depends=migrated)
@@ -139,8 +139,10 @@ def definition() -> dict:
                       volumes=["catalyst-backups:/var/lib/catalyst/backups", "catalyst-custody:/var/lib/catalyst/custody:ro",
                                EFFECTS + ":ro"],  # the backup only reads the journal's head into its receipt
                       depends={"db": {"condition": "service_healthy"}})
+    # The restore service also runs the post-restore step: the `reconcile` role (9kg.49, RD-1) may read the Sent
+    # folder and never send; it never runs as web or worker.
     restore = catalyst(["python", "manage.py", "catalyst_restore", "--help"], "catalyst_owner",
-                       [*keys, mount("owner_password", "db_password"), mount("admin_password")],
+                       [*keys, mount("owner_password", "db_password"), mount("admin_password")], process_role="reconcile",
                        volumes=["catalyst-custody:/var/lib/catalyst/custody", EFFECTS],  # it writes the restore marker
                        depends={"db": {"condition": "service_healthy"}})
     restore["environment"]["CATALYST_DB_ADMIN_USER"] = "catalyst_admin"

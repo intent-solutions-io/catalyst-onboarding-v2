@@ -79,6 +79,14 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   window, bounded), the reconcile handler's handling of an unreadable source and of a recorded absence, the exact
   production mail-host allow-list for live web and worker processes, and the denied-mailbox rule that keeps the
   first-generation mailbox from ever being a v2 source (`9kg.49`)
+- PR #89 review fix-ups: the journal's genesis identity, anchor verification at restore and lift, torn-tail
+  detection with the owner-run `catalyst_journal_repair`, loud append failures with a health signal and a readiness
+  refusal, a per-kind content allow-list and opaque staff references, `prepare` entries for restrictive effects and
+  `send_begun` before SMTP; outward actions made uncertain after a restore, re-run convergence, the cursor watermark
+  reset, blocking items for an unverified resend or revision, the question link on an unknown copy; the Sent reader's
+  scan limit and incompleteness as blocking errors with a read-only client view; the mail process kind from code
+  with a `reconcile` kind for the Sent read only (RD-1), the pinned v2 mailbox digest and the required denied list
+  in a live environment; the drill's carried-journal checks as root, the reconcile role and the empty-journal leg
 
 ### Changed
 

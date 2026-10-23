@@ -1415,51 +1415,74 @@ specification text; nothing is built.
   - For TEST-P6-08, 24, 25, 26 and 31, a gate PASS pins the code's shape; the drills carry the behaviour.
 - **GATE-STAGING sign-off:** left for the owner, on the statement in that report's section 9.
 
-**9kg.33, effects after the backup point reconciled before the hold lifts (029 section 6.2; PL batch item 4).**
+**9kg.33, effects after the backup point reconciled before the hold lifts (029 section 6.2; PL batch item 4;
+hardened after the PR #89 reviews).**
 
-- **The effect journal** (`workflow/journal.py`): one hash-chained JSON Lines file in `CATALYST_EFFECT_JOURNAL_DIR`,
-  a directory outside the database's rollback domain (its own volume, `catalyst-effects`, mounted by web, worker,
-  migrate, backup read-only and restore; required outside test and development by `config.guards`). An entry is
-  `seq`, `at`, `kind`, `key` (the effect's identity: a public reference, never a numeric id), `data` (codes, counts
-  and digests only), `prev` and `hash`. Appends are locked, O_APPEND and fsynced; nothing is rewritten. Entries are
-  written after the transaction commits (`journal.record`, Django's `on_commit`), so the file can miss an effect
-  under a disk failure (as today) but never invent one. The erasure path (`9kg.32`) records its intents and
-  completions in the same file: one durable store, not two.
-- **What is journaled:** closures, final revocation states and accepted exceptions (`provisioning.closure`), staff
-  and system pauses and resumes, staff item resolutions, question withdrawals, confirmed reply outcomes, decisions on
-  uncertain sends, reminders that left (`correspondence`), staff role changes through Django signals
-  (`accounts.journal_hooks`), and the day's model-request total after each reservation (`assessments.interpret`).
-- **The backup point:** the backup reads the journal's head (`effect_journal_seq`, `effect_journal_head`) into its
-  receipt before the snapshot opens; the restore appends a `restore` entry with that head and the backup's start.
-  The post-restore step reconciles the entries between the two; a hold placed without a restore entry reconciles
-  every entry, which is safe because every replay is idempotent.
-- **The post-restore step** (`config.post_restore`), per the data and Django reviews of 2026-10-23: the review's one
-  transaction replays the journal per app (`correspondence.restore`, `provisioning.restore`, `accounts.restore`) under
-  `journal.replaying()`, so a replay never journals itself; provider reads then run outside the transaction, each
-  feeding per-effect `restore_effect_*` staff items in their own small transactions: the Sent folder since the backup
-  (`CATALYST_SEND_EVIDENCE_SOURCE.within(since)`, matched by Message-ID with the 016 A5 admissibility rule, so a
-  Catalyst-filed copy is never evidence), Documenso by envelope id or external key, the mail host by address. The hold
-  moves from *reviewed* to *reconciled* only when the journal was readable and every needed read completed; an
-  unreachable provider, an unconfigured source that a queued send needs, or a broken chain keeps it at *reviewed* and
-  the lift refuses ("evidence missing or unreachable"). The lift also refuses while any `restore_effect_*` item is
-  open; `--resolve <item> --note "..."` is the owner's manual exceptional resolution, itself journaled.
+- **The effect journal** (`workflow/journal.py`): a hash-chained JSON Lines file in `CATALYST_EFFECT_JOURNAL_DIR`, a
+  directory outside the database's rollback domain. An entry is `seq`, `at`, `kind`, `key` (a public reference or an
+  opaque staff reference, never a numeric id or a username), `data` (an allow-list per kind: codes, references,
+  counts, digests and times; anything else is refused before it reaches the file), `prev` and `hash`. The first
+  entry is a `genesis` with a random journal identity. Writers hold an exclusive advisory lock, readers a shared one;
+  appends are O_APPEND and fsynced; a file that does not end in a newline is a torn tail that stops appends until
+  the owner runs `catalyst_journal_repair --confirm`, which moves the torn bytes to `effects.jsonl.torn-<time>` and
+  journals a `repair` entry. The consistency model and its three invariants are stated in `029` section 6.2.
+- **Production path, owner and mode (operator provisioning, not code):** `/var/lib/catalyst/effects`, owned by
+  uid 10001, mode 0700, file 0600, on an **external volume** that `compose down -v` never removes (the staging
+  renderer declares `catalyst-effects` as a project volume for the drill; production must declare it external and
+  back it up with the host archive, since it is the restore's evidence). The host-side append-only attribute
+  (`chattr +a` on `effects.jsonl`, lifted only for the owner's repair) is the operator's provisioning step; the
+  application never sets it. Mounted by web, worker, migrate, restore (read-write) and backup (read-only); the
+  fetcher mounts nothing and names a path that does not exist.
+- **Observability:** an append that fails is logged by code, counted in `effects.failures`, reported by
+  `catalyst_health` (`journal` part: `effect_journal_<problem>`, `effect_journal_append_failed`), and a web process
+  whose directory is missing, not private or unwritable answers `not-ready`; a worker refuses to start. The journal
+  guard runs only in environments the guards admit: `production` must be in `ALLOWED_ENVIRONMENTS` (the release
+  decision) for it to run there.
+- **The backup point:** the backup reads the journal's identity, seq and head into its receipt before the snapshot
+  opens (a journal fault is recorded as `effect_journal_error`, the set is finished and the command exits 1); the
+  restore refuses before the load when the configured journal is another lineage or lacks the receipt's head at its
+  seq (`journal_mismatch`), then appends a `restore` marker. The post-restore step reconciles the entries between
+  the two and refuses with `journal_mismatch` if an empty or truncated journal sits behind a marker.
+- **The post-restore step** (`config.post_restore`, run as the code-declared `reconcile` kind): the review's one
+  transaction disables staff passwords on the first run only, makes every outward action that was queued, running or
+  held uncertain with a staff item (a send gets its decidable `send_outcome_unknown` item), replays the journal per app
+  under `journal.replaying()`, clears every mailbox cursor's completed-collection watermark so no reminder fires
+  before the first post-restore collection pass, and queues revocation rounds. Provider reads then run outside the
+  transaction, feeding `restore_effect_*` items through one opener that never reopens an item of the same reason and
+  key resolved after the restore marker (re-run convergence). The hold moves to *reconciled* only when the journal
+  was readable and matched and every needed read completed; the lift refuses while any `restore_effect_*` item is
+  open; `--resolve <item> --note "..."` is the owner's manual resolution, its note passing the staff-message content
+  checks.
 - **Rules by class:** a closure is re-applied through `close_locked`; a final revocation state is written onto a
-  restored obligation that is not final (the review's revocation round still runs and reads the host); the last
-  journaled pause state per application wins; a resolution, a withdrawal and a reply outcome are re-applied when
-  the restored row is open again; `abandon` and `revise` are re-applied to the restored message, `authorize_resend`
-  opens `restore_effect_resend_unverified` unless the Sent read finds the copy; a reminder that left cancels the
-  restored reminder of that number and schedules the next, or the escalation; a staff deactivation or group removal
-  is re-applied, a creation, reactivation or grant opens `restore_effect_staff_account` for the owner (access is never
-  granted from a file). Model usage needs no write: `daily_requests_used` is never below the journal's high-water
-  mark for the day, and an unreadable journal refuses the call rather than overspend.
-- **Not reconciled, by design:** absence of a Sent copy (a queued send stays queued and listed for
-  `--outward-checked`); credentials at the mail host (the adapter's set is write-only; the review closes every open
-  setup and staff reissue); the side effects of a replayed resolution (for example a released send); provider state
-  (nothing is created, cancelled or repaired at a provider). A `restore_effect_unknown_send` item names a copy the
-  restored ledger does not know, keyed by a digest of its Message-ID, with the application found by recipient.
-- **The drill** (`scripts/restore_drill.sh`): a staff account created after the backup is journaled, the journal is
-  carried to the recovery host like the archive, the review opens its item, the lift is refused until the owner
-  resolves it, and the restored stack has no such account. NOT RUN on this change (the containers were busy with the
-  focused suites); the gate pins its shape.
-- **Evidence:** `tests/test_post_restore.py` (the twelve `9kg_33` tests), `tests/test_startup.py` and
-  `tests/test_guards.py` (the directory guard), mapped under `P6_SUPPORTING`.
+  restored obligation that is not final; the last journaled pause state per application wins (a database-assigned
+  version per key for ordering is deferred); a resolution, a withdrawal and a reply outcome are re-applied when the
+  restored row is open again; `abandon` is re-applied; `authorize_resend` and `revise` open blocking items unless the
+  Sent read finds the copy (or the revised message is in the backup); a reminder that left (`send_begun` of kind
+  reminder, or `reminder_queued`) cancels the restored reminder of that number and schedules the next, and reminders
+  E1 recreates at or below the highest journaled position are cancelled again after acceptance by evidence; a staff
+  deactivation or group removal is re-applied, a creation, reactivation or grant opens `restore_effect_staff_account`.
+  Each replay counts `target_missing` for an entry naming a row the restored tables do not hold. Model usage needs no
+  write: `daily_requests_used` is never below the journal's high-water mark for the day; a missing or unreadable
+  journal refuses the call.
+- **The Sent read:** every copy since the backup (`within(since)`), matched by Message-ID with the 016 A5 rule;
+  copies whose Message-ID is not Catalyst's `c<32 hex>` family, or dated before the window, are dropped; a copy of a
+  question approved after the backup (journaled `question_approved`) is linked to the question on the
+  `restore_effect_unknown_send` item, and `approve_question` refuses that question while the item is open, so a
+  re-approval cannot send a second copy. In a live environment the Sent read is always required.
+- **Known limits (also `029` section 12):** envelopes and mailboxes created after the backup for entities created
+  after the backup are not found (the restored tables hold no row to read against); absence of a Sent copy is never
+  a verdict; credentials at the mail host are write-only and not reconciled (the review closes every open setup);
+  the side effects of a replayed resolution are not replayed; nothing is created, cancelled or repaired at a provider.
+- **RD-1 (the owner's decision; the default is built):** the post-restore Sent read runs as the `reconcile` process
+  kind, which the allow-list admits for the IMAP Sent read only and never for SMTP, on the restore service; in
+  production that service needs the mailbox password secret mounted. The alternative is a worker job that reads the
+  folder with the lift gated on it. Recorded in `016` section 10.12a as well.
+- **The drill** (`scripts/restore_drill.sh`): a staff account created after the backup is journaled; the journal is
+  carried to the recovery host like the archive (checked and cleaned up as root, since it is owned by 10001); the
+  post-restore step runs through the restore service (the reconcile role); the review opens its item, the lift is
+  refused, the owner resolves it, the lift passes and the restored stack has no such account; a second leg restores
+  the same set into a stack with an empty journal volume and is refused before the load with `journal_mismatch`.
+  The gate test pins the script's shape only. A provider read in the drill (an envelope, a mailbox, a Sent copy)
+  needs a provider fake running in the dark stack, which none does today: recorded as a limit, not shown.
+- **Evidence:** `tests/test_post_restore.py` (the seventeen `9kg_33` tests), `tests/test_startup.py` and
+  `tests/test_guards.py` (the directory guard), mapped under `P6_SUPPORTING`; the drill run is recorded below.

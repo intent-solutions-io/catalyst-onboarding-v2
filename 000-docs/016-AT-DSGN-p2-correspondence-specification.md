@@ -1273,35 +1273,46 @@ message mixing a withdrawn and a live question cannot arise yet.
 
 Found by the correspondence review of 2026-10-23 (PL-A, `029` section 5.2): no Sent-folder reader existed, the guards
 refused any evidence source outside the test environment, and the mail-host guard admitted only loopback, so the live
-reconcile of an uncertain send could not run. Built in PL batch item 4:
+reconcile of an uncertain send could not run. Built in PL batch item 4 and hardened after the PR #89 reviews:
 
 - **`correspondence/sent_reader.py`, `SentFolderSource`:** the production value of `CATALYST_SEND_EVIDENCE_SOURCE`.
-  It reads `CATALYST_MAIL_SENT_FOLDER` over the TLS-only IMAP client with EXAMINE and BODY.PEEK and never APPENDs,
-  STOREs, EXPUNGEs or SELECTs: a reader that could write would be a second filer. `find(message_id)` serves the
-  ordinary A5 reconciliation; `within(since)` enumerates the folder by internal date (IMAP `SINCE`, a calendar day,
-  so the read starts a day early), bounded by `CATALYST_MAIL_SENT_SCAN_LIMIT` newest copies, for the post-restore
-  reconciliation (`026` section 16, 9kg.33). Every copy becomes an `Evidence` record of origin `provider` with its
-  Message-ID, `To` address, canonical content digest and whether it carries `X-Catalyst-Filed-Copy`; the A5
-  admissibility rule is unchanged, so Catalyst's own filed copy is never evidence, and absence of a copy is never
-  "not sent".
-- **`ReconcileSend`:** a source that cannot be read (mailbox unreachable, TLS refused, the folder missing) is not
-  "no evidence": the action ends with `evidence_unreadable:<code>`, the event `send_evidence_unreadable` and the
-  `send_outcome_unknown` item at once, and nothing is checked again blindly. Checks that find no admissible copy end
-  as before, now with the event `send_evidence_absent` (the check number and the copies read) so staff see the fact
-  they decide on. Records carry codes only.
-- **The allow-list** (`config.guards`): `CATALYST_MAIL_ALLOWED_HOSTS` is an exact list of lower-case host names,
-  required and non-empty in a live environment (`LIVE_ENVIRONMENTS`, today `production`), refused in test, staging
-  and development, which never leave loopback (or the named test host in test). In a live environment
-  `mail_host_allowed` admits exactly a listed host, for the web and worker roles only (never the fetcher or a
-  management process), the connected peer must be a global unicast address, and a replaced trust store
+  It reads `CATALYST_MAIL_SENT_FOLDER` through `ReadOnlyMailbox`, a view of the TLS-only IMAP client without
+  `append`: EXAMINE, UID SEARCH, UID FETCH (sizes, dates, BODY.PEEK) and LOGOUT after CAPABILITY and LOGIN; the test
+  asserts the command set is a subset of those six, so COPY, MOVE, STORE, APPEND, DELETE, RENAME and CREATE are
+  covered. `find(message_id)` serves the ordinary A5 reconciliation; `within(since)` enumerates the folder by
+  internal date (IMAP `SINCE`, a calendar day, so the read starts a day early and the caller drops copies before the
+  window by their date). More than `CATALYST_MAIL_SENT_SCAN_LIMIT` copies is `scan_limit_exceeded`, never a silent
+  truncation; a copy above `CATALYST_MAIL_MAX_MESSAGE_BYTES` is not fetched, and any copy that cannot be fetched or
+  parsed makes the read `incomplete`; both block a post-restore lift. Every copy becomes an `Evidence` record of
+  origin `provider` with its Message-ID, `To` address (parsed, display-name forms included), canonical content digest,
+  internal date and whether it carries `X-Catalyst-Filed-Copy`; the A5 admissibility rule is unchanged, so Catalyst's
+  own filed copy is never evidence, and absence of a copy is never "not sent".
+- **`ReconcileSend`:** a source that cannot be read is not "no evidence": the action ends with
+  `evidence_unreadable:<code>`, the event `send_evidence_unreadable` and the `send_outcome_unknown` item at once, and
+  nothing is checked again blindly. Checks that find no admissible copy end as before, now with the event
+  `send_evidence_absent` (the check number and the copies read). Records carry codes only.
+- **The allow-list** (`config.guards`): `CATALYST_MAIL_ALLOWED_HOSTS` is an exact list of lower-case host names
+  (every label plain, the last one with a letter, never an address), required and non-empty in a live environment
+  (`LIVE_ENVIRONMENTS`, today `production`), refused in test, staging and development, which never leave loopback
+  (or the named test host in test). The start-up check asks only whether the configured host is listed; which
+  process may use it is decided at use time from the **process kind declared in code** (`config.runtime`, never only
+  an environment variable): `web` and `worker` may send and read, the owner-run `reconcile` kind (declared by
+  `catalyst_post_restore`, which refuses the web and worker roles) may read the Sent folder only and never send; a
+  management process neither. The connected peer must be a global unicast address, and a replaced trust store
   (`CATALYST_MAIL_CA_FILE`) is refused. Admitting `production` to `ALLOWED_ENVIRONMENTS` is the release decision
   (`029` section 13, `9kg.31.4`): the rule changes one constant, not the guard.
-- **The first-generation mailbox** can never be configured as a v2 source: `CATALYST_MAIL_DENIED_USER_SHA256` holds
-  SHA-256 digests of denied mailbox logins (the repository names no mailbox), and a `CATALYST_MAIL_USER` whose
-  digest is listed refuses to start in every environment. There is no second poller of that mailbox.
+- **The mailbox identity** (security review of PR #89): in a live environment the rule is never opt-in.
+  `CATALYST_MAIL_USER_SHA256` pins the one v2 mailbox login (`CATALYST_MAIL_USER` must hash to it, re-checked in
+  `transport.send` and `MailboxClient.__init__` before any credential is sent) and `CATALYST_MAIL_DENIED_USER_SHA256`
+  must list the first-generation mailbox; both hold SHA-256 hex digests only, and a denied login refuses to start in
+  every environment. **The digest values are private: never pasted into a pull request, a document or a log.**
+  There is no second poller or reader of the first-generation mailbox.
+- **RD-1 (the owner's decision; the default is built):** the post-restore Sent read runs as the `reconcile` kind on
+  the restore service, admitted for IMAP only. The alternative is a worker job with the lift gated on it. The
+  production restore service then needs the mailbox password secret mounted; today's staging has no mail secret.
 - **Still the canary's finding (8.3):** whether the provider's Sent copies are created only on acceptance, which
   decides whether A5 has admissible evidence live. Until then the reader is proven against the fake only.
-- **Evidence:** `tests/test_inbound.py` and `tests/test_guards.py` (the eight `9kg_49` tests, mapped under
+- **Evidence:** `tests/test_inbound.py` and `tests/test_guards.py` (the `9kg_49` tests, mapped under
   `P6_SUPPORTING`).
 
 ### 10.12 GATE-P2 acceptance closeout (owner direction, 2026-10-13)

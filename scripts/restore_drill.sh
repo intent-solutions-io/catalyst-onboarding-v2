@@ -25,7 +25,8 @@ b() { CATALYST_PUBLIC_PORT=19443 CATALYST_STAFF_PORT=19444 docker compose --proj
 cleanup() {
   a --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
   b --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
-  docker run --rm --user 0 -v "$work:/w" "$CATALYST_IMAGE" sh -c 'rm -rf /w/archive' >/dev/null 2>&1  # owned by 10001
+  docker compose --project-name "catalyst-restore-empty-$$" -f deploy/staging/compose.yaml --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
+  docker run --rm --user 0 -v "$work:/w" "$CATALYST_IMAGE" sh -c 'rm -rf /w/archive /w/effects' >/dev/null 2>&1  # owned by 10001
   docker image rm "$CATALYST_IMAGE" >/dev/null 2>&1
   rm -rf "$work"
 }
@@ -100,7 +101,8 @@ check "TEST-P6-35 the archived set is 0700 and its files 0600" bash -c "[ \"\$(d
 install -d -m 0700 "$work/effects"
 docker run --rm --user 0 -v "${source_project}_catalyst-effects:/effects:ro" -v "$work/effects:/carry" "$CATALYST_IMAGE" \
   sh -c "cp -a /effects/. /carry/"
-check "9kg.33 the effect journal was carried off the source host" test -s "$work/effects/effects.jsonl"
+check "9kg.33 the effect journal was carried off the source host" \
+  docker run --rm --user 0 -v "$work/effects:/carry:ro" "$CATALYST_IMAGE" sh -c 'test -s /carry/effects.jsonl'  # owned by 10001
 a down -v >/dev/null 2>&1  # the source is gone: only the archive and the carried journal remain
 
 # --- the target: a separate, migrated, empty stack ------------------------------------------------------------
@@ -139,7 +141,7 @@ b up -d --no-deps --wait web proxy >/dev/null 2>&1
 for _ in $(seq 30); do offered 19443 "$link" && break; sleep 1; done
 check "TEST-P6-29 control: before the post-restore step, the restored link still opens" offered 19443 "$link"
 b stop web proxy >/dev/null 2>&1  # the post-restore step runs with nothing serving (026 section 6)
-b run --rm --no-deps -T migrate python manage.py catalyst_post_restore --confirm-database catalyst >"$work/post.out" 2>&1
+b --profile ops run --rm --no-deps -T restore python manage.py catalyst_post_restore --confirm-database catalyst >"$work/post.out" 2>&1
 check "the post-restore review runs" test $? = 0
 [ "$fail" = 0 ] || sed 's/^/  post-restore said: /' "$work/post.out" | tail -3
 # 9kg.33: the review replayed the journal (the account created after the backup is a grant: the owner's act, so it
@@ -149,14 +151,14 @@ effect_item="$(python3 -c 'import json,sys;r=json.loads(sys.argv[1]);print(next(
 check "9kg.33 the review read the journal and reconciled every provider it needed (no evidence missing)" \
   test "$(python3 -c 'import json,sys;r=json.loads(sys.argv[1]);print(r["effects"]["journal"], len(r["effects"]["blocked"]))' "$report" 2>/dev/null)" = "ok 0"
 check "9kg.33 the account created after the backup is a staff item for the owner, not a replay" test -n "$effect_item"
-b run --rm --no-deps -T migrate python manage.py catalyst_post_restore --confirm-database catalyst --lift \
+b --profile ops run --rm --no-deps -T restore python manage.py catalyst_post_restore --confirm-database catalyst --lift \
   --outward-checked --no-closures-after-backup >"$work/lift-refused.out" 2>&1
 check "9kg.33 the lift is refused while a restore_effect_ item is open" test $? = 1
 check "9kg.33 ... for that reason" grep -q "effects are unresolved" "$work/lift-refused.out"
-b run --rm --no-deps -T migrate python manage.py catalyst_post_restore --confirm-database catalyst \
+b --profile ops run --rm --no-deps -T restore python manage.py catalyst_post_restore --confirm-database catalyst \
   --resolve "$effect_item" --note "Drill: the owner re-creates the account after the restore" >"$work/resolve.out" 2>&1
 check "9kg.33 the owner resolves the effect with a reason" test $? = 0
-b run --rm --no-deps -T migrate python manage.py catalyst_post_restore --confirm-database catalyst --lift \
+b --profile ops run --rm --no-deps -T restore python manage.py catalyst_post_restore --confirm-database catalyst --lift \
   --outward-checked --no-closures-after-backup >"$work/lift.out" 2>&1
 check "the post-restore lift runs once the effects are reconciled and resolved (effects reconciled)" test $? = 0
 check "9kg.33 the restored stack has no account created after the backup (a grant is never replayed from a file)" \
@@ -173,6 +175,21 @@ check "TEST-P6-22 the restored stack serves the form" test -n "$ready"
 check "TEST-P6-22 the restored data is the backup's (three applications, not the later one)" test "$(count_applications b)" = 3
 check "TEST-P6-29 the confirmation link from before the backup is closed on the restored stack" closed 19443 "$link"
 check "the restored stack takes a new applicant" test "$(apply 19443 after-restore@example.test)" = 302
+
+# 9kg.33, a second leg: a third stack restores the same set with an empty effect journal; the restore refuses before
+# the load, because the receipt's anchor is not in the journal (journal_mismatch), and the stack stays empty.
+empty_project="catalyst-restore-empty-$$"
+c() { CATALYST_PUBLIC_PORT=20443 CATALYST_STAFF_PORT=20444 docker compose --project-name "$empty_project" -f deploy/staging/compose.yaml "$@"; }
+c up -d --wait db >/dev/null 2>&1
+c --profile provision run --rm provision-roles >/dev/null 2>&1
+c run --rm --no-deps -T migrate python manage.py migrate --noinput >/dev/null 2>&1
+c --profile ops run --rm --no-deps -T -v "$archive:/archive:ro" restore python manage.py catalyst_restore \
+  --from "/archive/$set_name" --storage-dir /var/lib/catalyst/custody/restored --confirm-database catalyst \
+  --expect-manifest-sha256 "$manifest" >"$work/restore-empty.out" 2>&1
+check "9kg.33 a restore with an empty effect journal is refused before the load" test $? = 1
+check "9kg.33 ... because the receipt's anchor is not in the journal" grep -q "journal_mismatch" "$work/restore-empty.out"
+check "9kg.33 ... and the empty target stayed empty" test "$(count_applications c)" = 0
+c --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
 
 # The drill's own checks between restore_started and restore_finished (the refused second restore, the control probe)
 # add a few seconds; the figure is an upper bound for this step at synthetic scale.
