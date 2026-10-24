@@ -413,7 +413,8 @@ A gate count can be read as more than it proves. `tests/acceptance.py` therefore
 evidence register (`P6_EVIDENCE`): one explicit entry per numbered case, with the proof types in order (`pytest`,
 the gated run; `drill`, a script above run on the staging stack, whose commit and section 16 record `DRILLS`
 carries; `inspected`, a configuration or run read and recorded; `canary`, one real delivery through a real provider;
-`walkthrough`), each with an environment, a revision (a commit or a workflow run id for every proof but pytest, whose
+`walkthrough`), each with an environment (a drill's is the staging stack on the dev box unless the proof names
+its own, as TEST-P6-26's cutover rehearsal does for its stand-in Learn site, `9kg.64`), a revision (a commit or a workflow run id for every proof but pytest, whose
 revision is the run) and a record pointer; what the gated tests show (`behaviour`, or `shape` where they pin only
 the code's shape and a drill shows the behaviour: TEST-P6-08, 24, 25, 26 and 31); completeness (`full`, or
 `partial` with the residual bead and what it still has to show); and the approval boundary the evidence is good up to
@@ -429,10 +430,16 @@ cases apart from the supporting groups; for GATE-STAGING it stamps the run's com
 completeness and boundary on its line and, on a second indented line, each proof as type, environment and revision
 with the residual of a partial case; lists TEST-P6-27 as `LIVE ONLY` (never as a pytest result); and ends with the
 register totals: full cases, of which proven by this run (full, PASS and behaviour: a shape-only case is never
-counted as proven, nor is the live-only case), and partial cases with their residual beads. At the end of a full run
+counted as proven, nor is the live-only case), and partial cases with their residual beads. A run that can be full
+(no file, `-k` or `-m` selection) first deletes the last `register.json`, so a refused, crashed or deselected run
+never leaves an earlier run's file behind (`9kg.64`). At the end of a full run
 it writes `register.json` (`CATALYST_EVIDENCE_REGISTER`, or the repository root, ignored by git): the rows, the run's
-commit, the image digest when known, each proof's record pointer and the summary, so the go/no-go package reads it
-rather than transcribing the report. The gate itself is unchanged: a full run still needs every numbered case and
+commit, its exit status, the image digest when known, each proof's record pointer, the summary, GATE-STAGING's
+supporting-group statuses and every gate's numbered and supporting counts, so the go/no-go package reads it
+rather than transcribing the report. The run's commit is `CATALYST_RUN_COMMIT`, which `scripts/test.sh` exports from
+the host's `git rev-parse HEAD` and `compose.yaml` passes to the test service (the image has no git), else CI's
+`GITHUB_SHA`; CI uploads `register.json` from the runtime job as the `evidence-register` artifact whatever the
+result, through `actions/upload-artifact` pinned by commit (`9kg.64`). The gate itself is unchanged: a full run still needs every numbered case and
 supporting group PASS. `tests/test_acceptance.py` checks the register's shape and its refusals, that it reproduces
 after-action report `028` section 4 case by case (21 proven, one of them on a stand-in, and 17 partly; a later change
 to a case's completeness must carry a `since_028` note in its entry, so the AAR stays historical and the register and
@@ -442,7 +449,9 @@ listed against it changes.
 
 ### 11.2 The personal-data scan (`9kg.40`, TEST-P6-35, 2026-10-23; reviewed the same day)
 
-`config/personal_data_scan.py` (standard library only, so the host runs it with its own `python3`) scans four
+`config/personal_data_scan.py` (standard library only, so the host runs it with its own `python3`, which must be
+Python 3.11 or later: the secret-assignment pattern uses a possessive quantifier, which `re` accepts from 3.11 and
+earlier versions refuse at import, `9kg.64`) scans four
 input classes for personal data: the committed evidence (`EVIDENCE_PATHS`, globs: every after-action report,
 analysis evidence, test evidence and decision record filed under `000-docs`, this specification with its section 16
 records, and `029`; a new record of one of those classes is scanned without a change to the list, which a test

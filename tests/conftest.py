@@ -159,16 +159,28 @@ def case_status(names, outcomes):
     return "NOT RUN" if not any(seen) else "INCOMPLETE"
 
 
+def _may_be_full(config) -> bool:
+    """Whether this run can be a full run: no file, -k or -m selection (deselection is known only after collection)."""
+    return config.args_source != pytest.Config.ArgsSource.ARGS and not config.option.keyword and not config.option.markexpr
+
+
+def pytest_sessionstart(session):
+    # 9kg.64: a run that may be full removes the last register.json first, so a run that is refused, fails before the
+    # end or turns out not to be full can never leave an earlier run's file behind as if it were its own.
+    if _may_be_full(session.config):
+        try:
+            os.remove(register_path())
+        except FileNotFoundError:
+            pass
+
+
 def pytest_sessionfinish(session, exitstatus):
     config = session.config
     outcomes = _acceptance["outcomes"]
     groups = acceptance.groups()
     _acceptance["statuses"] = {case: case_status(names, outcomes) for case, names in groups.items()}
     mapped = {name for names in groups.values() for name in names}
-    _acceptance["full"] = (
-        config.args_source != pytest.Config.ArgsSource.ARGS and not config.option.keyword
-        and not config.option.markexpr and not _acceptance["deselected"] and bool(mapped & outcomes.keys())
-    )
+    _acceptance["full"] = _may_be_full(config) and not _acceptance["deselected"] and bool(mapped & outcomes.keys())
     if session.exitstatus == 0 and (_skipped or (_acceptance["full"] and set(_acceptance["statuses"].values()) != {"PASS"})):
         session.exitstatus = 1
     # 9kg.44: the register is checked as data in a full run, and written for the go/no-go package.
@@ -176,16 +188,18 @@ def pytest_sessionfinish(session, exitstatus):
     if _acceptance["full"] and _acceptance["register_problems"] and session.exitstatus == 0:
         session.exitstatus = 1
     if _acceptance["full"] and not _acceptance["register_problems"]:
-        write_register(_acceptance["statuses"])
+        write_register(_acceptance["statuses"], int(session.exitstatus))
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def run_commit() -> str:
-    """The commit this run tests: CI's, else git's, else unrecorded (the test image has no git)."""
-    if os.environ.get("GITHUB_SHA"):
-        return os.environ["GITHUB_SHA"]
+    """The commit this run tests: the one scripts/test.sh stamps from the host's git (CATALYST_RUN_COMMIT, passed by
+    compose.yaml; the test image has no git), else CI's, else git's, else unrecorded."""
+    for name in ("CATALYST_RUN_COMMIT", "GITHUB_SHA"):
+        if os.environ.get(name):
+            return os.environ[name]
     if shutil.which("git"):
         probe = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True)
         if probe.returncode == 0:
@@ -193,15 +207,27 @@ def run_commit() -> str:
     return "unrecorded"
 
 
-def write_register(statuses) -> str:
-    """register.json (CATALYST_EVIDENCE_REGISTER, or the repository root): the rows, this run's commit and image
-    digest when known, each proof's record pointer and the summary, so the go/no-go package reads it."""
+def register_path() -> str:
+    return os.environ.get("CATALYST_EVIDENCE_REGISTER") or os.path.join(ROOT, "register.json")
+
+
+def write_register(statuses, exit_status: int) -> str:
+    """register.json (CATALYST_EVIDENCE_REGISTER, or the repository root): the rows, this run's commit, exit status
+    and image digest when known, each proof's record pointer, the summary, GATE-STAGING's supporting groups and every
+    gate's counts, so the go/no-go package reads the run as it ended rather than a green row list alone (9kg.64)."""
     rows = acceptance.register(statuses)
-    path = os.environ.get("CATALYST_EVIDENCE_REGISTER") or os.path.join(ROOT, "register.json")
+    gates = {}
+    for _, gate, cases, supporting in acceptance.gates():
+        gates[gate] = {kind: {s: [statuses[g] for g in groups].count(s) for s in ("PASS", "FAIL", "INCOMPLETE", "NOT RUN")}
+                       for kind, groups in (("numbered", cases), ("supporting", supporting))}
+    path = register_path()
     with open(path, "w", encoding="utf-8") as out:
-        json.dump({"gate": "GATE-STAGING", "commit": run_commit(), "image_digest": os.environ.get("CATALYST_IMAGE") or None,
+        json.dump({"gate": "GATE-STAGING", "commit": run_commit(), "exit_status": exit_status,
+                   "image_digest": os.environ.get("CATALYST_IMAGE") or None,
                    "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "rows": rows,
-                   "summary": acceptance.summarise(rows)}, out, indent=1, sort_keys=True)
+                   "summary": acceptance.summarise(rows),
+                   "supporting": {group: statuses[group] for group in acceptance.P6_SUPPORTING},
+                   "gates": gates}, out, indent=1, sort_keys=True)
     return path
 
 

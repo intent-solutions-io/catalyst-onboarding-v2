@@ -548,7 +548,12 @@ def test_the_evidence_register_names_known_proofs_scripts_beads_and_boundaries_f
         else:
             assert row["residual"] is None and row["boundary"] == "GATE-STAGING", case
     assert used == set(acceptance.RESIDUAL_BOUNDARIES)  # no stale or unused residual bead
-    assert acceptance.evidence("TEST-P6-26")["proofs"][1]["environment"].startswith("a stand-in")  # honoured, not derived
+    # 9kg.64: the stand-in is the cutover drill's environment; the pytest proof ran where every pytest proof runs.
+    cutover, pytest_proof = acceptance.evidence("TEST-P6-26")["proofs"]
+    assert (cutover["type"], cutover["where"]) == ("drill", "scripts/cutover_rehearsal.sh")
+    assert cutover["environment"] == "a stand-in Learn site beside the staging stack on the dev box"
+    assert pytest_proof["type"] == "pytest" and pytest_proof["environment"] == acceptance.TEST_ENVIRONMENT
+    assert "environment" not in acceptance.P6_EVIDENCE["TEST-P6-26"]  # no entry-level override left to misapply
     shape = [c for c in cases if acceptance.evidence(c)["pytest"] == "shape"]
     assert shape == ["TEST-P6-08", "TEST-P6-24", "TEST-P6-25", "TEST-P6-26", "TEST-P6-31"]
     # Every partial case's pytest evidence, where it has any, is still gated: a partial case is never exempt.
@@ -563,6 +568,8 @@ def test_the_evidence_register_refuses_optimistic_defaults(monkeypatch):
     assert [p for p in acceptance.check_register() if "TEST-P6-03" in p] == ["TEST-P6-03: no evidence register entry"]
     for entry, message in (
             ({"proofs": [("drill", "scripts/nope.sh")]}, "unknown drill script"),
+            ({"proofs": [("drill", "scripts/deploy_drill.sh", "")]}, "at most its own environment"),
+            ({"proofs": [("drill", "scripts/deploy_drill.sh", "a", "b")]}, "at most its own environment"),
             ({"partial": "9kg.27"}, "partial without a residual"),
             ({"partial": "9kg.999", "residual": "x"}, "has no boundary"),
             ({"proofs": [("inspected", "a run")]}, "needs a commit or run id"),
@@ -645,14 +652,16 @@ def test_the_report_prints_the_register_and_counts_partial_live_only_and_support
     register_file.parent.mkdir()
     (tmp_path / "conftest.py").write_text(REGISTER_PROBE_CONFTEST % "")
     (tmp_path / "test_probe.py").write_text("def test_ran():\n    assert True\n\ndef test_other():\n    assert True\n")
-    env = support.child_env(PYTHONPATH=str(ROOT), CATALYST_EVIDENCE_REGISTER=str(register_file), GITHUB_SHA="f" * 40)
+    # 9kg.64: scripts/test.sh stamps CATALYST_RUN_COMMIT from git; it wins over CI's GITHUB_SHA.
+    env = support.child_env(PYTHONPATH=str(ROOT), CATALYST_EVIDENCE_REGISTER=str(register_file),
+                            CATALYST_RUN_COMMIT="e" * 40, GITHUB_SHA="f" * 40)
     result = subprocess.run([sys.executable, "-m", "pytest", "-p", "tests.conftest", "-q", "-p", "no:cacheprovider"],
                             cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
     out = result.stdout
     assert result.returncode == 0, out
     printed = out.splitlines()
     lines = {line.split()[0]: line for line in printed if line.startswith(("TEST-P6-", "a design", "numbered", "evidence", "shape", "run commit"))}
-    assert lines["run"] == "run commit: " + "f" * 40  # the header stamps the run's commit
+    assert lines["run"] == "run commit: " + "e" * 40  # the header stamps the run's commit
     assert "PASS" in lines["TEST-P6-01"] and "[drill,pytest:shape; partial->9kg.28; up to the dark deploy (9kg.31.5)]" in lines["TEST-P6-01"]
     assert printed[printed.index(lines["TEST-P6-01"]) + 1] == (
         "    drill@staging stack on the dev box/74cbb53; pytest@test containers (CI and scripts/test.sh)/this run; residual: the rest")
@@ -667,17 +676,58 @@ def test_the_report_prints_the_register_and_counts_partial_live_only_and_support
     assert lines["shape-only"] == "shape-only pytest evidence (behaviour shown by a drill): TEST-P6-01; live-only: TEST-P6-03"
     # register.json, written at the end of the full run: rows, commit, digest when known, each proof's record pointer.
     written = json.loads(register_file.read_text())
-    assert written["commit"] == "f" * 40 and written["image_digest"] is None and written["gate"] == "GATE-STAGING"
+    assert written["commit"] == "e" * 40 and written["image_digest"] is None and written["gate"] == "GATE-STAGING"
+    # 9kg.64: the run as it ended, not a row list alone: its exit status, the supporting groups and every gate's counts.
+    assert written["exit_status"] == 0 and written["supporting"] == {"a design rule": "PASS"}
+    assert written["gates"]["GATE-STAGING"] == {"numbered": {"PASS": 2, "FAIL": 0, "INCOMPLETE": 0, "NOT RUN": 0},
+                                                "supporting": {"PASS": 1, "FAIL": 0, "INCOMPLETE": 0, "NOT RUN": 0}}
+    assert set(written["gates"]) == {"GATE-S1", "GATE-P2", "GATE-P3", "GATE-P4", "GATE-P5", "GATE-STAGING"}
     assert [r["case"] for r in written["rows"]] == ["TEST-P6-01", "TEST-P6-02", "TEST-P6-03"]
     assert written["rows"][0]["proofs"][0]["record"].startswith("026 section 16") and written["rows"][0]["result"] == "PASS"
     assert written["rows"][2]["result"] == "LIVE ONLY" and written["summary"]["proven_this_run"] == 1
-    # A full run with a broken register (an entry missing) fails the run, and writes nothing.
-    register_file.unlink()
+    # A full run whose case fails writes its own register, with that exit status and the case's FAIL: never the
+    # earlier green file.
+    (tmp_path / "test_probe.py").write_text("def test_ran():\n    assert True\n\ndef test_other():\n    assert False\n")
+    failing = subprocess.run([sys.executable, "-m", "pytest", "-p", "tests.conftest", "-q", "-p", "no:cacheprovider"],
+                             cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
+    assert failing.returncode == 1, failing.stdout
+    written = json.loads(register_file.read_text())
+    assert written["exit_status"] == 1 and [r["result"] for r in written["rows"]] == ["PASS", "FAIL", "LIVE ONLY"]
+    assert written["gates"]["GATE-STAGING"]["numbered"]["FAIL"] == 1 and written["summary"]["proven_this_run"] == 0
+    # A full run with a broken register (an entry missing) fails the run and writes nothing; the file the earlier run
+    # left is deleted at the start, so no stale register survives a refused run (9kg.64).
+    assert register_file.exists()
+    (tmp_path / "test_probe.py").write_text("def test_ran():\n    assert True\n\ndef test_other():\n    assert True\n")
     (tmp_path / "conftest.py").write_text(REGISTER_PROBE_CONFTEST % 'del acceptance.P6_EVIDENCE["TEST-P6-02"]')
     broken = subprocess.run([sys.executable, "-m", "pytest", "-p", "tests.conftest", "-q", "-p", "no:cacheprovider"],
                             cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
     assert broken.returncode == 1 and "FAILED GATE: evidence register: TEST-P6-02: no evidence register entry" in broken.stdout
     assert "2 passed" in broken.stdout and not register_file.exists()
+    # A selected subset neither deletes nor writes it.
+    register_file.write_text("{}")
+    subset = subprocess.run([sys.executable, "-m", "pytest", "-p", "tests.conftest", "-q", "-p", "no:cacheprovider",
+                             "test_probe.py"], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
+    assert subset.returncode == 0, subset.stdout
+    assert register_file.read_text() == "{}"
+
+
+def test_the_run_commit_is_stamped_by_test_sh_and_ci_keeps_the_register_as_a_pinned_artifact():
+    """9kg.64: local runs record the commit too (the test image has no git): scripts/test.sh exports it from the
+    host's git and compose.yaml passes it to the test service; CI uploads register.json whatever the result, through
+    an action pinned by commit like every other, without touching the test command or the job names."""
+    test_sh = (ROOT / "scripts/test.sh").read_text()
+    assert 'CATALYST_RUN_COMMIT="$(git rev-parse HEAD 2>/dev/null)"' in test_sh and "export CATALYST_RUN_COMMIT" in test_sh
+    assert test_sh.index("export CATALYST_RUN_COMMIT") < test_sh.index('"${COMPOSE[@]}" run --rm test')
+    compose = (ROOT / "compose.yaml").read_text()
+    assert 'CATALYST_RUN_COMMIT: "${CATALYST_RUN_COMMIT:-unrecorded}"' in compose
+    ci = (ROOT / ".github/workflows/ci.yml").read_text()
+    for uses in re.findall(r"uses: (\S+)", ci):
+        assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", uses), uses
+    runtime = ci[ci.index("\n  runtime:\n"):ci.index("\n  docs:\n")]
+    tests_step = runtime.index("- name: Test suite (PostgreSQL)")
+    upload = runtime[runtime.index("- name: Keep the evidence register (register.json)"):]
+    assert tests_step < runtime.index("- name: Keep the evidence register (register.json)")
+    assert "if: ${{ always() }}" in upload and "uses: actions/upload-artifact@" in upload and "path: register.json" in upload
 
 
 def test_every_p6_test_is_mapped():

@@ -1616,6 +1616,7 @@ P6_SUPPORTING = {
         "test_pause_guard::test_9kg6_a_system_pause_clears_only_with_a_staff_resume_event_with_a_note_in_the_same_transaction",
         "test_pause_guard::test_9kg6_a_staff_pause_clears_with_the_resume_event_even_inside_a_savepoint",
         "test_pause_guard::test_9kg6_no_earlier_event_and_no_rolled_back_savepoint_event_clears_a_staff_pause",
+        "test_pause_guard::test_9kg6_a_resume_event_from_before_the_marker_existed_carries_the_migrations_id_and_clears_no_pause",
         "test_pause_guard::test_9kg6_an_unknown_subject_type_is_guarded_and_cannot_be_cleared",
         "test_pause_guard::test_9kg6_the_transaction_marker_is_on_no_read_surface",
         "test_pause_guard::test_9kg6_the_event_transaction_marker_is_always_the_databases_own",
@@ -1734,7 +1735,8 @@ P6_LIVE_ONLY = {
 #                ("inspected" | "canary" | "walkthrough", <what>, <commit or run id>, <record>). Default: ["pytest"].
 #   pytest       what the gated tests show: "behaviour" (default) or "shape" (they pin the code's shape; the
 #                behaviour is a drill's, so a PASS is not behaviour evidence on its own; 028 section 4).
-#   environment  where the pytest proof ran (default TEST_ENVIRONMENT); a drill's is DRILL_ENVIRONMENT.
+#   environment  where the pytest proof ran (default TEST_ENVIRONMENT). A drill's is DRILL_ENVIRONMENT unless the
+#                drill proof names its own as a third element, ("drill", "scripts/<name>.sh", <environment>) (9kg.64).
 #   partial      None (every clause shown) or the residual bead that carries the clauses not yet shown.
 #   residual     what is not yet shown (required with `partial`).
 #   note         anything the counts must not hide (a stand-in, an owner-set target).
@@ -1763,6 +1765,8 @@ REVISION = re.compile(r"^([0-9a-f]{7,40}|[0-9]{8,})$")  # a commit, or a workflo
 STAGING_CHECK, DEPLOY_DRILL, ALERT_DRILL, RESTORE_DRILL, CUTOVER = (
     ("drill", "scripts/staging_check.sh"), ("drill", "scripts/deploy_drill.sh"), ("drill", "scripts/alert_drill.sh"),
     ("drill", "scripts/restore_drill.sh"), ("drill", "scripts/cutover_rehearsal.sh"))
+# 9kg.64: the cutover rehearsal ran against a stand-in Learn site, so that proof, not the pytest one, says so.
+CUTOVER_ON_STAND_IN = (*CUTOVER, "a stand-in Learn site beside the staging stack on the dev box")
 ATTESTATION_RUN = ("inspected", "image run 39780920293 on main: build, content check, SBOM, scan and attestation",
                    "178da42", "028 section 4; GitHub Actions run 39780920293")
 BUZZ_DELIVERY = ("canary", "one real delivery read back from Buzz", "ae10624", "026 section 16, 6B.12 (PR #77)")
@@ -1799,8 +1803,7 @@ P6_EVIDENCE = {
     "TEST-P6-25": {"proofs": [RESTORE_DRILL, DEPLOY_DRILL, "pytest"], "pytest": "shape",
                    "since_028": "9kg.38 (PR #84): the N+1 expand reverted to N on the expanded schema and a contract revert "
                                 "refused, drilled 60 of 60; drilled 60 of 60 again under invitation-only intake (9kg.63)"},
-    "TEST-P6-26": {"proofs": [CUTOVER, "pytest"], "pytest": "shape",
-                   "environment": "a stand-in Learn site beside the staging stack on the dev box",
+    "TEST-P6-26": {"proofs": [CUTOVER_ON_STAND_IN, "pytest"], "pytest": "shape",
                    "note": "proven on a stand-in Learn site; the live Learn read awaits its preconditions and the owner's go"},
     "TEST-P6-27": {"proofs": [STAGING_CHECK]},
     "TEST-P6-28": {"proofs": ["pytest", STAGING_CHECK], "partial": "9kg.39",
@@ -1860,7 +1863,9 @@ def _proof(case: str, raw, environment: str) -> dict:
     if kind == "drill":
         if where not in DRILLS:
             raise RegisterError(f"{case}: unknown drill script {where!r}")
-        return {"type": kind, "where": where, "environment": DRILL_ENVIRONMENT, **DRILLS[where]}
+        if len(rest) > 1 or (rest and not (isinstance(rest[0], str) and rest[0].strip())):
+            raise RegisterError(f"{case}: a drill proof takes at most its own environment, a non-empty text")
+        return {"type": kind, "where": where, "environment": rest[0] if rest else DRILL_ENVIRONMENT, **DRILLS[where]}
     if len(rest) != 2 or not REVISION.match(rest[0]) or not rest[1]:
         raise RegisterError(f"{case}: a {kind} proof needs a commit or run id and a record")
     return {"type": kind, "where": where, "environment": "recorded", "revision": rest[0], "record": rest[1]}
