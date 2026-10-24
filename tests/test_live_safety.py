@@ -78,11 +78,14 @@ def test_oc4_9_the_lease_is_fenced_before_each_request_and_before_the_repair(a, 
         fences.append(time.monotonic())
         return real(self)
     monkeypatch.setattr(keepers.LeaseKeeper, "fence", counted)
+    beats = []
+    monkeypatch.setattr(keepers.LeaseKeeper, "beat", lambda self: beats.append(1))
     broken = valid(quote="A quote that is nowhere in the evidence at all")  # fails the check: one repair follows
     app, run, seen = queued(a, monkeypatch, settings, broken, valid())
     runs.RunAssessment().run(claim_run())
     run.refresh_from_db()
     assert (run.status, seen["calls"], len(fences)) == ("succeeded", 2, 2)  # one fence per request, the repair included
+    assert len(beats) == 2  # a worker-alive beat from the calling side after each completed request
 
 
 def test_oc4_9_a_lease_lost_before_the_repair_makes_no_further_request(a, monkeypatch, settings):
@@ -118,7 +121,7 @@ def test_oc4_9_oc4_10_7_one_attempt_must_fit_in_half_the_lease():
     # The running settings pass, and every place that counts requests per attempt agrees.
     assert guards.attempt_lease_problems(django_settings) == []
     assert (guards.ASSESSMENT_REQUESTS_PER_ATTEMPT == approval.REQUESTS_PER_ATTEMPT == runs.REQUESTS_PER_ATTEMPT
-            == 1 + approval.REPAIR_LIMIT == 2)
+            == keepers.REQUESTS_PER_ATTEMPT == 1 + approval.REPAIR_LIMIT == 2)
 
 
 def test_oc4_9_the_default_timeout_follows_a_short_lease():
@@ -496,3 +499,30 @@ def test_oc4_9_streaming_is_refused():
     guarded = agent._Guarded(TestModel(), fence=None, check=None, after=None, timeout=1.0)
     with pytest.raises(agent.ModelUnavailable, match="^streaming_not_allowed$"):
         guarded.request_stream([], None, None)
+
+
+# --- review fix-ups: the keeper is bounded and is not a liveness signal ------------------------------------------
+
+def test_oc4_9_an_uncancellable_call_lets_the_lease_run_out_and_never_refreshes_liveness(a, monkeypatch, settings,
+                                                                                          tmp_path):
+    settings.CATALYST_WORKER_LEASE_SECONDS = 1
+    owner = a.committed.connect("owner", autocommit=True)
+    app, run, _ = queued(a, monkeypatch, settings, valid())
+    claim = claim_run()
+    alive = tmp_path / "worker-alive"
+    settings.CATALYST_WORKER_HEARTBEAT_FILE = str(alive)  # set after the set-up's own worker loop, which beats
+    with keepers.LeaseKeeper(claim, max_seconds=1.0) as keeper:
+        time.sleep(3.0)  # a call that blocks past every timeout and cannot be cancelled
+        assert keeper.lost.is_set() and keeper.renewals >= 1  # it renewed, then stopped at its bound
+        assert not alive.exists()  # the renewals never wrote the worker-alive file
+        assert owner.execute("SELECT lease_expires_at < now() FROM workflow_pendingaction WHERE id = %s",
+                             [claim.id]).fetchone() == (True,)
+        with pytest.raises(ledger.LeaseLost):
+            keeper.fence()
+    again = claim_run()  # the action is reclaimable
+    assert again.id == claim.id and again.lease_token != claim.lease_token
+
+
+def test_oc4_9_a_keeper_fence_before_its_block_renews_and_does_not_fail(a, monkeypatch, settings):
+    queued(a, monkeypatch, settings, valid())
+    keepers.LeaseKeeper(claim_run()).fence()  # no AttributeError before __enter__

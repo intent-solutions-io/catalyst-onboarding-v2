@@ -185,7 +185,7 @@ def run_checked(system: str, prompt: str, output_type, check, use: "approval.Use
     timeout = float(settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS)
     guarded = _Guarded(model, fence=keeper.fence if keeper is not None else None,
                        check=_recheck(use, fields or frozenset()) if live else None,
-                       after=None, timeout=timeout)
+                       after=keeper.beat if keeper is not None else None, timeout=timeout)
     agent = Agent(guarded, output_type=output_type, system_prompt=system, retries=approval.REPAIR_LIMIT)
 
     last = []
