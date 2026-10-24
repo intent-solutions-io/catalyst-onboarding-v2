@@ -2,6 +2,7 @@
 alert text and the deployment receipt, with positive controls. Every planted value is synthetic by construction: a
 reserved user-assigned domain (.zz), a drama-range phone number, an invented street and the fixtures' own name."""
 
+import base64
 import json
 import os
 import re
@@ -22,7 +23,9 @@ SENTINELS = {
     "phone": "+44 20 7946 0999",
     "street_address": "42 Sentinel Street",
     "fixture_name": VALID["name"],
-    "token": "QmFzZTY0VG9rZW5XaXRoTWl4ZWRDYXNlMTIzNDU2Nzg5MA",
+    # Built at import so no high-entropy literal sits in the source: a squash merge re-commits a literal under a
+    # new commit, which the history secret scan reports again (PR #88; .gitleaksignore).
+    "token": base64.b64encode(b"Base64TokenWithMixedCase1234567890").decode().rstrip("="),
     "secret_assignment": "password=hunter2hunter2",
     "ipv4_address": "10.4.2.9",
 }
@@ -212,8 +215,9 @@ esac
     state.mkdir()
     (state / "current-image").write_text(image_id)
     env = support.child_env(PYTHONPATH=str(ROOT))
-    operation = lambda *args: subprocess.run([sys.executable, "-m", "config.release", "operation", *args], cwd=ROOT, env=env,
-                                             capture_output=True, text=True, timeout=30)
+    def operation(*args):
+        return subprocess.run([sys.executable, "-m", "config.release", "operation", *args], cwd=ROOT, env=env,
+                              capture_output=True, text=True, timeout=30)
     assert operation("start", str(state), "deploy-1", image_id, label, "-").returncode == 0
     backup = state / "backup-receipt.json"  # written after the operation started, so it is not stale
     backup.write_text(backup_receipt_text)

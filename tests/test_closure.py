@@ -12,10 +12,10 @@ from psycopg import errors
 
 from applications.models import Application
 from correspondence.models import StaffItem
-from provisioning import closure, credentials, services
+from provisioning import closure, services
 from provisioning.models import AccessRevocation, CredentialSetup, ProvisioningRequest, WithdrawalConfirmation
 from tests.mxroute_fake import FakeMailHost
-from tests.test_credentials import LINK, invited, post, welcome_template
+from tests.test_credentials import invited, post, welcome_template
 from tests.test_outbound import staff
 from tests.test_provisioning import (  # noqa: F401  (fixture chain and helpers)
     a, activate, admitted, approve, approved, c, complete, d, ev, g, grant, h, issued, k, nda, of, p2, pv, run_worker,

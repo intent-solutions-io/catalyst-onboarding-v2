@@ -384,7 +384,7 @@ def test_p4_22_reads_run_while_paused_but_the_sequence_waits_and_resume_does_not
     instance = nda(app)
     signing_gate(h)
     try:
-        pause = AutomationPause.objects.create(subject_type="application", subject_id=app.public_ref, reason="synthetic",
+        AutomationPause.objects.create(subject_type="application", subject_id=app.public_ref, reason="synthetic",
                                                actor_ref="t")
         h.fake.sign(instance.envelope_id)
         reads = ProviderObservation.objects.filter(instance=instance, source="read").count()

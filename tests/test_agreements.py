@@ -357,7 +357,7 @@ def test_p4_22_a_pause_stops_create_and_distribute(g, monkeypatch):
     app = admitted(g, monkeypatch)
     approve(g)
     activate()
-    pause = AutomationPause.objects.create(subject_type="application", subject_id=app.public_ref, reason="synthetic",
+    AutomationPause.objects.create(subject_type="application", subject_id=app.public_ref, reason="synthetic",
                                            actor_ref="t")
     run_worker()
     assert not g.fake.requests and PendingAction.objects.get(kind="issue_nda").status == "queued"
