@@ -135,12 +135,16 @@ def erase(conn, subject_ref: str, authority: str, reason: str, rows=None) -> Out
             raise Refused("record_subject_mismatch")
         if state.intent.data.get("key_id") != kid:
             raise Refused("record_key_mismatch")
+        if destroy:
+            _refuse_lingering_plaintext(conn, None, subject_ref=subject_ref)
     elif email_key is None:
         raise Refused("unknown_subject")
     else:
         dry = _call(conn, subject_ref, authority, reason, classes, commit=False)  # refusals surface before the intent
         if destroy and int(dry.get("custody_plaintext") or 0):
             raise Refused("custody_plaintext_unmigrated")  # a plaintext copy is beyond any key: seal it first
+        if destroy:
+            _refuse_lingering_plaintext(conn, dry.get("custody_keys") or [])
         keys_left = destroy and bool(_pending(dry.get("custody_keys") or []))
         if dry["status"] == "nothing_to_erase" and not keys_left:
             return Outcome("nothing_to_erase", str(subject_ref), 0, [], record.head_string(),
@@ -200,6 +204,30 @@ def _pending(refs) -> list:
         return [ref for ref in refs if ref not in destroyed or any(keystore.present(ref))]
     except keystore.KeyStoreError as exc:
         raise Refused(f"custody_{exc.code}") from None
+
+
+def _refuse_lingering_plaintext(conn, refs, subject_ref=None) -> None:
+    """Review of PR #102, F3: a migrated document whose plaintext file is still on disk (a migration interrupted after
+    its commit) is a copy no key destruction reaches. Refused, before any record, until `--migrate --confirm` removes
+    it. Scoped by the subject's key references (or, on a resumed run, by its documents)."""
+    from agreements import storage
+
+    if refs is None:
+        rows = conn.execute("SELECT d.storage_key FROM agreements_storeddocument d JOIN agreements_custodyenvelope e"
+                            " ON e.document_id = d.id JOIN applications_application a ON a.id = d.application_id"
+                            " WHERE e.migrated AND a.public_ref = %s", [subject_ref]).fetchall()
+    elif refs:
+        rows = conn.execute("SELECT d.storage_key FROM agreements_storeddocument d JOIN agreements_custodyenvelope e"
+                            " ON e.document_id = d.id WHERE e.migrated AND e.key_ref = ANY(%s)", [list(refs)]).fetchall()
+    else:
+        rows = []
+    conn.rollback()
+    try:
+        lingering = [key for (key,) in rows if storage.exists(key)]
+    except storage.StorageError:
+        raise Refused("custody_storage_unavailable") from None
+    if lingering:
+        raise Refused("custody_plaintext_lingering")
 
 
 def _all_destroyed(refs) -> bool:

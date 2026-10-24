@@ -80,7 +80,8 @@ class Command(BaseCommand):
             elif migrate:
                 if not confirm:
                     self.refuse("confirm_required")
-                self.emit(migrate_plaintext(), True)
+                report = migrate_plaintext()
+                self.emit(report, not report["plaintext_cleanup_failed"])
             elif reap_orphans:
                 self.emit(reap(confirm, max(0, min_age_seconds)), True)
             else:
@@ -156,11 +157,22 @@ def _migrate() -> dict:
             raise
         report["sealed"] += 1
         report["plaintext_removed" if storage.dispose_plaintext(document.storage_key) else "plaintext_already_gone"] += 1
+    report["plaintext_cleanup_failed"] = 0
+    destroyed = keystore.journaled_destroyed()
     for envelope in CustodyEnvelope.objects.filter(migrated=True).select_related("document"):
-        # A migration interrupted after its commit: the sealed copy is recorded; the plaintext goes now.
-        if storage.exists(envelope.document.storage_key):
-            storage.read(envelope.document.storage_key, envelope.document.sha256, envelope.document.size, envelope)
-            report["plaintext_removed"] += int(storage.dispose_plaintext(envelope.document.storage_key))
+        # A migration interrupted after its commit: the sealed copy is recorded; the plaintext goes now. Once the key is
+        # journaled as destroyed the sealed copy can no longer be opened, and the plaintext goes without that check (a
+        # lingering plaintext of an erased subject must never wait on a key it can no longer have; review of PR #102,
+        # F3). One failure never blocks the rest: it is counted, and the run fails at the end.
+        document = envelope.document
+        try:
+            if not storage.exists(document.storage_key):
+                continue
+            if envelope.key_ref not in destroyed:
+                storage.read(document.storage_key, document.sha256, document.size, envelope)
+            report["plaintext_removed"] += int(storage.dispose_plaintext(document.storage_key))
+        except storage.StorageError:
+            report["plaintext_cleanup_failed"] += 1
     return report
 
 

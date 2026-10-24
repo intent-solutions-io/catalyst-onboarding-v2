@@ -629,3 +629,44 @@ def test_9kg_34_reap_lists_then_removes_planted_orphans_and_status_is_unhealthy_
     assert sorted(e.data["kind"] for e in reaped) == ["key", "key", "sealed_file"]
     code, report = command("catalyst_custody_keys", "--status")
     assert code == 0 and report["healthy"] and report["sealed"] == 1
+
+
+# --- the review of PR #102, C: lingering plaintext -------------------------------------------------------------------
+
+def _interrupted_migration(document):
+    """A migration interrupted after its commit: the sealed copy is recorded, the plaintext file is still on disk."""
+    sealed = storage.seal_existing(document.storage_key, document.sha256, document.size)
+    CustodyEnvelope.objects.create(document=document, migrated=True, **sealed.fields())
+    return CustodyEnvelope.objects.get(document=document)
+
+
+def test_9kg_34_the_erasure_refuses_while_a_migrated_documents_plaintext_lingers(privileged_reset, decided, custody,
+                                                                                 monkeypatch):
+    from applications.models import Application
+
+    monkeypatch.setattr(registry, "REGISTRY", DESTROYING)
+    app = subject()
+    document = drill.synthetic_document(app, b"%PDF-1.7 synthetic legacy", sealed=False)
+    _interrupted_migration(document)
+    assert (custody / document.storage_key).exists()
+    with pytest.raises(service.Refused, match="custody_plaintext_lingering"):
+        erase(privileged_reset, app.public_ref)
+    assert erasure_entries() == [] and Application.objects.get(pk=app.pk).email == "grace@example.test"
+    assert command("catalyst_custody_keys", "--migrate", "--confirm")[1]["plaintext_removed"] == 1
+    assert erase(privileged_reset, app.public_ref).keys_destroyed == 1
+
+
+@pytest.mark.django_db
+def test_9kg_34_lingering_plaintext_of_a_destroyed_key_is_removed_and_one_failure_blocks_nothing(custody, settings):
+    app = subject()
+    erased, damaged, fine = (drill.synthetic_document(app, f"%PDF-1.7 synthetic {n}".encode(), sealed=False)
+                             for n in ("erased", "damaged", "fine"))
+    envelopes = {d.pk: _interrupted_migration(d) for d in (erased, damaged, fine)}
+    keystore.destroy(str(app.public_ref), [envelopes[erased.pk].key_ref])  # its sealed copy can never open again
+    sealed_path = custody / envelopes[damaged.pk].storage_key
+    sealed_path.write_bytes(sealed_path.read_bytes()[:-1] + b"X")  # this one cannot be verified
+    code, report = command("catalyst_custody_keys", "--migrate", "--confirm")
+    assert code == 1 and report["plaintext_cleanup_failed"] == 1 and report["plaintext_removed"] == 2
+    assert not (custody / erased.storage_key).exists()  # removed without opening the sealed copy
+    assert not (custody / fine.storage_key).exists()
+    assert (custody / damaged.storage_key).exists()  # kept: the only verifiable copy, and reported

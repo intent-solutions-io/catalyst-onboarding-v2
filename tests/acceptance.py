@@ -1670,6 +1670,8 @@ P6_SUPPORTING = {
         "test_custody_encryption::test_9kg_34_an_interrupted_write_leaves_no_key_and_no_sealed_file",
         "test_custody_encryption::test_9kg_34_an_interrupted_or_concurrent_migration_leaves_no_orphan",
         "test_custody_encryption::test_9kg_34_reap_lists_then_removes_planted_orphans_and_status_is_unhealthy_until_then",
+        "test_custody_encryption::test_9kg_34_the_erasure_refuses_while_a_migrated_documents_plaintext_lingers",
+        "test_custody_encryption::test_9kg_34_lingering_plaintext_of_a_destroyed_key_is_removed_and_one_failure_blocks_nothing",
     ],
     "9kg.47 staff screens for the shell-only agreement states (021 section 20)": [
         "test_agreement_screens::test_an_unknown_create_is_decided_on_the_screen_and_refused_without_the_permission",
