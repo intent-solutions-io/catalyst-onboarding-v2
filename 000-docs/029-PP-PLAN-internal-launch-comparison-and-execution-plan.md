@@ -205,7 +205,7 @@ The owner's question behind this handoff is whether every first-generation featu
 | Withdrawal, suspension, offboarding states with no path to them | Built with applicant and staff paths and recorded revocation | INCLUDED (revocation effects only with provisioning) | IMPROVE (J-16) |
 | Hourly read-only reconcile, frequent monitors, nightly dump, periodic restore drill | Built as the health command, heartbeat, sweep, alerts, backup and restore commands; host timers not installed | INCLUDED once installed | PRESERVE (`9kg.28`); the hourly reconcile as a later timer |
 | Outward-flag gate (host approval record for every outward switch) | Built as environment guards plus activation commands with approval references | INCLUDED | PRESERVE (section 4.5) |
-| Nothing deletes personal data | An erasure path is designed, not built | required before real data | IMPROVE (`211.7.1`, `9kg.32`, `9kg.25`) |
+| Nothing deletes personal data | The erasure path is built (`9kg.32`, section 6.2); its registry is undecided, so it refuses until POL-10; replay after a restore is `9kg.25` | required before real data | IMPROVE (`211.7.1`, `9kg.32`, `9kg.25`) |
 | Whatever the later release added (an explicit confirmation step and a countersignature claim are reported) | UNKNOWN | — | VERIFY (U11, `dy7.4`) |
 
 No feature a candidate or staff member relies on is dropped. Three are handled differently on purpose (owner notices,
@@ -304,12 +304,12 @@ screen shows its age (`9kg.41`); the stage, item and pause classes are counted b
 | Signed documents | custody directory (plaintext today) | the custody copy in every backup set; the provider's copy | yes | encryption and key destruction (`9kg.34`); the provider's copy under P4-D-15 |
 | Logs and receipts | host | the host archive | no | code-only by design (TEST-P6-13, 35) |
 | Backups | the dump and custody set | the host archive, the off-site leg (object-locked) | by policy | the erasure record replayed on restore (`9kg.25`); object-locked copies age out, never purge one person |
-| The effect journal (`9kg.33`): public references, opaque staff references, group names, codes, digests, counts and times; no address, name, body or username | the journal volume on the host, outside the backup | the host archive (the volume is the restore's evidence) | yes (append-only, hash-chained; the owner's repair journals itself) | retention and erasure treatment under POL-10 (`211.7.1`): the erasure record will share the file; options recorded there by the main session |
+| The effect journal (`9kg.33`): public references, opaque staff references, group names, codes, digests, counts and times; no address, name, body or username | the journal volume on the host, outside the backup | the host archive (the volume is the restore's evidence) | yes (append-only, hash-chained; the owner's repair journals itself) | retention and erasure treatment under POL-10 (`211.7.1`): the durable erasure record shares the file (`9kg.32`, section 6.2); kept at least as long as the oldest restorable backup (registry rows `erasure_record`, `effect_journal`) |
 | Selection-review material | none in the repository (`f1u.4`) | private location to approve | — | `f1u.4` |
-| Invitations (the email key, the issuer, the note, the recorded notice and invitation wording digests) | PostgreSQL | dumps; the host archive; the off-site leg | yes (trigger, `9kg.43`, `9kg.52`) | PROPOSED: anonymize the email key to a unique tombstone under the audited exception when `9kg.32` lands; issuer, times and digests kept; counsel decides (POL-10) |
-| First-generation agreement-on-file records (the email key, the agreement version labels, the recorder) | PostgreSQL | dumps; the host archive; the off-site leg | yes (trigger, `9kg.52`) | PROPOSED: anonymize the email key to a unique tombstone under the audited exception when `9kg.32` lands; the labels and the attestation kept as the reason a decline was never recorded; counsel decides (POL-10) |
+| Invitations (the email key, the issuer, the note, the recorded notice and invitation wording digests) | PostgreSQL | dumps; the host archive; the off-site leg | yes (trigger, `9kg.43`, `9kg.52`) | BUILT (`9kg.32`, class `invitations`): the email key becomes a unique tombstone and the note `[erased]` under the audited exception; issuer, times and digests kept; counsel decides the registry row (POL-10) |
+| First-generation agreement-on-file records (the email key, the agreement version labels, the recorder) | PostgreSQL | dumps; the host archive; the off-site leg | yes (trigger, `9kg.52`) | BUILT (`9kg.32`, class `member_on_file`): the email key becomes a unique tombstone under the audited exception; the labels and the attestation kept as the reason a decline was never recorded; counsel decides the registry row (POL-10) |
 
-### 6.2 The erasure design (proposed; `9kg.32`, `9kg.25`, `9kg.33`)
+### 6.2 The erasure design (`9kg.32` built; `9kg.25` and `9kg.34` to build; `9kg.33` built)
 
 - An erasure is an authorized command run by the retention role, never by web or worker, under POL-10.
 - The smallest durable erasure record (keyed hashes of the erased identifiers, the time and the authority; never a
@@ -346,6 +346,204 @@ screen shows its age (`9kg.41`); the stage, item and pause classes are counted b
   send with no copy instead of the blanket `--outward-checked`.
 - **Custody** (`9kg.34`): approved storage and access, a reviewed library, a recoverable key strategy, and a proof
   that an old backup cannot recover a destroyed key. Disk encryption is not per-subject erasure.
+
+#### 6.2.1 The erasure path as built (`9kg.32`, 2026-10-24; revised after the PR #99 reviews)
+
+Council record `030` Q3 (D-51) set the shape: build the mechanism now, keep every value in a registry that ships
+undecided, and refuse while anything is undecided. Counsel's POL-10 decision (`211.7.1`) then changes registry rows,
+never the schema. The code is the `erasure` app. Nothing real can be erased or backed up yet: the registry is
+undecided, and it also reports `replay:not_built` until `9kg.25` builds the replay after a restore.
+
+**The registry** (`erasure/registry.py`). One row per data class, each with a `treatment` and a `retention`, every
+value `undecided`.
+
+- Sixteen subject classes take `anonymize` or `retain`: `application_identity`, `submissions`, `history_events`,
+  `mail_derivatives`, `staff_notes`, `agreement_records`, `decisions`, `evidence`, `provisioning_records`,
+  `invitations`, `member_on_file`, `pauses`, `jobs`, `audit_residue`, `throttle_keys`, `admin_log`.
+- `signed_documents` takes `retain` only, until `9kg.34` adds key destruction.
+- `provider_copies` takes `manual_handoff`.
+- `erasure_record` and `effect_journal` take `retain`, with a period at or above the oldest restorable backup.
+
+`registry.problems()` blocks three further cases:
+
+- `replay:not_built`, while the `REPLAY_BUILT` constant is false (`9kg.25` flips it in the change that builds the
+  replay);
+- anonymizing `application_identity` while retaining a class found only by the real key (`invitations`,
+  `member_on_file`, `mail_derivatives`, `throttle_keys`), because those rows could never be found again;
+- a treatment the mechanism does not support.
+
+While any problem stands:
+
+- a new erasure refuses (`registry_undecided`);
+- `catalyst_backup` refuses in a live environment (`config.backup.refuse_real_backup_while_undecided`);
+- health reports `backup.registry_blocked`.
+
+The synthetic environments back up as before. Anonymization is the superset: an anonymized append-only row with a
+tombstone key also satisfies a "delete" answer.
+
+**The erasure map** (`erasure/catalog.py`). Every table and every column of the schema is classified as one of:
+
+- a subject column, with its class and tombstone;
+- staff data (POL-13, never part of an applicant's erasure);
+- a secret (password hashes, token digests, device keys);
+- non-personal.
+
+`applications_applicationevent.created_txid` is non-personal and stays frozen on the erasure path. A catalog test
+fails on any table or column the map does not name, and on any name the schema does not have.
+
+Tombstones:
+
+| Column kind | Tombstone |
+|---|---|
+| Text | `[erased]` |
+| Low-entropy digests and deduplication keys | the empty string |
+| JSON | empty JSON |
+| The three email-key columns | `erased:<public uuid>`: never a real key, held unique by `applications` migration 0009 |
+| The reserved mailbox name | `erased-<uuid>` |
+| Rationale | notes replaced, ratings kept |
+| The intake throttle bucket (an unkeyed digest of the email key) | the row is deleted |
+
+A key counts as a tombstone only when it has the `erased:` prefix *and* no `@`.
+
+The subject's rows are every application with the subject's email key, plus the rows keyed on the key itself
+(invitations, the member-on-file record, mail from that address never associated with an application). A subject
+whose key is already a tombstone is scoped by its own references; only the key-selected rows are skipped. So a class
+or a step added later (`9kg.34`) still reaches an already-erased subject.
+
+**The audited exception** (`erasure` migration 0002, the ADR-14 pattern).
+
+`public.catalyst_erase(subject, authority, reason, classes)`:
+
+- is SECURITY DEFINER, with EXECUTE for the retention role only and `search_path = pg_catalog, public, pg_temp`;
+- locks the subject's applications in one transaction;
+- refuses unless every application is terminal, nothing of theirs is queued, running, held or uncertain, and every
+  access revocation is final;
+- writes an `erasure_erasureaudit` row (codes and the public reference only; its transaction id, time and login set
+  by trigger; append-only for every role);
+- sets each anonymized class to its tombstones;
+- reports the provider handoffs owed (`documenso`, `mail_sent`, `mail_inbox`, `mail_host_mailbox`, `model_provider`)
+  and what it retains (`custody_documents` until `9kg.34`).
+
+A run with nothing to change returns `nothing_to_erase` and writes nothing.
+
+The trigger branch:
+
+- Every UPDATE trigger function on a table with subject columns gains one branch after its first BEGIN, by CREATE
+  OR REPLACE of its own definition, removed by its begin and end markers on reverse. A test derived from
+  `pg_trigger` keeps this complete.
+- The branch admits an UPDATE only when all of these hold:
+  - the session login is a member of the retention role;
+  - an audit row carries the current transaction id (the agreements 0004 pattern);
+  - every column outside the table's allow-list is unchanged (the 0015 compare, over the whole row);
+  - every changed column equals its tombstone.
+
+Which triggers move or keep their function:
+
+- The strict-refusal row triggers on the retention audit, recipients, document accesses, resolutions and
+  provisioning evidence move to `catalyst_erasable_append_only`: the same refusal, with the branch.
+- Unchanged: the strict function itself, the adoption record's trigger (the adoption foreign key is untouched),
+  every no-truncate trigger, and `catalyst_pause_resume_guard`.
+
+A pause is anonymized, never deleted, so the DELETE guard keeps refusing on this path too. This is a deviation from
+the PR #88 data-review note, argued in `026` section 16.
+
+Grants:
+
+- Nothing is granted to the application, fetcher or backup roles.
+- The checker function is owner-only.
+
+**The durable record** (`erasure/record.py`) lives in the effect journal (`workflow/journal.py`), outside the
+rollback domain. It holds three entry kinds:
+
+- `erasure_intent`, appended and fsynced before the transaction: the subject's HMAC, the key id, the authority and
+  reason codes, the classes, the handoffs owed and what is retained.
+- `erasure_complete`, after the transaction: `erased`, `already_erased`, `nothing_to_erase` or `refused_<code>`,
+  and the number of values changed.
+- `erasure_handoff`: the owner's completion of a provider deletion, dated with an ISO date that is not in the
+  future (QA finding 12).
+
+Each entry is keyed `erasure:<public reference>`, never a numeric id. `subject` is HMAC-SHA-256 of the normalized
+email key under `CATALYST_ERASURE_KEY`. Every entry carries a `mac` under the same key over its kind, key and data:
+an entry that does not verify is ignored when folded and refused by verification.
+
+**Key custody.** The key's source of truth is the operator's encrypted secret store; it is in no backup set. It is
+mounted as a secret file (`erasure_key` in `CATALYST_SECRETS_DIR`) only into the erasure command's process and the
+restore's replay. It is at least 32 characters and distinct from the Django and link-signing keys. A web or worker
+process that holds it refuses to start. It is never in the database, the journal, a receipt or a log, and the record
+names it only by a 16-hex key id. The database audit row carries no hash.
+
+**Retry and resume.**
+
+- The command first runs the function in a rolled-back transaction, so a refusal comes before any record.
+- Then it writes the intent, commits the transaction and writes the completion.
+- The next run resumes an open intent, without the registry gate (an erasure already begun is finished). It uses the
+  classes of the registry in force and this run's authority and reason, and takes only the hash and key id from the
+  intent. While the row still holds a real key, the hash must match it.
+- A second erasure finds nothing to change and writes nothing.
+
+**Integrity, freshness, an emptied store.**
+
+- After every erasure and handoff, the command prints the journal head (`<identity>:<seq>:<hash>`).
+- The owner copies that head and the subject's erasure entries to an off-host private store. The owner names the
+  store; that is an open owner action, recorded in `026` section 16.
+- `catalyst_erasure_record --expect-head` checks the chain, every mac, and the head (seq 1 or later). It refuses an
+  emptied, replaced or rolled-back journal (`journal_mismatch`, never "no erasures"), and reports open intents, owed
+  handoffs and retained items.
+- `--list-open` needs no head, so an interrupted first erasure is visible.
+- Health reports `erasure.intent_open` and `erasure.handoff_owed`.
+
+**The restore's resurrection guard** (until `9kg.25`). While `REPLAY_BUILT` is false and the journal holds any
+erasure entry:
+
+- the post-restore review opens `restore_effect_erasure_unreplayed`;
+- `catalyst_post_restore --lift` refuses outright, whether or not that item was resolved by hand.
+
+**Never web or worker.** No view or job reaches the erasure, and the command refuses in a web or worker process.
+Stated limit: the retention login can call `catalyst_erase` directly. That would skip the durable record, so the
+operating rule is that the function is called only through the command, and only on the host's erase service
+(`026` section 16). Replay (`9kg.25`) is the one other caller.
+
+**What `9kg.25` (replay after restore) needs.**
+
+1. The order: restore, migrate, replay, verify, lift.
+2. Read `erasure.record.fold(journal.read(), key)` (mac-verified). It gives, per public reference, the last intent,
+   its completion and the handoffs done.
+3. For every erased completion and every open intent whose restored row still holds a real key, check the key's HMAC
+   against the hash, then call `public.catalyst_erase` directly with the classes of the registry in force.
+4. `unknown_subject` (a subject created after the backup) counts as satisfied.
+5. Refuse to lift while the out-of-band head is missing from the journal.
+6. Then flip `REPLAY_BUILT`.
+
+Class names are append-only: a renamed class would orphan recorded intents.
+
+**What `9kg.34` (custody) needs.**
+
+- Add a destruction treatment to the `signed_documents` row and a class vocabulary for custody.
+- Add a key-destruction step to the function, reachable for an already-tombstoned subject.
+- Give `agreements_storeddocument` its own trigger branch if any column changes.
+- Keep the keys outside the backup's rollback domain.
+
+Until then the custody PDFs are retained, and the erasure says so (`retained: ["custody_documents"]`).
+
+**Owner decisions recorded, not built.**
+
+- **Reissuing a mailbox name.** May a released mailbox name be reissued after erasure while the provider mailbox
+  still exists? The default is to keep it reserved. As built, the reservation row stays unreleased with its name
+  tombstoned, which frees the real name in the live-name index; keeping the real name reserved needs a keyed
+  blocklist (`9kg.28`).
+- **Pauses and held work.** Does a pause with held work outrank an erasure request? The default, as built: refuse
+  until the work settles.
+- **The `audit_residue` treatment:** counsel.
+
+**Limits.**
+
+- Provider-held copies (the Documenso copy, the mail host's Sent and inbox folders, a provisioned mailbox, a model
+  provider's retention) are not deleted by code: each is a recorded manual handoff.
+- Backups are not a handoff. Existing sets keep the data until they age out, and the replay prevents its return.
+- The effect journal's off-host copy and rotation stay deferred (section 6.2 above).
+- The admin log is anonymized only for the application's own rows.
+- After an erasure the owner runs `VACUUM` on the touched tables, so the old row versions leave the data files.
+- As for every ADR-14 guard, the owner can replace these functions and a superuser bypasses them.
 
 ## 7. Launch manifest (to be approved at `9kg.31.6`)
 

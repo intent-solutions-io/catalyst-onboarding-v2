@@ -156,6 +156,35 @@ def journal_health() -> dict:
     return {"configured": True, "append_failures": failed, "anomalies": anomalies}
 
 
+def erasure_health() -> dict:
+    """9kg.32 (PR #99 reviews): an erasure begun and not finished (`intent_open`), and provider deletions owed after
+    an erasure (`handoff_owed`). Counts only. Read without the erasure key (no web or worker process holds it), so
+    entries are not mac-verified here; `catalyst_erasure_record --list-open` verifies them."""
+    from erasure import record
+    from workflow import journal
+
+    if not journal.configured():
+        return {"open": 0, "handoffs_owed": 0, "anomalies": []}
+    try:
+        state = record.fold(journal.read(), None)
+    except journal.JournalError:
+        return {"open": 0, "handoffs_owed": 0, "anomalies": []}  # the journal part reports the fault
+    opened = sum(1 for s in state.values() if s.open)
+    owed = sum(len(s.outstanding) for s in state.values())
+    return {"open": opened, "handoffs_owed": owed,
+            "anomalies": [n for n, c in (("intent_open", opened), ("handoff_owed", owed)) if c]}
+
+
+def backup_health() -> dict:
+    """9kg.32: in a live environment a backup refuses while the erasure registry is not decided (or replay is not
+    built), so the nightly set is not being written: `registry_blocked`."""
+    from config.guards import LIVE_ENVIRONMENTS
+    from erasure import registry
+
+    blocked = settings.CATALYST_ENV in LIVE_ENVIRONMENTS and bool(registry.problems())
+    return {"registry_blocked": blocked, "anomalies": ["registry_blocked"] if blocked else []}
+
+
 # 9kg.51 (029 section 5.2): the waits that had no bound once the first-generation owner notices retired. Each class is
 # counted past its own threshold and its oldest age is printed; a class in CATALYST_HEALTH_AGED_WAITS_PAGE raises the
 # anomaly `aged_waits.<class>` (delivered by the alert floor as high), the others are audit only. Counts and ages
@@ -268,4 +297,5 @@ def report() -> dict:
             "mail": mail_behaviour_health(), "sessions": session_health(), "staff_roles": staff_role_health(),
             "verification": verification_health(),
             "journal": journal_health(),
-            "aged_waits": aged_waits_health(), "decision": decision_health(), "intake": intake_health()}
+            "aged_waits": aged_waits_health(), "decision": decision_health(), "intake": intake_health(),
+            "erasure": erasure_health(), "backup": backup_health()}

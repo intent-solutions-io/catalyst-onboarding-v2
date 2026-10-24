@@ -304,6 +304,8 @@ DATABASE_CONSTRAINTS = {
     "member_on_file_covers_something", "member_on_file_has_recorder",
     "stored_document_one_per_item", "stored_document_signed_only", "document_access_outcome_valid",  # 4B.3
     "details_one_per_version", "details_status_valid", "details_confirmed_has_actor",
+    "application_tombstone_key_unique", "invitation_tombstone_key_unique", "member_on_file_tombstone_key_unique",  # 9kg.32
+    "erasure_audit_authority_is_a_code", "erasure_audit_reason_is_a_code",
 }
 
 
@@ -318,7 +320,7 @@ def test_s1_20_every_named_constraint_exists_in_the_database():
     assert DATABASE_CONSTRAINTS <= names, DATABASE_CONSTRAINTS - names
     # The list above covers every constraint the models declare (plus the two composite foreign keys).
     declared = {c.name for label in ("applications", "workflow", "correspondence", "assessments", "agreements",
-                                     "provisioning")
+                                     "provisioning", "erasure")
                 for model in apps.get_app_config(label).get_models() for c in model._meta.constraints}
     assert declared <= DATABASE_CONSTRAINTS, declared - DATABASE_CONSTRAINTS
 

@@ -52,3 +52,15 @@ def test_6b5_the_build_context_excludes_tests_history_and_the_tracker():
     assert not re.search(r"^COPY .*tests", base, flags=re.M)  # nor does the shared base stage
     for pattern in ("**/*.env", "**/.env*", "**/*.sops*", "**/*.pem", "**/*.key", "**/*.sqlite3"):
         assert pattern in ignore  # secret-shaped files never enter a layer, even inside an allowed directory
+
+
+def test_6b5_every_path_the_dockerfile_copies_is_in_the_build_context():
+    """A directory added to the image must also be allowed by `.dockerignore`, or the build fails with "not found"
+    (PR #99: the new `erasure` app was copied but not allowed). Docker is not in the test containers; this catches it
+    from the two files."""
+    allowed = {line[1:] for line in (ROOT / ".dockerignore").read_text().splitlines() if line.startswith("!")}
+    sources = []
+    for line in dockerfile().splitlines():
+        if line.startswith("COPY ") and "--from=" not in line:
+            sources += line.split()[1:-1]
+    assert sources and all(source in allowed for source in sources), sorted(set(sources) - allowed)

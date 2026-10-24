@@ -58,6 +58,10 @@ class Application(models.Model):
             ),
             models.CheckConstraint(condition=Q(stage__in=OPEN_STAGES + TERMINAL_STAGES), name="application_stage_valid"),
             models.CheckConstraint(condition=Q(next_version_number__gte=1), name="application_next_version_positive"),
+            # 9kg.32: an erased key is a tombstone (`erased:<public_ref>`, erasure.catalog), unique by construction and
+            # held unique here, so a tombstone never collides with another or stands in for a real key (no `@`).
+            models.UniqueConstraint(fields=["email_key"], condition=Q(email_key__startswith="erased:"),
+                                    name="application_tombstone_key_unique"),
         ]
 
     def __str__(self):
@@ -198,6 +202,8 @@ class Invitation(models.Model):
             ),
             models.CheckConstraint(condition=Q(expires_at__gt=models.F("issued_at")), name="invitation_expires_after_issue"),
             models.CheckConstraint(condition=~Q(issued_by=""), name="invitation_has_issuer"),
+            models.UniqueConstraint(fields=["email_key"], condition=Q(email_key__startswith="erased:"),
+                                    name="invitation_tombstone_key_unique"),  # 9kg.32
         ]
 
 
@@ -229,12 +235,18 @@ class MemberAgreementOnFile(models.Model):
             models.CheckConstraint(condition=Q(completion_verified=True), name="member_on_file_completion_verified"),
             models.CheckConstraint(condition=~Q(covers={}), name="member_on_file_covers_something"),
             models.CheckConstraint(condition=~Q(recorded_by=""), name="member_on_file_has_recorder"),
+            models.UniqueConstraint(fields=["email_key"], condition=Q(email_key__startswith="erased:"),
+                                    name="member_on_file_tombstone_key_unique"),  # 9kg.32
         ]
 
 
 class RetentionAudit(models.Model):
     """One row per audited retention delete; inserted only by the protection trigger (migration 0002).
-    Records which application's record was removed and a SHA-256 digest of the deleted row, never its content."""
+    Records which application's record was removed and a SHA-256 digest of the deleted row, never its content.
+
+    9kg.32: the digest is unkeyed and the reason is free text, so for an erased subject both are tombstoned by the
+    erasure (class `audit_residue`, erasure.catalog); the erasure's own audit (erasure.ErasureAudit) holds codes only
+    and no row digest."""
 
     at = models.DateTimeField(db_default=Now())
     actor = models.CharField(max_length=128)
