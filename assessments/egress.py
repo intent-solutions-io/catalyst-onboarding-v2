@@ -47,6 +47,11 @@ from assessments.fetch import classify
 logger = logging.getLogger("assessments.egress")
 # A dotted DNS name whose last label has a letter, so no numeric form (`0x7f.0.0.01`) is ever a name.
 NAME = re.compile(r"(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]*[a-z][a-z0-9-]*")
+HEX_LABEL = re.compile(r"0x[0-9a-f]*")  # `0x7f.0x0.0x0.0x1`: its last label has a letter, but every label is a number
+
+
+def is_name(host: str) -> bool:
+    return bool(NAME.fullmatch(host)) and not any(HEX_LABEL.fullmatch(label) for label in host.split("."))
 HEAD_LIMIT, HEAD_SECONDS, CONNECT_SECONDS, IDLE_SECONDS, TUNNEL_SECONDS = 4096, 10, 10, 30, 120
 SYNTHETIC = ("test", "staging")
 DENY_FILE_LIMIT, DENY_NAMES_LIMIT, DENY_ADDRESSES_PER_NAME = 65536, 256, 64
@@ -145,7 +150,7 @@ class Policy:
             if not self.fixture or literal != self.fixture:
                 raise Refusal(403, "ip_literal_refused")
             return host, port, [literal], frozenset({literal})
-        if not NAME.fullmatch(host):
+        if not is_name(host):
             raise Refusal(400, "bad_host")
         if self.name_denied(host.rstrip(".")):  # before any lookup
             raise Refusal(403, "host_denied")
@@ -170,7 +175,7 @@ def load_deny(path: str) -> tuple:
         entry = line.split("#", 1)[0].strip().lower().rstrip(".")
         if not entry:
             continue
-        if not NAME.fullmatch(entry):
+        if not is_name(entry):
             return ()
         names.append(entry)
     names = tuple(dict.fromkeys(names))

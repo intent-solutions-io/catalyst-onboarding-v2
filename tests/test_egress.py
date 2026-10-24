@@ -373,7 +373,8 @@ def test_9kg39_any_port_but_443_is_refused(authority):
 
 
 @pytest.mark.parametrize("host", ["2130706433", "0177.0.0.1", "0x7f000001", "0x7f.1", "127.1", "0x7f.0.0.01",
-                                  "3325256711", "0306.063.0144.07"])
+                                  "3325256711", "0306.063.0144.07", "0x7f.0x0.0x0.0x1", "0xc6.0x33.0x64.0x7",
+                                  "0X7F.0X0.0X0.0X1"])
 def test_9kg39_numeric_address_encodings_are_never_names(host):
     with pytest.raises(egress.Refusal) as refused:
         egress.Policy(TEST_ENV).target(f"CONNECT {host}:443 HTTP/1.1\r\n\r\n".encode())
@@ -465,3 +466,10 @@ def test_9kg39_a_broken_deny_list_is_transient_for_the_fetcher_logged_at_start_a
     healthy = subprocess.run(check, cwd=ROOT, env={"CATALYST_ENV": "test", "CATALYST_EGRESS_DENY_FILE": DENY_FILE,
                                                    "PATH": "/usr/bin:/bin"}, capture_output=True)
     assert (broken.returncode, healthy.returncode) == (1, 0) and not broken.stdout + healthy.stdout
+
+
+def test_9kg39_a_name_of_hex_labels_is_never_a_name_and_never_a_deny_entry(tmp_path):
+    assert not egress.is_name("0x7f.0x0.0x0.0x1") and not egress.is_name("prod.0xff")
+    assert egress.is_name("0xdeadbeefcafe-x.example.test") and egress.is_name("x0.example.test")
+    (tmp_path / "deny").write_text("prod-a.example.test\n0x7f.0x0.0x0.0x1\n")
+    assert egress.load_deny(str(tmp_path / "deny")) == ()  # malformed: refuse everything
