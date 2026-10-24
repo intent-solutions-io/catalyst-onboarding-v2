@@ -158,7 +158,8 @@ record (P6-D-8).
   range (100.64.0.0/10), cloud metadata addresses and the container bridge gateway, in addition to the application's
   own SSRF guard (`018`). The proxy also denies the estate's own production hosts, by name and by every address
   those names resolve to, from an operator-supplied, secret-free list of logical host names (`9kg.39`, section 16);
-  without that list it refuses everything. The fetcher connects with a narrower database role than the app role (only the evidence
+  without that list it refuses everything (a transient refusal, an unhealthy container). The list is read at start,
+  so a change needs a restart (mount its directory, not the file). The fetcher connects with a narrower database role than the app role (only the evidence
   tables), proposed under P6-D-14. The worker reaches only its approved providers. A pilot-gate test proves the fetcher reaches
   none of the denied ranges.
 - **The guards:** the pilot needs a narrow, file-based secret path for the worker and an amendment to the guards
@@ -1842,18 +1843,24 @@ revised after the PR #99 data, security and release-operations reviews).**
 - **Built.** `assessments/egress.py` loads a deny list from the file named by `CATALYST_EGRESS_DENY_FILE`, read by
   the proxy alone (the fetcher, the Documenso and mail adapters never read it, and only the `egress` service has the
   variable).
-  - Format: ASCII, at most 64 KiB, one dotted DNS name per line, `#` comments and blank lines ignored. Each entry
-    denies itself and every name under it. An address, a single label or any other entry makes the file malformed.
-  - A missing, unreadable, oversized, empty or malformed file refuses every request (`deny_list_unavailable`).
+  - Format: ASCII, at most 64 KiB and 256 names, one dotted DNS name per line, `#` comments and blank lines
+    ignored. Each entry denies itself and every name under it. An address, a single label, a name with an all-hex
+    label (`0x7f.0x0.0x0.0x1`) or any other entry makes the file malformed.
+  - A missing, unreadable, oversized, empty or malformed file refuses every request with a 503
+    (`deny_list_unavailable`), which the fetcher treats as transient and retries; the code is logged once at start,
+    and the egress service's healthcheck (`python -m assessments.egress --check`) fails while the list does not load.
   - A denied name is refused before any lookup (`host_denied`).
   - Every address the target resolves to is refused when it is an address of a denied name (`address_denied`), and
-    so is the connected peer (`peer_denied`). The denied names are resolved afresh at both checks, together under one
-    deadline. Every address they ever resolved to stays denied for the life of the process, so a DNS change toward
-    a production address between the check and the connection is caught at the peer, and one away from it does not
-    reopen the old address.
+    so is the connected peer (`peer_denied`). The denied names are resolved afresh at both checks, in one lookup
+    pass (one thread) under one deadline. Each name keeps its fresh answer in full and up to 64 addresses in all, the
+    oldest address not in the fresh answer evicted first, so a DNS change toward a production address between the
+    check and the connection is caught at the peer, and one away from it does not at once reopen the old address.
+    There is no global limit that could latch the proxy shut.
   - Addresses compare in one form: the zone dropped and IPv4-mapped IPv6 unwrapped.
-  - A denied name that does not exist denies nothing; one whose lookup fails or times out refuses as transient
-    (502, `deny_list_unresolved`), which the fetcher retries a bounded number of times.
+  - A denied name that does not exist denies nothing. One whose lookup fails or times out keeps its last good
+    answer (logged as `deny_lookup_stale`); only a name that has never resolved refuses, as transient (502,
+    `deny_list_unresolved`). A list in which no name resolves to anything refuses everything (503,
+    `deny_list_resolves_nothing`), and at start the proxy logs `deny_names_unresolved=N`, a count, never a name.
   - Each fetch and each redirect hop is its own CONNECT, so every hop passes every check. The outcomes are codes
     only; the file's content is never logged.
 - **The real list.** The repository holds synthetic names only (`tests/egress-deny.example`,
@@ -1865,7 +1872,7 @@ revised after the PR #99 data, security and release-operations reviews).**
   (`one.one.one.one`, not a host of this estate), bind-mounted read-only at `/etc/catalyst/egress-deny` into the
   `egress` service alone, the way production mounts the real list.
 - **Evidence.**
-  - `tests/test_egress.py`: 17 new tests, mapped under TEST-P6-28, cover:
+  - `tests/test_egress.py`: 25 new tests (17, then 8 from the security review), mapped under TEST-P6-28, cover:
     - the name, and a name under it, refused before any lookup;
     - a resolved production address in IPv4, IPv6 and both IPv4-mapped spellings;
     - a DNS change between requests and between the check and the connection (the peer), and the union kept
@@ -1894,9 +1901,24 @@ revised after the PR #99 data, security and release-operations reviews).**
   none changed. Re-run once on the dev box, 2026-10-24: `scripts/staging_check.sh` **133 of 133 PASS, exit 0**,
   every TEST-P6-27, 28 and 30 check included. That run's image was built from the working tree with the extension
   not yet committed, so the drill revision in the evidence register is left unchanged.
-- **Stated limits.** The proxy trusts its resolver: a resolver that answered the deny names falsely would hide
-  their addresses, so network isolation and the host allow-list stay the controls that hold against that. The
-  staging stand-in and `nip.io` are outside dependencies of the staging check, like the existing TEST-P6-30 cases.
+- **Security review of PR #101 (2026-10-24), one commit per finding:** the per-name address bound without a latch;
+  the last good answer and one lookup pass; the visible all-unresolved list; the broken list as a transient 503
+  with a start-up code and a healthcheck; all-hex labels refused; a test that egress refusal codes stay staff-only
+  (never in the model request the clarification path starts from, a mail or a non-staff template); the register's
+  blocker edge to enabling fetching (above); and the staging by-address checks reported NOT RUN, never FAIL, when
+  the proxy cannot reach public DNS.
+- **Stated limits.**
+  - The proxy trusts its resolver: a resolver that answered the deny names falsely would hide their addresses, so
+    network isolation and the host allow-list stay the controls that hold against that.
+  - A `peer_denied` connection has completed its TCP handshake with the denied host before the proxy refuses it;
+    no byte is sent through it and it is closed at once.
+  - The file is read once, at start: a change to the list needs a restart. A bind-mounted file replaced on the host
+    (a new inode, as most editors and `mv` produce) leaves the running container on the old content, so mount the
+    directory rather than the file, or restart the egress service after every change.
+  - The "only the proxy reads the list" test scans a fixed list of application packages (`APP_PACKAGES` in
+    `tests/test_egress.py`); a new package must be added there.
+  - The staging stand-in and `nip.io` are outside dependencies of the staging check, like the existing TEST-P6-30
+    cases; without public DNS the by-address cases print NOT RUN.
 
 ## 17. The aged-waits health part (9kg.51, 2026-10-23)
 
