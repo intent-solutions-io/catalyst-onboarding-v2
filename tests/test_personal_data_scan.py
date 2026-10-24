@@ -215,8 +215,9 @@ esac
     state.mkdir()
     (state / "current-image").write_text(image_id)
     env = support.child_env(PYTHONPATH=str(ROOT))
-    operation = lambda *args: subprocess.run([sys.executable, "-m", "config.release", "operation", *args], cwd=ROOT, env=env,
-                                             capture_output=True, text=True, timeout=30)
+    def operation(*args):
+        return subprocess.run([sys.executable, "-m", "config.release", "operation", *args], cwd=ROOT, env=env,
+                              capture_output=True, text=True, timeout=30)
     assert operation("start", str(state), "deploy-1", image_id, label, "-").returncode == 0
     backup = state / "backup-receipt.json"  # written after the operation started, so it is not stale
     backup.write_text(backup_receipt_text)

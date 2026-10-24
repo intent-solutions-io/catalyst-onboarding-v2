@@ -17,7 +17,7 @@ from psycopg import errors
 from agreements import completion
 from agreements.models import AgreementInstance, AgreementType, DocumentAccess, ProviderObservation, StoredDocument
 from applications.models import Application
-from tests.test_agreement_completion import SECRET, post, reads_now
+from tests.test_agreement_completion import post, reads_now
 from tests.test_agreement_custody import (  # noqa: F401  (fixture chain and helpers)
     a, activate, admitted, approve, c, d, ev, g, grant, h, k, nda, of, p2, run_worker, tls,
 )

@@ -106,7 +106,9 @@ def test_configured_default_mail_backend_is_a_local_sink(environment, backend):
 def test_image_digests_match_between_compose_and_ci():
     import re
 
-    pins = lambda text: sorted(set(re.findall(r"(?:python|postgres):[\w.-]+@sha256:[0-9a-f]{64}", text)))
+    def pins(text):
+        return sorted(set(re.findall(r"(?:python|postgres):[\w.-]+@sha256:[0-9a-f]{64}", text)))
+
     compose = pins((ROOT / "compose.yaml").read_text())
     ci = pins((ROOT / ".github" / "workflows" / "ci.yml").read_text())
     assert len(compose) == 2

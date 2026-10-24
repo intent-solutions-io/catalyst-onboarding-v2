@@ -144,7 +144,7 @@ def scan_text(text: str) -> list[tuple[int, str]]:
             start = number
         elif not line.strip() and start is not None:
             found = {name for n, name in hits if start <= n < number}
-            joined = " ".join(" ".join(l.split()) for l in lines[start - 1:number - 1])
+            joined = " ".join(" ".join(line.split()) for line in lines[start - 1:number - 1])
             hits += [(start, name) for name in _hits(joined) if name not in found]
             start = None
     return sorted(hits)

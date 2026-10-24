@@ -145,6 +145,21 @@ jobs:
           sys.exit(1 if errors else 0)
           EOF
 
+      - name: Python lint and dependency audit (ruff, pip-audit; 009 section 5.1)
+        # Bead catalyst-v2-9kg.46. Both tools are hash-locked in requirements/lint.txt; ruff's rules are set in
+        # pyproject.toml; pip-audit reads the four locked requirement files without installing anything (--disable-pip
+        # --no-deps) and fails on any known vulnerability, fixed or not. A waiver, if one is ever needed, is an explicit
+        # --ignore-vuln <id> here with its reason. Measured 2026-10-23: see 009 section 5.3.
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --disable-pip-version-check --require-hashes --no-deps -r requirements/lint.txt
+          python3 -m ruff --version
+          python3 -m ruff check --output-format concise .
+          python3 -m pip_audit --version
+          python3 -m pip_audit --disable-pip --no-deps --require-hashes --progress-spinner off \
+            --cache-dir "$RUNNER_TEMP/pip-audit-cache" \
+            -r requirements/base.txt -r requirements/dev.txt -r requirements/docs.txt -r requirements/lint.txt
+
       - name: Secret scan (gitleaks, full history)
         env:
           GITLEAKS_VERSION: "8.30.1"

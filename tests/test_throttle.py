@@ -21,7 +21,7 @@ from accounts.models import RequestThrottle
 from applications.models import Application
 from config import client_identity, guards, throttle
 from tests.test_confirmation import intake, link_for, path_of, post_confirm, version
-from tests.test_intake import EMPTY, FORM, RECEIVED, VALID, counts, post
+from tests.test_intake import FORM, VALID, counts, post
 from workflow import ledger
 
 HOOK = "/hooks/documenso/"
