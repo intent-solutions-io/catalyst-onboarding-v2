@@ -23,7 +23,15 @@ a firewall or sandbox. It does not cover:
 - other socket operations (UDP sendto, DNS resolution).
 
 The container-level boundary is the explicit, synthetic environment the test service receives
-(compose.yaml) and config.guards, which refuses provider credentials at start-up."""
+(compose.yaml) and config.guards, which refuses provider credentials at start-up.
+
+The raising HTTP transport (oc4.9; 018 sections 5.5 and 21). A second autouse fixture makes the HTTP client library a
+model provider client would use (`httpx2`, which PydanticAI's provider clients are built on, and `httpx` where
+installed) raise on every request, loopback included: both clients' `send` and both default transports are patched,
+so a client with the default transport or any transport class of these libraries cannot reach a model endpoint. It
+does not cover a client that brings a transport of its own outside these libraries, or another HTTP library;
+tests/test_live_safety.py fails if the dependencies gain one (openai, anthropic, requests, aiohttp, httpx) before this
+fixture covers it. Nothing in Catalyst uses these libraries for its own traffic."""
 
 import ipaddress
 import json
@@ -85,6 +93,33 @@ def _guarded_connect_ex(self, address):
 def block_network(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect", _guarded_connect)
     monkeypatch.setattr(socket.socket, "connect_ex", _guarded_connect_ex)
+
+
+class ModelNetworkRefused(RuntimeError):
+    """A model-provider HTTP request in a test (the raising transport, oc4.9)."""
+
+
+def _refuse_http(self, request, *args, **kwargs):
+    raise ModelNetworkRefused(f"HTTP transport refused in tests: {request.method} {request.url.host}")
+
+
+async def _refuse_http_async(self, request, *args, **kwargs):
+    raise ModelNetworkRefused(f"HTTP transport refused in tests: {request.method} {request.url.host}")
+
+
+@pytest.fixture(autouse=True)
+def raising_http_transport(monkeypatch):
+    import importlib
+
+    for name in ("httpx2", "httpx"):
+        try:
+            library = importlib.import_module(name)
+        except ImportError:
+            continue
+        monkeypatch.setattr(library.Client, "send", _refuse_http)
+        monkeypatch.setattr(library.AsyncClient, "send", _refuse_http_async)
+        monkeypatch.setattr(library.HTTPTransport, "handle_request", _refuse_http)
+        monkeypatch.setattr(library.AsyncHTTPTransport, "handle_async_request", _refuse_http_async)
 
 
 @pytest.fixture(autouse=True)
@@ -439,6 +474,7 @@ EXPECTED_TRIGGERS = {
     ("provisioning_withdrawalconfirmation", "catalyst_withdrawal_confirmation_fixed"),
     ("provisioning_accessrevocation", "catalyst_no_truncate"), ("provisioning_withdrawalconfirmation", "catalyst_no_truncate"),
     ("accounts_staffrolegrant", "catalyst_append_only"), ("accounts_staffrolegrant", "catalyst_no_truncate"),  # 9kg.30
+    ("assessments_modeluseapproval", "catalyst_append_only"), ("assessments_modeluseapproval", "catalyst_no_truncate"),  # oc4.9
     ("applications_invitation", "catalyst_invitation_fixed"), ("applications_invitation", "catalyst_no_truncate"),  # 9kg.43
     ("applications_memberagreementonfile", "catalyst_member_on_file_fixed"),  # 9kg.52
     ("applications_memberagreementonfile", "catalyst_no_truncate"),

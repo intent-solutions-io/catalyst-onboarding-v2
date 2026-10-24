@@ -290,3 +290,42 @@ class QualificationDecision(models.Model):
             models.CheckConstraint(condition=Q(basis="model_assisted") | ~Q(human_only_code=""),
                                    name="decision_human_only_has_code"),  # oc4.12: a structured reason, never text alone
         ]
+
+
+APPROVAL_REF_PATTERN = r"^[a-z0-9_.:-]{3,64}$"
+
+
+class ModelUseApproval(models.Model):
+    """oc4.9: the owner's recorded approval of live model use for one purpose (the assessment, or the reply
+    interpreter; both share the checked-run path and the daily budget). Written only by the owner-run
+    `approve_model_use` command (the migration owner role); the application role reads it and nothing else, and no
+    web path creates one. Append-only for every role (migration 0011): a revocation, or a changed term, is a new row.
+
+    `terms` is everything the approval names, as the command computed it from the code and settings in force: the
+    provider and model id, the exact field list that may leave Catalyst, the prompt pack, its digest, the rubric and
+    output schema versions, every budget, the request timeout and the repair limit. `terms_sha256` is its digest.
+    Before any live request, `assessments.approval.require` recomputes the terms for the call at hand and refuses
+    unless the latest row for the purpose is an approval with the same digest: a changed version, budget or field
+    list (a stale approval) refuses, and so does a run frozen under another pack (a stale snapshot)."""
+
+    class Action(models.TextChoices):
+        APPROVE = "approve"
+        REVOKE = "revoke"
+
+    purpose = models.CharField(max_length=20)
+    action = models.CharField(max_length=8, choices=Action.choices)
+    provider = models.CharField(max_length=40)
+    model_id = models.CharField(max_length=100)
+    terms = models.JSONField(default=dict)
+    terms_sha256 = models.CharField(max_length=64)
+    approval_ref = models.CharField(max_length=200)
+    actor_ref = models.CharField(max_length=200)
+    recorded_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(condition=Q(purpose__in=["assessment", "interpretation"]), name="model_use_purpose_valid"),
+            models.CheckConstraint(condition=Q(action__in=["approve", "revoke"]), name="model_use_action_valid"),
+            # A decision code, never free text: lowercase letters, digits and _ . : - (3 to 64 characters).
+            models.CheckConstraint(condition=Q(approval_ref__regex=APPROVAL_REF_PATTERN), name="model_use_approval_ref_is_a_code"),
+        ]

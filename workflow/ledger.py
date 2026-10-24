@@ -161,18 +161,21 @@ def finish(claim: Claim, handler, *, status, error: str = "", write=None, refund
     return True
 
 
-def fence(claim: Claim) -> None:
+def fence(claim: Claim, beat: bool = True) -> None:
     """Inside the caller's transaction: confirm the claim still holds its lease and extend it (016 A-7).
-    Raises LeaseLost when another claim owns the action, so the caller's transaction rolls back."""
+    Raises LeaseLost when another claim owns the action, so the caller's transaction rolls back. `beat=False` (the
+    lease keeper's renewals, oc4.9) leaves the worker-alive file alone: a background renewal says nothing about whether
+    the worker's own thread is making progress."""
     if not transaction.get_connection().in_atomic_block:
         raise RuntimeError("fence() must run inside the transaction it protects")
     lease = timedelta(seconds=settings.CATALYST_WORKER_LEASE_SECONDS)
     fenced = PendingAction.objects.filter(pk=claim.id, status=Status.RUNNING, lease_token=claim.lease_token)
     if fenced.update(lease_expires_at=Now() + lease, updated_at=Now()) != 1:
         raise LeaseLost
-    from workflow import heartbeat
+    if beat:
+        from workflow import heartbeat
 
-    heartbeat.beat(settings.CATALYST_WORKER_HEARTBEAT_FILE)  # a long action that renews its lease is alive (6B.4)
+        heartbeat.beat(settings.CATALYST_WORKER_HEARTBEAT_FILE)  # a long action that renews its lease is alive (6B.4)
 
 
 def fail_or_retry(claim: Claim, handler, error: str, write=None) -> bool:
