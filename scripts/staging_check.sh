@@ -246,8 +246,12 @@ check "TEST-P6-30 the egress proxy mounts no secret" test -z "$(docker exec "$("
 check "TEST-P6-28 the proxy refuses a production host by name" test "$(via_proxy one.one.one.one:443)" = "403 host_denied"
 check "TEST-P6-28 the proxy refuses a name under a production host" test "$(via_proxy www.one.one.one.one:443)" = "403 host_denied"
 # The by-address cases need public DNS from the proxy; without it they are NOT RUN, never a FAIL (PR #101 review).
-public_dns() {
-  docker exec "$("${compose[@]}" ps -q egress)" python -c "import socket;socket.getaddrinfo('1.1.1.1.nip.io',443);socket.getaddrinfo('one.one.one.one',443)" >/dev/null 2>&1
+public_dns() {  # a transient lookup failure is retried, at most 3 times, as via_proxy_settled does
+  for _ in 1 2 3; do
+    docker exec "$("${compose[@]}" ps -q egress)" python -c "import socket;socket.getaddrinfo('1.1.1.1.nip.io',443);socket.getaddrinfo('one.one.one.one',443)" >/dev/null 2>&1 && return 0
+    sleep 2
+  done
+  return 1
 }
 for authority in 1.1.1.1.nip.io:443 1.0.0.1.nip.io:443; do
   name="TEST-P6-28 the proxy refuses a name resolving to a production host's address ($authority)"
