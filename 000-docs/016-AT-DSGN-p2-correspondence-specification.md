@@ -1536,8 +1536,13 @@ expires prompts nothing: the applicant holds no working link and staff are not t
 - **How it closes.** The staff resend (section 10.14) resolves the application's open `verification_expired` item in
   its own transaction, with the resolution code `verification_resent`, the staff member as the actor and the resend
   number in the effects. The item page states the reason in plain words and links the application's correspondence
-  screen, where the resend is. A holder of `resolve_exception` may acknowledge it when no resend is needed (the
-  applicant confirmed through a new submission, or the application closed).
+  screen, where the resend is. Each pass first closes, as the system (code `verification_superseded`, with the
+  application locked), every open item whose application has since been verified or has left the open stages, so a
+  confirmation through a new submission or a closure ends the item without staff (review of PR #97). A holder of
+  `resolve_exception` may also acknowledge it.
+- **The first pass after deployment** opens an item for every open, unverified application whose link has already
+  expired (200 per pass, oldest expiry first, the rest on the next passes); once per challenge is intended, so this
+  backlog appears once.
 - **Chosen over** a per-challenge check queued by intake or by the send: that adds a second action to the S1 path and
   changes the accepted GATE-S1 histories and counts; the sweep leaves the S1 path exactly as accepted.
 

@@ -190,8 +190,8 @@ P3_HINTS = {
                        " then acknowledge once it arrives."),
     # 9kg.66: the resend is on the application's correspondence screen, and it resolves this item.
     "verification_expired": ("correspondence", "Resend the verification message from the application's correspondence"
-                             " screen; the resend resolves this item. Acknowledge only when no resend is needed (the"
-                             " applicant confirmed through a new submission, or the application closed)."),
+                             " screen; the resend resolves this item. If the applicant confirms through a new submission"
+                             " or the application closes, the next sweep closes it."),
 }
 
 

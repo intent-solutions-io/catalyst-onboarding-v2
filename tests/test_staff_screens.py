@@ -403,6 +403,8 @@ def test_9kg_67_every_resolution_and_decision_button_shows_a_plain_label_and_sub
     codes = {code for table in processing.RESOLUTIONS.values() for code in table} | {"acknowledge"}
     assert set(processing.RESOLUTION_LABELS) == codes
     assert set(staff_actions.DECISION_LABELS) == set(staff_actions.DECISIONS)
+    from correspondence.staff_views import DECISIONS_BY_REASON  # every decision any reason offers has a label too
+    assert {d for offered in DECISIONS_BY_REASON.values() for d in offered} <= set(staff_actions.DECISION_LABELS)
     raw = codes | set(staff_actions.DECISIONS)
     for code, label in {**processing.RESOLUTION_LABELS, **staff_actions.DECISION_LABELS}.items():
         assert label.strip().lower() not in raw and label != code, code

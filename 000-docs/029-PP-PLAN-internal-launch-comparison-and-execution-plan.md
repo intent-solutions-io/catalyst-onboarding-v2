@@ -823,11 +823,12 @@ account, owner-run as the migration owner), the append-only record `accounts.Sta
   the record and the database agree. `catalyst_health` carries the counts in the part `staff_roles` (anomalies
   `role_access_unrecorded`, `role_grant_not_held`; counts only, no name). **Remedy, through the command only:**
   unrecorded access is removed with `--revoke` (which records it), then granted again with its approval if it is
-  authorized; a recorded grant not held is granted again (recorded), then revoked if it should end. A superuser flag
-  is outside the record and not reconciled here (the command refuses superusers). After a restore, a revocation
-  replayed from the effect journal (`9kg.33`) removes access whose revocation record the restore lost, so the audit
-  then shows `recorded_not_held` until the owner records the revocation again. Tests: `tests/test_staff_roles.py`
-  (`9kg.56`).
+  authorized; a recorded grant no longer held is recorded as ended with `--revoke`, which records a revocation when
+  the latest record is a grant even though the access is already gone (for example after a restore deactivated the
+  account or replayed a revocation from the effect journal, `9kg.33`), or granted again with its approval. A
+  difference the command cannot correct says so on its audit line: a superuser (the command refuses superusers; the
+  owner corrects it through `manage.py`) or a group or permission no role maps to. `--audit` takes no other argument.
+  Tests: `tests/test_staff_roles.py` (`9kg.56`).
 
 ### 17.2 The data notice, the member-on-file record and the decline refusal (`9kg.52`)
 

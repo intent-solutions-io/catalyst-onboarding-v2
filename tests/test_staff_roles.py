@@ -254,3 +254,63 @@ def test_9kg_56_the_audit_reports_access_planted_by_raw_owner_sql_and_health_car
     owner.execute("INSERT INTO accounts_user_groups (user_id, group_id) SELECT %s, id FROM auth_group WHERE name = %s",
                   [planted.pk, "Correspondence decision-maker"])
     assert "unrecorded: group 'Correspondence decision-maker' for 'planted-by-sql'" in owner_command("--audit", expect=1)
+
+
+def test_9kg_56_revoke_records_access_a_restore_removed_and_the_audit_names_differences_without_a_remedy(p2):
+    """Review of PR #97: access whose latest record is a grant but which is gone (here a restore deactivated the account
+    and removed its access) is recorded as ended by `--revoke` instead of a no-op; a difference the command cannot
+    correct (a superuser, a group no role maps to) says so; `--audit` takes no other argument."""
+    leaver = staff(p2, "leaver")
+    grant(p2, leaver.username, "correspondence-operator")
+    grant(p2, leaver.username, "provisioning-approver")
+    owner = p2.committed.connect("owner", autocommit=True)
+    # Test setup only, as the owner: the state a restore leaves (the account deactivated, its access removed).
+    owner.execute("UPDATE accounts_user SET is_active = false WHERE id = %s", [leaver.pk])
+    owner.execute("DELETE FROM accounts_user_groups WHERE user_id = %s", [leaver.pk])
+    owner.execute("DELETE FROM accounts_user_user_permissions WHERE user_id = %s", [leaver.pk])
+    out = owner_command("--audit", expect=1)
+    assert "recorded_not_held: group 'Correspondence operator' for 'leaver'" in out
+    assert "recorded_not_held: permission 'provisioning.approve_provisioning' for 'leaver'" in out
+    assert "no command remedy" not in out
+    for role in ("correspondence-operator", "provisioning-approver"):
+        assert "revoked" in grant(p2, leaver.username, role, "--revoke")
+    assert list(StaffRoleGrant.objects.filter(user=leaver).order_by("id").values_list("action", flat=True)) == [
+        "grant", "grant", "revoke", "revoke"]
+    assert "matches its latest grant record" in owner_command("--audit")
+    assert "nothing changed" in grant(p2, leaver.username, "correspondence-operator", "--revoke")  # now a true no-op
+    assert StaffRoleGrant.objects.filter(user=leaver).count() == 4
+    # Differences the command cannot correct say so on their line.
+    staff(p2, "root-planted", "Correspondence operator", superuser=True)
+    owner.execute("INSERT INTO auth_group (name) VALUES ('Synthetic unmapped group')")
+    try:
+        staff(p2, "unmapped-member", "Synthetic unmapped group")
+        out = owner_command("--audit", expect=1)
+        assert ("unrecorded: group 'Correspondence operator' for 'root-planted' (no command remedy: a superuser holds no"
+                " staff role") in out
+        assert "unrecorded: group 'Synthetic unmapped group' for 'unmapped-member' (no command remedy: no role maps to" in out
+        assert "a superuser" in grant(p2, "root-planted", "correspondence-operator", "--revoke", expect=1)
+    finally:
+        owner.execute("DELETE FROM accounts_user_groups WHERE group_id = (SELECT id FROM auth_group"
+                      " WHERE name = 'Synthetic unmapped group')")
+        owner.execute("DELETE FROM auth_group WHERE name = 'Synthetic unmapped group'")
+    # --audit is read-only and takes no other argument.
+    for extra in (["leaver"], ["--role", "correspondence-operator"], ["--revoke"], ["--list"]):
+        assert "--audit is read-only" in owner_command("--audit", *extra, expect=1), extra
+
+
+def test_9kg_56_the_application_role_reads_everything_the_staff_roles_health_part_reads(p2):
+    """Review of PR #97: catalyst_health runs as the application role; the part reads the memberships, the direct
+    permissions, their content types and the grant record, and must see a planted difference through that role."""
+    from config import system_health
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT current_user")
+        assert cursor.fetchone()[0] == settings.CATALYST_DB_ROLES["app"]
+    granted = staff(p2, "health-reader-granted")
+    grant(p2, granted.username, "correspondence-operator")
+    planted = staff(p2, "health-reader-planted", "Template owner")
+    owner = p2.committed.connect("owner", autocommit=True)
+    owner.execute("INSERT INTO accounts_user_user_permissions (user_id, permission_id) SELECT %s, id FROM auth_permission"
+                  " WHERE codename = 'approve_provisioning'", [planted.pk])
+    assert system_health.staff_role_health() == {"unrecorded": 2, "recorded_not_held": 0,
+                                                 "anomalies": ["role_access_unrecorded"]}

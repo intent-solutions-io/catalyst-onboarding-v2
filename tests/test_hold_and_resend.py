@@ -313,3 +313,35 @@ def test_9kg_66_the_sweep_is_scheduled_at_deployment_and_its_absence_is_a_health
     manage_as_owner("schedule_verification_sweep")  # idempotent
     assert PendingAction.objects.filter(kind="verification_expiry_sweep").count() == 1
     assert system_health.verification_health() == {"expiry_sweep_scheduled": True, "anomalies": []}
+
+
+def test_9kg_66_an_open_item_closes_itself_once_the_applicant_verifies_or_the_case_closes(p2):
+    """Review of PR #97: an item already open when the applicant verifies (through a new submission and its link), or
+    when the application leaves the open stages, is closed by the next pass as the system, code
+    `verification_superseded`; it is not left for staff."""
+    from django.db import transaction
+
+    from applications.stages import transition
+
+    verifying, closing = submit("verifying@example.test"), submit("closing@example.test")
+    run_worker()
+    for app in (verifying, closing):
+        expire(p2, challenges(app)[0])
+    sweep()
+    assert list(expired_items().values_list("status", flat=True)) == ["open", "open"]
+    submit("verifying@example.test")  # a new submission supersedes the expired link and issues a new one
+    run_worker()
+    link = LINK.search([m for m in mail.outbox if m.to == ["verifying@example.test"]][-1].body).group(1)
+    version = re.search(r'name="version" value="([^"]+)"', Client().get(link).content.decode()).group(1)
+    assert Client().post(link, {"version": version}).status_code == 200
+    with transaction.atomic():
+        transition(closing.pk, ("submitted",), "withdrawn", event_kind="synthetic_withdrawal", actor_ref="test")
+    sweep()
+    for app, because in ((verifying, "contact_verified"), (closing, "application_closed")):
+        item = expired_items().get(application=app)
+        assert item.status == "resolved"
+        assert (item.resolution.resolution_code, item.resolution.resolved_by) == (
+            "verification_superseded", "system:verification_expiry_sweep")
+        assert item.resolution.effects == {"reason": "verification_expired", "because": because}
+        assert app.events.filter(kind="staff_item_resolved", actor_type="system").count() == 1
+    assert expired_items().count() == 2  # nothing new opened for either

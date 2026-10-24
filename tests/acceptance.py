@@ -1583,6 +1583,8 @@ P6_SUPPORTING = {
     ],
     "9kg.56 the read-only grant-ledger audit reconciles memberships and direct permissions with the grant record (029 section 17.1)": [
         "test_staff_roles::test_9kg_56_the_audit_reports_access_planted_by_raw_owner_sql_and_health_carries_the_counts",
+        "test_staff_roles::test_9kg_56_revoke_records_access_a_restore_removed_and_the_audit_names_differences_without_a_remedy",
+        "test_staff_roles::test_9kg_56_the_application_role_reads_everything_the_staff_roles_health_part_reads",
     ],
     "9kg.50 the hold exit through the decision service and the staff verification resend (018 section 19, 016 section 10.14)": [
         "test_hold_and_resend::test_an_on_hold_case_comes_back_to_a_decision_through_the_service",
@@ -1598,6 +1600,7 @@ P6_SUPPORTING = {
         "test_hold_and_resend::test_9kg_66_no_item_once_the_applicant_confirmed_a_newer_link_is_out_or_the_case_closed",
         "test_hold_and_resend::test_9kg_66_an_acknowledged_item_is_never_reopened_for_the_same_challenge",
         "test_hold_and_resend::test_9kg_66_the_sweep_is_scheduled_at_deployment_and_its_absence_is_a_health_anomaly",
+        "test_hold_and_resend::test_9kg_66_an_open_item_closes_itself_once_the_applicant_verifies_or_the_case_closes",
     ],
     "9kg.67 every staff resolution and decision button shows a plain label and submits its code (016 section 10.18)": [
         "test_staff_screens::test_9kg_67_every_resolution_and_decision_button_shows_a_plain_label_and_submits_its_code",

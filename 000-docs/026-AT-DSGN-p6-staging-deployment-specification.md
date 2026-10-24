@@ -917,7 +917,8 @@ specification text; nothing is built.
   deployment, and `catalyst_health` reports `session_cleanup_unscheduled` where two-factor is required.
   `manage.py schedule_verification_sweep` starts the verification expiry sweep the same way in the same deployment
   step (`9kg.66`, `016` section 10.17); `catalyst_health` reports `verification_sweep_unscheduled` outside the local
-  environments.
+  environments. The first pass opens an item for every open unverified application whose link already expired
+  (batched 200 per pass); once per challenge is intended.
 - **Database:** django-otp saves a whole device row when a token is verified, so the application role has UPDATE on
   the device tables. A trigger refuses any change by that role except the counters and timestamps. The role cannot
   add or remove a device; it may delete a recovery code, which is how a used code is spent.

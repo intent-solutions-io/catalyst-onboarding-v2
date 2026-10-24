@@ -244,12 +244,44 @@ def _expired_active():
                                            application__stage__in=OPEN_STAGES)
 
 
+SUPERSEDED = "verification_superseded"
+
+
+def close_moot_items() -> int:
+    """Review of PR #97: an open `verification_expired` item whose application has since been verified or has left the
+    open stages has nothing left to do; it is resolved by the system (code `verification_superseded`), with the
+    application locked. Returns the number resolved."""
+    from .models import StaffItem
+    from .staff_items import resolve_item
+
+    moot = (StaffItem.objects.filter(reason_code=EXPIRED_ITEM, status=StaffItem.Status.OPEN)
+            .filter(Q(application__contact_verified_at__isnull=False) | ~Q(application__stage__in=OPEN_STAGES))
+            .values_list("pk", "application_id"))
+    closed = 0
+    for item_id, application_id in list(moot):
+        with transaction.atomic():
+            application = Application.objects.select_for_update(of=("self",)).get(pk=application_id)
+            item = StaffItem.objects.select_for_update(of=("self",)).get(pk=item_id)
+            if item.status != StaffItem.Status.OPEN or (
+                    application.contact_verified_at is None and application.stage in OPEN_STAGES):
+                continue
+            reason = "contact_verified" if application.contact_verified_at is not None else "application_closed"
+            if resolve_item(item, code=SUPERSEDED, actor_ref=f"system:{EXPIRY_SWEEP}",
+                            effects={"reason": EXPIRED_ITEM, "because": reason},
+                            actor_type=ApplicationEvent.ActorType.SYSTEM):
+                closed += 1
+    return closed
+
+
 def open_expired_link_items(limit: int = EXPIRY_SWEEP_BATCH) -> int:
-    """Open one `verification_expired` item per expired active challenge, re-checked with the application locked (the
-    lock order of intake and confirmation). Once per challenge: an item for it, open or resolved, is never opened again,
-    so a re-run, a redelivered sweep or an acknowledged item adds nothing. Returns the number opened."""
+    """First close the items that became moot (`close_moot_items`); then open one `verification_expired` item per
+    expired active challenge, re-checked with the application locked (the lock order of intake and confirmation). Once
+    per challenge: an item for it, open or resolved, is never opened again, so a re-run, a redelivered sweep or an
+    acknowledged item adds nothing. Returns the number opened."""
     from .models import StaffItem
     from .staff_items import open_item
+
+    close_moot_items()
 
     seen = set(StaffItem.objects.filter(reason_code=EXPIRED_ITEM).values_list("dedupe_key", flat=True))
     candidates = [(c.application_id, c.public_id) for c in _expired_active().order_by("expires_at", "id")
