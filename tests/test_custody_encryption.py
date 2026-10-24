@@ -881,3 +881,23 @@ def test_9kg_34_envelope_rules_one_per_document_hex_formats_and_unmigrated_means
                                            **fields, **bad)
     with pytest.raises(IntegrityError), transaction.atomic():  # one envelope per document
         CustodyEnvelope.objects.create(document=stored, **fields, cipher_sha256="0" * 64, key_ref=secrets.token_hex(16))
+
+
+# --- the review of PR #102, H: no staging service holds custody keys yet ---------------------------------------------
+
+def test_9kg_34_no_staging_service_holds_the_custody_key_volumes_or_the_wrapping_key_until_9kg_28():
+    """The rendered staging stack gives no service the key volumes or the wrapping key's secret; when 9kg.28 wires them,
+    only web (read-only) and worker may hold them. scripts/staging_check.sh checks the same on the running stack."""
+    import importlib.util
+
+    root = Path(__file__).resolve().parent.parent
+    spec = importlib.util.spec_from_file_location("render", root / "scripts" / "render_staging_compose.py")
+    render = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(render)
+    services = render.definition()["services"]
+    for name, svc in services.items():
+        text = json.dumps({"volumes": svc.get("volumes", []), "secrets": svc.get("secrets", [])})
+        assert "custody-keys" not in text and "custody_wrapping_key" not in text, name
+    assert "custody_wrapping_key" not in render.SECRET_FILES
+    script = (root / "scripts" / "staging_check.sh").read_text()
+    assert "custody_free_config" in script and "for service in web worker fetcher egress proxy db" in script
