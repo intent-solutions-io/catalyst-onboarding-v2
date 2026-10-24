@@ -128,7 +128,13 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   (plain version labels, an attested completion, idempotent, corrections only with `--correct`, fixed by trigger,
   shown on the dossier); a covered agreement type is referenced, never issued; the decision service and form refuse a
   v2 decline for a member on file (`018` section 20)
-- The decline notice (bead `oc4.11`; `029` section 17.3, `016` section 10.17): a recorded decline queues one
+- Staff and health polish for the internal launch: a recurring sweep opens one `verification_expired` staff item when an
+  unverified application's only link expires, resolved by the staff resend (`9kg.66`, `016` section 10.17); plain
+  labels on every resolution and decision button, the code kept as the submitted value (`9kg.67`, `016` section
+  10.18); the `held_followons` aged-waits class for held `send_decline`, `issue_nda` and `provision` follow-ons, aged
+  from the last hold (`9kg.57`, `026` section 17); and the read-only `grant_staff_role --audit` with the `staff_roles`
+  health part, reconciling memberships and direct permissions with the grant record (`9kg.56`, `029` section 17.1)
+- The decline notice (bead `oc4.11`; `029` section 17.3, `016` section 10.19): a recorded decline queues one
   `send_decline`, which freezes the notice from the `decline_notice` template (correspondence migration 0019, an
   unapproved synthetic placeholder refused in a live environment until the owner approves real wording) and sends it
   through the P2 sender, the only message allowed through to the terminal `declined` stage; uncertain, failed and

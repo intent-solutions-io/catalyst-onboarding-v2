@@ -1,4 +1,4 @@
-"""The decline notice (oc4.11; 029 section 17.3; 016 section 10.17).
+"""The decline notice (oc4.11; 029 section 17.3; 016 section 10.19).
 
 A recorded decline (`decisions.record_decision`) queues one `send_decline:<application>` action unless the
 decision-maker chose, on the decision form and with a reason, to withhold the notice; the choice is part of the

@@ -1,4 +1,4 @@
-"""oc4.11 (029 sections 5.2 and 17.3; 016 section 10.17): the decline notice.
+"""oc4.11 (029 sections 5.2 and 17.3; 016 section 10.19): the decline notice.
 
 A recorded decline queues one `send_decline`, which freezes the notice from the `decline_notice` template and hands it
 to the P2 sender; `declined` is terminal, so the send check lets exactly this kind through. Uncertainty and failure

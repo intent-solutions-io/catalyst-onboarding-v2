@@ -1,4 +1,4 @@
-# oc4.11 (029 sections 5.2 and 17.3; 016 section 10.17): the decline notice.
+# oc4.11 (029 sections 5.2 and 17.3; 016 section 10.19): the decline notice.
 #
 # - The `decline` kind of approved message, frozen by `assessments.decline.SendDecline` and sent by the P2 sender.
 # - The `decline_notice` template, seeded as an unapproved synthetic placeholder (status draft, synthetic), exactly as

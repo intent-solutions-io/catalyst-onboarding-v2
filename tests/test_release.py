@@ -300,6 +300,12 @@ def test_9kg_38_the_drill_reverts_n_plus_one_to_n_on_the_expanded_schema_and_ref
         'workflow.0007_contract.*restore instead')]
     assert steps == sorted(steps)  # N+1 promoted, reverted to N through the wrapper, then the contract revert refused
     assert drill.count("submit n-") == 3 and '"$(applications)" = "$count"' in drill  # the data is checked, not assumed
+    # 9kg.63: intake is invitation-only (9kg.43), so every submission is preceded by the owner's invitation, issued by
+    # the owner-run command as the migration owner, and a refused invitation fails the submission's check.
+    submit = drill[drill.index("\nsubmit() {"):drill.index("\n}\n", drill.index("\nsubmit() {"))]
+    invite = drill[drill.index("\ninvite() {"):drill.index("\n}\n", drill.index("\ninvite() {"))]
+    assert submit.index('invite "$1" || return 1') < submit.index("curl ")
+    assert "run --rm --no-deps -T migrate python manage.py catalyst_invite" in invite and '"issued": true' in invite
     assert "drill_note" in drill_migration("expand_migration") and "null=True" in drill_migration("expand_migration")
 
 

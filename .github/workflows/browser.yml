@@ -1,0 +1,25 @@
+name: Phone-width browser check
+
+# Bead catalyst-v2-9kg.68 (009 section 5.3, "Phone-width browser check"). A developer-dispatched run of
+# scripts/browser_check.sh, the same command a developer runs locally before a release: the public applicant pages in a
+# real headless Chromium at a phone width and a desktop width. It is never a required check and never a merge or release
+# input: its job name is not one the merge guard or scripts/require_green_ci.py reads (tests/test_release_gate.py). It
+# takes no input. The script runs the digest-pinned containers of compose.yaml plus compose.browser.yaml with Docker
+# Compose on the hosted runner, so the images, roles and synthetic settings are the local ones.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    name: Phone-width browser check (dispatched; never a required check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Public pages at phone and desktop width
+        run: bash scripts/browser_check.sh

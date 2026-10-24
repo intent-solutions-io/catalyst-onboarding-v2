@@ -237,7 +237,7 @@ three exist in v2 but stay disabled at launch by default (mailbox provisioning, 
 
 | Wait state | Who owes | Bound or escalation | Staff recovery without a shell | Status |
 |---|---|---|---|---|
-| Verification sent, unconfirmed | applicant | challenge lifetime (POL-02 value open); expiry prompts nothing today | staff resend on the correspondence screen, bounded (`9kg.50`, built in PR #87) | built; no age bound (the lifetime is the bound) |
+| Verification sent, unconfirmed | applicant | challenge lifetime (POL-02 value open); at expiry of the only link, a `verification_expired` staff item opens once (`9kg.66`, `016` section 10.17) | staff resend on the correspondence screen, bounded (`9kg.50`, built in PR #87); the resend resolves the expiry item | built; no age bound (the lifetime is the bound) |
 | Question sent, awaiting reply | applicant | reminder cadence and maximum (POL-06 synthetic values), then `escalate_unanswered` to staff; after escalation, the staff item's age (`9kg.51`) | staff item | built; the post-escalation bound is `9kg.51` |
 | Reply awaiting staff processing | staff | `aged_waits.replies_awaiting_processing` (`9kg.51`, built in PR #87; pages by default) | staff item | built |
 | Reply unmatched, unverified, sender-mismatched, or on a closed application | staff | `aged_waits.open_staff_items` (`9kg.51`, built; audit only until the owner lists it) | staff exception item (the unmatched rule for a misdirected first-generation reply is `dy7.2`) | built |
@@ -250,7 +250,7 @@ three exist in v2 but stay disabled at launch by default (mailbox provisioning, 
 | Declined | none (the worker sends the notice) | terminal; the notice waits, with a staff item, while its wording is not approved here | uncertain, failed and bounced notices reach staff items the decision-maker settles; withholding is a choice on the decision form (`oc4.11`, section 17.3) | built; the real wording is the owner's (`211.7.4`, `211.7.7`) |
 | Agreement sent, awaiting signature or countersignature | applicant, then the owner (countersignature) | `aged_waits.issued_agreements` (`9kg.51`, built; pages by default; ages from the last status change) | the decision-maker cancels | built as a health bound; the agreements screen shows each agreement's last status change and age, and names the countersignature wait (`9kg.41`, appendix B) |
 | Agreement held (recipient change, custody failure, expiry, rejection) | staff | staff item, pause | decision-maker reissues as a new instance | built |
-| Provisioning held | the owner | released only by `activate_provisioning` | the command | built (disabled at launch) |
+| Provisioning held | the owner | released only by `activate_provisioning`; `aged_waits.held_followons` (`9kg.57`; with the held `send_decline` and `issue_nda`; audit only until listed) | the command | built (disabled at launch) |
 | Provisioning unknown outcome, or provider unavailable at activation | worker, then staff | reconcile by read; never create again; `aged_waits.provisioning_activation` for the unavailable case (`9kg.51`, built; pages by default) | staff item | built against the fake |
 | Withdrawal racing provisioning | worker | the withdrawal services cancel and revoke; unsupported checks stay unresolved | staff item | built against the fake |
 | On hold | staff | `aged_waits.on_hold` (`9kg.51`, built; audit only until listed); the dossier flags it | the decision form: admit or decline (`9kg.50`, built in PR #87) | built |
@@ -259,8 +259,9 @@ three exist in v2 but stay disabled at launch by default (mailbox provisioning, 
 
 The bounds and whether each pages are the owner's values (`211.7.2`, `211.7.7`); the health part that counts aged
 waits is `9kg.51` (`026` section 17). **Still unbounded after PR #87:** verification sent and unconfirmed (the
-challenge lifetime is its only bound), provisioning held (released only by the owner's command) and the restore
-hold (lifted only by `catalyst_post_restore`); the agreement-sent row gained the health bound, and the agreements
+challenge lifetime is its only bound; since `9kg.66` its expiry opens a staff item), provisioning held (released only
+by the owner's command; since `9kg.57` counted with the other held follow-ons in `aged_waits.held_followons`) and the
+restore hold (lifted only by `catalyst_post_restore`); the agreement-sent row gained the health bound, and the agreements
 screen shows its age (`9kg.41`); the stage, item and pause classes are counted but page only once the owner lists them.
 
 **Found by the code inventory (2026-10-23, `45f8b93`), each a VERIFY turned into a task:**
@@ -814,6 +815,20 @@ account, owner-run as the migration owner), the append-only record `accounts.Sta
 - **Superusers** hold no role (refused by the command, as on the staff site). **No raw SQL** in any filed step: a test
   scans `000-docs` for grant statements and for instructions to open a shell session.
 - **Reviewer:** `catalyst-django-operator` (the roster in `008`); the owner approves the role names.
+- **The ledger audit (`9kg.56`, 2026-10-24).** The owner credential can still change memberships and permissions
+  without a record, so `manage.py grant_staff_role --audit` reconciles the two, read-only (`accounts.grants.differences`):
+  every group membership and direct permission whose latest record for that account, kind and target is missing or a
+  revocation is `unrecorded`; every latest `grant` record whose membership or permission is gone is
+  `recorded_not_held`. It lists each with the account and the group or permission and exits 1 when any exists, 0 when
+  the record and the database agree. `catalyst_health` carries the counts in the part `staff_roles` (anomalies
+  `role_access_unrecorded`, `role_grant_not_held`; counts only, no name). **Remedy, through the command only:**
+  unrecorded access is removed with `--revoke` (which records it), then granted again with its approval if it is
+  authorized; a recorded grant no longer held is recorded as ended with `--revoke`, which records a revocation when
+  the latest record is a grant even though the access is already gone (for example after a restore deactivated the
+  account or replayed a revocation from the effect journal, `9kg.33`), or granted again with its approval. A
+  difference the command cannot correct says so on its audit line: a superuser (the command refuses superusers; the
+  owner corrects it through `manage.py`) or a group or permission no role maps to. `--audit` takes no other argument.
+  Tests: `tests/test_staff_roles.py` (`9kg.56`).
 
 ### 17.2 The data notice, the member-on-file record and the decline refusal (`9kg.52`)
 
@@ -875,7 +890,7 @@ invitation wording's digest on the row (applications 0007, fixed by trigger in 0
 send check's one exception for that kind on a `declined` application (`correspondence.outbound.declined_notice`); the
 `decline_not_notified` item for a permanent bounce, opened before the closed-application exception
 (`correspondence.inbound`); the send or withhold choice on the decision form; the wording's state in the health
-report's decision section. The full design is `016` section 10.17. Tests: `tests/test_decline_notice.py`.
+report's decision section. The full design is `016` section 10.19. Tests: `tests/test_decline_notice.py`.
 
 - **Default built on:** council record `030` Q3's pattern (D-51) as applied to this bead on 2026-10-24: the mechanism is
   built now and the template ships as an unapproved synthetic placeholder, refused in a live environment until the
@@ -954,8 +969,9 @@ driven with synthetic data through the real Django views using the Django test c
 walkthrough's own tests are in `tests/test_screen_walkthrough.py` (23 tests, mapped in `tests/acceptance.py` under
 P6 supporting `9kg.41`).
 
-**Phone and desktop.** The repository has no browser-test tooling (no Playwright or Selenium), so the phone check
-is a rendered-HTML check, not a rendered-pixel one. Every page template declares the phone viewport. The public pages
+**Phone and desktop.** When this walkthrough ran the repository had no browser-test tooling (no Playwright or
+Selenium), so the phone check was a rendered-HTML check, not a rendered-pixel one; GAP 6 below has since been addressed
+by a real browser check of the public pages (`9kg.68`). Every page template declares the phone viewport. The public pages
 (request access, received, confirm, set password, withdraw) now carry phone-width rules: long links and answers wrap,
 and form controls never overflow the screen. The request form keeps every typed value after a validation error. The
 staff screens are desktop-first tables used on named devices (section 7); on a phone, wide tables scroll sideways.
@@ -968,7 +984,7 @@ larger than a small fix, recorded with a bead suggestion and not changed here.
 | # | State | Screen (URL name) | Who acts | What the screen shows | Exit | Outcome and evidence |
 |---|---|---|---|---|---|---|
 | 1 | Verification sent, unconfirmed | public `applications:confirm`; staff `correspondence_staff:application` | applicant; staff for a resend | the answers and a Confirm button; on the staff page, the resends used and a warning when a usable link is out | confirm; staff resend (`resend_verification`) | FIXED: a double-submitted resend sent two messages. The form now names the resend it offers, and a repeat is refused as `resend_already_recorded` (`test_walk_a_double_submitted_verification_resend_sends_one_message`). Confirm twice: OK (`test_confirmation::test_s1_08_confirming_records_contact_control_once`). The challenge lifetime stays the only bound (section 5.2). |
-| 2 | Verification link expired or superseded | public `applications:confirm` | applicant | 410, "This link is not valid" | a new submission or a staff resend | OK (`test_confirmation::test_s1_09_an_expired_challenge_is_refused_by_the_database_clock`). GAP: an expiry prompts nothing (see GAP 1). |
+| 2 | Verification link expired or superseded | public `applications:confirm` | applicant | 410, "This link is not valid" | a new submission or a staff resend | OK (`test_confirmation::test_s1_09_an_expired_challenge_is_refused_by_the_database_clock`). GAP 1, fixed by `9kg.66`: the expiry of the only link opens a `verification_expired` staff item, resolved by the resend. |
 | 3 | Question sent, awaiting reply; unanswered after the last reminder | `correspondence_staff:queue`, `correspondence_staff:item` | applicant; then staff | the `escalate_unanswered` item, now with "What happened" in plain words | acknowledge (after acting) | FIXED: plain-language reason (`test_walk_an_unanswered_question_escalates_to_a_staff_item_with_plain_words`). |
 | 4 | Reply awaiting staff processing | `correspondence_staff:reply` | staff (confirm outcomes) | the escaped derivative and one outcome per question, none preselected | confirm the outcomes, or close without one | OK (`test_staff_screens::test_p2_42_reply_confirmation_shows_the_derivative_escaped_and_checks_its_digest`). |
 | 5 | Reply unmatched, unverified, from another sender, or for a closed application | `correspondence_staff:item` | staff; the decision-maker for identity | the message facts and only the lawful resolutions for the viewer | associate, dismiss, mark as spoofed, acknowledge | OK (`test_staff_screens::test_p2_42_identity_resolution_needs_the_decision_maker_through_the_screen`, `::test_p2_42_the_item_page_shows_the_evidence_and_offers_only_lawful_decisions`). |
@@ -1004,8 +1020,8 @@ larger than a small fix, recorded with a bead suggestion and not changed here.
 | 32 | Disabled: mailbox provisioning | `provisioning_staff:provisioning` | the owner | the held hand-off (row 24); without an adapter nothing is committed and staff are told | none at launch | OK (`test_provisioning::test_review_without_an_adapter_nothing_is_committed_and_staff_are_told`). |
 
 **Totals:** 35 states walked. 24 are OK as they stand, each with one or more cited tests. 11 were FIXED in this
-PR, each with a test: rows 1, 3, 10, 11, 12, 13, 14, 15, 17, 21 and 26. Five GAPs remain open (below): rows 2, 13 and
-17 point at GAPs 1, 3 and 4, and GAPs 5 and 6 cover all the screens. GAP 2 was fixed in this PR (rows 10 and 11).
+PR, each with a test: rows 1, 3, 10, 11, 12, 13, 14, 15, 17, 21 and 26. Five GAPs remained open (below): rows 2, 13 and
+17 point at GAPs 1, 3 and 4, and GAPs 5 and 6 cover all the screens (GAP 6 since addressed by `9kg.68`). GAP 2 was fixed in this PR (rows 10 and 11).
 
 **Double submits.** One form acted twice: the verification resend (row 1, fixed). These POSTs were each submitted twice
 through the view in a test and acted once:
@@ -1047,17 +1063,22 @@ staff item page states each reason in plain words, and the dossier shares the sa
 
 1. *Verification expiry prompts nothing.* An expired link waits for the applicant to submit again, or for staff to
    notice. Suggest: a bead to open a staff item when an unverified application's only link expires (POL-02 sets
-   the lifetime).
+   the lifetime). *(Fixed by `9kg.66`: a recurring sweep opens one `verification_expired` item per expired only link,
+   which the staff resend resolves; `016` section 10.17.)*
 2. *(Fixed in this PR: a suspended or capped assessment item now closes only through the human-only decision; rows
    10 and 11.)*
 3. *No decline notice.* Already `oc4.11`, a release gate (section 7).
 4. *Duplicate envelopes have no screen action.* Already `9kg.53`.
 5. *Resolution buttons show codes.* For example `address_usable_again` and `mark_spoof` are shown as codes, not
    plain labels; the reason is now in plain words. Suggest: a small bead giving each resolution code a plain label,
-   with the tests that match on the codes updated.
-6. *No rendered phone check.* No browser tooling is installed. Suggest: a bead to add one Playwright check of the
-   public pages at phone width before outside applicants (`9kg.31.10`). Accepting this as deferred for the internal
-   cohort is the owner's decision.
+   with the tests that match on the codes updated. *(Fixed by `9kg.67`: each resolution, acknowledgement and decision button shows a
+   plain label and still submits its code; `016` section 10.18.)*
+6. *No rendered phone check.* **Addressed by `9kg.68`:** `tests/browser_phone_check.py`, run by
+   `scripts/browser_check.sh` (a pre-release step, and dispatchable in CI as "Phone-width browser check"; `009` section
+   5.3), renders request access (open and invitation mode), received, confirm, set password and withdraw, and each
+   result page, in headless Chromium at 375 px and 1,280 px: no horizontal scroll, the viewport declaration honoured,
+   every control visible, usable and reached by the Tab key. All passed on first measurement with no template change.
+   It is listed for the wider-enrollment decision (`9kg.31.10`).
 
 ### B.1 Screens the internal cohort will not exercise at launch (for the go/no-go package)
 

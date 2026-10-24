@@ -20,20 +20,20 @@ sender matches the verified address: {{ message.from_matches_verified_address|ye
 {% if agreements_screen %}<p><a href="{% url 'agreements_staff:agreements' item.application.public_ref %}">Open the agreements screen</a>{% if decided_on_screen %}: this item is decided there (an unknown provider outcome, duplicate envelopes or an ended watch), and the decision resolves it; it has no resolution of its own here{% endif %}.</p>{% endif %}
 {% if p3 %}<p>{{ p3.text }}{% for href, label in p3.links %} <a href="{{ href }}">{{ label }}</a>.{% empty %} The screen that acts on it needs a permission you do not hold.{% endfor %}</p>{% endif %}
 {% if cursor %}<p>Mailbox {{ cursor.mailbox_ref }}: {{ cursor.state }}{% if cursor.blocked_reason %} ({{ cursor.blocked_reason }}){% endif %}.</p>{% endif %}
-{% for code in codes %}
+{% for code, label in codes %}
 <form method="post" action="{% url 'correspondence_staff:resolve' item.public_id %}">{% csrf_token %}
 <input type="hidden" name="code" value="{{ code }}">
 {% if code == "associate" and not item.application %}<label>Application reference <input name="target" required></label>{% endif %}
 {% if code == "address_usable_again" %}<p>The address hard-bounced. Resolving this lets every held message to it go out again; the automation pause stays until it is resumed.</p>
 <label>Reason (at least 10 characters) <input name="note" maxlength="500" minlength="10" required></label>
 {% else %}<label>Note <input name="note" maxlength="500"></label>{% endif %}
-<button>{{ code }}</button>{% if code == "mark_spoof" %} (records the message as spoofed; it changes no identity){% elif code == "associate" %} (links the message to the application; it changes no identity){% endif %}</form>
+<button>{{ label }}</button>{% if code == "mark_spoof" %} (records the message as spoofed; it changes no identity){% elif code == "associate" %} (links the message to the application; it changes no identity){% endif %}</form>
 {% endfor %}
 {% if decide %}
-{% for d in decisions %}
+{% for d, label in decisions %}
 <form method="post" action="{% url 'correspondence_staff:send_decision' item.public_id %}">{% csrf_token %}
 <input type="hidden" name="decision" value="{{ d }}"><label>Note <input name="note" maxlength="500"></label>
-<button>{{ d }}</button>{% if d == "authorize_resend" %} (same Message-ID: the applicant may receive a duplicate){% elif d == "revise" %} (a new message from the current approved template){% endif %}</form>
+<button>{{ label }}</button>{% if d == "authorize_resend" %} (same Message-ID: the applicant may receive a duplicate){% elif d == "revise" %} (a new message from the current approved template){% endif %}</form>
 {% endfor %}
 {% endif %}
 {% if restart %}

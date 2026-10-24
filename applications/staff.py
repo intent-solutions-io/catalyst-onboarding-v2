@@ -74,6 +74,7 @@ REASONS = {
                               " not retry and the applicant must be told another way",  # oc4.11
     "decline_notice_member_on_file": "no decline notice was sent: a first-generation agreement was recorded on file"
                                      " after the decline; the decline needs the owner's review (030 Q8)",  # oc4.11
+    "verification_expired": "the applicant's only verification link expired before they confirmed; no working link is out",
     "agreement_reference_needs_decision": "the NDA is on file from the first generation but the User Agreement is not;"
                                           " nothing is issued until the owner decides",  # 9kg.52, D-15
 }

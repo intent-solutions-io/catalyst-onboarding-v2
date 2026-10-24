@@ -10,6 +10,7 @@ from psycopg import errors
 
 from correspondence import staff_actions
 from tests.test_db_roles import connect, new_application  # noqa: F401  (fixture and helper)
+from tests.support import manage_as_owner
 from tests.test_inbound import tls  # noqa: F401
 from tests.test_outbound import p2, ready, staff, verified_application  # noqa: F401
 from workflow import ledger
@@ -146,6 +147,40 @@ def test_9kg6_no_earlier_event_and_no_rolled_back_savepoint_event_clears_a_staff
     # transaction's event does.
     assert app.execute("SELECT count(*) FROM applications_applicationevent WHERE application_id = %s", [app_id]).fetchone()[0] >= 2
     app.rollback()
+
+
+def test_9kg6_a_resume_event_from_before_the_marker_existed_carries_the_migrations_id_and_clears_no_pause(connect):
+    """9kg.64, the migration-time case itself: with applications 0006 reversed (no transaction marker, no guard), a
+    staff resume event of the right shape is recorded; re-applying 0006 stamps it, and every other existing event,
+    with the migration's own transaction id, which no later transaction can match. So the staff pause still cannot be
+    cleared without a resume event of the clearing transaction's own (the positive control)."""
+    app = connect("app")
+    owner = connect("owner", autocommit=True)
+    app_id, _, _ = new_application(app)
+    subject = pause(app, app_id)
+    delete = ("DELETE FROM workflow_automationpause WHERE subject_id = %s", [subject])
+    marker = ("SELECT count(*) FROM information_schema.columns WHERE table_name = 'applications_applicationevent'"
+              " AND column_name = 'created_txid'")
+    manage_as_owner("migrate", "applications", "0005", "--verbosity", "0")  # reverses the pause guard (workflow 0005) too
+    try:
+        assert owner.execute(marker).fetchone()[0] == 0
+        before = app.execute(RESUMED + " RETURNING id", [app_id, "staff", "user:1", json.dumps({"note": "before the marker"})]).fetchone()[0]
+        app.commit()
+    finally:
+        manage_as_owner("migrate", "--verbosity", "0")
+    assert owner.execute(marker).fetchone()[0] == 1
+    stamped = dict(app.execute("SELECT id, created_txid FROM applications_applicationevent WHERE application_id = %s",
+                               [app_id]).fetchall())
+    app.rollback()
+    assert len(stamped) == 2 and len(set(stamped.values())) == 1  # both events took one id: the migration's
+    assert stamped[before] < app.execute("SELECT pg_current_xact_id()::text::bigint").fetchone()[0]
+    app.rollback()
+    refused(app, "in the same transaction", delete)
+    assert paused(app, subject)
+    app.execute(RESUMED, [app_id, "staff", "user:1", json.dumps({"note": "this transaction's resume"})])
+    app.execute(*delete)
+    app.commit()
+    assert not paused(app, subject)
 
 
 def test_9kg6_an_unknown_subject_type_is_guarded_and_cannot_be_cleared(connect):

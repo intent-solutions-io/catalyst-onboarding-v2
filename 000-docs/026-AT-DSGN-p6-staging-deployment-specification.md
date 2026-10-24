@@ -413,7 +413,8 @@ A gate count can be read as more than it proves. `tests/acceptance.py` therefore
 evidence register (`P6_EVIDENCE`): one explicit entry per numbered case, with the proof types in order (`pytest`,
 the gated run; `drill`, a script above run on the staging stack, whose commit and section 16 record `DRILLS`
 carries; `inspected`, a configuration or run read and recorded; `canary`, one real delivery through a real provider;
-`walkthrough`), each with an environment, a revision (a commit or a workflow run id for every proof but pytest, whose
+`walkthrough`), each with an environment (a drill's is the staging stack on the dev box unless the proof names
+its own, as TEST-P6-26's cutover rehearsal does for its stand-in Learn site, `9kg.64`), a revision (a commit or a workflow run id for every proof but pytest, whose
 revision is the run) and a record pointer; what the gated tests show (`behaviour`, or `shape` where they pin only
 the code's shape and a drill shows the behaviour: TEST-P6-08, 24, 25, 26 and 31); completeness (`full`, or
 `partial` with the residual bead and what it still has to show); and the approval boundary the evidence is good up to
@@ -429,10 +430,17 @@ cases apart from the supporting groups; for GATE-STAGING it stamps the run's com
 completeness and boundary on its line and, on a second indented line, each proof as type, environment and revision
 with the residual of a partial case; lists TEST-P6-27 as `LIVE ONLY` (never as a pytest result); and ends with the
 register totals: full cases, of which proven by this run (full, PASS and behaviour: a shape-only case is never
-counted as proven, nor is the live-only case), and partial cases with their residual beads. At the end of a full run
+counted as proven, nor is the live-only case), and partial cases with their residual beads. A run that can be full
+(no file, `-k` or `-m` selection) first deletes the last `register.json`, so a refused, crashed or deselected run
+never leaves an earlier run's file behind (`9kg.64`). At the end of a full run
 it writes `register.json` (`CATALYST_EVIDENCE_REGISTER`, or the repository root, ignored by git): the rows, the run's
-commit, the image digest when known, each proof's record pointer and the summary, so the go/no-go package reads it
-rather than transcribing the report. The gate itself is unchanged: a full run still needs every numbered case and
+commit, its exit status, the image digest when known, each proof's record pointer, the summary, GATE-STAGING's
+supporting-group statuses and every gate's numbered and supporting counts, so the go/no-go package reads it
+rather than transcribing the report. The run's commit is `CATALYST_RUN_COMMIT`, which `scripts/test.sh` exports from
+the host's `git rev-parse HEAD` (with `-dirty` appended when the working tree has changes) and `compose.yaml` passes to the test service (the image has no git), else CI's
+`GITHUB_SHA`; CI uploads `register.json` from the runtime job as the `evidence-register` artifact whatever the
+result, through `actions/upload-artifact` pinned by commit, a step that cannot fail the required check
+(`continue-on-error`); the file is written to `register.json.tmp` and moved into place (`9kg.64`). The gate itself is unchanged: a full run still needs every numbered case and
 supporting group PASS. `tests/test_acceptance.py` checks the register's shape and its refusals, that it reproduces
 after-action report `028` section 4 case by case (21 proven, one of them on a stand-in, and 17 partly; a later change
 to a case's completeness must carry a `since_028` note in its entry, so the AAR stays historical and the register and
@@ -442,7 +450,9 @@ listed against it changes.
 
 ### 11.2 The personal-data scan (`9kg.40`, TEST-P6-35, 2026-10-23; reviewed the same day)
 
-`config/personal_data_scan.py` (standard library only, so the host runs it with its own `python3`) scans four
+`config/personal_data_scan.py` (standard library only, so the host runs it with its own `python3`, which must be
+Python 3.11 or later: the secret-assignment pattern uses a possessive quantifier, which `re` accepts from 3.11 and
+earlier versions refuse at import, `9kg.64`) scans four
 input classes for personal data: the committed evidence (`EVIDENCE_PATHS`, globs: every after-action report,
 analysis evidence, test evidence and decision record filed under `000-docs`, this specification with its section 16
 records, and `029`; a new record of one of those classes is scanned without a change to the list, which a test
@@ -919,6 +929,10 @@ specification text; nothing is built.
 - **Session clean-up:** `clear_sessions` is a ledger action that deletes expired session rows hourly and queues its
   successor, even after a final failure. `manage.py schedule_session_cleanup` (idempotent) starts the chain at
   deployment, and `catalyst_health` reports `session_cleanup_unscheduled` where two-factor is required.
+  `manage.py schedule_verification_sweep` starts the verification expiry sweep the same way in the same deployment
+  step (`9kg.66`, `016` section 10.17); `catalyst_health` reports `verification_sweep_unscheduled` outside the local
+  environments. The first pass opens an item for every open unverified application whose link already expired
+  (batched 200 per pass); once per challenge is intended.
 - **Database:** django-otp saves a whole device row when a token is verified, so the application role has UPDATE on
   the device tables. A trigger refuses any change by that role except the counters and timestamps. The role cannot
   add or remove a device; it may delete a recovery code, which is how a used code is spent.
@@ -1705,6 +1719,41 @@ personal-data scan and the pause-row guard (TEST-P6-35).**
   clean deploy keeps exactly one receipt at mode 0640), `tests/test_acceptance.py` (the register) and
   `tests/test_pause_guard.py` (the guard, through real connections as each role); the drill log above.
 
+**9kg.63, the deploy drill under invitation-only intake (2026-10-24; follows PL batch 5).**
+
+- **Built:** `scripts/deploy_drill.sh` issues an invitation before each intake submission, as `scripts/restore_drill.sh`
+  does since PR #89: `invite` runs the owner-run `catalyst_invite` on the serving image as the migration owner
+  (`compose run --rm --no-deps -T migrate`), and `submit` returns failure unless the invitation was issued, so a
+  refused invitation fails the submission's check rather than letting a count compare equal numbers. The invitation
+  sits inside `submit`, so the drill's case list and count (60) are unchanged. `tests/test_release.py` (the 9kg.38
+  test, TEST-P6-25) pins the order: the invitation before the form post, through the owner-run command.
+- **Found on the first run and fixed here:** the drill's first smoke failed with "fetcher is not stable". Since PR #89
+  (9kg.33) the staging fetcher names an effect-journal directory it never mounts
+  (`/var/lib/catalyst/effects-none`, on purpose: it makes no effect), but the start-up check required every staging
+  process's directory to exist, so the fetcher refused to start and crash-looped; the deploy smoke's stability check
+  caught it. `config.guards.journal_problems` now exempts the fetcher role (read from `CATALYST_PROCESS_ROLE`, since
+  the check runs before the worker command declares its kind; a web process may not carry that role at all,
+  `process_role_problems`); every other process still needs a private, writable directory.
+  `tests/test_guards.py` covers both sides, including the whole start-up check (`all_problems`) still refusing a web
+  process that claims the fetcher role with no journal directory.
+- **The other two drills that start the fetcher, re-run once on the dev box, 2026-10-24** at `7963943` (this change's
+  second commit; the review follow-ups touch only tests, `scripts/test.sh` and CI, none of them in the image):
+  `scripts/staging_check.sh` **128 of 128 PASS, exit 0** (154 s), with "fetcher is running" and every fetcher
+  isolation check green; `scripts/restore_drill.sh` **43 of 43 PASS, exit 0** (226 s). Both removed their stacks.
+- **The drill on the dev box, 2026-10-24**, `scripts/deploy_drill.sh` with the estate wrapper, run against `main` at
+  `dba8a85` (PR #93) with this change's drill script and start-up check in the image (the image is built from the
+  working tree and labelled with `HEAD`): **60 of 60 PASS, exit 0, 17 minutes 22 seconds.** Two earlier runs that
+  day stopped early on the fetcher fault above (the first before the guard change, the second with a kind-based
+  exemption that never applied at start-up); both were interrupted and their stacks, images and work directories
+  removed by hand. In the green run every TEST-P6-25 case passed: an applicant accepted on N, on N+1 and on N after
+  the revert, "the data is kept across the revert: both applicants are still there", and the contract revert refused
+  with every applicant untouched; the receipt step's scan printed `2 files, 32 lines, 0 hits` in all four receipt
+  cases.
+- **Case status in the register:** TEST-P6-25 is full again (its `since_028` note names 9kg.38, PR #84, and this
+  re-run); the residual bead `9kg.63` leaves `RESIDUAL_BOUNDARIES`. The register totals become 24 full and 14
+  partial; proven by a full run stays 19, since TEST-P6-25's gated tests pin the shape and the drill shows the
+  behaviour.
+
 ## 17. The aged-waits health part (9kg.51, 2026-10-23)
 
 `029` section 5.2 listed the waits with no bound once the first-generation owner notices retire: an application in
@@ -1730,8 +1779,20 @@ report (`catalyst_health`, the staging adapter `health.sh`, the Buzz floor):
 - **Default page list.** Until the owner sets values, only the three classes that are bad in themselves page:
   `replies_awaiting_processing`, `issued_agreements`, `provisioning_activation`; the stage, item and pause classes
   are counted and printed, audit only. The health report also carries `decision.qualification_authority_configured`.
-- **Deferred:** a `held_followons` class (held `issue_nda` and `send_decline` actions past an age) is not built; the
-  main session files its bead.
+- **Held follow-ons (`9kg.57`, 2026-10-24).** The class `held_followons` counts the follow-ons left held for the owner's
+  release or a policy: `send_decline` (the decline notice, `oc4.11`), `issue_nda` (released by `activate_agreements`)
+  and `provision` (released by `activate_provisioning`). An application in `agreements_complete` waits on exactly
+  that held `provision` hand-off (`021` step 8, `023` 11.11), so the stage is counted once, through its hand-off, not
+  as a second class. Counted by kind and status (`held`) only, whether or not a handler exists for the kind. **Age
+  semantics:** from the action's `updated_at`, which is when it was created held or last returned to held (a refused
+  `issue_nda` goes back to held with a new `updated_at`); nothing else updates a held row, and a released, cancelled
+  or done follow-on leaves the class. Its threshold is its own setting,
+  `CATALYST_HEALTH_AGED_WAIT_HELD_FOLLOWONS_SECONDS` (default: the pending-age target, a placeholder until `211.7.2`).
+  It is **not** in the default page list: at the internal launch a held decline notice and a held provisioning
+  hand-off are the plan, not a fault; the owner lists it when the release is due. The class also prints
+  `aged_by_kind` (kind names and counts only).
 
 Tests: `tests/test_system_health.py` (`9kg.51` in `tests/acceptance.py` P6_SUPPORTING): every class fresh raises
-nothing, past its threshold raises its code, and clears when resolved; thresholds and paging per class.
+nothing, past its threshold raises its code, and clears when resolved; thresholds and paging per class. `9kg.57`: each held
+follow-on kind aged past the class threshold raises `aged_waits.held_followons`, a released or cancelled follow-on and a
+held action of another kind are not counted, and a follow-on returned to held ages from its return.
