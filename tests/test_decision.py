@@ -89,9 +89,10 @@ def test_p3_53_after_pol05_a_superuser_or_ungranted_staff_is_refused_and_the_set
 
 # --- TEST-P3-44, 45, 46, 52: the decision, its follow-on, races, history, the backstop -----------------------------
 
-@pytest.mark.parametrize("outcome,stage,follow_on", [("admit", "admitted", "issue_nda"), ("decline", "declined", "send_decline"),
+@pytest.mark.parametrize("outcome,stage,follow_on", [("admit", "admitted", ("issue_nda", "held")),
+                                                    ("decline", "declined", ("send_decline", "queued")),  # oc4.11: the notice
                                                     ("hold", "on_hold", None)])
-def test_p3_44_a_decision_is_one_transaction_with_its_held_follow_on(d, monkeypatch, outcome, stage, follow_on):
+def test_p3_44_a_decision_is_one_transaction_with_its_follow_on(d, monkeypatch, outcome, stage, follow_on):
     app = ready_app(d, monkeypatch)
     decision = decide(d, app, outcome)
     app.refresh_from_db()
@@ -100,7 +101,7 @@ def test_p3_44_a_decision_is_one_transaction_with_its_held_follow_on(d, monkeypa
     assert decision.rationale["work_quality"] == {"capability": "shown", "evidence_strength": "moderate",
                                                   "note": "Read the work sample."}
     held = list(PendingAction.objects.filter(kind__in=("issue_nda", "send_decline")).values_list("kind", "status"))
-    assert held == ([(follow_on, "held")] if follow_on else [])
+    assert held == ([follow_on] if follow_on else [])
     assert app.events.filter(kind=f"qualification_{outcome}").exists()
 
 

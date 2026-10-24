@@ -15,6 +15,9 @@ Handlers (registered in settings.CATALYST_ACTION_HANDLERS; ledger rules in workf
 - `ReconcileSend` (`reconcile_send`, internal and idempotent, D-27): looks only for admissible evidence
   (A5). None is configured for real providers; without it the outcome stays unknown and goes to staff.
 
+The decline notice (oc4.11) is frozen by `assessments.decline` and sent here like any other kind; it is the only
+message the send check lets through to a terminal stage (`declined_notice`).
+
 A worker rebuilds every message from its `ApprovedMessage` alone: never from the latest template version,
 current answers or the application's current address.
 """
@@ -216,6 +219,13 @@ class Reconcile:
     attempt_ids: tuple
 
 
+def declined_notice(message, application) -> bool:
+    """oc4.11: the one exception to "nothing is sent to a closed application". `declined` is terminal, and the decline
+    notice is the message that tells the applicant so: only that kind, and only to an application that is declined (a
+    withdrawn or closed one gets nothing). Every other check of the send still applies."""
+    return message.kind == ApprovedMessage.Kind.DECLINE and application.stage == Stage.DECLINED
+
+
 def _parse_series(key: str, send_ref) -> int | None:
     prefix = f"send:{send_ref}:"
     if not key.startswith(prefix):
@@ -312,7 +322,7 @@ class SendMessage:
                 return Stop(Status.QUEUED, "automation_paused")  # a staff message is not automated (J-09)
             if message.disposition != Disposition.ACTIVE:
                 return skip("message_not_active")
-            if application.stage in TERMINAL_STAGES:
+            if application.stage in TERMINAL_STAGES and not declined_notice(message, application):
                 return skip("application_closed")
             if any(q.status == Question.Status.WITHDRAWN for q in questions):
                 return skip("question_withdrawn")

@@ -426,7 +426,8 @@ re-authentication (POL-13, GATE-STAGING).
 
 **P4 hand-off.** `admit` creates a held `issue_nda:<application>` action and nothing else; `decline` creates a
 held `send_decline:<application>` action (no applicant message until a POL-06 template is approved). No model
-result can create either. NDA-before-User-Agreement (D-15 in `011`) and the separate signing and custody facts stay P4.
+result can create either. *(Superseded for decline by `oc4.11`, 2026-10-24: a decline queues `send_decline`, which
+sends the decline notice through the P2 sender unless the decision-maker withheld it; `016` section 10.17.)* NDA-before-User-Agreement (D-15 in `011`) and the separate signing and custody facts stay P4.
 
 **Re-application after decline.** P3 makes `declined` reachable for the first time; the fail-closed repeat rule
 of J-02 (planned TEST-P5-06) is pulled into 3B.4.

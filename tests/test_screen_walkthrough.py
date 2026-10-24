@@ -163,12 +163,12 @@ def test_walk_a_refused_decision_keeps_the_typed_reasoning_never_the_outcome_and
     again = decider.post(url_, form)  # the double click: the state changed, so the digest no longer matches
     assert again.status_code == 409 and "Refused:" in again.content.decode()
     assert QualificationDecision.objects.filter(application=app).count() == 1
-    # Declined: the decision screen says nothing more can be recorded, and the dossier labels the held notice.
+    # Declined: the decision screen says nothing more can be recorded, and the dossier shows the queued notice (oc4.11).
     screen = decider.get(reverse("assessments_staff:decision", args=[app.public_ref])).content.decode()
     assert "not at a stage where a decision can be recorded (declined)" in screen
     reader = staff(d, "dossier-reader-walk", "Read-only staff")
     dossier = client_for(reader).get(reverse("admin:applications_application_change", args=[app.pk])).content.decode()
-    assert "send_decline: <strong>held on policy: no decline notice is sent until the notice and its template are approved" in dossier
+    assert "send_decline: <strong>queued</strong>" in dossier and "held on policy: no decline notice" not in dossier
 
 
 def test_walk_a_refused_clarification_keeps_the_typed_question_and_a_double_submit_stores_one(c, monkeypatch):

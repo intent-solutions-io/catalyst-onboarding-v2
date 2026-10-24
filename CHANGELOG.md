@@ -128,6 +128,14 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   (plain version labels, an attested completion, idempotent, corrections only with `--correct`, fixed by trigger,
   shown on the dossier); a covered agreement type is referenced, never issued; the decision service and form refuse a
   v2 decline for a member on file (`018` section 20)
+- The decline notice (bead `oc4.11`; `029` section 17.3, `016` section 10.17): a recorded decline queues one
+  `send_decline`, which freezes the notice from the `decline_notice` template (correspondence migration 0019, an
+  unapproved synthetic placeholder refused in a live environment until the owner approves real wording) and sends it
+  through the P2 sender, the only message allowed through to the terminal `declined` stage; uncertain, failed and
+  blocked sends reach the usual staff decisions, a permanent bounce opens `decline_not_notified` before the
+  closed-application exception, the decision-maker may withhold the notice with a recorded reason, the notice's one
+  variable is the display name (no reason, rationale or model output), and `send_decline` actions held by earlier
+  releases are cancelled, never released
 - Hardening (internal-launch batch item 6): the database freezes inbound message provenance and the identity
   columns of outbound attempts and reply links for every role, with the audited retention path left open for
   erasure (correspondence migration 0017, `016` section 10.14)

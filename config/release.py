@@ -69,6 +69,11 @@ EXPAND_SAFE: dict[str, str] = {
         "adds columns with database defaults and a CHECK constraint created NOT VALID: a previous image inserts decisions "
         "without the new columns (defaults fill them) and never a human-only row without a code it does not know, because "
         "its human-only rows are refused by the decision service's digest check first; nothing is removed or renamed"),
+    "correspondence.0019_decline_notice": (
+        "widens the approved-message kind CHECK and the field's choices by one value (`decline`); the choices change is "
+        "state only, and every row a previous image writes already satisfies the wider CHECK. A previous image that "
+        "meets a `decline` row skips its send as `application_closed` and never claims `send_decline` (no handler), so "
+        "a revert sends nothing it should not; nothing is removed or renamed"),
 }
 
 

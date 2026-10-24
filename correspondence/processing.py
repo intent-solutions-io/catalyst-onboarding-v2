@@ -67,6 +67,9 @@ RESOLUTIONS = {
     "repeat_after_verification": {"acknowledge": "resolve_identity_exception"},
     "repeat_after_decline": {"acknowledge": "resolve_identity_exception"},  # P3 3B.4, J-02 (P3-D-16)
     "newer_unverified_version": {"acknowledge": "resolve_identity_exception"},
+    # oc4.11: the decline notice bounced permanently, so the declined applicant was not told. The decision-maker
+    # records, with a note, how it was settled (told another way, or deliberately not); nothing is resent from here.
+    "decline_not_notified": {"acknowledge": "decide_uncertain_send"},
 }
 # 9kg.47 review: items that are decided on the agreements screen (the decision services resolve them); the item page
 # links the screen and offers no resolution of its own, so an item can never be acknowledged past its decision.
@@ -79,7 +82,10 @@ ACKNOWLEDGE_ONLY = {"processing_error", "message_id_conflict", "mailbox_uidvalid
                     # P3 3B.1: acknowledged after staff act (a new submission with claims, or a re-fetch on /staff/p3/)
                     "claims_missing", "adoption_changed", "evidence_collection_failed",
                     # P3 3B.2: acknowledged by staff; also resolved by the system when a later run succeeds or staff rerun
-                    "assessment_failed", "assessment_input_changed", "assessment_pack_refused"}
+                    "assessment_failed", "assessment_input_changed", "assessment_pack_refused",
+                    # oc4.11: the decline notice could not be frozen (wording unavailable here, no verified address);
+                    # the send retries by itself and resolves the item once it is queued
+                    "decline_notice_refused"}
 # 9kg.41 (owner decision on the PR #93 review): a suspended or capped snapshot closes only through the human-only
 # decision on the decision screen (which resolves it) or a later successful run, never by an acknowledgement that would
 # leave the case looking as if a run were coming.
