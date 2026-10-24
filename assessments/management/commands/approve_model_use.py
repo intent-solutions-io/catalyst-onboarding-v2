@@ -31,7 +31,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--purpose", choices=approval.PURPOSES, required=True)
-        parser.add_argument("--provider", help="the provider, for example 'minimax'")
+        parser.add_argument("--provider", help="the provider's lowercase name")
         parser.add_argument("--model-id", help="the exact model identifier the approval names")
         parser.add_argument("--approval-ref", help="the decision that authorizes this approval or revocation")
         parser.add_argument("--revoke", action="store_true", help="record a revocation for the purpose")
