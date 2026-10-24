@@ -502,3 +502,20 @@ def test_9kg39_egress_refusal_codes_stay_staff_only(ev, settings, proxy, dns):
     assert not [code for code in EGRESS_CODES for text in outward if code in text]
     templates = [path for path in ROOT.glob("*/templates/**/*.html") if "/staff/" not in str(path)]
     assert templates and not [str(p) for p in templates if "reason_code" in p.read_text()]  # only staff pages show it
+
+
+def test_9kg39_the_staging_by_address_checks_are_not_run_without_public_dns_never_failed(tmp_path):
+    """scripts/staging_check.sh: the address_denied cases need public DNS from the proxy. The guard is run here with
+    a stand-in `docker` that cannot resolve, and must print NOT RUN for each case and record no FAIL."""
+    script = (ROOT / "scripts" / "staging_check.sh").read_text()
+    start = script.index("public_dns() {")
+    block = script[start:script.index("done\n", start) + 5]
+    assert block.count('"403 address_denied"') == 1 and "NOT RUN" in block
+    (tmp_path / "docker").write_text("#!/bin/sh\nexit 1\n")
+    (tmp_path / "docker").chmod(0o755)
+    harness = ("set -u; fail=0; compose=(true); check() { echo \"CHECKED $1\"; }; via_proxy_settled() { echo x; }\n"
+               + block + "\necho fail=$fail\n")
+    import subprocess
+    out = subprocess.run(["bash", "-c", harness], env={"PATH": f"{tmp_path}:/usr/bin:/bin"}, capture_output=True,
+                         text=True).stdout
+    assert out.count("NOT RUN TEST-P6-28") == 2 and "CHECKED" not in out and "fail=0" in out

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Bring the generated staging stack up on this host with synthetic secrets, check what the running containers expose,
 # and remove everything again (026 sections 4 and 5; 6B.5b; TEST-P6-04 and 11). Dev box only: it publishes on
-# loopback addresses and uses throwaway values. Prints PASS or FAIL per check; exits non-zero on any FAIL.
+# loopback addresses and uses throwaway values. Prints PASS, FAIL or NOT RUN per check; exits non-zero on any FAIL.
 #
 #   scripts/staging_check.sh            # build, up, check, tear down
 #   KEEP=1 scripts/staging_check.sh     # leave the stack running for 6B.11 work (tear down later with `down -v`)
@@ -245,8 +245,17 @@ check "TEST-P6-30 the egress proxy mounts no secret" test -z "$(docker exec "$("
 # public name above is the control (and proves the list loaded: without one, everything is refused).
 check "TEST-P6-28 the proxy refuses a production host by name" test "$(via_proxy one.one.one.one:443)" = "403 host_denied"
 check "TEST-P6-28 the proxy refuses a name under a production host" test "$(via_proxy www.one.one.one.one:443)" = "403 host_denied"
+# The by-address cases need public DNS from the proxy; without it they are NOT RUN, never a FAIL (PR #101 review).
+public_dns() {
+  docker exec "$("${compose[@]}" ps -q egress)" python -c "import socket;socket.getaddrinfo('1.1.1.1.nip.io',443);socket.getaddrinfo('one.one.one.one',443)" >/dev/null 2>&1
+}
 for authority in 1.1.1.1.nip.io:443 1.0.0.1.nip.io:443; do
-  check "TEST-P6-28 the proxy refuses a name resolving to a production host's address ($authority)" test "$(via_proxy_settled "$authority")" = "403 address_denied"
+  name="TEST-P6-28 the proxy refuses a name resolving to a production host's address ($authority)"
+  if public_dns; then
+    check "$name" test "$(via_proxy_settled "$authority")" = "403 address_denied"
+  else
+    echo "NOT RUN $name (public DNS unreachable from the egress proxy)"
+  fi
 done
 check "TEST-P6-28 only the egress proxy holds the deny list" bash -c '! docker exec "$1" test -e /etc/catalyst/egress-deny && docker exec "$2" test -r /etc/catalyst/egress-deny' _ "$("${compose[@]}" ps -q fetcher)" "$("${compose[@]}" ps -q egress)"
 
