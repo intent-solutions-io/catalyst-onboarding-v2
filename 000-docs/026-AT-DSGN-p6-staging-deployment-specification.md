@@ -1778,7 +1778,10 @@ revised after the PR #99 data, security and release-operations reviews).**
      --reason <code>`.
   2. Copy the printed `journal_head` and the subject's erasure entries to the off-host private store. The owner names
      that store; it is not chosen yet.
-  3. If the output lists `retained` (`custody_documents`), the signed PDFs stay until `9kg.34`.
+  3. If the output lists `retained` (`custody_documents`), the registry's `signed_documents` row says `retain` and
+     the signed PDFs stay. Under `destroy_key` (`9kg.34`) the output instead counts `keys_destroyed`: the subject's
+     custody keys are gone from the key directory and its mirror, so no copy of those PDFs, in custody or in any
+     backup, can be opened.
   4. For each handoff listed, delete the provider's copy by hand. Then run `catalyst_erase --subject <ref> --handoff
      <provider> --completed-on <date>` and copy the new head off-host again.
   5. Run `VACUUM` on the touched tables as the owner, so the old row versions leave the data files.
@@ -1822,7 +1825,7 @@ revised after the PR #99 data, security and release-operations reviews).**
   keep the map, the schema and the database in step.
 - **Not here.**
   - Replay after a restore (`9kg.25`; its handoff is in `029` section 6.2.1).
-  - Custody key destruction (`9kg.34`).
+  - Custody key destruction (`9kg.34`; built since, recorded below).
   - Wiring the erase service and the key into the stacks (`9kg.28`).
   - The journal's off-host copy and rotation.
   - The owner decisions recorded in `029` section 6.2.1 (reissuing a mailbox name; pause versus erasure; the
@@ -1833,6 +1836,114 @@ revised after the PR #99 data, security and release-operations reviews).**
   - `tests/conftest.py`: the expected triggers.
   - `tests/test_database.py`: the approved migrations.
   - `tests/test_acceptance.py`: the named constraints.
+
+**9kg.34, the custody copy encrypted at rest, with recoverable keys and crypto-shredding against old backups (P6-D-13
+option c; council `030` Q3 and Q4, D-51 provisional; the storage location and access rules stay the owner's, `211.7.9`).**
+
+- **What it is.** Every custody write is sealed with AES-256-GCM from the reviewed `cryptography` library (50.0.2,
+  hash-locked in `requirements/base.txt`; `pip-audit` clean). Each document gets its own random 256-bit data key; the
+  data key is stored only wrapped, under one wrapping key. The design is in `agreements/keystore.py`, and the
+  storage path in `agreements/storage.py`.
+  - The sealed file keeps its `<uuid>.pdf` name, so every key check stays one pattern. A `CustodyEnvelope` row
+    (agreements migration 0010, insert-only for every role) records the key reference and the SHA-256 and size of
+    the sealed bytes.
+  - `StoredDocument.sha256` is still the plaintext's hash. A read checks the sealed bytes against the envelope, opens
+    them under their own key, then checks the plaintext against the recorded hash and size.
+  - The associated data binds each sealed file to its own name and key reference, and each wrapped key to its
+    reference. A file moved to another name, or paired with another key, does not open.
+  - A write refuses without keys, in every environment. Nothing new is ever stored in the clear.
+- **Where the keys live.** Two directories, `CATALYST_CUSTODY_KEY_DIR` and its live mirror
+  `CATALYST_CUSTODY_KEY_MIRROR_DIR`, one `<reference>.key` file per document (0600, in a 0700 directory owned by the
+  process user). This is the same separation `9kg.32` uses for the erasure journal and its head.
+  - The backup copies only the database and the custody files its snapshot names by the custody-key pattern. It reads
+    sealed files against the envelope's digest and needs no key.
+  - The guards refuse a key directory inside or around the custody directory, the effect journal or the repository.
+    `catalyst_backup` refuses to run holding the wrapping key, or with an output or custody directory that overlaps a
+    key directory.
+  - So a restore brings back rows and sealed files, never a key. A key destroyed after a backup stays destroyed, and
+    the old set's copy cannot be opened.
+  - Like the custody directory, both settings are fixed in code and empty outside `test` and `staging` until the
+    owner's custody decision.
+- **The wrapping key.** `custody_wrapping_key` in `CATALYST_SECRETS_DIR`: 64 lower-case hex characters (32 random
+  bytes), distinct from every other key, refused in the environment outside test and development.
+  - It may reach the web process (retrieval, decision-makers only, P4-D-16), the worker (custody writes) and the
+    owner-run custody commands.
+  - The fetcher and the post-restore step refuse to start with it. `catalyst_backup` and `catalyst_erase` refuse to
+    run with it: destroying a key needs only its directories.
+- **Recovery, without defeating destruction.** Two safeguards, either of which alone keeps an erased document erased:
+  1. *The escrow holds the wrapping key only.* Its recovery copy lives in the operator's encrypted secret store. A
+     wrapping key opens a data key only while the wrapped data key still exists somewhere, so recovering the wrapping
+     key can never recover a destroyed document.
+  2. *The mirror is a live copy, and destruction reaches it first.* Every wrapped key is written to both directories
+     before the document is sealed (a failed mirror write removes the primary copy too). It is destroyed in the
+     mirror before the primary.
+
+  `catalyst_custody_keys --recover` copies between the two only keys the journal does not record as destroyed. It
+  also finishes any destruction left half done.
+  - A lost key directory is recovered from the mirror, and a lost wrapping key from the escrow.
+  - A lost directory and mirror together lose v2's copies. The provider's copy remains under P4-D-15: the stated
+    limit of a destroyable key.
+  - Neither key directory may be in any versioned backup. That is an operator provisioning rule for the `9kg.28` host
+    list: an archive of either would be a point-in-time copy that destruction cannot reach.
+  - The named holder, the time bound and the escrow location are rows of `agreements/custody_policy.py`. They ship
+    `undecided`, and a live environment refuses custody until they are decided. **Proposed for the owner:** the owner
+    as holder, custody reads restored within 24 hours of a key-store loss, and the escrow in the estate's encrypted
+    secret store.
+- **The erasure step.** The registry's `signed_documents` row now takes `retain` or `destroy_key` (shipped
+  `undecided`, like every row).
+  - Erasure migration 0003 re-installs `catalyst_erase` so that its result also names the subject's custody key
+    references and the number of the subject's documents still in the clear. It is reachable for an
+    already-tombstoned subject.
+  - Under `destroy_key` the command destroys each key after the database transaction and before the completion. Each
+    destruction is journaled as `custody_key_destroyed` before its files are unlinked, mirror first.
+  - The completion records `keys_destroyed`, and `custody_documents` leaves `retained` for that subject.
+  - A subject with any document still in the clear is refused at the dry run, before any record (seal it first).
+  - An interrupted destruction leaves the intent open. The next run, or recovery, finishes it.
+  - The restore's lift and replay rules from PR #99 are unchanged. Replay (`9kg.25`) needs no custody step: a
+    destroyed key is outside the rollback domain, so the restored rows already point at sealed files nobody can open.
+- **Documents stored before this change.** `catalyst_custody_keys --migrate --confirm` reads each plaintext document
+  (verified against its recorded hash), seals it under a new name and key and verifies it. It then commits its
+  envelope and removes the plaintext file. A re-run finishes an interrupted migration. `--status` reports documents
+  still in the clear, missing or mirror-missing keys, destroyed keys still present and lingering plaintext. Run it with
+  the worker stopped.
+- **Limits, stated.**
+  - The claim covers v2's custody copy only. The provider's copy is under P4-D-15 until POL-10, and every custody
+    command and the erasure output say so.
+  - Unlinking does not scrub the storage blocks underneath (the filesystem reuses them).
+  - A backup taken while a document was still in the clear keeps that plaintext until it ages out. None exists with
+    real data: encryption precedes the Documenso canary.
+  - Rotating the wrapping key (rewrapping every data key) is not built.
+  - Host disk encryption is separate, and it is not what makes erasure work.
+- **The drill** (`scripts/restore_drill.sh`, a fourth stack). The drill command `catalyst_custody_drill`, synthetic
+  only, points custody at two key volumes of its own for its run:
+  1. It stores one synthetic document through the real write path. A control shows that it opens with a matching
+     hash.
+  2. The real staging backup writes a set. The set holds no key file, no wrapped key, no data key and no wrapping key
+     (raw, hex or base64), and no plaintext marker.
+  3. The key is destroyed with the erasure's step, and the live copy is refused. (The erasure command refuses while
+     the POL-10 registry is undecided.)
+  4. The database is removed and re-created. The older set restores into it with its rows and sealed file, and the
+     restored document is refused with `custody_key_destroyed`. The restored file holds no plaintext.
+- **The drill on the dev box, 2026-10-24** (`scripts/restore_drill.sh` at `4d8f7b9`) **54 of 54 PASS**, the custody leg's 11 among them, and the off-site
+  leg reported NOT RUN. Measured: backup 4 s; recovery from an empty host to serving 86 s; restore, post-restore and
+  start alone 40 s. The first run that day (at `e2d132e`) found, and the branch fixed: `compose run -v` with the bare
+  volume name made a global volume rather than the project's, so the backup saw no custody file and refused; and the
+  set checks then passed over an empty directory (they now require the set's files to have been read). The stray
+  global volume was removed.
+- **NOT RUN: the off-site, object-locked copy.** It is reached only through the host's backup fabric, never from this
+  repository. The live-chain drill (the key directories shown absent from every backup set, including the off-site
+  leg) is an item of the go/no-go evidence (`029` section 11).
+- **Owner decisions left open (`211.7.9`):** the custody location, the access rule (D-51 proposes decision-makers
+  only), the recovery holder and time bound, the escrow location, and the provider copy's treatment with POL-10.
+- **Evidence.**
+  - `tests/test_custody_encryption.py`: 15 tests, mapped under `P6_SUPPORTING` in group "9kg.34". They cover
+    encrypt, retrieve, destroy-key, the restore of an older backup through the real backup and restore commands,
+    recovery, migration, the start-up guards, the erasure step and the registry change, and the drill's shape.
+  - `tests/test_agreement_custody.py`: the custody fixture holds keys, and the stored file is sealed.
+  - `tests/test_db_roles.py`: `TRIGGER_COUNT` 49.
+  - `tests/conftest.py`: the expected triggers.
+  - `tests/test_database.py`: the approved migrations.
+  - `tests/test_acceptance.py`: the named constraint.
 
 ## 17. The aged-waits health part (9kg.51, 2026-10-23)
 

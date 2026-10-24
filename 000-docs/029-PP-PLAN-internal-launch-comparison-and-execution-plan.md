@@ -301,7 +301,7 @@ screen shows its age (`9kg.41`); the stage, item and pause classes are counted b
 | Model inputs and results | PostgreSQL (none at launch) | dumps | yes | none at launch |
 | Staff notes, drafts, items and resolutions | PostgreSQL | dumps | resolutions yes | retention period |
 | Evidence observations and digests | PostgreSQL | dumps | yes (no raw bytes, P3-D-13) | retention period |
-| Signed documents | custody directory (plaintext today) | the custody copy in every backup set; the provider's copy | yes | encryption and key destruction (`9kg.34`); the provider's copy under P4-D-15 |
+| Signed documents | custody directory, sealed at rest under per-document keys (`9kg.34`); the keys in a key directory and its live mirror, outside the backup | the sealed custody copy in every backup set (no key in any); the provider's copy | yes | BUILT (`9kg.34`): registry row `signed_documents` takes `retain` or `destroy_key`; the location, access rule and key recovery are the owner's (`211.7.9`, `agreements/custody_policy.py`, shipped undecided); the provider's copy under P4-D-15 until POL-10 |
 | Logs and receipts | host | the host archive | no | code-only by design (TEST-P6-13, 35) |
 | Backups | the dump and custody set | the host archive, the off-site leg (object-locked) | by policy | the erasure record replayed on restore (`9kg.25`); object-locked copies age out, never purge one person |
 | The effect journal (`9kg.33`): public references, opaque staff references, group names, codes, digests, counts and times; no address, name, body or username | the journal volume on the host, outside the backup | the host archive (the volume is the restore's evidence) | yes (append-only, hash-chained; the owner's repair journals itself) | retention and erasure treatment under POL-10 (`211.7.1`): the durable erasure record shares the file (`9kg.32`, section 6.2); kept at least as long as the oldest restorable backup (registry rows `erasure_record`, `effect_journal`) |
@@ -309,7 +309,7 @@ screen shows its age (`9kg.41`); the stage, item and pause classes are counted b
 | Invitations (the email key, the issuer, the note, the recorded notice and invitation wording digests) | PostgreSQL | dumps; the host archive; the off-site leg | yes (trigger, `9kg.43`, `9kg.52`) | BUILT (`9kg.32`, class `invitations`): the email key becomes a unique tombstone and the note `[erased]` under the audited exception; issuer, times and digests kept; counsel decides the registry row (POL-10) |
 | First-generation agreement-on-file records (the email key, the agreement version labels, the recorder) | PostgreSQL | dumps; the host archive; the off-site leg | yes (trigger, `9kg.52`) | BUILT (`9kg.32`, class `member_on_file`): the email key becomes a unique tombstone under the audited exception; the labels and the attestation kept as the reason a decline was never recorded; counsel decides the registry row (POL-10) |
 
-### 6.2 The erasure design (`9kg.32` built; `9kg.25` and `9kg.34` to build; `9kg.33` built)
+### 6.2 The erasure design (`9kg.32`, `9kg.33` and `9kg.34` built; `9kg.25` to build)
 
 - An erasure is an authorized command run by the retention role, never by web or worker, under POL-10.
 - The smallest durable erasure record (keyed hashes of the erased identifiers, the time and the authority; never a
@@ -344,8 +344,12 @@ screen shows its age (`9kg.41`); the stage, item and pause classes are counted b
   off-host shipping of the journal with a head mirror and a lag alert (the journal's own RPO); rotation into chained
   segments tied to backup retention; a test enumerating every effectful write path by class; an item per queued
   send with no copy instead of the blanket `--outward-checked`.
-- **Custody** (`9kg.34`): approved storage and access, a reviewed library, a recoverable key strategy, and a proof
-  that an old backup cannot recover a destroyed key. Disk encryption is not per-subject erasure.
+- **Custody** (`9kg.34`, built 2026-10-24; section 6.2.2 and `026` section 16): every custody document is sealed
+  with AES-256-GCM from a reviewed library under its own data key, wrapped under one wrapping key; the wrapped keys
+  live in a key directory and its live mirror, outside the database, the custody directory and every backup set, so a
+  restore can never bring a destroyed key back. Recovery: the escrow holds the wrapping key only, and destruction
+  reaches the mirror first. The approved storage location and access rule remain the owner's (`211.7.9`) and are
+  configuration that refuses in a live environment while undecided. Disk encryption is not per-subject erasure.
 
 #### 6.2.1 The erasure path as built (`9kg.32`, 2026-10-24; revised after the PR #99 reviews)
 
@@ -360,7 +364,7 @@ value `undecided`.
 - Sixteen subject classes take `anonymize` or `retain`: `application_identity`, `submissions`, `history_events`,
   `mail_derivatives`, `staff_notes`, `agreement_records`, `decisions`, `evidence`, `provisioning_records`,
   `invitations`, `member_on_file`, `pauses`, `jobs`, `audit_residue`, `throttle_keys`, `admin_log`.
-- `signed_documents` takes `retain` only, until `9kg.34` adds key destruction.
+- `signed_documents` takes `retain` or `destroy_key` (`9kg.34`, section 6.2.2).
 - `provider_copies` takes `manual_handoff`.
 - `erasure_record` and `effect_journal` take `retain`, with a period at or above the oldest restorable backup.
 
@@ -421,8 +425,9 @@ or a step added later (`9kg.34`) still reaches an already-erased subject.
 - writes an `erasure_erasureaudit` row (codes and the public reference only; its transaction id, time and login set
   by trigger; append-only for every role);
 - sets each anonymized class to its tombstones;
-- reports the provider handoffs owed (`documenso`, `mail_sent`, `mail_inbox`, `mail_host_mailbox`, `model_provider`)
-  and what it retains (`custody_documents` until `9kg.34`).
+- reports the provider handoffs owed (`documenso`, `mail_sent`, `mail_inbox`, `mail_host_mailbox`, `model_provider`),
+  what it retains (`custody_documents` when the subject has stored documents) and, since erasure migration 0003
+  (`9kg.34`), the subject's custody key references and how many of its documents are still in the clear.
 
 A run with nothing to change returns `nothing_to_erase` and writes nothing.
 
@@ -516,14 +521,16 @@ operating rule is that the function is called only through the command, and only
 
 Class names are append-only: a renamed class would orphan recorded intents.
 
-**What `9kg.34` (custody) needs.**
+**What `9kg.34` (custody) needed, as built** (section 6.2.2):
 
-- Add a destruction treatment to the `signed_documents` row and a class vocabulary for custody.
-- Add a key-destruction step to the function, reachable for an already-tombstoned subject.
-- Give `agreements_storeddocument` its own trigger branch if any column changes.
-- Keep the keys outside the backup's rollback domain.
+- a destruction treatment, `destroy_key`, on the `signed_documents` row;
+- a key-destruction step reachable for an already-tombstoned subject: the function names the key references and the
+  command destroys the keys;
+- no trigger branch on `agreements_storeddocument`: no column changes (the keys are outside the database);
+- the keys outside the backup's rollback domain.
 
-Until then the custody PDFs are retained, and the erasure says so (`retained: ["custody_documents"]`).
+Under `retain` the custody PDFs stay, and the erasure says so (`retained: ["custody_documents"]`); under
+`destroy_key` they stay sealed and unreadable, and the erasure counts `keys_destroyed`.
 
 **Owner decisions recorded, not built.**
 
@@ -544,6 +551,71 @@ Until then the custody PDFs are retained, and the erasure says so (`retained: ["
 - The admin log is anonymized only for the application's own rows.
 - After an erasure the owner runs `VACUUM` on the touched tables, so the old row versions leave the data files.
 - As for every ADR-14 guard, the owner can replace these functions and a superuser bypasses them.
+
+#### 6.2.2 Custody encrypted at rest (`9kg.34`, 2026-10-24)
+
+Council record `030` Q3 and Q4 (D-51) set the shape: build now as repo-only work; keys held outside the application
+backup's rollback domain; encryption before the Documenso canary; key destruction in the erasure map. The design is
+in `agreements/keystore.py`; the operations record, the drill and the evidence are in `026` section 16.
+
+**Encryption.** The reviewed `cryptography` library's AES-256-GCM, nothing bespoke. Each document has its own random
+256-bit data key, stored only wrapped under the wrapping key. The sealed file binds its own name and key reference.
+A `CustodyEnvelope` row (insert-only) names the sealed file, the key reference and the sealed bytes' digest and size.
+`StoredDocument.sha256` is still the plaintext's hash, checked after opening. A write refuses without keys, in every
+environment.
+
+**Keys outside the rollback domain.** The wrapped keys live in `CATALYST_CUSTODY_KEY_DIR` and its live mirror
+`CATALYST_CUSTODY_KEY_MIRROR_DIR`, never in the database or the custody directory:
+
+- the backup copies neither, by construction (the set holds only table copies and the custody files its snapshot
+  names);
+- the guards refuse a key directory inside or around the custody directory, the journal or the repository;
+- the backup refuses to hold the wrapping key or to overlap a key directory.
+
+A restore of an older backup therefore brings back rows and sealed files, never a key.
+
+**Who holds the wrapping key** (`custody_wrapping_key`, a secret file of 64 hex characters, distinct from every other
+key):
+
+- the web process (retrieval, decision-makers only, P4-D-16), the worker (custody writes) and the owner-run custody
+  commands may hold it;
+- the fetcher and the post-restore step refuse to start with it;
+- `catalyst_backup` and `catalyst_erase` refuse to run with it.
+
+**Recovery that cannot defeat destruction.**
+
+- The escrow holds the wrapping key only; it can never recover a destroyed data key.
+- The mirror is a live copy that destruction reaches first, never a point-in-time one.
+- `catalyst_custody_keys --recover` (the named holder) re-aligns the two from the copy that survives, never restoring a
+  key the journal records as destroyed, and finishes any half-done destruction.
+- Neither key directory may be in a versioned backup (an operator rule for the `9kg.28` host list).
+
+**The erasure step.** Under `destroy_key`:
+
+- the subject's keys are destroyed after the database transaction and before the completion, each journaled
+  (`custody_key_destroyed`) before its files are unlinked, mirror first;
+- the completion counts `keys_destroyed`, and `custody_documents` leaves `retained`;
+- a subject with a document still in the clear is refused before any record;
+- an interrupted destruction is finished by the next run or by recovery.
+
+**What `9kg.25` (replay) needs from custody:** nothing to replay. A destroyed key is outside the rollback domain, so a
+restored row already points at a sealed file nobody can open. The hook: the journal's `custody_key_destroyed` entries
+name every destroyed key, if replay ever needs to report them.
+
+**Migration.** `catalyst_custody_keys --migrate --confirm` seals each document stored in the clear before this change,
+verifies it, commits its envelope and removes the plaintext; `--status` reports what remains.
+
+**Owner decisions left open (`211.7.9`).** These are rows of `agreements/custody_policy.py`, shipped `undecided`; a
+live environment refuses custody while any is open:
+
+- the location;
+- the access rule (D-51 proposes decision-makers only);
+- the recovery holder and time bound (proposed: the owner, within 24 hours);
+- the escrow location (proposed: the estate's encrypted secret store);
+- the provider copy's treatment, with POL-10.
+
+**Scope.** The claim covers v2's custody copy only; the provider's copy is under P4-D-15 until POL-10, and every
+custody command and the erasure output say so.
 
 ## 7. Launch manifest (to be approved at `9kg.31.6`)
 
@@ -656,7 +728,10 @@ The package (`9kg.31.4` drafts it; `9kg.31.6` decides) names:
 1. the exact release commit and image digest, and the effective repository controls (readback);
 2. the target, routes, cohort, staff roles and enabled features;
 3. the approved policies and notices for the actual data and use;
-4. the backup, restore, erasure and reconciliation evidence;
+4. the backup, restore, erasure and reconciliation evidence, including the live-chain custody drill (`9kg.34`): the
+   custody key directories shown absent from every backup set, the off-site object-locked copy included, and a
+   restore of a set taken before a key's destruction shown unable to open that document (the repository drill
+   cannot reach the off-site leg; `026` section 16);
 5. the canary evidence and the agreement versions;
 6. the remaining disabled capabilities and their verified enforcement (and the statement that no synthetic
    assessment evidence is model-quality evidence);
