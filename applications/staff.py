@@ -67,6 +67,8 @@ REASONS = {
     "agreement_custody_failed": "the signed copy could not be stored; retry custody on the agreements screen",
     "agreement_provider_unavailable": "the signing provider could not be reached",
     "provisioning_activation_blocked": "activation is blocked; fix the cause, then retry activation",
+    "agreement_reference_needs_decision": "the NDA is on file from the first generation but the User Agreement is not;"
+                                          " nothing is issued until the owner decides",  # 9kg.52, D-15
 }
 
 

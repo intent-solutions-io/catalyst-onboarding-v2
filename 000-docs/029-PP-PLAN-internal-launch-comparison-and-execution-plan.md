@@ -304,6 +304,8 @@ screen shows its age (`9kg.41`); the stage, item and pause classes are counted b
 | Logs and receipts | host | the host archive | no | code-only by design (TEST-P6-13, 35) |
 | Backups | the dump and custody set | the host archive, the off-site leg (object-locked) | by policy | the erasure record replayed on restore (`9kg.25`); object-locked copies age out, never purge one person |
 | Selection-review material | none in the repository (`f1u.4`) | private location to approve | — | `f1u.4` |
+| Invitations (the email key, the issuer, the note, the recorded notice and invitation wording digests) | PostgreSQL | dumps; the host archive; the off-site leg | yes (trigger, `9kg.43`, `9kg.52`) | PROPOSED: anonymize the email key to a unique tombstone under the audited exception when `9kg.32` lands; issuer, times and digests kept; counsel decides (POL-10) |
+| First-generation agreement-on-file records (the email key, the agreement version labels, the recorder) | PostgreSQL | dumps; the host archive; the off-site leg | yes (trigger, `9kg.52`) | PROPOSED: anonymize the email key to a unique tombstone under the audited exception when `9kg.32` lands; the labels and the attestation kept as the reason a decline was never recorded; counsel decides (POL-10) |
 
 ### 6.2 The erasure design (proposed; `9kg.32`, `9kg.25`, `9kg.33`)
 
@@ -794,6 +796,58 @@ account, owner-run as the migration owner), the append-only record `accounts.Sta
   scans `000-docs` for grant statements and for instructions to open a shell session.
 - **Reviewer:** `catalyst-django-operator` (the roster in `008`); the owner approves the role names.
 
+### 17.2 The data notice, the member-on-file record and the decline refusal (`9kg.52`)
+
+**Built:** the one-paragraph data notice of `030` Q8 as the message template `data_notice` and the invitation mail as
+`invitation` (correspondence migration 0018), `applications.notices` with the template source
+`correspondence.notices` behind `CATALYST_NOTICE_SOURCE`, the notice on the request-access page in invitation mode,
+`catalyst_invite` printing the mail (JSON or `--format text`) and recording the notice's version and digest and the
+invitation wording's digest on the row (applications 0007, fixed by trigger in 0008); the record
+`applications.MemberAgreementOnFile` and `manage.py catalyst_member_on_file` (`030` Q4); the agreement path's
+"referenced" state (`agreements.completion.referenced`); the decline refusal (`018` section 20). Tests:
+`tests/test_intake_notice.py`.
+
+- **Default built on:** the council's Q8 content list (what is collected, who sees it, that no model reads it and no
+  link is fetched, how to withdraw and how to request erasure) and its Q4 answer ("referenced, not re-signed", recorded
+  by hand from the private roster, no legacy identifier, no document copy). The wording is the owner's to approve with
+  the templates (`211.7.7`); the seeded placeholder holds the content list with bracketed slots where counsel must
+  state the recipients, the withdrawal route and the erasure route. **The erasure sentence depends on POL-10 and on
+  the treatment of the two rows added to section 6.1**; it cannot be approved before them.
+- **One template, two surfaces, never a constant.** The page and the mail render the same approved version. In
+  `development`, `test` and `staging` (`config.guards.DRAFT_WORDING_ENVIRONMENTS`, listed by name) an unapproved
+  version renders with a visible draft marker; anywhere else the page is withheld (503, a sampled reason-code log
+  line), no invitation is issued, and the health report names `data_notice_unapproved`. The same holds for an approved
+  version still marked synthetic, for a withdrawn one (the newest approved-or-retired version is retired: nothing
+  older is served instead) and for a broken placeholder.
+- **The member-on-file record.** The owner names which agreement types are covered (`--nda`, `--user-agreement`),
+  each with its version as a plain label, and `--completion-verified`; the address must already be known to v2 (an
+  invitation or an application). Labels and the recorder match an allowlist (letters, digits, spaces and `.,()+-`; no
+  `@`; no run of 20 characters without a space). The same coverage again is a no-op; different coverage needs
+  `--correct` and supersedes the live row, and the dossier names what it was corrected from. The application role
+  only reads it; every column is fixed by trigger; nothing is deleted. The dossier says the completion was verified
+  by the owner off-system (attested, not read from the provider).
+- **Referenced, not re-signed.** A covered required type with no live instance is "referenced": the automated start
+  does not issue a covered NDA (it starts the sequence at the advance), `completion.next_step` and `prerequisites`
+  treat it as satisfied by the reference (the prerequisite digest binds the record, so a correction changes it), the
+  provider read before provisioning covers only issued types, and the agreements screen shows "first-generation
+  agreement on file, version X, referenced; counsel confirms coverage before launch" with no issue action and no
+  details form. It is never a verified instance, so the signing, custody and countersignature paths are untouched. An
+  uncovered type is still issued, with one exception the database decides: the D-15 backstop (agreements 0002 and
+  0006) refuses any User Agreement without a verified NDA instance, so a member whose record covers the NDA but not
+  the User Agreement gets nothing issued and an owner item (`agreement_reference_needs_decision`) instead. **Owner
+  decision needed:** record the User Agreement as on file too, or decide a change to D-15 that accepts the
+  reference. Recommended (recorded on the legal-posture bead, 2026-10-24): the first, so a member on file has both
+  agreements covered and D-15 stays as it is. The owner's activation still requires an approved NDA template, which
+  the cohort needs for new participants anyway.
+- **Counsel's confirmation of coverage** (the compromise of D-D, `030` Q4) is the owner's go/no-go item for the
+  internal launch (section 11): v2 records the reference, it does not decide that the first-generation agreement
+  covers v2's use. Until counsel confirms, the reference is the owner's attestation only.
+- **No v2 decline for an existing member** (`030` Q8): the decision service refuses a decline while a live record
+  exists (`decline_refused_member_on_file`) and the decision form does not offer it; hold, or withdraw through the
+  withdrawal path, instead.
+- **Not done here:** the real wording and counsel's answers; the erasure treatment of the two section 6.1 rows
+  (`9kg.32`); the private roster, which stays outside the repository.
+
 ## Appendix A. Reconciliation of the 2026-10-22 audit findings
 
 The refreshed application audit of 2026-10-22 (a private review pack; only its repository-relevant findings are
@@ -969,9 +1023,11 @@ synthetic evidence only.
   is shown refused (row 31).
 - **Model advice (disabled):** the advisory reply reading on the reply screen, the assessment rerun, and model-assisted
   decisions. Every decision is human-only (rows 10, 30).
-- **Agreement paths skipped for a member on file:** if `211.7.6` decides that an existing member's agreements on file
-  stand, then for that member the agreement sequence, the countersignature wait, custody and required details (rows 14
-  to 21) are not exercised.
+- **Agreement paths skipped for a member on file:** for a member whose first-generation agreements are recorded on
+  file (`9kg.52`, section 17.2), the agreements screen shows each covered type as referenced and issues nothing, so
+  the agreement sequence, the countersignature wait, custody and required details (rows 14 to 21) are not exercised
+  for that member. The decision screen offers that member no decline (`030` Q8). This walkthrough predates the merge
+  of `9kg.52` and did not walk the referenced state; its own tests are in section 17.2.
 - **Provider-fault states, unless a canary provokes them:** the uncertain send (row 6), the uncertain Documenso
   create, distribute and cancel (rows 18 to 20), and the integrity hold (row 17) appear only on a provider fault. Their
   evidence is the synthetic tests cited above.

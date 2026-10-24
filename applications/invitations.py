@@ -43,14 +43,19 @@ def consume(application) -> bool:
                 .update(used_at=Now(), application=application, updated_at=Now()))
 
 
-def issue(email: str, issued_by: str, lifetime: timedelta, note: str = "") -> tuple[Invitation, int]:
+def issue(email: str, issued_by: str, lifetime: timedelta, note: str = "", *, mail) -> tuple[Invitation, int]:
     """Owner path only (the application role may not insert). Supersedes the live invitation for the address, if any,
-    and issues a new one. Returns it and how many were superseded (0 or 1)."""
+    and issues a new one, recording which wording its mail carries (9kg.52: `mail` is the
+    `applications.notices.InvitationMail` rendered before any write; the notice's version and digest and the
+    invitation template's digest are fixed on the row). Returns it and how many were superseded (0 or 1)."""
     key = email_key(email)
     with transaction.atomic():
         superseded = Invitation.objects.filter(email_key=key, used_at__isnull=True, superseded_at__isnull=True).update(
             superseded_at=Now(), updated_at=Now())
-        invitation = Invitation.objects.create(email_key=key, issued_by=issued_by, note=note, expires_at=Now() + lifetime)
+        invitation = Invitation.objects.create(
+            email_key=key, issued_by=issued_by, note=note, expires_at=Now() + lifetime,
+            notice_template_version=mail.notice.version, notice_sha256=mail.notice.sha256,
+            mail_template_sha256=mail.template.sha256)
         invitation.refresh_from_db()  # the database clock's values, not the expressions
     return invitation, superseded
 
@@ -63,6 +68,13 @@ def state(invitation) -> str:
     return "live" if invitation.unexpired else "expired"
 
 
+def _notice(invitation) -> str:
+    """9kg.52: which data notice the invitation mail carried."""
+    if invitation.notice_template_version is None:
+        return "issued before the data notice existed"
+    return f"its mail carried data notice version {invitation.notice_template_version}"
+
+
 def describe(application) -> str:
     """One line for the staff dossier: the mode, and this applicant's invitation if the mode needs one."""
     if not required():
@@ -70,9 +82,10 @@ def describe(application) -> str:
     invitations = Invitation.objects.annotate(unexpired=Q(expires_at__gt=Now()))  # database clock
     used = invitations.filter(application=application).order_by("-used_at").first()
     if used is not None:
-        return f"invitation-only: invitation used at {used.used_at:%Y-%m-%d %H:%M:%S} UTC (issued by {used.issued_by})"
+        return (f"invitation-only: invitation used at {used.used_at:%Y-%m-%d %H:%M:%S} UTC (issued by {used.issued_by};"
+                f" {_notice(used)})")
     live = invitations.filter(LIVE, email_key=application.email_key).first()
     if live is not None:
-        return (f"invitation-only: live invitation until {live.expires_at:%Y-%m-%d %H:%M:%S} UTC (issued by {live.issued_by});"
-                " it is spent when the applicant confirms")
+        return (f"invitation-only: live invitation until {live.expires_at:%Y-%m-%d %H:%M:%S} UTC (issued by {live.issued_by};"
+                f" {_notice(live)}); it is spent when the applicant confirms")
     return "invitation-only: no live invitation for this address; a confirmation would be refused"

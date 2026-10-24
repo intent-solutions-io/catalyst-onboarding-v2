@@ -5,6 +5,12 @@
 {% if error %}<p class="refused" role="alert">{{ error }}</p>{% endif %}
 {% if handoff %}<p>Provisioning hand-off: {{ handoff.status }} (held until the owner releases it with activate_provisioning; nothing else runs it).</p>{% endif %}
 
+{% for ref in referenced %}
+<section aria-labelledby="ref-{{ ref.type.key }}">
+<h2 id="ref-{{ ref.type.key }}">{{ ref.type.key }} &middot; referenced</h2>
+<p class="referenced">First-generation agreement on file, version <bdi>{{ ref.label|visible }}</bdi>, referenced; counsel confirms coverage before launch. Nothing is issued for this type.</p>
+</section>
+{% endfor %}
 {% for row in rows %}
 <section aria-labelledby="ag-{{ row.instance.public_id }}">
 <h2 id="ag-{{ row.instance.public_id }}">{{ row.type.key }} &middot; instance {{ row.instance.public_id }}</h2>
@@ -81,7 +87,7 @@
 <p>Automatic checking for a late envelope under an earlier key ended unresolved.</p><button>Look again (bounded)</button></form>
 {% endif %}{% endfor %}
 </section>
-{% empty %}<p>No agreements yet.</p>
+{% empty %}{% if not referenced %}<p>No agreements yet.</p>{% endif %}
 {% endfor %}
 
 {% for d in details %}

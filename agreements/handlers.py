@@ -250,10 +250,22 @@ class IssueAgreement(_AgreementAction):
         decision = (QualificationDecision.objects.filter(application=application, outcome="admit").order_by("-id").first())
         if decision is None or str(decision.public_id) != claim.input_ref:
             return held("decision_changed")
+        from .completion import details_confirmed, enqueue_advance, referenced  # completion builds on this module
+
+        if "nda" in referenced(application):
+            # 9kg.52 (030 Q4): the NDA is on file from the first generation, so it is referenced, never issued. The
+            # sequence starts at the advance, which issues the first type the record does not cover (or hands off).
+            def start_referenced():
+                transition(application.pk, (Stage.ADMITTED,), Stage.AGREEMENTS, event_kind="agreements_started",
+                           data={"decision": claim.input_ref, "referenced": sorted(referenced(application))},
+                           actor_ref=f"pending_action:{claim.id}")
+                event(application, "agreement_referenced", {"types": sorted(referenced(application))},
+                      actor_ref=f"pending_action:{claim.id}")
+                enqueue_advance(application)
+            return Decision(Status.DONE, write=start_referenced)
         version = approved_version("nda")
         if version is None:
             return held("no_approved_template")
-        from .completion import details_confirmed  # completion builds on this module
 
         if not details_confirmed(application, version.agreement_type):
             from .completion import DETAILS_NEEDED

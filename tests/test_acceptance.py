@@ -300,6 +300,8 @@ DATABASE_CONSTRAINTS = {
     "revocation_one_per_kind", "revocation_kind_valid", "revocation_state_valid", "revocation_exception_decided",  # 5B.3
     "withdrawal_token_unique", "withdrawal_one_live_per_application", "withdrawal_state_valid", "withdrawal_has_requester",
     "invitation_one_live_per_email_key", "invitation_expires_after_issue", "invitation_has_issuer",  # 9kg.43
+    "member_on_file_one_live_per_email_key", "member_on_file_completion_verified",  # 9kg.52
+    "member_on_file_covers_something", "member_on_file_has_recorder",
     "stored_document_one_per_item", "stored_document_signed_only", "document_access_outcome_valid",  # 4B.3
     "details_one_per_version", "details_status_valid", "details_confirmed_has_actor",
 }
