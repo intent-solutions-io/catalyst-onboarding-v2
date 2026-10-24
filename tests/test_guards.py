@@ -201,6 +201,24 @@ def test_9kg_33_the_effect_journal_directory_is_required_outside_the_local_envir
     assert guards.journal_problems(SimpleNamespace(CATALYST_ENV="production", CATALYST_EFFECT_JOURNAL_DIR="")) == []  # refused elsewhere
 
 
+def test_9kg_33_the_fetcher_starts_without_a_journal_and_a_journaling_process_does_not(tmp_path, monkeypatch, settings):
+    """9kg.63 (found by the deploy drill): the staging fetcher is a worker with the fetcher role whose journal setting
+    names a directory it never mounts; it must start, while a web or worker process with a missing directory is
+    refused."""
+    missing = str(tmp_path / "effects-none")
+    settings.CATALYST_EFFECT_JOURNAL_DIR = missing
+    # At start-up the worker command has not declared its kind yet (the check runs in ready()), so it is "management".
+    for kind in ("management", "worker"):
+        monkeypatch.setattr(guards, "_process_kind", lambda kind=kind: kind)
+        assert guards.journal_problems(staging(CATALYST_EFFECT_JOURNAL_DIR=missing, CATALYST_PROCESS_ROLE="fetcher")) == []
+    for kind in ("management", "web", "worker"):
+        monkeypatch.setattr(guards, "_process_kind", lambda kind=kind: kind)
+        assert guards.journal_problems(staging(CATALYST_EFFECT_JOURNAL_DIR=missing, CATALYST_PROCESS_ROLE="")) == [
+            "CATALYST_EFFECT_JOURNAL_DIR is missing: a private (0700) directory this process can write"]
+    # A web process may not carry the fetcher role at all, so the exemption cannot reach the web path.
+    assert guards.process_role_problems(staging(CATALYST_PROCESS_ROLE="fetcher"), "web")
+
+
 def test_6b1_review_staging_refuses_a_private_mail_peer_like_development(settings):
     from correspondence import transport
 

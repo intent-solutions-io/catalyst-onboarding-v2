@@ -1551,6 +1551,7 @@ P6_SUPPORTING = {
         "test_post_restore::test_9kg_33_the_restore_drill_pins_its_shape_for_the_effect_reconciliation",
         "test_startup::test_9kg_33_a_deployment_needs_an_effect_journal_directory_outside_the_repository",
         "test_guards::test_9kg_33_the_effect_journal_directory_is_required_outside_the_local_environments",
+        "test_guards::test_9kg_33_the_fetcher_starts_without_a_journal_and_a_journaling_process_does_not",
     ],
     "9kg.49 the read-only Sent-folder evidence source and the production mail-host allow-list (029 section 5.2)": [
         "test_inbound::test_9kg_49_an_uncertain_send_is_settled_as_sent_by_a_provider_copy_in_the_sent_folder",
@@ -1746,7 +1747,7 @@ DRILL_ENVIRONMENT = "staging stack on the dev box"
 # The drill scripts: the commit whose 026 section 16 record holds the drill's result, and that record.
 DRILLS = {
     "scripts/staging_check.sh": {"revision": "a5a19fd", "record": "026 section 16, 6B.11 part 1 (PR #75); the dark deploy at 2cb12cf (PR #79)"},
-    "scripts/deploy_drill.sh": {"revision": "74cbb53", "record": "026 section 16, 6B.10 (PR #73); batch 2 at main (PRs #82 to #85)"},
+    "scripts/deploy_drill.sh": {"revision": "74cbb53", "record": "026 section 16, 6B.10 (PR #73); batch 2 at main (PRs #82 to #85); 9kg.63 under invitation-only intake"},
     "scripts/alert_drill.sh": {"revision": "ae10624", "record": "026 section 16, 6B.12 (PR #77)"},
     "scripts/restore_drill.sh": {"revision": "472789c", "record": "026 section 16, 6B.13 (PR #78)"},
     "scripts/cutover_rehearsal.sh": {"revision": "2cb12cf", "record": "026 section 16, 6B.11 part 3 (PR #79)"},
@@ -1757,7 +1758,6 @@ RESIDUAL_BOUNDARIES = {  # the earliest boundary each residual bead blocks (029 
     "9kg.28": "the dark deploy (9kg.31.5)",
     "9kg.39": "enabling fetching",
     "9kg.31.5": "the go/no-go (9kg.31.6)",
-    "9kg.63": "release preparation (9kg.31.4)",
 }
 REVISION = re.compile(r"^([0-9a-f]{7,40}|[0-9]{8,})$")  # a commit, or a workflow run id
 STAGING_CHECK, DEPLOY_DRILL, ALERT_DRILL, RESTORE_DRILL, CUTOVER = (
@@ -1796,11 +1796,9 @@ P6_EVIDENCE = {
     "TEST-P6-23": {"proofs": ["pytest", RESTORE_DRILL]},
     "TEST-P6-24": {"proofs": [DEPLOY_DRILL, "pytest"], "pytest": "shape",
                    "since_028": "9kg.37 (PR #84): a stale backup receipt and another deploy's backup are refused, drilled"},
-    "TEST-P6-25": {"proofs": [RESTORE_DRILL, DEPLOY_DRILL, "pytest"], "pytest": "shape", "partial": "9kg.63",
-                   "residual": "the deploy drill's data-kept check in the N+1 block fails under the invitation-only intake "
-                               "default since PR #85 (59 of 60 on 2026-10-23); the drill must issue an invitation before "
-                               "each submission and be re-run green; 9kg.38 (PR #84) drilled the N+1 expand reverted to N on "
-                               "the expanded schema and a contract revert refused, 60 of 60, before PR #85 changed the default"},
+    "TEST-P6-25": {"proofs": [RESTORE_DRILL, DEPLOY_DRILL, "pytest"], "pytest": "shape",
+                   "since_028": "9kg.38 (PR #84): the N+1 expand reverted to N on the expanded schema and a contract revert "
+                                "refused, drilled 60 of 60; drilled 60 of 60 again under invitation-only intake (9kg.63)"},
     "TEST-P6-26": {"proofs": [CUTOVER, "pytest"], "pytest": "shape",
                    "environment": "a stand-in Learn site beside the staging stack on the dev box",
                    "note": "proven on a stand-in Learn site; the live Learn read awaits its preconditions and the owner's go"},

@@ -1701,6 +1701,37 @@ personal-data scan and the pause-row guard (TEST-P6-35).**
   clean deploy keeps exactly one receipt at mode 0640), `tests/test_acceptance.py` (the register) and
   `tests/test_pause_guard.py` (the guard, through real connections as each role); the drill log above.
 
+**9kg.63, the deploy drill under invitation-only intake (2026-10-24; follows PL batch 5).**
+
+- **Built:** `scripts/deploy_drill.sh` issues an invitation before each intake submission, as `scripts/restore_drill.sh`
+  does since PR #89: `invite` runs the owner-run `catalyst_invite` on the serving image as the migration owner
+  (`compose run --rm --no-deps -T migrate`), and `submit` returns failure unless the invitation was issued, so a
+  refused invitation fails the submission's check rather than letting a count compare equal numbers. The invitation
+  sits inside `submit`, so the drill's case list and count (60) are unchanged. `tests/test_release.py` (the 9kg.38
+  test, TEST-P6-25) pins the order: the invitation before the form post, through the owner-run command.
+- **Found on the first run and fixed here:** the drill's first smoke failed with "fetcher is not stable". Since PR #89
+  (9kg.33) the staging fetcher names an effect-journal directory it never mounts
+  (`/var/lib/catalyst/effects-none`, on purpose: it makes no effect), but the start-up check required every staging
+  process's directory to exist, so the fetcher refused to start and crash-looped; the deploy smoke's stability check
+  caught it. `config.guards.journal_problems` now exempts the fetcher role (read from `CATALYST_PROCESS_ROLE`, since
+  the check runs before the worker command declares its kind; a web process may not carry that role at all,
+  `process_role_problems`); every other process still needs a private, writable directory.
+  `tests/test_guards.py` covers both sides. The restore drill and `scripts/staging_check.sh` start the same fetcher
+  and were not re-run here.
+- **The drill on the dev box, 2026-10-24**, `scripts/deploy_drill.sh` with the estate wrapper, run against `main` at
+  `dba8a85` (PR #93) with this change's drill script and start-up check in the image (the image is built from the
+  working tree and labelled with `HEAD`): **60 of 60 PASS, exit 0, 17 minutes 22 seconds.** Two earlier runs that
+  day stopped early on the fetcher fault above (the first before the guard change, the second with a kind-based
+  exemption that never applied at start-up); both were interrupted and their stacks, images and work directories
+  removed by hand. In the green run every TEST-P6-25 case passed: an applicant accepted on N, on N+1 and on N after
+  the revert, "the data is kept across the revert: both applicants are still there", and the contract revert refused
+  with every applicant untouched; the receipt step's scan printed `2 files, 32 lines, 0 hits` in all four receipt
+  cases.
+- **Case status in the register:** TEST-P6-25 is full again (its `since_028` note names 9kg.38, PR #84, and this
+  re-run); the residual bead `9kg.63` leaves `RESIDUAL_BOUNDARIES`. The register totals become 24 full and 14
+  partial; proven by a full run stays 19, since TEST-P6-25's gated tests pin the shape and the drill shows the
+  behaviour.
+
 ## 17. The aged-waits health part (9kg.51, 2026-10-23)
 
 `029` section 5.2 listed the waits with no bound once the first-generation owner notices retire: an application in

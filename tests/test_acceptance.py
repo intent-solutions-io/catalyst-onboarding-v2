@@ -598,12 +598,14 @@ def test_the_evidence_register_reproduces_aar_028_per_case_and_in_total():
             moved[case] = note
         else:
             assert not note, f"{case}: a since_028 note on a case that did not move"
-    # Batch 2 (PR #84) moved 10, 24 and 25 to full; 25 is partial again against 9kg.63, because the deploy drill's
-    # data-kept check fails under the invitation-only intake default since PR #85 (026 section 16, PL batch 5).
-    assert sorted(moved) == ["TEST-P6-10", "TEST-P6-24"]
+    # Batch 2 (PR #84) moved 10, 24 and 25 to full; 25 was partial against 9kg.63 while the deploy drill submitted
+    # without an invitation under the invitation-only default (PR #85), and is full again since the drill invites
+    # before each submission and ran 60 of 60 (026 section 16, the 9kg.63 record).
+    assert sorted(moved) == ["TEST-P6-10", "TEST-P6-24", "TEST-P6-25"]
     summary = acceptance.summarise(acceptance.register({c: "PASS" for c in acceptance.P6_CASES}))
-    assert (summary["full"], summary["partial"], summary["live_only"]) == (23, 15, ["TEST-P6-27"])
-    # 23 full, less the live-only case (recorded, never a pytest result) and the three full shape-only cases (08, 24, 26).
+    assert (summary["full"], summary["partial"], summary["live_only"]) == (24, 14, ["TEST-P6-27"])
+    # 24 full, less the live-only case (recorded, never a pytest result) and the four full shape-only cases (08, 24,
+    # 25, 26): 25 moved back to full adds no proven case, since its gated tests pin the shape and the drill shows it.
     assert summary["proven_this_run"] == 19
     # A partial case is never proven, whatever its gate result, and a failed full case is not proven either.
     rows = acceptance.register({c: "PASS" if c != "TEST-P6-02" else "FAIL" for c in acceptance.P6_CASES})
