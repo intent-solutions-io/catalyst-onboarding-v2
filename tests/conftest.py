@@ -87,6 +87,21 @@ def block_network(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect_ex", _guarded_connect_ex)
 
 
+@pytest.fixture(autouse=True)
+def effect_journal(tmp_path, monkeypatch, settings):
+    """9kg.33: every test gets its own effect journal (workflow.journal), for this process and the child processes
+    it starts (the worker, the owner-run commands), so journaled effects are durable and the post-restore step has
+    evidence to read. Returns the directory."""
+    directory = tmp_path / "effects"
+    directory.mkdir(mode=0o700)
+    settings.CATALYST_EFFECT_JOURNAL_DIR = str(directory)
+    monkeypatch.setenv("CATALYST_EFFECT_JOURNAL_DIR", str(directory))
+    from workflow import journal
+
+    journal._state.usage_cache = None
+    return directory
+
+
 # The public entry's shipped defaults are invitation-only intake and small synthetic limits (9kg.43, 9kg.29;
 # config/settings.py). The suite's journeys submit the public form freely from one test client, so each test starts
 # with the mode open and every limit far above any burst a journey makes; tests/test_invitation.py and

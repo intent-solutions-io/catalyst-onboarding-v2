@@ -67,13 +67,36 @@ def tls_context() -> ssl.SSLContext:
     return ssl.create_default_context(cafile=settings.CATALYST_MAIL_CA_FILE or None)
 
 
-def peer_allowed(peer_ip: str) -> bool:
-    """The connected peer must be loopback, or (in `test` only) the named test service on a private
-    address. Checked after connect and before any further command."""
+def _host_allowed(purpose: str = "smtp") -> bool:
+    """The process kind comes from code (`config.runtime`, declared by each entry point), never only from the
+    environment (PR #89 security review): `web` and `worker` may send and read, `reconcile` may read the Sent folder
+    only, a management process neither in a live environment."""
+    from config import runtime
+
+    return guards.mail_host_allowed(settings.CATALYST_ENV, settings.CATALYST_MAIL_HOST, settings.CATALYST_MAIL_TEST_HOST,
+                                    getattr(settings, "CATALYST_MAIL_ALLOWED_HOSTS", []) or [], runtime.process_kind(),
+                                    purpose=purpose)
+
+
+def mailbox_pinned() -> bool:
+    """9kg.49 (security review): in a live environment the configured mailbox login must hash to the one pinned
+    digest, re-checked here before any credential is sent."""
+    if settings.CATALYST_ENV not in guards.LIVE_ENVIRONMENTS:
+        return True
+    return guards.user_pinned(getattr(settings, "CATALYST_MAIL_USER", ""), getattr(settings, "CATALYST_MAIL_USER_SHA256", ""))
+
+
+def peer_allowed(peer_ip: str, purpose: str = "smtp") -> bool:
+    """The connected peer must be loopback, or (in `test` only) the named test service on a private address, or
+    (9kg.49, a live environment with the allow-listed host) a global unicast address: the production host resolves
+    to the public internet, never to loopback, a private range or a link-local one. Checked after connect and
+    before any further command."""
     try:
         address = ipaddress.ip_address(peer_ip)
     except ValueError:
         return False
+    if settings.CATALYST_ENV in guards.LIVE_ENVIRONMENTS:
+        return _host_allowed(purpose) and address.is_global and not address.is_multicast
     if address.is_loopback:
         return True
     host, test_host = settings.CATALYST_MAIL_HOST, settings.CATALYST_MAIL_TEST_HOST
@@ -109,7 +132,7 @@ def _send_body(smtp: smtplib.SMTP, payload: bytes) -> None:
 
 def send(message_bytes: bytes, mail_from: str, recipient: str) -> SendResult:
     host = settings.CATALYST_MAIL_HOST
-    if not host or not guards.mail_host_allowed(settings.CATALYST_ENV, host, settings.CATALYST_MAIL_TEST_HOST):
+    if not host or not _host_allowed("smtp") or not mailbox_pinned():
         return SendResult(TRANSPORT_BLOCKED, "connect", None, hard=True)
     deadline = time.monotonic() + settings.CATALYST_MAIL_SEND_DEADLINE_SECONDS
 

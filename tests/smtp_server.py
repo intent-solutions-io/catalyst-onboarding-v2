@@ -157,6 +157,38 @@ class ScriptedSMTP:
         return email.message_from_bytes(self.messages[index]["data"], policy=DEFAULT_POLICY)
 
 
+class DirectoryEvidence:
+    """9kg.33: the synthetic evidence source of an owner-run post-restore process, which cannot see this process's
+    server: `*.eml` files written by the test into the directory named by CATALYST_TEST_SENT_DIR, each one message
+    as the server received it (its `To` header is the recipient). A missing directory is an unreachable source."""
+
+    origin = "provider"
+
+    def within(self, since):
+        import os
+
+        from datetime import UTC
+        from email.utils import parseaddr, parsedate_to_datetime
+
+        directory = os.environ.get("CATALYST_TEST_SENT_DIR", "")
+        for name in sorted(os.listdir(directory)):  # a missing directory raises: unreachable, never "no copies"
+            if not name.endswith(".eml"):
+                continue
+            with open(os.path.join(directory, name), "rb") as handle:
+                parsed = email.message_from_bytes(handle.read(), policy=DEFAULT_POLICY)
+            try:
+                observed = parsedate_to_datetime(str(parsed["Date"])).astimezone(UTC)
+            except (TypeError, ValueError):
+                observed = None
+            yield Evidence(origin=self.origin, message_id=str(parsed["Message-ID"] or ""),
+                           recipient=parseaddr(str(parsed["To"] or ""))[1].lower(),
+                           content_sha256=canonical_digest(str(parsed["Subject"]), parsed.get_content()),
+                           filed_by_catalyst=parsed["X-Catalyst-Filed-Copy"] is not None, observed_at=observed)
+
+    def find(self, message_id):
+        return (r for r in self.within(None) if r.message_id == message_id)
+
+
 class ServerEvidence:
     """Declared synthetic evidence (016 A5): what a verified provider source would report. `origin`,
     `recipient` and `digest` overrides let tests present inadmissible records."""
@@ -167,11 +199,15 @@ class ServerEvidence:
     digest = None
 
     def find(self, message_id):
+        for record in self.within(None):
+            if record.message_id == message_id:
+                yield record
+
+    def within(self, since):
+        """Every message the server received (it keeps no dates): the enumeration the post-restore Sent read uses."""
         for item in self.server.messages if self.server else []:
             parsed = email.message_from_bytes(item["data"], policy=DEFAULT_POLICY)
-            if parsed["Message-ID"] != message_id:
-                continue
             digest = self.digest or canonical_digest(str(parsed["Subject"]), parsed.get_content())
-            yield Evidence(origin=self.origin, message_id=message_id,
+            yield Evidence(origin=self.origin, message_id=str(parsed["Message-ID"] or ""),
                            recipient=self.recipient or item["rcpts"][0], content_sha256=digest,
                            filed_by_catalyst=parsed["X-Catalyst-Filed-Copy"] is not None)

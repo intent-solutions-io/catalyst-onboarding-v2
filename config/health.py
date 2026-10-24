@@ -53,6 +53,12 @@ def readiness_problem() -> str:
     except Exception as exc:  # any database failure is "not ready"; the code is logged, never returned
         logger.warning("readiness check failed: %s", type(exc).__name__)
         return "database_unavailable"
+    if settings.CATALYST_ENV not in ("test", "development"):
+        from workflow import journal
+
+        problem = journal.directory_problem(write=True)  # 9kg.33: a web process that cannot journal takes no traffic
+        if problem:
+            return f"effect_journal_{problem}"
     return ""
 
 

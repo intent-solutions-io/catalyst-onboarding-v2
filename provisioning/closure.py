@@ -34,7 +34,7 @@ from applications.links import WITHDRAW_PATH
 from applications.models import TERMINAL_STAGES, Application, ApplicationEvent, Stage
 from applications.stages import transition
 from correspondence.messages import verified_address
-from workflow import ledger
+from workflow import journal, ledger
 from workflow.models import PendingAction
 
 from . import adapter, core, services
@@ -69,6 +69,7 @@ def close_locked(application, outcome: str, reason: str, actor_ref: str, actor_t
         raise services.Refused("unknown_outcome")
     if application.stage in TERMINAL_STAGES:
         raise services.Refused("already_closed")  # P5-D-10: nothing is reopened or closed twice
+    journal.prepare("application_closed", f"application:{application.public_ref}", {"outcome": outcome})  # before commit
     if application.stage == Stage.AGREEMENTS:
         try:
             agreement_services.stop_locked(application, outcome, actor_ref, actor_type=actor_type)
@@ -100,6 +101,8 @@ def close_locked(application, outcome: str, reason: str, actor_ref: str, actor_t
     to = Stage.WITHDRAWN if outcome == "withdrawn" else Stage.CLOSED
     transition(application.pk, (application.stage,), to, event_kind=f"application_{outcome}",
                data={"reason": reason}, actor_type=actor_type, actor_ref=actor_ref)
+    # 9kg.33: a closure after a backup must survive the restore (the effect journal; replayed by provisioning.restore).
+    journal.record("application_closed", f"application:{application.public_ref}", {"outcome": outcome, "phase": "done"})
 
 
 def close_application(application_id: int, user, outcome: str, reason: str) -> None:
@@ -207,8 +210,10 @@ def accept_revocation_exception(revocation_id: int, user, reason: str) -> None:
         row = AccessRevocation.objects.select_for_update(of=("self",)).get(pk=revocation_id)
         if row.kind not in EXCEPTIONABLE or row.state not in ("unsupported", "pending"):
             raise services.Refused("not_exceptionable")
+        journal.prepare("access_revocation", f"revocation:{row.request.public_id}:{row.kind}", {"state": "exception"})
         AccessRevocation.objects.filter(pk=row.pk).update(state="exception", note=note, decided_by=services.actor(user),
                                                           updated_at=Now())
+        journal.record("access_revocation", f"revocation:{row.request.public_id}:{row.kind}", {"state": "exception", "phase": "done"})
         core.record(row.request.application, "provisioning_revocation_exception_accepted",
                     {"request": str(row.request.public_id), "kind": row.kind}, services.actor(user),
                     actor_type=ApplicationEvent.ActorType.STAFF)
@@ -308,6 +313,9 @@ class RevokeAccess(_Action):
             for kind, state in outcomes.items():
                 AccessRevocation.objects.filter(request=current, kind=kind).exclude(state__in=FINAL).exclude(
                     state=state).update(state=state, updated_at=Now())
+                if state in FINAL:  # 9kg.33: an access removal that happened is a fact the restore must keep
+                    journal.prepare("access_revocation", f"revocation:{current.public_id}:{kind}", {"state": state})
+                    journal.record("access_revocation", f"revocation:{current.public_id}:{kind}", {"state": state, "phase": "done"})
             for forwarder in removed:  # what was removed, as identifiers and a digest of its destinations
                 core.record(current.application, "provisioning_forwarder_removed",
                             {"request": str(current.public_id), **forwarder}, f"pending_action:{claim.id}")

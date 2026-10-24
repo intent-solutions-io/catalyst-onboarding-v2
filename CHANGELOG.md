@@ -71,6 +71,22 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 - Hardening: correspondence evidence append-only (#44); hard bounces block every send (#45); system pauses need a
   decision-maker (#46); a quarter-faster test suite (#40)
 - Preparation: P5 specification, P6 readiness matrix and PL cutover plan, `023` and `024` (#48)
+- PL batch item 4: the effect journal (one hash-chained record outside the backup's rollback domain), the
+  reconciliation of effects after the backup point in the post-restore step (journal replay per app, provider reads
+  outside the transaction, per-effect staff items, the owner's manual resolution, a lift that refuses on missing
+  evidence) and the restore drill extended with an effect after the backup (`9kg.33`)
+- PL batch item 4: the read-only Sent-folder evidence source (EXAMINE and BODY.PEEK only, by Message-ID or by
+  window, bounded), the reconcile handler's handling of an unreadable source and of a recorded absence, the exact
+  production mail-host allow-list for live web and worker processes, and the denied-mailbox rule that keeps the
+  first-generation mailbox from ever being a v2 source (`9kg.49`)
+- PR #89 review fix-ups: the journal's genesis identity, anchor verification at restore and lift, torn-tail
+  detection with the owner-run `catalyst_journal_repair`, loud append failures with a health signal and a readiness
+  refusal, a per-kind content allow-list and opaque staff references, `prepare` entries for restrictive effects and
+  `send_begun` before SMTP; outward actions made uncertain after a restore, re-run convergence, the cursor watermark
+  reset, blocking items for an unverified resend or revision, the question link on an unknown copy; the Sent reader's
+  scan limit and incompleteness as blocking errors with a read-only client view; the mail process kind from code
+  with a `reconcile` kind for the Sent read only (RD-1), the pinned v2 mailbox digest and the required denied list
+  in a live environment; the drill's carried-journal checks as root, the reconcile role and the empty-journal leg
 - Internal launch, repo-only batch item 3 (`029` section 13.3): the staff role matrix, the owner-run
   `grant_staff_role` command, the append-only grant record and the P4 and P5 role groups; the qualification
   authority read from configuration (`9kg.30`, `029` section 17.1)

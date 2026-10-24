@@ -111,6 +111,27 @@ def session_health() -> dict:
     return {"cleanup_scheduled": scheduled, "anomalies": ["session_cleanup_unscheduled"] if required and not scheduled else []}
 
 
+def journal_health() -> dict:
+    """9kg.33 (PR #89 review): the effect journal is readable and chained, its directory private and writable, and
+    no append has failed; a torn tail names the owner's repair."""
+    from workflow import journal
+
+    if not journal.configured():
+        return {"configured": False, "append_failures": 0, "anomalies": []}
+    anomalies = []
+    problem = journal.directory_problem(write=True)
+    if problem:
+        anomalies.append(f"effect_journal_{problem}")
+    try:
+        journal.read()
+    except journal.JournalError as exc:
+        anomalies.append(f"effect_journal_{exc.code}")
+    failed = journal.failures()
+    if failed:
+        anomalies.append("effect_journal_append_failed")
+    return {"configured": True, "append_failures": failed, "anomalies": anomalies}
+
+
 # 9kg.51 (029 section 5.2): the waits that had no bound once the first-generation owner notices retired. Each class is
 # counted past its own threshold and its oldest age is printed; a class in CATALYST_HEALTH_AGED_WAITS_PAGE raises the
 # anomaly `aged_waits.<class>` (delivered by the alert floor as high), the others are audit only. Counts and ages
@@ -198,5 +219,5 @@ def report() -> dict:
     return {"worker": worker_health(), "queue": queue_health(), "agreements": agreement_health(),
             "provisioning": provisioning_health(), "bounces": bounce_health(), "sends": send_health(),
             "collector": collector_health(), "replies": reply_health(), "reminders": reminder_health(),
-            "mail": mail_behaviour_health(), "sessions": session_health(), "aged_waits": aged_waits_health(),
-            "decision": decision_health(), "intake": intake_health()}
+            "mail": mail_behaviour_health(), "sessions": session_health(), "journal": journal_health(),
+            "aged_waits": aged_waits_health(), "decision": decision_health(), "intake": intake_health()}
