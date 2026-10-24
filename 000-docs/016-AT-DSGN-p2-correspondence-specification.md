@@ -1551,8 +1551,9 @@ for every automated send.
 
 **A bounce.** Reply processing never runs for a terminal application, so a bounce of the notice would otherwise appear
 only as `application_closed`. Association (C0) now opens `decline_not_notified` first when a delivery report matched
-to a decline notice carries a permanent status (5.x.x), then the closed-application exception as before. A delayed
-report (4.x.x) is not a failure and gets only the exception. The decision-maker resolves `decline_not_notified` with a
+to a decline notice carries anything but a delayed status: a permanent one (5.x.x), or none at all, which is treated
+as a possible failure; then the closed-application exception as before. Only a delayed report (4.x.x) is not a
+failure and gets only the exception. The decision-maker resolves `decline_not_notified` with a
 note (`decide_uncertain_send`, the reason-to-permission table of section F); nothing is resent from that item.
 
 **When it is not sent.** Each is a recorded outcome, never silence:
@@ -1562,12 +1563,18 @@ note (`decide_uncertain_send`, the reason-to-permission table of section F); not
   event, and queues nothing. When withholding is appropriate is the owner's rule; the code records the choice.
 - *Wording not usable here* (unapproved, synthetic or retired in a live environment, missing anywhere) or *no verified
   address:* the action looks again every `CATALYST_DECLINE_NOTICE_RECHECK_SECONDS` (code-fixed, 900) with its attempt
-  refunded, and one `decline_notice_refused` item says why; it is resolved by the system when the notice is queued.
+  refunded, and one `decline_notice_refused` item says why; it is resolved by the system when the notice is queued,
+  and one acknowledged by staff reopens at the next look while the cause stays.
   The health report's decision section names `decline_notice_unapproved` once decisions can be recorded.
 - *A member on file* (`030` Q8): the decision already refuses a decline; a record made after the decline cancels the
-  action with an item.
-- *A copy under review after a restore* (`restore_effect_unknown_send` open for the application): the freeze waits, so
-  a restore never sends a second notice by itself.
+  action with its own `decline_notice_member_on_file` item, and a record made after the freeze makes the send skip
+  as `member_on_file`.
+- *After a restore:* a `send_decline` that was queued, running or held at the backup is an outward kind
+  (`config.post_restore.OUTWARD_REDELIVERABLE`), so the review makes it uncertain with a
+  `restore_effect_outward_action` item and it never runs again by itself; the owner compares it with the Sent folder
+  (`--outward-checked`) and the decision-maker decides on the item. The accepted remedy is that staff decision, never
+  an automatic re-queue. Separately, while a `restore_effect_unknown_send` item is open for the application, a live
+  `send_decline` waits instead of freezing. Together these keep a restore from sending a second notice by itself.
 - *Held before this release:* migration 0019 cancels every held `send_decline` (`held_before_the_decline_handler`);
   one released by hand is cancelled by the handler, because its decision made no choice about the notice
   (`decided_before_the_decline_notice`).

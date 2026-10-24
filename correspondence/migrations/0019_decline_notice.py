@@ -57,6 +57,15 @@ def cancel_held(apps, schema_editor):
         status="cancelled", last_error="held_before_the_decline_handler", completed_at=Now(), updated_at=Now())
 
 
+def uncancel_held(apps, schema_editor):
+    """Reverse of `cancel_held`: only the rows it cancelled (their `last_error` marker) go back to held."""
+    from django.db.models.functions import Now
+
+    apps.get_model("workflow", "PendingAction").objects.filter(
+        kind="send_decline", status="cancelled", last_error="held_before_the_decline_handler").update(
+        status="held", last_error="", completed_at=None, updated_at=Now())
+
+
 class Migration(migrations.Migration):
     # The pending-action table is reached through 0003's dependency on workflow; no later workflow migration is needed.
     dependencies = [("correspondence", "0018_intake_notice_templates")]
@@ -75,5 +84,5 @@ class Migration(migrations.Migration):
                 name="approved_message_kind_valid"),
         ),
         migrations.RunPython(seed, unseed),
-        migrations.RunPython(cancel_held, migrations.RunPython.noop),
+        migrations.RunPython(cancel_held, uncancel_held),
     ]

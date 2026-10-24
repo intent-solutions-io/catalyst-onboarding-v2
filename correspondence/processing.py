@@ -85,7 +85,7 @@ ACKNOWLEDGE_ONLY = {"processing_error", "message_id_conflict", "mailbox_uidvalid
                     "assessment_failed", "assessment_input_changed", "assessment_pack_refused",
                     # oc4.11: the decline notice could not be frozen (wording unavailable here, no verified address);
                     # the send retries by itself and resolves the item once it is queued
-                    "decline_notice_refused"}
+                    "decline_notice_refused", "decline_notice_member_on_file"}
 # 9kg.41 (owner decision on the PR #93 review): a suspended or capped snapshot closes only through the human-only
 # decision on the decision screen (which resolves it) or a later successful run, never by an acknowledgement that would
 # leave the case looking as if a run were coming.

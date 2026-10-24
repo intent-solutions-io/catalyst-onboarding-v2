@@ -73,7 +73,9 @@ EXPAND_SAFE: dict[str, str] = {
         "widens the approved-message kind CHECK and the field's choices by one value (`decline`); the choices change is "
         "state only, and every row a previous image writes already satisfies the wider CHECK. A previous image that "
         "meets a `decline` row skips its send as `application_closed` and never claims `send_decline` (no handler), so "
-        "a revert sends nothing it should not; nothing is removed or renamed"),
+        "a revert sends nothing it should not; nothing is removed or renamed. Reversing the migration itself (not "
+        "needed to run a previous image) needs no `decline` rows, because the narrower CHECK would refuse them; its "
+        "reverse step returns the `send_decline` rows it cancelled to held"),
 }
 
 

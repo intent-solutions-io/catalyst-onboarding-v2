@@ -41,6 +41,7 @@ from .models import QualificationDecision
 KIND = "send_decline"
 TEMPLATE = "decline_notice"
 REFUSED_ITEM = "decline_notice_refused"
+MEMBER_ITEM = "decline_notice_member_on_file"  # its own reason: cancelled for good, unlike a refusal that retries
 SEND, WITHHOLD = "send", "withhold"
 CHOICES = (SEND, WITHHOLD)
 WITHHOLD_REASON_MIN, WITHHOLD_REASON_MAX = 10, 300
@@ -100,7 +101,9 @@ class SendDecline:
             open_item(REFUSED_ITEM, f"decline:{application.public_ref}", application=application, pending_action_id=claim.id)
 
         if members.on_file(application) is not None:
-            return Status.CANCELLED, "member_on_file", item, None  # 030 Q8: never declined in v2; staff are told
+            def member_item():
+                open_item(MEMBER_ITEM, f"decline:{application.public_ref}", application=application, pending_action_id=claim.id)
+            return Status.CANCELLED, "member_on_file", member_item, None  # 030 Q8: never declined in v2; staff are told
         if ApprovedMessage.objects.filter(application=application, kind=ApprovedMessage.Kind.DECLINE).exists():
             return Status.DONE, "already_queued", None, None  # one notice per declined application
         recheck = timedelta(seconds=settings.CATALYST_DECLINE_NOTICE_RECHECK_SECONDS)

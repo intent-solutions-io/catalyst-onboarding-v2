@@ -254,6 +254,18 @@ def test_oc4_11_a_delayed_report_is_not_a_failure_and_gets_only_the_closed_appli
     assert list(StaffItem.objects.filter(application=app).values_list("reason_code", flat=True)) == ["application_closed"]
 
 
+def test_oc4_11_a_report_with_no_status_is_a_possible_failure_and_opens_not_notified(dm, monkeypatch):
+    app, _ = declined(dm, monkeypatch)
+    run_worker()
+    [message] = notices_of(app)
+    report = bounce(message, status="5.1.1").replace(b"Status: 5.1.1\r\n", b"")
+    assert b"Status:" not in report
+    dm.imap.deliver(report)
+    collect()
+    items = list(StaffItem.objects.filter(application=app).order_by("id").values_list("reason_code", flat=True))
+    assert items == ["decline_not_notified", "application_closed"]
+
+
 # --- withheld -------------------------------------------------------------------------------------------------------
 
 def test_oc4_11_withholding_is_a_recorded_decision_maker_choice_and_sends_nothing(d, monkeypatch):
@@ -379,7 +391,46 @@ def test_oc4_11_a_member_recorded_on_file_after_the_decline_is_never_sent_a_noti
     run_worker()
     [action] = decline_actions(app)
     assert (action.status, action.last_error) == ("cancelled", "member_on_file") and notices_of(app) == []
-    assert StaffItem.objects.filter(application=app, reason_code="decline_notice_refused", status="open").count() == 1
+    assert StaffItem.objects.filter(application=app, reason_code="decline_notice_member_on_file", status="open").count() == 1
+    assert not StaffItem.objects.filter(application=app, reason_code="decline_notice_refused").exists()
+
+
+def test_oc4_11_a_member_recorded_on_file_after_the_freeze_is_skipped_by_the_sender(d, monkeypatch):
+    app, _ = declined(d, monkeypatch)
+    before = len(d.server.messages)
+    assert run_decline_only()  # frozen and queued, not yet sent
+    [message] = notices_of(app)
+    [send] = sends_of(message)
+    assert send.status == "queued"
+    on_file(app.email_key, "--nda", LABEL_A)
+    run_worker()
+    send.refresh_from_db()
+    assert (send.status, send.last_error) == ("cancelled", "member_on_file") and len(d.server.messages) == before
+
+
+def test_oc4_11_a_restore_a_sent_copy_and_a_resolved_unknown_send_item_never_send_a_second_notice(d, monkeypatch):
+    from config import post_restore
+    from correspondence.staff_items import open_item
+
+    app, _ = declined(d, monkeypatch)
+    before = len(d.server.messages)
+    # The backup holds the queued `send_decline`; after T it froze and sent the notice, which the restore lost.
+    [action] = decline_actions(app)
+    assert action.status == "queued" and notices_of(app) == []
+    assert "send_decline" in post_restore.outward_kinds()
+    report = {}
+    post_restore.uncertain_outward(report, post_restore.EffectOpener(None))
+    action.refresh_from_db()
+    assert (action.status, action.last_error) == ("uncertain", "restore_outward_uncertain")
+    assert StaffItem.objects.filter(reason_code=post_restore.ITEM_OUTWARD, pending_action_id=action.pk,
+                                    status="open").count() == 1
+    # The Sent read finds the copy that left after T; staff resolve that item.
+    item = open_item("restore_effect_unknown_send", "sent:synthetic-decline", application=app)
+    StaffItem.objects.filter(pk=item.pk).update(status="resolved")
+    run_worker()
+    action.refresh_from_db()
+    assert action.status == "uncertain"  # never re-queued by itself: the remedy is a staff decision
+    assert notices_of(app) == [] and len(d.server.messages) == before
 
 
 def test_oc4_11_a_notice_copy_under_review_after_a_restore_defers_the_freeze(d, monkeypatch):

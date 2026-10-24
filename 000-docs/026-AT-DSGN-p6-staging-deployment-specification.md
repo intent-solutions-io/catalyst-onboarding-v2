@@ -812,7 +812,11 @@ specification text; nothing is built.
   - lets every running action expire its lease;
   - queues a revocation round for every stopped request whose access removal is not complete;
   - reports every queued or running action that reaches the outside world (the non-redeliverable kinds plus the
-    redeliverable ones that still send mail, call a model or fetch), per kind and status, with action ids;
+    redeliverable ones that still send mail, call a model or fetch), per kind and status, with action ids, and
+    makes each one uncertain with a staff item. A decline notice's freeze (`send_decline`) is one of them: it is
+    never re-queued by itself. The owner compares it with the Sent folder before `--outward-checked`, and the
+    decision-maker settles its item: re-queue by hand only when no notice left, otherwise leave it. That staff
+    decision is the accepted remedy for an uncertain decline after a restore;
   - records on the hold that the review happened.
 - **The lift run** (`--lift`) refuses unless a review run happened and the operator confirms `--outward-checked`
   and `--no-closures-after-backup`.

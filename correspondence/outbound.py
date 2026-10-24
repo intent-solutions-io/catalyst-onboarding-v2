@@ -32,6 +32,7 @@ from django.db.models import Max
 from django.db.models.functions import Now
 from django.utils.module_loading import import_string
 
+from applications import members
 from applications.models import TERMINAL_STAGES, Application, ApplicationEvent, Stage
 from applications.stages import transition
 from workflow import journal, ledger
@@ -324,6 +325,8 @@ class SendMessage:
                 return skip("message_not_active")
             if application.stage in TERMINAL_STAGES and not declined_notice(message, application):
                 return skip("application_closed")
+            if message.kind == ApprovedMessage.Kind.DECLINE and members.on_file(application) is not None:
+                return skip("member_on_file")  # 030 Q8: a member recorded on file after the freeze is never declined
             if any(q.status == Question.Status.WITHDRAWN for q in questions):
                 return skip("question_withdrawn")
             if message.kind == ApprovedMessage.Kind.REMINDER and questions:

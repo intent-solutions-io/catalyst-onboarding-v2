@@ -132,10 +132,11 @@ def _associate(message: InboundMessage, derived) -> None:
     questions = list(Question.objects.select_for_update(of=("self",))
                      .filter(message_links__approved_message=approved).order_by("id"))
     InboundMessage.objects.filter(pk=message.pk).update(application_id=application.pk, approved_message_id=approved.pk)
-    if classification == "bounce" and approved.kind == ApprovedMessage.Kind.DECLINE and derived.dsn_status.startswith("5"):
+    if classification == "bounce" and approved.kind == ApprovedMessage.Kind.DECLINE and not derived.dsn_status.startswith("4"):
         # oc4.11: a declined application is terminal, so reply processing never runs for it; a permanent bounce of the
         # decline notice would otherwise surface only as "a reply arrived for a closed application". It says first
-        # that the applicant was not notified. A delayed (4.x.x) report is not a failure and gets only the exception.
+        # that the applicant was not notified. Only a delayed (4.x.x) report is not a failure and gets only the
+        # exception; a report with no Status at all is treated as a possible failure (PR #98 review).
         open_item(DECLINE_NOT_NOTIFIED, f"decline:{approved.send_ref}", application=application, approved_message=approved)
     if application.stage in TERMINAL_STAGES:
         _exception(message, "application_closed", application)

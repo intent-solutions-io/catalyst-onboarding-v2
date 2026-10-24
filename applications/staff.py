@@ -68,8 +68,12 @@ REASONS = {
     "agreement_provider_unavailable": "the signing provider could not be reached",
     "provisioning_activation_blocked": "activation is blocked; fix the cause, then retry activation",
     "decline_not_notified": "the decline notice bounced permanently; the applicant was not notified",  # oc4.11
-    "decline_notice_refused": "the decline notice could not be prepared (its wording is not approved for this"
-                              " environment, or no verified address); it retries by itself",  # oc4.11
+    "decline_notice_refused": "the decline notice could not be prepared. If its wording is not approved for this"
+                              " environment or there is no verified address, it looks again by itself and this item"
+                              " reopens after an acknowledgement while that stays so; if its attempts ran out, it does"
+                              " not retry and the applicant must be told another way",  # oc4.11
+    "decline_notice_member_on_file": "no decline notice was sent: a first-generation agreement was recorded on file"
+                                     " after the decline; the decline needs the owner's review (030 Q8)",  # oc4.11
     "agreement_reference_needs_decision": "the NDA is on file from the first generation but the User Agreement is not;"
                                           " nothing is issued until the owner decides",  # 9kg.52, D-15
 }
