@@ -67,6 +67,13 @@ REASONS = {
     "agreement_custody_failed": "the signed copy could not be stored; retry custody on the agreements screen",
     "agreement_provider_unavailable": "the signing provider could not be reached",
     "provisioning_activation_blocked": "activation is blocked; fix the cause, then retry activation",
+    "decline_not_notified": "the decline notice bounced permanently; the applicant was not notified",  # oc4.11
+    "decline_notice_refused": "the decline notice could not be prepared. If its wording is not approved for this"
+                              " environment or there is no verified address, it looks again by itself and this item"
+                              " reopens after an acknowledgement while that stays so; if its attempts ran out, it does"
+                              " not retry and the applicant must be told another way",  # oc4.11
+    "decline_notice_member_on_file": "no decline notice was sent: a first-generation agreement was recorded on file"
+                                     " after the decline; the decline needs the owner's review (030 Q8)",  # oc4.11
     "verification_expired": "the applicant's only verification link expired before they confirmed; no working link is out",
     "agreement_reference_needs_decision": "the NDA is on file from the first generation but the User Agreement is not;"
                                           " nothing is issued until the owner decides",  # 9kg.52, D-15
@@ -80,7 +87,6 @@ REASONS = {
 HELD_ON_POLICY = {
     "start_evidence_collection": "waits for the owner's release (activate_evidence_collection, 018 4.1)",
     "issue_nda": "waits for the owner's release (activate_agreements, 021 section 2)",
-    "send_decline": "no decline notice is sent until the notice and its template are approved (oc4.11); nothing runs it",
     "interpret_reply": "model reading of replies is off; staff confirm the outcome on the reply screen, which ends it",
     "provision": "waits for the owner's release (activate_provisioning, 023 section 5); off at the internal launch",
 }

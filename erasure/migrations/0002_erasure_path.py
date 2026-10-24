@@ -123,7 +123,7 @@ class Migration(migrations.Migration):
         ("agreements", "0009_staff_groups"),
         ("applications", "0009_tombstone_keys_unique"),
         ("assessments", "0010_decision_inputs_and_human_only_code"),
-        ("correspondence", "0018_intake_notice_templates"),
+        ("correspondence", "0019_decline_notice"),
         ("provisioning", "0007_staff_groups"),
         ("workflow", "0005_pause_resume_guard"),
     ]

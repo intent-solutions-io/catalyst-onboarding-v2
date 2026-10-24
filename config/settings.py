@@ -249,6 +249,8 @@ CATALYST_ACTION_HANDLERS = {
     "complete_evidence_collection": "assessments.collection.CompleteEvidenceCollection",  # 9kg.24: run by the worker
     "run_assessment": "assessments.runs.RunAssessment",  # 018 4 step 4 (P3 3B.2); test models only
     "interpret_message": "correspondence.processing.InterpretMessage",  # 018 5.4 (P3 3B.3); test models only
+    # oc4.11: a recorded decline queues `send_decline`, which freezes the decline notice and hands it to send_message.
+    "send_decline": "assessments.decline.SendDecline",
     # P4 4B.1 (021 section 4): the held `issue_nda` from 3B.4 stays held until `activate_agreements` releases it.
     "issue_nda": "agreements.handlers.IssueAgreement",
     "create_agreement": "agreements.handlers.CreateAgreement",
@@ -354,6 +356,9 @@ CATALYST_REMINDER_STALE_DEFERRALS = number("CATALYST_REMINDER_STALE_DEFERRALS", 
 # 9kg.3: how often a send held by an unresolved hard bounce looks again (the resolution also releases it at once).
 CATALYST_HARD_BOUNCE_RECHECK_SECONDS = number("CATALYST_HARD_BOUNCE_RECHECK_SECONDS", "3600", cast=float, minimum=1)
 CATALYST_REMINDER_STALE_RETRY_SECONDS = number("CATALYST_REMINDER_STALE_RETRY_SECONDS", "600", cast=float, minimum=0)
+# oc4.11: how often a decline notice that cannot be prepared yet (wording not approved here, no verified address)
+# looks again; one staff item says why meanwhile. Fixed in code.
+CATALYST_DECLINE_NOTICE_RECHECK_SECONDS = 900
 # Evidence fetching (018 3.3; P3 3B.1). Synthetic only: every fetchable host must also be listed here, and the
 # guards refuse a non-empty list, a fixture address or a custom CA outside `test` (config.guards.evidence_problems).
 # Fixed in code, never read from the environment.

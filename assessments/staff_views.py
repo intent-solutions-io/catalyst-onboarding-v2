@@ -198,7 +198,8 @@ def decide(request, public_ref):
         decisions.record_decision(
             application.pk, request.user, outcome=post.get("outcome", ""), reason_code=post.get("reason_code", ""),
             reason_text=post.get("reason_text", ""), expected_digest=post.get("digest", ""), rationale=rationale,
-            human_only_reason=post.get("human_only_reason", ""))
+            human_only_reason=post.get("human_only_reason", ""), decline_notice=post.get("decline_notice", "send"),
+            withhold_reason=post.get("withhold_reason", ""))
     except services.Refused as exc:  # the page shows the new state with the typed reasoning kept (9kg.41)
         changed = str(exc) == "changed_since_shown"
         # The case changed under the form: judgments made against the old state are never carried onto the new one;

@@ -74,6 +74,13 @@ EXPAND_SAFE: dict[str, str] = {
         "adds three partial unique indexes on email keys that start with `erased:` (9kg.32): no key has that form until "
         "an erasure writes one, and a previous image never writes one, so it cannot violate them; nothing is removed, "
         "renamed or made stricter for any row a previous image writes"),
+    "correspondence.0019_decline_notice": (
+        "widens the approved-message kind CHECK and the field's choices by one value (`decline`); the choices change is "
+        "state only, and every row a previous image writes already satisfies the wider CHECK. A previous image that "
+        "meets a `decline` row skips its send as `application_closed` and never claims `send_decline` (no handler), so "
+        "a revert sends nothing it should not; nothing is removed or renamed. Reversing the migration itself (not "
+        "needed to run a previous image) needs no `decline` rows, because the narrower CHECK would refuse them; its "
+        "reverse step returns the `send_decline` rows it cancelled to held"),
 }
 
 

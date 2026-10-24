@@ -134,6 +134,14 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   10.18); the `held_followons` aged-waits class for held `send_decline`, `issue_nda` and `provision` follow-ons, aged
   from the last hold (`9kg.57`, `026` section 17); and the read-only `grant_staff_role --audit` with the `staff_roles`
   health part, reconciling memberships and direct permissions with the grant record (`9kg.56`, `029` section 17.1)
+- The decline notice (bead `oc4.11`; `029` section 17.3, `016` section 10.19): a recorded decline queues one
+  `send_decline`, which freezes the notice from the `decline_notice` template (correspondence migration 0019, an
+  unapproved synthetic placeholder refused in a live environment until the owner approves real wording) and sends it
+  through the P2 sender, the only message allowed through to the terminal `declined` stage; uncertain, failed and
+  blocked sends reach the usual staff decisions, a permanent bounce opens `decline_not_notified` before the
+  closed-application exception, the decision-maker may withhold the notice with a recorded reason, the notice's one
+  variable is the display name (no reason, rationale or model output), and `send_decline` actions held by earlier
+  releases are cancelled, never released
 - Hardening (internal-launch batch item 6): the database freezes inbound message provenance and the identity
   columns of outbound attempts and reply links for every role, with the audited retention path left open for
   erasure (correspondence migration 0017, `016` section 10.14)

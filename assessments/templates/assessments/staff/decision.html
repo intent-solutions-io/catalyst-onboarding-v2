@@ -32,6 +32,11 @@ Selection policy: {{ policy_ref }}.</p>
 <label>Outcome <select name="outcome" required><option value="">choose</option>{% for o in outcomes %}<option value="{{ o }}">{{ o }}</option>{% endfor %}</select></label>
 <label>Reason code <input name="reason_code" maxlength="40" pattern="[a-z][a-z_]{2,39}" required value="{{ form.reason_code }}"></label>
 <label>Reason <input name="reason_text" maxlength="500" value="{{ form.reason_text }}"></label>
+{% if "decline" in outcomes %}<fieldset class="decline-notice"><legend>If you decline: the decline notice (oc4.11)</legend>
+<p>A decline sends the applicant one notice from the approved decline template. It says only that access is not being offered; it never carries your reasoning, the reason code or any model output. You may withhold it, with a reason, which the decision records. This choice is never carried over after a refusal.</p>
+<label><input type="checkbox" name="decline_notice" value="withhold"> Withhold the decline notice</label>
+<label>Why withhold (required when withholding) <input name="withhold_reason" maxlength="300" value="{{ form.withhold_reason }}"></label>
+</fieldset>{% endif %}
 <button>Record the decision</button></form>
 {% endif %}
 {% endblock %}

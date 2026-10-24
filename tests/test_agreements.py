@@ -162,7 +162,7 @@ def test_p4_10_the_instance_and_its_key_are_committed_before_any_provider_call(g
     instance = nda(app)
     assert app.stage == "agreements" and instance.issue_status == "issued" and instance.signing_status == "not_started"
     assert instance.custody_status == "not_due"
-    assert instance.external_key.startswith("ag_") and "ada" not in instance.external_key  # opaque (021 section 10)
+    assert instance.external_key.startswith("ag_") and "ada@" not in instance.external_key  # opaque (021 section 10); not bare "ada", which a random key can contain
     assert list(instance.recipients.values_list("role", "signing_order", "who", "email")) == [
         ("SIGNER", 1, "applicant", "ada@example.test")]
 

@@ -1560,3 +1560,71 @@ fails when a new code has no label. Tests: `tests/test_staff_screens.py` (`9kg.6
 code has a label that is not itself a code; on the item page no button text equals a raw code and each code is the
 value of a form whose button shows its label; the earlier tests that matched button text now match the submitted
 values.
+
+### 10.19 The decline notice on the outbound path (oc4.11, 2026-10-24)
+
+A recorded decline now tells the applicant. Before this, `assessments.decisions` created a held `send_decline`
+action that nothing ran (`029` section 5.2). The design reuses the outbound path of section 4 A and the template
+pattern of section 10.16; nothing new is added to the sender itself beyond one narrow exception.
+
+**The kind and the template.** Correspondence migration 0019 adds the `decline` kind of `ApprovedMessage` (the kind
+CHECK widened by one value, recorded as expand-safe in `config.release`) and seeds the `decline_notice` template as an
+unapproved synthetic placeholder: one variable, `display_name`, and bracketed slots where counsel must state whether a
+reason may be requested, whether a new request may be made, what is kept and how to request erasure, and whether
+replies are read. It makes no promise and no legal claim. Because the only value rendered into it is the display
+name, no reason code, reason text, per-criterion rationale, policy reference or model output can reach the applicant.
+Real wording arrives as every template version does: a data migration adds a new draft with `synthetic=False` and the
+owner approves it on the template screen (`211.7.4`, `211.7.7`).
+
+**Who freezes it.** `assessments.decline.SendDecline` (kind `send_decline`, automated, redeliverable: one fenced
+transaction that freezes and queues, so nothing leaves the process there). It lives in `assessments` because it reads
+the decision, and `correspondence` never imports a later app (`003` ADR-01). It reads the wording through
+`applications.notices.wording`, the same function as the data notice: in the draft environments the newest draft with
+its visible marker; anywhere else only an approved, non-synthetic, unretired version. It freezes an `ApprovedMessage`
+(`decline`, authority `system_policy`, the exact template version, the frozen subject and body and their canonical
+digest) and queues `send_message` for it, then records `decline_notice_queued` with the template version, its digest
+and whether it was a draft.
+
+**Sent like any other message, with one exception.** `SendMessage` re-checks everything as in A3 and records each
+outcome class as before. Its check skips a message for a terminal stage, except that `declined_notice` lets exactly
+the `decline` kind through to an application that is `declined` (never one that is withdrawn or closed). So an unknown
+outcome reconciles and reaches `send_outcome_unknown`; temporary rejections end at `retries_exhausted`; a channel
+fault at `smtp_transport_blocked`; a permanent rejection at `send_rejected_permanent`; and the decision-maker settles
+each with the usual `decide_uncertain_send`, which already ignores the stage. A resend keeps the same Message-ID; a
+revision is refused for this kind (`revision_not_supported_for_this_kind`), so the remedy after a permanent rejection
+is to abandon it and tell the applicant another way. The hard-bounce block (9kg.3) and the automation pause apply as
+for every automated send.
+
+**A bounce.** Reply processing never runs for a terminal application, so a bounce of the notice would otherwise appear
+only as `application_closed`. Association (C0) now opens `decline_not_notified` first when a delivery report matched
+to a decline notice carries anything but a delayed status: a permanent one (5.x.x), or none at all, which is treated
+as a possible failure; then the closed-application exception as before. Only a delayed report (4.x.x) is not a
+failure and gets only the exception. The decision-maker resolves `decline_not_notified` with a
+note (`decide_uncertain_send`, the reason-to-permission table of section F); nothing is resent from that item.
+
+**When it is not sent.** Each is a recorded outcome, never silence:
+
+- *Withheld:* the decision form offers "send" (the default) or "withhold"; withholding needs a reason of at least ten
+  characters, is recorded in the decision (`decision_inputs["decline_notice"]`) with a `decline_notice_withheld`
+  event, and queues nothing. When withholding is appropriate is the owner's rule; the code records the choice.
+- *Wording not usable here* (unapproved, synthetic or retired in a live environment, missing anywhere) or *no verified
+  address:* the action looks again every `CATALYST_DECLINE_NOTICE_RECHECK_SECONDS` (code-fixed, 900) with its attempt
+  refunded, and one `decline_notice_refused` item says why; it is resolved by the system when the notice is queued,
+  and one acknowledged by staff reopens at the next look while the cause stays.
+  The health report's decision section names `decline_notice_unapproved` once decisions can be recorded.
+- *A member on file* (`030` Q8): the decision already refuses a decline; a record made after the decline cancels the
+  action with its own `decline_notice_member_on_file` item, and a record made after the freeze makes the send skip
+  as `member_on_file`.
+- *After a restore:* a `send_decline` that was queued, running or held at the backup is an outward kind
+  (`config.post_restore.OUTWARD_REDELIVERABLE`), so the review makes it uncertain with a
+  `restore_effect_outward_action` item and it never runs again by itself; the owner compares it with the Sent folder
+  (`--outward-checked`) and the decision-maker decides on the item. The accepted remedy is that staff decision, never
+  an automatic re-queue. Separately, while a `restore_effect_unknown_send` item is open for the application, a live
+  `send_decline` waits instead of freezing. Together these keep a restore from sending a second notice by itself.
+- *Held before this release:* migration 0019 cancels every held `send_decline` (`held_before_the_decline_handler`);
+  one released by hand is cancelled by the handler, because its decision made no choice about the notice
+  (`decided_before_the_decline_notice`).
+
+**Exactly one.** The action's key is `send_decline:<application>` and the handler finds an existing `decline` message
+before freezing another (`already_queued`), so a redelivered action never makes a second notice. Tests:
+`tests/test_decline_notice.py` (the `oc4.11` group in `tests/acceptance.py`). The design record is `029` section 17.3.
