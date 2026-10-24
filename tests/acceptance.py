@@ -1568,6 +1568,10 @@ P6_SUPPORTING = {
         "test_system_health::test_9kg_51_thresholds_and_paging_are_per_wait_class",
         "test_system_health::test_9kg_51_the_default_page_list_is_the_three_bad_classes_and_the_authority_flag_is_reported",
     ],
+    "9kg.57 held send_decline, issue_nda and provision follow-ons (agreements_complete) have their own aged-waits class (026 section 17)": [
+        "test_system_health::test_9kg_57_held_followons_age_each_held_kind_from_its_last_hold_and_raise_their_own_code",
+        "test_system_health::test_9kg_51_each_aged_wait_raises_its_code_and_clears_when_resolved",
+    ],
     "9kg.30 the staff role matrix, the grant command and the append-only grant record (029 section 17.1)": [
         "test_staff_roles::test_every_permission_a_staff_screen_checks_has_a_grant_path",
         "test_staff_roles::test_each_group_role_confers_exactly_its_matrix_set",
@@ -1578,6 +1582,11 @@ P6_SUPPORTING = {
         "test_staff_roles::test_no_runbook_or_design_step_grants_with_raw_sql_or_a_shell",
         "test_staff_roles::test_every_group_membership_has_a_latest_grant_row",
     ],
+    "9kg.56 the read-only grant-ledger audit reconciles memberships and direct permissions with the grant record (029 section 17.1)": [
+        "test_staff_roles::test_9kg_56_the_audit_reports_access_planted_by_raw_owner_sql_and_health_carries_the_counts",
+        "test_staff_roles::test_9kg_56_revoke_records_access_a_restore_removed_and_the_audit_names_differences_without_a_remedy",
+        "test_staff_roles::test_9kg_56_the_application_role_reads_everything_the_staff_roles_health_part_reads",
+    ],
     "9kg.50 the hold exit through the decision service and the staff verification resend (018 section 19, 016 section 10.14)": [
         "test_hold_and_resend::test_an_on_hold_case_comes_back_to_a_decision_through_the_service",
         "test_hold_and_resend::test_an_on_hold_case_comes_back_through_the_decision_form_and_a_refused_user_sees_403",
@@ -1586,6 +1595,18 @@ P6_SUPPORTING = {
         "test_hold_and_resend::test_a_resend_is_refused_beyond_the_limit_after_verification_and_without_the_permission",
         "test_hold_and_resend::test_a_resend_is_refused_while_a_hard_bounce_is_open",
         "test_hold_and_resend::test_the_dossier_flags_a_case_awaiting_decision_or_on_hold_and_links_the_decision_screen",
+    ],
+    "9kg.66 the expiry of an unverified application's only link opens one staff item the resend resolves (016 section 10.17)": [
+        "test_hold_and_resend::test_9kg_66_an_expired_only_link_opens_one_staff_item_that_the_staff_resend_resolves",
+        "test_hold_and_resend::test_9kg_66_no_item_once_the_applicant_confirmed_a_newer_link_is_out_or_the_case_closed",
+        "test_hold_and_resend::test_9kg_66_an_acknowledged_item_is_never_reopened_for_the_same_challenge",
+        "test_hold_and_resend::test_9kg_66_the_sweep_is_scheduled_at_deployment_and_its_absence_is_a_health_anomaly",
+        "test_hold_and_resend::test_9kg_66_an_open_item_closes_itself_once_the_applicant_verifies_or_the_case_closes",
+    ],
+    "9kg.67 every staff resolution and decision button shows a plain label and submits its code (016 section 10.18)": [
+        "test_staff_screens::test_9kg_67_every_resolution_and_decision_button_shows_a_plain_label_and_submits_its_code",
+        "test_staff_screens::test_p2_42_identity_resolution_needs_the_decision_maker_through_the_screen",
+        "test_staff_screens::test_p2_42_the_item_page_shows_the_evidence_and_offers_only_lawful_decisions",
     ],
     "oc4.12 the human-only assessment path completed for a launch with model advice disabled (018 section 20)": [
         "test_human_only::test_the_decision_service_and_screen_never_import_the_model_layer",

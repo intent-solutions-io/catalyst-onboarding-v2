@@ -128,6 +128,12 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   (plain version labels, an attested completion, idempotent, corrections only with `--correct`, fixed by trigger,
   shown on the dossier); a covered agreement type is referenced, never issued; the decision service and form refuse a
   v2 decline for a member on file (`018` section 20)
+- Staff and health polish for the internal launch: a recurring sweep opens one `verification_expired` staff item when an
+  unverified application's only link expires, resolved by the staff resend (`9kg.66`, `016` section 10.17); plain
+  labels on every resolution and decision button, the code kept as the submitted value (`9kg.67`, `016` section
+  10.18); the `held_followons` aged-waits class for held `send_decline`, `issue_nda` and `provision` follow-ons, aged
+  from the last hold (`9kg.57`, `026` section 17); and the read-only `grant_staff_role --audit` with the `staff_roles`
+  health part, reconciling memberships and direct permissions with the grant record (`9kg.56`, `029` section 17.1)
 - Hardening (internal-launch batch item 6): the database freezes inbound message provenance and the identity
   columns of outbound attempts and reply links for every role, with the audited retention path left open for
   erasure (correspondence migration 0017, `016` section 10.14)

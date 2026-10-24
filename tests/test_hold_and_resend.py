@@ -195,3 +195,153 @@ def test_the_dossier_flags_a_case_awaiting_decision_or_on_hold_and_links_the_dec
     assert "Decision screen" in client.get(change).content.decode()  # review_evidence opens the decision screen
     client.force_login(staff(d, "dossier-reader", "Read-only staff"))
     assert "Decision screen" not in client.get(change).content.decode()
+
+
+# --- 9kg.66 (029 appendix B, GAP 1): the expiry of the only link opens one staff item ---------------------------
+
+def expire(env, challenge):
+    """Test setup only, as the owner: age one challenge (the application role cannot change expiry)."""
+    owner = env.committed.connect("owner", autocommit=True)
+    owner.execute("UPDATE applications_contactchallenge SET created_at = now() - interval '2 hours',"
+                  " expires_at = now() - interval '1 hour' WHERE id = %s", [challenge.pk])
+
+
+def sweep():
+    """One pass of the recurring sweep, through the worker as it runs in a deployment: queued now, run, successor queued."""
+    from django.db.models.functions import Now
+
+    from correspondence.verification import schedule_expiry_sweep
+
+    if not schedule_expiry_sweep():  # the next pass is already queued: bring it due by the database clock
+        PendingAction.objects.filter(kind="verification_expiry_sweep", status="queued").update(due_at=Now())
+    run_worker()
+
+
+def expired_items():
+    from correspondence.models import StaffItem
+
+    return StaffItem.objects.filter(reason_code="verification_expired").order_by("id")
+
+
+def test_9kg_66_an_expired_only_link_opens_one_staff_item_that_the_staff_resend_resolves(p2, settings):
+    app = submit()
+    run_worker()  # the link is sent
+    (first,) = challenges(app)
+    sweep()  # the link still works: nothing opens
+    assert not expired_items().exists()
+    passes = list(PendingAction.objects.filter(kind="verification_expiry_sweep").order_by("id").values_list("status", flat=True))
+    assert passes == ["done", "queued"]  # each pass queues its successor, CATALYST_VERIFICATION_SWEEP_SECONDS later
+    expire(p2, first)
+    sweep()
+    (item,) = expired_items()
+    assert (item.status, item.application_id, item.dedupe_key) == ("open", app.pk, f"challenge:{first.public_id}")
+    assert app.events.filter(kind="staff_item_opened", data__reason="verification_expired").count() == 1
+    sweep()  # once: a re-run finds the open item and opens nothing
+    assert expired_items().count() == 1
+    # The item states the reason in plain words and points at the screen whose resend resolves it.
+    operator = staff(p2, "expiry-operator", "Correspondence operator")
+    client = Client()
+    client.force_login(operator)
+    page = client.get(reverse("correspondence_staff:item", args=[item.public_id])).content.decode()
+    application_page = reverse("correspondence_staff:application", args=[app.public_ref])
+    assert "only verification link expired before they confirmed" in page and application_page in page
+    assert "the resend resolves this item" in page
+    queue = client.get(reverse("correspondence_staff:queue")).content.decode()
+    assert "verification_expired" in queue
+    # The staff resend resolves it, as this staff member's act, in the resend's own transaction.
+    assert client.post(reverse("correspondence_staff:resend_verification", args=[app.public_ref]),
+                       {"note": "link expired unused", "resend_number": "1"}).status_code == 302
+    item.refresh_from_db()
+    assert item.status == "resolved"
+    assert (item.resolution.resolution_code, item.resolution.resolved_by) == ("verification_resent", f"user:{operator.pk}")
+    assert item.resolution.effects == {"reason": "verification_expired", "resend_number": 1}
+    # The resent link is swept too: its own expiry is a second, distinct item.
+    old, new = challenges(app)
+    run_worker()
+    sweep()
+    assert expired_items().count() == 1  # the new link still works
+    expire(p2, new)
+    sweep()
+    assert list(expired_items().values_list("dedupe_key", "status")) == [
+        (f"challenge:{old.public_id}", "resolved"), (f"challenge:{new.public_id}", "open")]
+
+
+def test_9kg_66_no_item_once_the_applicant_confirmed_a_newer_link_is_out_or_the_case_closed(p2):
+    from django.db import transaction
+
+    from applications.stages import transition
+
+    confirmed, superseded = submit("confirmed@example.test"), submit("newer@example.test")
+    closed = submit("closed@example.test")
+    run_worker()
+    link = next(LINK.search(m.body).group(1) for m in mail.outbox if m.to == ["confirmed@example.test"])
+    version = re.search(r'name="version" value="([^"]+)"', Client().get(link).content.decode()).group(1)
+    assert Client().post(link, {"version": version}).status_code == 200
+    staff_actions.resend_verification(superseded.pk, staff(p2, "expiry-resender", "Correspondence operator"),
+                                      expected_number=1)
+    with transaction.atomic():
+        transition(closed.pk, ("submitted",), "withdrawn", event_kind="synthetic_withdrawal", actor_ref="test")
+    for app in (confirmed, superseded, closed):
+        expire(p2, challenges(app)[0])
+    sweep()
+    assert not expired_items().exists()
+
+
+def test_9kg_66_an_acknowledged_item_is_never_reopened_for_the_same_challenge(p2):
+    from correspondence import processing
+
+    app = submit()
+    run_worker()
+    (challenge,) = challenges(app)
+    expire(p2, challenge)
+    sweep()
+    (item,) = expired_items()
+    processing.resolve_exception(item.pk, "acknowledge", staff(p2, "expiry-acknowledger", "Correspondence operator"),
+                                 note="applicant asked to stop")
+    sweep()  # the same challenge, still active and expired: the resolved item stands and nothing reopens
+    assert list(expired_items().values_list("status", flat=True)) == ["resolved"]
+
+
+def test_9kg_66_the_sweep_is_scheduled_at_deployment_and_its_absence_is_a_health_anomaly(p2, settings):
+    from config import system_health
+    from tests.support import manage_as_owner
+
+    assert system_health.verification_health() == {"expiry_sweep_scheduled": False, "anomalies": []}  # local: not required
+    settings.CATALYST_ENV = "staging"
+    assert system_health.verification_health()["anomalies"] == ["verification_sweep_unscheduled"]
+    manage_as_owner("schedule_verification_sweep")  # the deployment step, after migrate (deploy/staging/compose.yaml)
+    manage_as_owner("schedule_verification_sweep")  # idempotent
+    assert PendingAction.objects.filter(kind="verification_expiry_sweep").count() == 1
+    assert system_health.verification_health() == {"expiry_sweep_scheduled": True, "anomalies": []}
+
+
+def test_9kg_66_an_open_item_closes_itself_once_the_applicant_verifies_or_the_case_closes(p2):
+    """Review of PR #97: an item already open when the applicant verifies (through a new submission and its link), or
+    when the application leaves the open stages, is closed by the next pass as the system, code
+    `verification_superseded`; it is not left for staff."""
+    from django.db import transaction
+
+    from applications.stages import transition
+
+    verifying, closing = submit("verifying@example.test"), submit("closing@example.test")
+    run_worker()
+    for app in (verifying, closing):
+        expire(p2, challenges(app)[0])
+    sweep()
+    assert list(expired_items().values_list("status", flat=True)) == ["open", "open"]
+    submit("verifying@example.test")  # a new submission supersedes the expired link and issues a new one
+    run_worker()
+    link = LINK.search([m for m in mail.outbox if m.to == ["verifying@example.test"]][-1].body).group(1)
+    version = re.search(r'name="version" value="([^"]+)"', Client().get(link).content.decode()).group(1)
+    assert Client().post(link, {"version": version}).status_code == 200
+    with transaction.atomic():
+        transition(closing.pk, ("submitted",), "withdrawn", event_kind="synthetic_withdrawal", actor_ref="test")
+    sweep()
+    for app, because in ((verifying, "contact_verified"), (closing, "application_closed")):
+        item = expired_items().get(application=app)
+        assert item.status == "resolved"
+        assert (item.resolution.resolution_code, item.resolution.resolved_by) == (
+            "verification_superseded", "system:verification_expiry_sweep")
+        assert item.resolution.effects == {"reason": "verification_expired", "because": because}
+        assert app.events.filter(kind="staff_item_resolved", actor_type="system").count() == 1
+    assert expired_items().count() == 2  # nothing new opened for either

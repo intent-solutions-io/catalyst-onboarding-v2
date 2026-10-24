@@ -79,11 +79,25 @@ ACKNOWLEDGE_ONLY = {"processing_error", "message_id_conflict", "mailbox_uidvalid
                     # P3 3B.1: acknowledged after staff act (a new submission with claims, or a re-fetch on /staff/p3/)
                     "claims_missing", "adoption_changed", "evidence_collection_failed",
                     # P3 3B.2: acknowledged by staff; also resolved by the system when a later run succeeds or staff rerun
-                    "assessment_failed", "assessment_input_changed", "assessment_pack_refused"}
+                    "assessment_failed", "assessment_input_changed", "assessment_pack_refused",
+                    # 9kg.66: the staff resend resolves it, and the sweep closes it once the applicant is verified or
+                    # the application closed; an acknowledgement records that staff saw it
+                    "verification_expired"}
 # 9kg.41 (owner decision on the PR #93 review): a suspended or capped snapshot closes only through the human-only
 # decision on the decision screen (which resolves it) or a later successful run, never by an acknowledgement that would
 # leave the case looking as if a run were coming.
 DECISION_SCREEN_ITEMS = {"assessment_suspended", "assessment_capped"}
+# 9kg.67 (029 appendix B, GAP 5): the words on each resolution button. The code stays the submitted value, the
+# resolution record and the audit trail; only the button text is plain English. Every code in RESOLUTIONS and the
+# acknowledgement have one (tested), and no label equals its code.
+RESOLUTION_LABELS = {
+    "address_usable_again": "Mark the address usable again",
+    "agreement_decided": "Record that the agreement cause is settled",
+    "dismiss": "Dismiss the message",
+    "associate": "Link the message to the application",
+    "mark_spoof": "Mark the message as spoofed",
+    "acknowledge": "Acknowledge as seen",
+}
 
 
 # --- the typed P3 interface (016 section 1); not implemented in P2 ---------------------------------------------

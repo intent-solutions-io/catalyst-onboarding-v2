@@ -24,9 +24,15 @@ recall it; a stale worker's result is then discarded by the fence, and the confi
 independently rejects any challenge that is no longer valid. Delivery to the sink is at least once (D-20):
 an interrupted attempt may be followed by the identical invitation. Sink acceptance is not inbox delivery,
 and nothing here claims exactly-once external effects.
+
+The expiry of the only link (9kg.66, 029 appendix B GAP 1): `verification_expiry_sweep`, a recurring action like the
+session clean-up, opens one `verification_expired` staff item for each open, unverified application whose active
+challenge has expired by the database clock, once per challenge; the staff resend resolves it. It changes nothing on
+the S1 path: no extra action is queued by intake or by a send.
 """
 
 import logging
+import uuid
 from dataclasses import dataclass
 from datetime import timedelta
 from email.utils import make_msgid
@@ -35,7 +41,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core.mail import EmailMessage
-from django.db import connection, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import Q
 from django.db.models.functions import Now
 
@@ -49,6 +55,12 @@ from .models import OutboundMessage
 
 logger = logging.getLogger(__name__)
 Status = PendingAction.Status
+
+# 9kg.66: the recurring sweep and the staff item it opens.
+EXPIRY_SWEEP = "verification_expiry_sweep"
+EXPIRY_SWEEP_SUBJECT = ("system", uuid.UUID("00000000-0000-0000-0000-00000000cccc"))
+EXPIRED_ITEM = "verification_expired"
+EXPIRY_SWEEP_BATCH = 200  # per pass, oldest expiry first; the rest wait for the next pass
 
 TEMPLATE_KEY = "verification_invitation"
 TEMPLATE_VERSION = "s1-synthetic-1"  # placeholder wording (POL-17)
@@ -215,3 +227,124 @@ class SendVerification:
                 logger.warning("action %s refused: %s; nothing sent", claim.id, decision.reason)
             else:
                 logger.info("action %s: %s; nothing sent", claim.id, decision.reason)
+
+
+# --- 9kg.66: the expiry of the only link -------------------------------------------------------------------------
+
+def expired_item_key(challenge_public_id) -> str:
+    return f"challenge:{challenge_public_id}"
+
+
+def _expired_active():
+    """Active challenges (unused, not superseded) that have expired by the database clock, of open applications whose
+    contact is unverified: the applicant holds no working link. There is at most one active challenge per application
+    (issuance supersedes the previous one), so this is the application's last link."""
+    return ContactChallenge.objects.filter(used_at__isnull=True, superseded_at__isnull=True, expires_at__lte=Now(),
+                                           application__contact_verified_at__isnull=True,
+                                           application__stage__in=OPEN_STAGES)
+
+
+SUPERSEDED = "verification_superseded"
+
+
+def close_moot_items() -> int:
+    """Review of PR #97: an open `verification_expired` item whose application has since been verified or has left the
+    open stages has nothing left to do; it is resolved by the system (code `verification_superseded`), with the
+    application locked. Returns the number resolved."""
+    from .models import StaffItem
+    from .staff_items import resolve_item
+
+    moot = (StaffItem.objects.filter(reason_code=EXPIRED_ITEM, status=StaffItem.Status.OPEN)
+            .filter(Q(application__contact_verified_at__isnull=False) | ~Q(application__stage__in=OPEN_STAGES))
+            .values_list("pk", "application_id"))
+    closed = 0
+    for item_id, application_id in list(moot):
+        with transaction.atomic():
+            application = Application.objects.select_for_update(of=("self",)).get(pk=application_id)
+            item = StaffItem.objects.select_for_update(of=("self",)).get(pk=item_id)
+            if item.status != StaffItem.Status.OPEN or (
+                    application.contact_verified_at is None and application.stage in OPEN_STAGES):
+                continue
+            reason = "contact_verified" if application.contact_verified_at is not None else "application_closed"
+            if resolve_item(item, code=SUPERSEDED, actor_ref=f"system:{EXPIRY_SWEEP}",
+                            effects={"reason": EXPIRED_ITEM, "because": reason},
+                            actor_type=ApplicationEvent.ActorType.SYSTEM):
+                closed += 1
+    return closed
+
+
+def open_expired_link_items(limit: int = EXPIRY_SWEEP_BATCH) -> int:
+    """First close the items that became moot (`close_moot_items`); then open one `verification_expired` item per
+    expired active challenge, re-checked with the application locked (the lock order of intake and confirmation). Once
+    per challenge: an item for it, open or resolved, is never opened again, so a re-run, a redelivered sweep or an
+    acknowledged item adds nothing. Returns the number opened."""
+    from .models import StaffItem
+    from .staff_items import open_item
+
+    close_moot_items()
+
+    seen = set(StaffItem.objects.filter(reason_code=EXPIRED_ITEM).values_list("dedupe_key", flat=True))
+    candidates = [(c.application_id, c.public_id) for c in _expired_active().order_by("expires_at", "id")
+                  if expired_item_key(c.public_id) not in seen][:limit]
+    opened = 0
+    for application_id, challenge_id in candidates:
+        with transaction.atomic():
+            application = Application.objects.select_for_update(of=("self",)).filter(pk=application_id).first()
+            key = expired_item_key(challenge_id)
+            if (application is None or not _expired_active().filter(public_id=challenge_id, application=application).exists()
+                    or StaffItem.objects.filter(reason_code=EXPIRED_ITEM, dedupe_key=key).exists()):
+                continue  # confirmed, reissued or closed meanwhile, or another sweep opened it
+            open_item(EXPIRED_ITEM, key, application=application)
+            opened += 1
+    return opened
+
+
+def schedule_expiry_sweep(n: int | None = None, delay: float = 0.0) -> bool:
+    """Queue the next sweep unless one is already queued or running; True when it queued one. Idempotent: the
+    deployment runs it after migrate (`manage.py schedule_verification_sweep`), and each pass queues its successor."""
+    active = PendingAction.objects.filter(kind=EXPIRY_SWEEP, status__in=(Status.QUEUED, Status.RUNNING))
+    if n is None and active.exists():
+        return False
+    n = n if n is not None else PendingAction.objects.filter(kind=EXPIRY_SWEEP).count() + 1
+    try:
+        with transaction.atomic():
+            PendingAction.objects.create(kind=EXPIRY_SWEEP, subject_type=EXPIRY_SWEEP_SUBJECT[0],
+                                         subject_id=EXPIRY_SWEEP_SUBJECT[1], input_ref="",
+                                         idempotency_key=f"{EXPIRY_SWEEP}:{n}", due_at=Now() + timedelta(seconds=delay))
+    except IntegrityError:
+        return False
+    return True
+
+
+def _sweep_number(claim) -> int:
+    key = PendingAction.objects.filter(pk=claim.id).values_list("idempotency_key", flat=True).first() or ""
+    try:
+        return int(key.rsplit(":", 1)[1])
+    except (IndexError, ValueError):
+        return 0
+
+
+class SweepExpiredVerification:
+    """9kg.66 (`verification_expiry_sweep`): every CATALYST_VERIFICATION_SWEEP_SECONDS, open the expired-link items and
+    queue the next pass. It sends nothing; it opens staff items only, so it is not automation and an application's
+    pause does not hold it (the item tells staff about a paused case too); the restore hold stops it like everything."""
+
+    kind = EXPIRY_SWEEP
+    redeliverable = True  # internal and idempotent: a repeat finds the items it already opened
+    automated = False
+
+    def lock_subject(self, claim) -> None:
+        pass
+
+    def record(self, claim, kind, data) -> None:
+        """The chain survives a final failure: the next sweep is queued anyway."""
+        if kind == "action_attempts_exhausted" or (kind == "action_failed" and data.get("final")):
+            schedule_expiry_sweep(_sweep_number(claim) + 1, settings.CATALYST_VERIFICATION_SWEEP_SECONDS)
+
+    def run(self, claim) -> None:
+        opened = open_expired_link_items()
+        if opened:
+            logger.info("verification expiry sweep: %s staff item(s) opened", opened)
+        n = _sweep_number(claim)
+        ledger.finish(claim, self, status=Status.DONE,
+                      write=lambda: schedule_expiry_sweep(n + 1, settings.CATALYST_VERIFICATION_SWEEP_SECONDS))

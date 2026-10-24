@@ -173,7 +173,7 @@
       "command": [
         "sh",
         "-c",
-        "python manage.py migrate --noinput && python manage.py schedule_session_cleanup"
+        "python manage.py migrate --noinput && python manage.py schedule_session_cleanup && python manage.py schedule_verification_sweep"
       ],
       "networks": [
         "backend"

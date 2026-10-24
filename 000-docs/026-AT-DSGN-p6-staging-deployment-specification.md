@@ -925,6 +925,10 @@ specification text; nothing is built.
 - **Session clean-up:** `clear_sessions` is a ledger action that deletes expired session rows hourly and queues its
   successor, even after a final failure. `manage.py schedule_session_cleanup` (idempotent) starts the chain at
   deployment, and `catalyst_health` reports `session_cleanup_unscheduled` where two-factor is required.
+  `manage.py schedule_verification_sweep` starts the verification expiry sweep the same way in the same deployment
+  step (`9kg.66`, `016` section 10.17); `catalyst_health` reports `verification_sweep_unscheduled` outside the local
+  environments. The first pass opens an item for every open unverified application whose link already expired
+  (batched 200 per pass); once per challenge is intended.
 - **Database:** django-otp saves a whole device row when a token is verified, so the application role has UPDATE on
   the device tables. A trigger refuses any change by that role except the counters and timestamps. The role cannot
   add or remove a device; it may delete a recovery code, which is how a used code is spent.
@@ -1771,8 +1775,20 @@ report (`catalyst_health`, the staging adapter `health.sh`, the Buzz floor):
 - **Default page list.** Until the owner sets values, only the three classes that are bad in themselves page:
   `replies_awaiting_processing`, `issued_agreements`, `provisioning_activation`; the stage, item and pause classes
   are counted and printed, audit only. The health report also carries `decision.qualification_authority_configured`.
-- **Deferred:** a `held_followons` class (held `issue_nda` and `send_decline` actions past an age) is not built; the
-  main session files its bead.
+- **Held follow-ons (`9kg.57`, 2026-10-24).** The class `held_followons` counts the follow-ons left held for the owner's
+  release or a policy: `send_decline` (the decline notice, `oc4.11`), `issue_nda` (released by `activate_agreements`)
+  and `provision` (released by `activate_provisioning`). An application in `agreements_complete` waits on exactly
+  that held `provision` hand-off (`021` step 8, `023` 11.11), so the stage is counted once, through its hand-off, not
+  as a second class. Counted by kind and status (`held`) only, whether or not a handler exists for the kind. **Age
+  semantics:** from the action's `updated_at`, which is when it was created held or last returned to held (a refused
+  `issue_nda` goes back to held with a new `updated_at`); nothing else updates a held row, and a released, cancelled
+  or done follow-on leaves the class. Its threshold is its own setting,
+  `CATALYST_HEALTH_AGED_WAIT_HELD_FOLLOWONS_SECONDS` (default: the pending-age target, a placeholder until `211.7.2`).
+  It is **not** in the default page list: at the internal launch a held decline notice and a held provisioning
+  hand-off are the plan, not a fault; the owner lists it when the release is due. The class also prints
+  `aged_by_kind` (kind names and counts only).
 
 Tests: `tests/test_system_health.py` (`9kg.51` in `tests/acceptance.py` P6_SUPPORTING): every class fresh raises
-nothing, past its threshold raises its code, and clears when resolved; thresholds and paging per class.
+nothing, past its threshold raises its code, and clears when resolved; thresholds and paging per class. `9kg.57`: each held
+follow-on kind aged past the class threshold raises `aged_waits.held_followons`, a released or cancelled follow-on and a
+held action of another kind are not counted, and a follow-on returned to held ages from its return.
