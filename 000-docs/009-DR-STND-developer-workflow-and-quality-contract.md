@@ -174,7 +174,7 @@ names); a targeted run is reported, never gated (`tests/acceptance.py` marks a s
 - *The map is tested* (`tests/test_select_tests.py`, as the "Runtime-code PR" row requires before any subset is
   selected): every test module is reachable through it; a package change selects every module whose source imports
   that package (a regex reading, independent of the `ast` walk); fixture chains are followed; unmapped paths and wide
-  selections run the whole suite; the eleven test modules no package change reaches are pinned by name, so a new one
+  selections run the whole suite; the four test modules no package change reaches are pinned by name (seven more reach `applications` and `workflow` through `tests.support` since PR #88), so a new one
   is a decision. Known blind spot, which is why the lane never gates: a view reached only through a URL, a management
   command called by name, or a template.
 - *Where it runs.* Locally, `PYTEST_ARGS="$(git diff --name-only origin/main... | xargs python3 scripts/select_tests.py)"

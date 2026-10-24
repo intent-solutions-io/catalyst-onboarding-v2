@@ -5,7 +5,6 @@ privileged reset), since a deferred constraint trigger only speaks at commit, an
 import json
 import uuid
 
-import psycopg
 import pytest
 from psycopg import errors
 

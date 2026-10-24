@@ -22,10 +22,9 @@ spec.loader.exec_module(select_tests)
 # the whole suite.
 # A new test module that reaches no package must be added here on purpose, after checking it does not exercise package
 # code through a URL or a command name alone (which the import map cannot see).
-REACHES_NO_PACKAGE = {
-    "test_cutover", "test_database", "test_health", "test_image", "test_network_guard", "test_release_gate",
-    "test_select_tests", "test_staging_alerts", "test_staging_compose", "test_staging_proxy", "test_startup",
-}
+# Since PR #88, tests/support.py's resume_pauses imports applications and workflow, so every module that imports
+# tests.support reaches those two packages; the map over-selects them for a package change, the safe direction.
+REACHES_NO_PACKAGE = {"test_database", "test_health", "test_network_guard", "test_release_gate"}
 
 
 def test_every_test_module_is_covered_by_the_map():
