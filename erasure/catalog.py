@@ -116,6 +116,8 @@ TABLES = {
     "agreements_storeddocument": Table(other=(  # the PDF itself is in custody: registry row signed_documents (9kg.34)
         "id public_id envelope_id item_id version storage_key sha256 size stored_at application_id instance_id"
         " observation_id")),
+    "agreements_custodyenvelope": Table(other=(  # 9kg.34: random references, digests and sizes; no key material
+        "id storage_key scheme key_ref wrapping_key_id cipher_sha256 cipher_size migrated sealed_at document_id")),
     # --- applications --------------------------------------------------------------------------------------------
     "applications_application": Table(
         selector="id = ANY(v_apps)",
@@ -485,7 +487,9 @@ def erase_sql(retention_literal: str, existing: dict) -> str:
     tombstones. A subject with nothing left to change returns `nothing_to_erase` without writing anything (the audit
     row is rolled back with its sub-block), so a second erasure is harmless; a subject whose key is already a tombstone
     is scoped by its own references, so a class added later still reaches it. It also reports the provider handoffs
-    owed and what it retains (`custody_documents` until 9kg.34)."""
+    owed, what it retains (`custody_documents` when the subject has stored documents) and, for 9kg.34, the key
+    references of the subject's sealed custody documents (`custody_keys`) and the number still in the clear
+    (`custody_plaintext`), so the command can destroy those keys outside the database (agreements.keystore)."""
     terminal = ", ".join(_lit(s) for s in TERMINAL_STAGES)
     open_statuses = ", ".join(_lit(s) for s in OPEN_ACTION_STATUSES)
     final = ", ".join(_lit(s) for s in FINAL_REVOCATION_STATES)
@@ -506,6 +510,8 @@ DECLARE
   v_tables jsonb := '{{}}'::jsonb;
   v_handoffs text[] := ARRAY[]::text[];
   v_retained text[] := ARRAY[]::text[];
+  v_custody_keys text[] := ARRAY[]::text[];
+  v_custody_plaintext bigint := 0;
   v_tombstoned boolean;
 BEGIN
   IF NOT pg_catalog.pg_has_role(session_user, {retention_literal}, 'MEMBER') THEN
@@ -576,10 +582,17 @@ BEGIN
   IF EXISTS (SELECT 1 FROM public.assessments_assessmentrun r WHERE r.application_id = ANY(v_apps)) THEN
     v_handoffs := v_handoffs || 'model_provider'::text;  -- what the model provider kept of a request, if anything
   END IF;
-  -- Not erased by this function: the custody PDFs (registry row signed_documents; 9kg.34 destroys their keys).
+  -- Not erased by this function: the custody PDFs (registry row signed_documents). 9kg.34: their key references, so
+  -- the command destroys the keys outside the database under `destroy_key`; reachable for a tombstoned subject too.
   IF EXISTS (SELECT 1 FROM public.agreements_storeddocument d WHERE d.application_id = ANY(v_apps)) THEN
     v_retained := v_retained || 'custody_documents'::text;
   END IF;
+  SELECT coalesce(pg_catalog.array_agg(e.key_ref ORDER BY e.id), ARRAY[]::text[]) INTO v_custody_keys
+    FROM public.agreements_custodyenvelope e JOIN public.agreements_storeddocument d ON d.id = e.document_id
+    WHERE d.application_id = ANY(v_apps);
+  SELECT pg_catalog.count(*) INTO v_custody_plaintext FROM public.agreements_storeddocument d
+    WHERE d.application_id = ANY(v_apps)
+      AND NOT EXISTS (SELECT 1 FROM public.agreements_custodyenvelope e WHERE e.document_id = d.id);
   BEGIN
     INSERT INTO public.erasure_erasureaudit (subject_ref, authority, reason_code, classes)
       VALUES (p_subject, p_authority, p_reason, pg_catalog.to_jsonb(p_classes));
@@ -590,11 +603,15 @@ BEGIN
   EXCEPTION WHEN SQLSTATE 'CE001' THEN
     RETURN pg_catalog.jsonb_build_object('status', 'nothing_to_erase', 'changed', 0, 'tables', '{{}}'::jsonb,
                                          'handoffs', pg_catalog.to_jsonb(v_handoffs),
-                                         'retained', pg_catalog.to_jsonb(v_retained));
+                                         'retained', pg_catalog.to_jsonb(v_retained),
+                                         'custody_keys', pg_catalog.to_jsonb(v_custody_keys),
+                                         'custody_plaintext', v_custody_plaintext);
   END;
   RETURN pg_catalog.jsonb_build_object('status', 'erased', 'changed', v_total, 'tables', v_tables,
                                        'handoffs', pg_catalog.to_jsonb(v_handoffs),
-                                       'retained', pg_catalog.to_jsonb(v_retained));
+                                       'retained', pg_catalog.to_jsonb(v_retained),
+                                       'custody_keys', pg_catalog.to_jsonb(v_custody_keys),
+                                       'custody_plaintext', v_custody_plaintext);
 END $fn$"""
 
 

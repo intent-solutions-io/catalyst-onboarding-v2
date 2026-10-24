@@ -16,8 +16,10 @@ Treatments a subject class may take:
 
 Rows that are not database classes:
 
-- `signed_documents`: the custody PDFs. Only `retain` is supported until 9kg.34 (encryption and key destruction)
-  adds per-subject destruction; any other value refuses.
+- `signed_documents`: v2's custody copy of the signed PDFs. `retain` keeps them; `destroy_key` (9kg.34) destroys
+  each of the subject's per-document keys (agreements.keystore), in the key directory and its mirror, so the sealed
+  files in custody and in every backup, old or new, can no longer be opened. The rows and sealed files stay; nothing
+  in the database changes. The provider's copy is not reached (`provider_copies`, P4-D-15 until POL-10).
 - `provider_copies`: the Documenso copy, the mail host's Sent and inbox folders and a provisioned mailbox. Deleting
   them is a manual handoff owned by the owner (211.7.1, QA finding 12); the only supported treatment is
   `manual_handoff`, recorded as an erasure-record entry with its completion date (`catalyst_erase --handoff`).
@@ -32,6 +34,7 @@ Nothing applies a retention period yet; the values are recorded here so that the
 UNDECIDED = "undecided"
 ANONYMIZE = "anonymize"
 RETAIN = "retain"
+DESTROY_KEY = "destroy_key"  # 9kg.34: signed_documents only
 MANUAL_HANDOFF = "manual_handoff"
 
 # The subject data classes the erasure function can anonymize (erasure.catalog names each class's columns).
@@ -58,7 +61,7 @@ OTHER_CLASSES = ("signed_documents", "provider_copies", "erasure_record", "effec
 # What each row may say once decided, besides UNDECIDED.
 ALLOWED = {
     **{name: (ANONYMIZE, RETAIN) for name in SUBJECT_CLASSES},
-    "signed_documents": (RETAIN,),  # 9kg.34 adds per-subject key destruction
+    "signed_documents": (RETAIN, DESTROY_KEY),  # 9kg.34: per-document key destruction
     "provider_copies": (MANUAL_HANDOFF,),
     "erasure_record": (RETAIN,),
     "effect_journal": (RETAIN,),

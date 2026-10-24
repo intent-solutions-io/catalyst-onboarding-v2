@@ -8,9 +8,10 @@
    itself (021 section 18).
 2. Each item is downloaded with `version=signed` through the hardened adapter (bounded size and time, no redirect,
    `%PDF` check), outside any transaction.
-3. The bytes are stored under a new system-generated key, re-read and re-hashed (`agreements.storage`).
-4. One fenced transaction records a `StoredDocument` per item and moves custody to `stored_verified`; then the
-   sequence advances.
+3. The bytes are sealed under a new per-document key (9kg.34, agreements.keystore) and stored under a new
+   system-generated name, re-read, opened and re-hashed (`agreements.storage`).
+4. One fenced transaction records a `StoredDocument` and its `CustodyEnvelope` per item and moves custody to
+   `stored_verified`; then the sequence advances.
 
 Failures:
 - A provider or storage failure retries within the attempt bound (custody `failed_retry_pending`), then becomes
@@ -35,7 +36,7 @@ from workflow import ledger
 from workflow.models import PendingAction
 
 from . import provider, storage
-from .models import AgreementInstance, ProviderObservation, StoredDocument
+from .models import AgreementInstance, CustodyEnvelope, ProviderObservation, StoredDocument
 
 logger = logging.getLogger(__name__)
 Status = PendingAction.Status
@@ -106,8 +107,8 @@ class StoreAgreement:
             stored = []
             for item in env.items:  # outside any transaction
                 pdf = provider.download(item)
-                key, digest = storage.write(pdf)
-                stored.append((item, key, digest, len(pdf)))
+                key, digest, sealed = storage.write(pdf)
+                stored.append((item, key, digest, len(pdf), sealed))
             # A second fresh read: the envelope did not change while its items were downloaded (security review).
             after = provider.read(instance.envelope_id)
             again = facts(instance, after.status, after.recipients, identity=read_identity(instance, after))
@@ -147,10 +148,11 @@ class StoreAgreement:
         observation = observe(instance, ProviderObservation.Source.READ, data)
         try:
             with transaction.atomic():
-                for item, key, digest, size in stored:
-                    StoredDocument.objects.create(instance=instance, application=instance.application,
-                                                  envelope_id=instance.envelope_id, item_id=item, storage_key=key,
-                                                  sha256=digest, size=size, observation=observation)
+                for item, key, digest, size, sealed in stored:
+                    document = StoredDocument.objects.create(
+                        instance=instance, application=instance.application, envelope_id=instance.envelope_id,
+                        item_id=item, storage_key=key, sha256=digest, size=size, observation=observation)
+                    CustodyEnvelope.objects.create(document=document, **sealed.fields())
         except IntegrityError:
             # A record for this item already exists (insert-only). Never a silent "pending": staff decide.
             AgreementInstance.objects.filter(pk=instance.pk).update(custody_status="failed_needs_staff", updated_at=Now())

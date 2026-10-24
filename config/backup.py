@@ -3,7 +3,9 @@
 This turns the 9kg.7 rehearsal (tests/test_restore_rehearsal.py) into the operator's tools:
 
 - **backup** reads one REPEATABLE READ, read-only snapshot as the backup role: every table except `django_session`
-  (COPY) and the list of custody documents. The custody files are copied after the snapshot ends: they are
+  (COPY) and the list of custody documents as they are at rest (9kg.34: a sealed file is verified against its
+  envelope's digest; no key is read, held or copied, and a key directory may not overlap the set or the custody
+  directory). The custody files are copied after the snapshot ends: they are
   write-once, so the copy is a superset of the snapshot's rows, and the snapshot is not held open while files
   are copied. It writes to `<name>.pending` (the estate archive skips in-progress sets), fsyncs every file and
   directory, then renames. The set is 0700 and its files 0600: the manifest is personal-data-adjacent (026 section
@@ -117,6 +119,32 @@ def refuse_real_backup_while_undecided() -> None:
         raise BackupError("the erasure registry has undecided values (POL-10): a backup of real data is refused")
 
 
+# 9kg.34: each custody document as it is at rest: a sealed document's file, digest and size come from its envelope
+# (no key is needed to verify a sealed file); a document stored before 9kg.34 and not yet migrated is its plaintext.
+AT_REST_DOCUMENTS = ("SELECT coalesce(e.storage_key, d.storage_key), coalesce(e.cipher_sha256, d.sha256),"
+                     " coalesce(e.cipher_size, d.size) FROM agreements_storeddocument d"
+                     " LEFT JOIN agreements_custodyenvelope e ON e.document_id = d.id ORDER BY d.id")
+
+
+def refuse_custody_keys(out_dir: Path, storage_dir: Path) -> None:
+    """9kg.34: a backup never carries a custody key. The backup process may not hold the wrapping key, and neither the
+    output directory nor the custody directory it copies from may overlap a key directory (a set that held a key would
+    be a point-in-time copy that a destruction could never reach). The set itself holds only table copies and the
+    custody files its snapshot names by the custody key pattern, so a `.key` file can never be copied into it."""
+    from django.conf import settings
+
+    if getattr(settings, "CATALYST_CUSTODY_WRAPPING_KEY", ""):
+        raise BackupError("the backup process may not hold the custody wrapping key (9kg.34)")
+    for setting in ("CATALYST_CUSTODY_KEY_DIR", "CATALYST_CUSTODY_KEY_MIRROR_DIR"):
+        value = str(getattr(settings, setting, "") or "")
+        if not value:
+            continue
+        keys = Path(value).resolve()
+        for path in (out_dir.resolve(), storage_dir.resolve()):
+            if path == keys or keys in path.parents or path in keys.parents:
+                raise BackupError("a backup may not read from or write to a custody key directory (9kg.34)")
+
+
 def backup(conn, out_dir: Path, storage_dir: Path, name: str, commit: str = "") -> dict:
     """Write one coherent set to out_dir/name and return its receipt. `conn` is a psycopg connection as the backup
     role, not yet in a transaction."""
@@ -125,6 +153,7 @@ def backup(conn, out_dir: Path, storage_dir: Path, name: str, commit: str = "") 
     if not NAME.fullmatch(name):
         raise BackupError("the set name may hold only letters, digits, dot, dash and underscore")
     refuse_real_backup_while_undecided()
+    refuse_custody_keys(out_dir, storage_dir)
     if not out_dir.is_absolute() or not out_dir.is_dir():
         raise BackupError("the output directory must be an existing absolute directory")
     final, pending = out_dir / name, out_dir / f"{name}.pending"
@@ -159,7 +188,7 @@ def backup(conn, out_dir: Path, storage_dir: Path, name: str, commit: str = "") 
                 data = copy_out(conn, table)
                 _private_file(pending / f"{table}.copy", data)
                 manifest["tables"][table] = {"rows": data.count(b"\n"), "sha256": digest(data)}
-            documents = conn.execute("SELECT storage_key, sha256, size FROM agreements_storeddocument ORDER BY id").fetchall()
+            documents = conn.execute(AT_REST_DOCUMENTS).fetchall()
             manifest["revision"] = sorted(map(list, conn.execute("SELECT app, name FROM django_migrations").fetchall()))
             server = conn.execute("SHOW server_version").fetchone()[0]
         for key, sha, size in documents:  # after the snapshot: write-once files are a superset of its rows

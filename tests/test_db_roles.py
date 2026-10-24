@@ -34,7 +34,7 @@ SECRETS = [*PASSWORDS.values(), superuser_login()[1]]
 # Trigger inventory (003 ADR-14): append-only on versions and events (2), no-truncate on versions, events,
 # audit and adoptions (4), audit immutability (1), adoption immutability (1).
 TRIGGERS = ("catalyst_append_only", "catalyst_no_truncate", "catalyst_audit_immutable", "catalyst_adoption_immutable")
-TRIGGER_COUNT = 47  # 8 from S1, 2 on evidence captures (P3 3B.1), 2 on qualification decisions (P3 3B.4),
+TRIGGER_COUNT = 49  # 8 from S1, 2 on evidence captures (P3 3B.1), 2 on qualification decisions (P3 3B.4),
 # 2 on agreement recipients (P4 4B.1), 2 on provider observations (P4 4B.2), 5 on custody and details (4B.3),
 # 8 on correspondence evidence (9kg.1), 3 no-truncate on inbound messages, outbound attempts and reply links (9kg.5),
 # 5 on provisioning records (P5 5B.1), 1 on credential setups (5B.2),
@@ -43,7 +43,8 @@ TRIGGER_COUNT = 47  # 8 from S1, 2 on evidence captures (P3 3B.1), 2 on qualific
 # 1 no-truncate on automation pauses (9kg.6; workflow 0005, after the baseline),
 # 2 on staff role grants (9kg.30; accounts 0007, after the baseline),
 # 1 no-truncate on member-on-file records (9kg.52; applications 0008),
-# 2 on the erasure audit (9kg.32; erasure 0002, which depends on every app's latest migration)
+# 2 on the erasure audit (9kg.32; erasure 0002, which depends on every app's latest migration),
+# 2 on the custody envelope (9kg.34; agreements 0010)
 SLICE_TABLES = [
     "applications_application", "applications_submissionversion", "applications_contactchallenge",
     "applications_versionadoption", "applications_applicationevent", "applications_retentionaudit",
@@ -420,9 +421,9 @@ def test_history_protection_migrations_reverse_and_reapply_and_keep_data(connect
     # assessments (P3: captures and decisions) and agreements (P4: recipients) depend on applications 0003, so they
     # stayed reversed, as did the invitation table (applications 0005, 9kg.43), the staff role grants (accounts 0007,
     # 9kg.30), the pause guard (workflow 0005, on applications 0006) and the member-on-file table (applications 0008)
-    assert count() == TRIGGER_COUNT - 39  # correspondence (9kg.1, 9kg.5), provisioning (5B.1), the invitation and member-on-file tables, the grant record, the pause guard and the erasure audit (9kg.32) stayed reversed
+    assert count() == TRIGGER_COUNT - 41  # correspondence (9kg.1, 9kg.5), provisioning (5B.1), the invitation and member-on-file tables, the grant record, the pause guard and the erasure audit (9kg.32) stayed reversed
     manage_as_owner("migrate", "assessments", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 35
+    assert count() == TRIGGER_COUNT - 37  # the custody envelope (agreements 0010) waits on agreements
     manage_as_owner("migrate", "agreements", "--verbosity", "0")
     assert count() == TRIGGER_COUNT - 26
     manage_as_owner("migrate", "correspondence", "--verbosity", "0")

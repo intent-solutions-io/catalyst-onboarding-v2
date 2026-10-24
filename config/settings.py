@@ -465,6 +465,16 @@ CATALYST_AGREEMENT_WEBHOOK_SECRETS: list = []
 # Custody (021 section 7; 4B.3; POL-09 open): an absolute directory outside the repository and any web root, test and
 # staging only (synthetic P4). Fixed in code, empty everywhere else.
 CATALYST_AGREEMENT_STORAGE_DIR = ""
+# 9kg.34 (026 section 6 option c; 030 Q4, D-51): custody encryption at rest (agreements.keystore). The wrapped data keys
+# live in a key directory and its live mirror, both outside the custody directory and the backup set; like the storage
+# directory they are fixed in code and empty outside `test` and `staging` until the owner's custody decision (211.7.9,
+# agreements.custody_policy). The wrapping key is a secret file (`custody_wrapping_key` in CATALYST_SECRETS_DIR outside
+# test and development): 64 lower-case hex characters (32 random bytes), its recovery copy escrowed in the operator's
+# encrypted secret store, never in the database, a backup set, the journal, a receipt or a log. Optional: only the web
+# process (decision-maker retrieval), the worker (custody writes) and the owner-run custody commands hold it.
+CATALYST_CUSTODY_WRAPPING_KEY = secret("CATALYST_CUSTODY_WRAPPING_KEY", "")
+CATALYST_CUSTODY_KEY_DIR = ""
+CATALYST_CUSTODY_KEY_MIRROR_DIR = ""
 # Required details per agreement type (POL-18 open: no production field list). Synthetic field names only, set by
 # tests; fixed in code and empty everywhere else.
 CATALYST_AGREEMENT_REQUIRED_DETAILS: dict = {}

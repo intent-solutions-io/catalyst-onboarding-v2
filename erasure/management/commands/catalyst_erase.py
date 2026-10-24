@@ -9,7 +9,10 @@ covers every record of that person's email key. It refuses while the registry (e
 value. Re-run the same command after any interruption: an open intent is finished; a completed erasure is left alone.
 
 Prints one JSON line: the outcome, the number of values changed, the provider handoffs owed, what was retained rather
-than erased (`custody_documents` until 9kg.34 destroys the custody keys) and the journal head.
+than erased (`custody_documents` while the registry's `signed_documents` row says `retain`), the number of custody key
+files destroyed (9kg.34, under `destroy_key`; the claim covers v2's custody copy only, so the provider's copy stays a
+handoff under P4-D-15 until POL-10) and the journal head. The command never holds the custody wrapping key: destroying
+a key needs only its directories.
 Keep the head out of band (the private operations record): `catalyst_erasure_record --expect-head` checks it. Never
 prints an address, a name or a numeric id. Exit 0 on success, 1 when refused."""
 
@@ -20,6 +23,7 @@ import psycopg
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
+from agreements import custody_policy
 from config import runtime
 from erasure import record, service
 
@@ -41,6 +45,8 @@ class Command(BaseCommand):
     def handle(self, *args, subject, authority, reason, handoff, completed_on, **options):
         if runtime.process_kind() in runtime.ENFORCED_KINDS:
             self.refuse("not_a_management_process")
+        if getattr(settings, "CATALYST_CUSTODY_WRAPPING_KEY", ""):
+            self.refuse("custody_wrapping_key_present")  # 9kg.34: destruction needs no key; this process holds none
         try:
             subject = str(uuid.UUID(subject))
         except ValueError:
@@ -64,5 +70,6 @@ class Command(BaseCommand):
             self.refuse(f"database_error {type(exc).__name__} {exc.sqlstate or ''}".rstrip())
         self.stdout.write(json.dumps({"status": outcome.status, "subject": outcome.subject_ref, "changed": outcome.changed,
                                       "handoffs": outcome.handoffs, "resumed": outcome.resumed,
-                                      "retained": outcome.retained or [],
+                                      "retained": outcome.retained or [], "keys_destroyed": outcome.keys_destroyed,
+                                      "custody_scope": custody_policy.SCOPE,
                                       "journal_head": outcome.journal_head}, sort_keys=True))

@@ -254,6 +254,29 @@ class StoredDocument(models.Model):
         ]
 
 
+class CustodyEnvelope(models.Model):
+    """9kg.34: how one stored document is sealed at rest (agreements.keystore). The file named `storage_key` holds the
+    AES-256-GCM sealed bytes under the data key `key_ref`; `cipher_sha256` and `cipher_size` are those bytes' digest and
+    size, so the backup and the restore verify a sealed file without any key. `StoredDocument.sha256` stays the
+    plaintext's hash and is checked after opening. For a document sealed when it was stored, `storage_key` is the
+    document's own; a migrated one (`migrated`) has a new file and its plaintext file is removed. No key material is
+    here: the wrapped key lives outside the database and the backup, so a restore can never bring it back. Insert-only
+    for every role, like the document itself. Every column is non-personal (random references, digests, sizes)."""
+
+    document = models.OneToOneField(StoredDocument, on_delete=models.PROTECT, related_name="envelope")
+    storage_key = models.CharField(max_length=80, unique=True)  # the sealed file; system-generated
+    scheme = models.CharField(max_length=32)
+    key_ref = models.CharField(max_length=32, unique=True)
+    wrapping_key_id = models.CharField(max_length=16)
+    cipher_sha256 = models.CharField(max_length=64)
+    cipher_size = models.PositiveIntegerField()
+    migrated = models.BooleanField(default=False)
+    sealed_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        constraints = [models.CheckConstraint(condition=Q(scheme="aes-256-gcm/v1"), name="custody_envelope_scheme_known")]
+
+
 class DocumentAccess(models.Model):
     """Every retrieval attempt, granted or not (021 section 7). Written and committed before any byte is released;
     a denied attempt records only the reference asked for, so it reveals nothing about whether a document exists.

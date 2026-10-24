@@ -10,7 +10,12 @@ Order of operations, each step refusing before anything changes:
    work in flight, has an unfinished access revocation or is unknown is refused here, before any record is written;
 4. the intent is appended to the durable record and fsynced;
 5. one database transaction: `public.catalyst_erase(...)` writes the erasure audit row and the tombstones;
-6. the completion is appended.
+6. 9kg.34, when the registry's `signed_documents` row says `destroy_key`: every custody key of the subject's sealed
+   documents is destroyed outside the database (agreements.keystore: journaled, then unlinked from the mirror and the
+   key directory), so the sealed files in custody and in every backup can no longer be opened. A subject with any
+   document still stored in the clear is refused at the dry run, before any record: destruction could not reach it
+   (`catalyst_custody_keys --migrate` seals it first);
+7. the completion is appended.
 
 Re-running the command after any interruption finishes the erasure: an open intent is resumed with its own hash,
 checked against the row's key while the row still holds one, with the classes of the registry in force and this run's
@@ -25,6 +30,7 @@ from dataclasses import dataclass
 from django.conf import settings
 from psycopg import errors
 
+from agreements import keystore
 from erasure import catalog, record, registry
 from workflow import journal
 
@@ -45,6 +51,7 @@ class Outcome:
     journal_head: str
     resumed: bool = False
     retained: list = None
+    keys_destroyed: int = 0
 
 
 def _code(exc) -> str:
@@ -115,6 +122,7 @@ def erase(conn, subject_ref: str, authority: str, reason: str, rows=None) -> Out
         if problems:
             raise Refused("registry_undecided", problems)
     classes = [c for c in registry.SUBJECT_CLASSES if (rows.get(c) or {}).get("treatment") == registry.ANONYMIZE]
+    destroy = (rows.get("signed_documents") or {}).get("treatment") == registry.DESTROY_KEY
     if not classes:
         raise Refused("registry_undecided", ["no_class_anonymized"])
     kid = record.key_id(secret)
@@ -130,9 +138,12 @@ def erase(conn, subject_ref: str, authority: str, reason: str, rows=None) -> Out
         raise Refused("unknown_subject")
     else:
         dry = _call(conn, subject_ref, authority, reason, classes, commit=False)  # refusals surface before the intent
-        if dry["status"] == "nothing_to_erase":
+        if destroy and int(dry.get("custody_plaintext") or 0):
+            raise Refused("custody_plaintext_unmigrated")  # a plaintext copy is beyond any key: seal it first
+        keys_left = destroy and _any_key_present(dry.get("custody_keys") or [])
+        if dry["status"] == "nothing_to_erase" and not keys_left:
             return Outcome("nothing_to_erase", str(subject_ref), 0, [], record.head_string(),
-                           retained=sorted(dry.get("retained") or []))
+                           retained=_retained(dry, destroy))
         if real_key:
             subject = record.subject_hash(email_key, secret)
         elif state is not None and state.intent is not None:
@@ -141,7 +152,7 @@ def erase(conn, subject_ref: str, authority: str, reason: str, rows=None) -> Out
             raise Refused("record_subject_unknown")
         try:
             record.append_intent(subject_ref, subject, kid, authority, reason, classes, dry.get("handoffs") or [],
-                                 dry.get("retained") or [], secret)
+                                 _retained(dry, destroy), secret)
         except record.RecordError as exc:
             raise Refused(f"record_{exc.code}") from None
     try:
@@ -149,18 +160,43 @@ def erase(conn, subject_ref: str, authority: str, reason: str, rows=None) -> Out
     except Refused as refusal:
         _complete(subject_ref, subject, kid, f"refused_{refusal.code}", 0, secret)
         raise
+    removed = 0
+    if destroy and result.get("custody_keys"):
+        try:  # after the commit: an interruption leaves the intent open, and the next run destroys what is left
+            removed = keystore.destroy(str(subject_ref), result["custody_keys"])
+        except keystore.KeyStoreError as exc:
+            raise Refused(f"custody_{exc.code}_after_commit") from None
     status = result["status"]
     if resumed and status == "nothing_to_erase":
         status = "already_erased"  # the interrupted run's transaction had committed
-    _complete(subject_ref, subject, kid, status, result.get("changed", 0), secret)
+    elif status == "nothing_to_erase" and removed:
+        status = "erased"  # the tables were already tombstoned; the custody keys were not (9kg.34)
+    _complete(subject_ref, subject, kid, status, result.get("changed", 0), secret, removed)
     folded = record.fold(journal.read(), secret).get(str(subject_ref))
     return Outcome(status, str(subject_ref), int(result.get("changed", 0)), sorted(folded.handoffs_owed),
-                   record.head_string(), resumed, sorted(folded.retained))
+                   record.head_string(), resumed, sorted(folded.retained), removed)
 
 
-def _complete(subject_ref, subject, kid, status, changed, secret):
+def _retained(result: dict, destroy: bool) -> list:
+    """What the erasure leaves in place: `custody_documents` unless the custody keys are destroyed (9kg.34)."""
+    retained = set(result.get("retained") or [])
+    if destroy:
+        retained.discard("custody_documents")
+    return sorted(retained)
+
+
+def _any_key_present(refs) -> bool:
+    """Whether any of the subject's custody keys still exists in either key directory (an earlier erasure under
+    `retain`, or an interrupted destruction, leaves one); a key store that cannot be read refuses."""
     try:
-        record.append_complete(subject_ref, subject, kid, status, changed, secret)
+        return any(any(keystore.present(ref)) for ref in refs)
+    except keystore.KeyStoreError as exc:
+        raise Refused(f"custody_{exc.code}") from None
+
+
+def _complete(subject_ref, subject, kid, status, changed, secret, keys_destroyed=0):
+    try:
+        record.append_complete(subject_ref, subject, kid, status, changed, secret, keys_destroyed)
     except record.RecordError as exc:
         # The database transaction has committed; the intent stays open and the next run completes it.
         raise Refused(f"record_{exc.code}_after_commit") from None

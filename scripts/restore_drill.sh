@@ -11,6 +11,10 @@
 # 9kg.33: an effect after the backup (a staff account created) is journaled outside the backup; the journal is carried
 # to the recovery host like the archive; the review replays it and opens its staff item, the lift is refused until the
 # owner resolves it, and the restored stack has no such account.
+# 9kg.34: a fourth stack stores one synthetic document sealed under its own key (keys in their own volumes, outside the
+# backup), backs it up, destroys the key after the backup (the erasure's step), restores the set into a fresh database
+# and shows the restored document cannot be opened; the set holds no key material and no plaintext. The off-site,
+# object-locked leg of the real chain cannot run from this repository: reported NOT RUN.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 work="$(mktemp -d)"
@@ -26,6 +30,8 @@ cleanup() {
   a --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
   b --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
   docker compose --project-name "catalyst-restore-empty-$$" -f deploy/staging/compose.yaml --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
+  docker compose --project-name "catalyst-restore-custody-$$" -f deploy/staging/compose.yaml --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
+  docker volume rm "catalyst-restore-custody-$$-keys" "catalyst-restore-custody-$$-keys-mirror" >/dev/null 2>&1
   docker run --rm --user 0 -v "$work:/w" "$CATALYST_IMAGE" sh -c 'rm -rf /w/archive /w/effects' >/dev/null 2>&1  # owned by 10001
   docker image rm "$CATALYST_IMAGE" >/dev/null 2>&1
   rm -rf "$work"
@@ -65,6 +71,8 @@ for name in secret_key verification_key admin_password owner_password app_passwo
   printf 'synthetic-%s-%s' "$name" "$(head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 64)" > "$work/secrets/$name"
 done
 : > "$work/secrets/verification_fallback_keys"
+# 9kg.34: the custody wrapping key, 64 hex characters (32 random bytes); only the custody leg's one-shot mounts it.
+head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$work/secrets/custody_wrapping_key"
 chmod 0444 "$work/secrets"/*
 docker build -q --target staging --build-arg "CATALYST_COMMIT=$(git rev-parse HEAD)" -t "$CATALYST_IMAGE" . >/dev/null || exit 1
 as_root "$CATALYST_IMAGE" sh -c 'chown 10001:10001 /archive && chmod 0700 /archive'
@@ -204,6 +212,66 @@ check "9kg.33 ... because the receipt's anchor is not in the journal" grep -q "j
 grep -q "journal_mismatch" "$work/restore-empty.out" || grep -E "refused|failed" "$work/restore-empty.out" | sed 's/^/  empty-journal restore said: /' | tail -2
 check "9kg.33 ... and the empty target stayed empty" test "$(count_applications c)" = 0
 c --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
+
+# --- 9kg.34: crypto-shredding against an older backup, on a fourth stack ------------------------------------------
+# The custody files are sealed under per-document keys kept in two volumes of their own (the key directory and its
+# live mirror), which no backup reads. The drill command points custody at the volumes for its own run (staging stores
+# no custody files otherwise) and the key is destroyed with the erasure's own step (the erasure command itself refuses
+# while the POL-10 registry is undecided).
+custody_project="catalyst-restore-custody-$$"
+keys_vol="$custody_project-keys" mirror_vol="$custody_project-keys-mirror"
+e() { CATALYST_PUBLIC_PORT=21443 CATALYST_STAFF_PORT=21444 docker compose --project-name "$custody_project" -f deploy/staging/compose.yaml "$@"; }
+cdrill() {  # cdrill <custody dir> <action> [arguments]: the custody drill command in the owner's one-shot container
+  local dir="$1"; shift
+  e run --rm --no-deps -T -v catalyst-custody:/var/lib/catalyst/custody -v "$keys_vol:/var/lib/catalyst/custody-keys" \
+    -v "$mirror_vol:/var/lib/catalyst/custody-keys-mirror" -v "$archive:/archive:ro" \
+    -v "$work/secrets/custody_wrapping_key:/run/secrets/custody_wrapping_key:ro" migrate python manage.py \
+    catalyst_custody_drill "$1" --storage-dir "$dir" --key-dir /var/lib/catalyst/custody-keys \
+    --mirror-dir /var/lib/catalyst/custody-keys-mirror "${@:2}" 2>"$work/cdrill.err" | tail -1
+}
+field() { python3 -c 'import json,sys;print(json.loads(sys.argv[1]).get(sys.argv[2], ""))' "$1" "$2" 2>/dev/null; }
+fresh_custody_db() {
+  e up -d --wait db >/dev/null 2>&1
+  e --profile provision run --rm provision-roles >/dev/null 2>&1
+  e run --rm --no-deps -T migrate python manage.py migrate --noinput >/dev/null 2>&1
+}
+fresh_custody_db
+docker run --rm --user 0 -v "$keys_vol:/k" -v "$mirror_vol:/m" "$CATALYST_IMAGE" sh -c 'chown 10001:10001 /k /m && chmod 0700 /k /m'
+seeded="$(cdrill /var/lib/catalyst/custody seed)"
+document="$(field "$seeded" document)" marker="$(field "$seeded" marker)"
+check "9kg.34 a synthetic document is stored sealed under its own key (the real write path)" test -n "$document" -a -n "$marker"
+[ -n "$document" ] || sed 's/^/  seed said: /' "$work/cdrill.err" | tail -3
+check "9kg.34 control: before destruction it opens and its plaintext hash matches the recorded one" \
+  test "$(field "$(cdrill /var/lib/catalyst/custody read --document "$document")" sha256_matches)" = True
+custody_receipt="$(e --profile ops run --rm backup 2>/dev/null | tail -1)"
+custody_set="$(field "$custody_receipt" name)"
+check "9kg.34 the backup wrote a set holding the sealed custody file" test -n "$custody_set"
+docker run --rm --user 0 -v "${custody_project}_catalyst-backups:/sets:ro" -v "$archive:/archive" "$CATALYST_IMAGE" \
+  sh -c "cp -a /sets/$custody_set /archive/custody-$custody_set && chown -R 10001:10001 /archive"
+absent="$(cdrill /var/lib/catalyst/custody absent --set "/archive/custody-$custody_set" --marker "$marker")"
+check "9kg.34 the set holds no key material (no key file, no wrapped key, no data key, no wrapping key)" \
+  test "$(field "$absent" key_material_found):$(field "$absent" key_files_in_set)" = "0:0"
+check "9kg.34 ... and no plaintext (the document's marker is in no file of the set)" test "$(field "$absent" plaintext_marker_found)" = 0
+check "9kg.34 the key is destroyed after the backup (journaled, then unlinked from the mirror and the key directory)" \
+  test "$(field "$(cdrill /var/lib/catalyst/custody destroy --document "$document")" destroyed)" = 2
+check "9kg.34 the live copy can no longer be opened" \
+  test "$(field "$(cdrill /var/lib/catalyst/custody read --document "$document")" code)" = custody_key_destroyed
+e rm -sf db >/dev/null 2>&1 && docker volume rm "${custody_project}_catalyst-db" >/dev/null 2>&1  # the database is lost
+fresh_custody_db
+e --profile ops run --rm --no-deps -T -v "$archive:/archive:ro" restore python manage.py catalyst_restore \
+  --from "/archive/custody-$custody_set" --storage-dir /var/lib/catalyst/custody/restored --confirm-database catalyst \
+  >"$work/restore-custody.out" 2>&1
+check "9kg.34 the older set restores into a fresh database (rows and the sealed file come back)" test $? = 0
+grep -q '"restored"' "$work/restore-custody.out" || grep -E "refused|failed" "$work/restore-custody.out" | sed 's/^/  custody restore said: /' | tail -2
+check "9kg.34 the restored rows name the document and its envelope" test "$(e run --rm --no-deps -T migrate python manage.py shell -c \
+  "from agreements.models import CustodyEnvelope, StoredDocument; print(StoredDocument.objects.count(), CustodyEnvelope.objects.count())" 2>/dev/null | tail -1)" = "1 1"
+check "9kg.34 the restore of the older backup cannot open the destroyed subject's document" \
+  test "$(field "$(cdrill /var/lib/catalyst/custody/restored read --document "$document")" code)" = custody_key_destroyed
+check "9kg.34 ... and the restored file holds no plaintext" test "$(field "$(cdrill /var/lib/catalyst/custody absent \
+  --set /var/lib/catalyst/custody/restored --marker "$marker")" plaintext_marker_found)" = 0
+echo "NOT RUN 9kg.34 the off-site, object-locked copy: it is reached only through the host's backup fabric, not from this repository; the live-chain drill is a go/no-go evidence item"
+e --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
+docker volume rm "$keys_vol" "$mirror_vol" >/dev/null 2>&1
 
 # The drill's own checks between restore_started and restore_finished (the refused second restore, the control probe)
 # add a few seconds; the figure is an upper bound for this step at synthetic scale.
