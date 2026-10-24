@@ -3,7 +3,9 @@
 # a gate before promotion: the identity and the bound backup in deploy.sh, the readback and `check --deploy` in
 # smoke.sh (9kg.37). This is the record of that gate for the operator and the alert floor, and it still fails if the
 # serving release no longer reads back as intended or the deploy operation no longer allows it, so a drift after
-# promotion is never silent.
+# promotion is never silent. The receipt counts only once the personal-data scan (config/personal_data_scan.py;
+# 9kg.40, TEST-P6-35) has passed over it and over the bound pre-deploy backup's receipt: a hit withholds the
+# receipt (nothing is kept) and fails the step.
 source "$(dirname "$0")/lib.sh"
 : "${CATALYST_DEPLOY_ID:?the id of the deploy operation}"
 image="$(<"$POINTER")"
@@ -21,7 +23,9 @@ ids="$(compose exec -T web python manage.py check --deploy --fail-level WARNING 
 "$(dirname "$0")/smoke.sh" >/dev/null 2>&1 && ready=pass || ready=fail
 mkdir -p "$CATALYST_DEPLOY_STATE/receipts"
 out="$CATALYST_DEPLOY_STATE/receipts/$(date -u +%Y%m%dT%H%M%SZ).json"
-python3 - "$image" "$label" "$facts" "$check" "$ready" "$op" "$role" > "$out" <<'PY'
+pending="$(mktemp "$CATALYST_DEPLOY_STATE/receipts/.pending.XXXXXX")"
+trap 'rm -f "$pending"' EXIT  # a receipt that was not kept on purpose is never left behind
+python3 - "$image" "$label" "$facts" "$check" "$ready" "$op" "$role" > "$pending" <<'PY'
 import datetime, json, sys
 image, label, facts, check, ready, op, role = sys.argv[1:]
 op = json.loads(op)
@@ -35,6 +39,15 @@ print(json.dumps({"at": datetime.datetime.now(datetime.timezone.utc).isoformat(t
                                         "deploy_id": backup.get("deploy_id")}},
                  indent=2, sort_keys=True))
 PY
+# The scan prints locations and pattern names only, never a value; it fails closed on an unreadable input, so a bound
+# backup receipt that is gone withholds the deployment receipt too.
+bound="$(python3 -c 'import json,sys;print((json.loads(sys.argv[1]).get("pre_deploy_backup") or {}).get("receipt") or "")' "$op")"
+if ! PYTHONPATH="$REPO" python3 -m config.personal_data_scan --class receipt "$pending" ${bound:+"$bound"}; then
+  rm -f "$pending"
+  fail "receipt withheld: the personal-data scan did not pass over the deployment receipt and the pre-deploy backup receipt"
+fi
+chmod 0640 "$pending"  # mktemp leaves 0600; the receipt is read by the deploy user's own timers (health.sh)
+mv -f "$pending" "$out"
 problems=()
 [ "$role" = deploy ] || [ "$role" = revert ] || problems+=("$role")
 [ "$check" = pass ] || problems+=("check --deploy $check")

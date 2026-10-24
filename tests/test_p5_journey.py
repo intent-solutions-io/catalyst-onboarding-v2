@@ -11,6 +11,8 @@ is live.
 import re
 
 import pytest
+
+from tests import support
 from django.core import mail
 from django.test import Client
 from django.db.models.functions import Now
@@ -293,7 +295,7 @@ def test_p5_02_a_broken_prerequisite_refuses_at_approval_at_the_password_set_and
 
     def repair(app, broken):
         if cause == "pause":
-            AutomationPause.objects.filter(pk=broken.pk).delete()
+            support.resume_pauses(app)
         else:
             StaffItem.objects.filter(pk=broken.pk).update(status="resolved")
 

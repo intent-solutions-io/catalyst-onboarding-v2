@@ -8,6 +8,8 @@ setting `due_at` to the completed-collection watermark, so the watermark rule (4
 from datetime import timedelta
 
 import pytest
+
+from tests import support
 from django.core.exceptions import PermissionDenied
 from django.db.models.functions import Now
 
@@ -474,7 +476,7 @@ def test_e2_a_frozen_reminder_send_follows_its_question(remind, settings):
     staff_actions.pause(remind.app.pk, remind.operator, "hold the reminder mail")
     collect()
     PendingAction.objects.filter(kind="remind").update(due_at=MailboxCursor.objects.get().complete_through_at)
-    AutomationPause.objects.all().delete()
+    support.resume_pauses()
     reminders.SendReminder().run(ledger.claim_next(ledger.handlers()))  # frozen and queued, not yet sent
     send = PendingAction.objects.get(kind="send_message", input_ref=str(ApprovedMessage.objects.get(kind="reminder").send_ref))
     PendingAction.objects.filter(pk=send.pk).update(due_at=Now() + timedelta(hours=1))  # it waits (backoff, say)

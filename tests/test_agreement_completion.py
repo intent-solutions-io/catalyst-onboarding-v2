@@ -12,6 +12,8 @@ import json
 import logging
 
 import pytest
+
+from tests import support
 from django.test import Client
 from django.utils import timezone
 
@@ -304,7 +306,7 @@ def test_p4_15_a_declined_agreement_is_reissued_only_by_a_decision_maker(h, monk
         services.reissue_agreement(instance.pk, h.decider)
     new = services.reissue_agreement(instance.pk, h.agreement_decider)
     assert AgreementInstance.objects.get(pk=instance.pk).issue_status == "superseded"
-    AutomationPause.objects.filter(subject_id=app.public_ref).delete()  # staff resume after deciding
+    support.resume_pauses(app)  # staff resume after deciding (the guard's shape: event plus delete)
     run_worker()
     assert AgreementInstance.objects.get(pk=new.pk).issue_status == "issued"
 
@@ -394,7 +396,7 @@ def test_p4_22_reads_run_while_paused_but_the_sequence_waits_and_resume_does_not
         assert nda(Application.objects.get(pk=app.pk)).signing_status == "signing_complete_verified"
         assert PendingAction.objects.get(kind="advance_agreements").status == "queued"  # the sequence waits
         assert not AgreementInstance.objects.filter(application=app, agreement_type__key="user_agreement").exists()
-        pause.delete()
+        support.resume_pauses(app)  # the guard's shape (9kg.6)
         run_worker()
         assert AgreementInstance.objects.filter(application=app, agreement_type__key="user_agreement").count() == 1
     finally:

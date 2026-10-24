@@ -12,6 +12,7 @@ from django.utils import timezone
 from applications.models import Application
 from config import system_health
 from tests.mxroute_fake import FakeMailHost
+from tests.support import resume_pauses
 from tests.test_provisioning import (  # noqa: F401  (fixture chain and helpers)
     a, admitted, approve, approved, c, complete, d, ev, g, h, issued, k, nda, p2, pv, release, request_of, run_worker,
     sign_and_settle, tls,
@@ -275,7 +276,7 @@ def test_9kg_51_each_aged_wait_raises_its_code_and_clears_when_resolved(k, monke
     # The failed runs opened assessment items for the stuck case, which a human-only decision leaves to staff.
     assert set(StaffItem.objects.filter(status="open").values_list("reason_code", flat=True)) == {"assessment_failed"}
     StaffItem.objects.filter(status="open", application=stuck).update(status="resolved")
-    pause.delete()
+    assert resume_pauses(held) == 1  # the pause guard (9kg.6) clears a pause only with its audited resume event
     InboundMessage.objects.filter(pk=reply.pk).update(status="processed")
     PendingAction.objects.filter(pk=activation.pk).update(status="done")
     assert aged_codes() == ["issued_agreements"]
