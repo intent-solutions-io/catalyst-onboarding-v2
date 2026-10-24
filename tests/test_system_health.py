@@ -318,7 +318,8 @@ def test_9kg_51_the_default_page_list_is_the_three_bad_classes_and_the_authority
 
     assert CATALYST_HEALTH_AGED_WAITS_PAGE == ["replies_awaiting_processing", "issued_agreements", "provisioning_activation"]
     report = health()[1]
-    assert report["decision"] == {"qualification_authority_configured": False, "anomalies": []}
+    assert report["decision"]["qualification_authority_configured"] is False and report["decision"]["anomalies"] == []
+    assert set(report["decision"]["decline_notice"]) == {"status", "version", "sha256", "synthetic"}  # oc4.11: no wording
 
 
 def test_9kg_57_held_followons_age_each_held_kind_from_its_last_hold_and_raise_their_own_code(pv, monkeypatch, settings):

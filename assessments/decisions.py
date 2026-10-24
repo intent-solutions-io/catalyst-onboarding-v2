@@ -21,10 +21,12 @@ P3-D-16; D-35: per-criterion rationale, the selection-policy reference, and the 
   while the address has a live first-generation agreement-on-file record (applications.members); hold, or withdraw
   through the withdrawal path, instead.
 
-Then: the `QualificationDecision` row, the stage move (`admitted`, `declined` or `on_hold`), an event, and one
-held follow-on for P4 (`issue_nda:<application>` for admit, `send_decline:<application>` for decline; nothing for
-hold). A database trigger refuses any move into a decided stage without a decision row inserted in the same
-transaction (TEST-P3-52). No model output is read to choose anything here.
+Then: the `QualificationDecision` row, the stage move (`admitted`, `declined` or `on_hold`), an event, and the
+follow-on: a held `issue_nda:<application>` for admit (P4 releases it); for decline a queued
+`send_decline:<application>` (oc4.11, `assessments.decline`: the decline notice), unless the decision-maker chose to
+withhold the notice, with a reason, which the decision records (`decision_inputs["decline_notice"]`) and which queues
+nothing; nothing for hold. A database trigger refuses any move into a decided stage without a decision row inserted
+in the same transaction (TEST-P3-52). No model output is read to choose anything here.
 
 oc4.12 (019 decision 4; 018 section 20): the decision digest binds, and the decision records in `decision_inputs`,
 the policy reference (the synthetic rubric's `none-approved` reference stated openly until a policy is bound), the
@@ -53,12 +55,12 @@ from correspondence.common import Refused as NoteRefused
 from correspondence.staff_items import clean_note as _clean_note, resolve_item
 from workflow.models import AutomationPause, PendingAction
 
-from . import pack as packs, snapshot
+from . import decline as declines, pack as packs, snapshot
 from .models import AssessmentRun, EvidenceItem, QualificationDecision
 from .services import Refused
 
 STAGE_FOR = {"admit": Stage.ADMITTED, "decline": Stage.DECLINED, "hold": Stage.ON_HOLD}
-FOLLOW_ON = {"admit": "issue_nda", "decline": "send_decline"}  # held; P4 and POL-06 release them
+FOLLOW_ON = {"admit": "issue_nda"}  # held; P4 releases it. A decline queues the notice instead (oc4.11, decline.py)
 CAPABILITY = ("shown", "partly_shown", "not_shown", "unknown")
 EVIDENCE_STRENGTH = ("strong", "moderate", "weak", "none")
 FAILED = ("refused", "invalid_output", "failed", "capped", "abandoned")
@@ -225,7 +227,8 @@ def _rationale(pack, rationale: dict) -> dict:
 
 
 def record_decision(application_id: int, user, *, outcome: str, reason_code: str, reason_text: str = "",
-                    expected_digest: str, rationale: dict, human_only_reason: str = "") -> QualificationDecision:
+                    expected_digest: str, rationale: dict, human_only_reason: str = "", decline_notice: str = declines.SEND,
+                    withhold_reason: str = "") -> QualificationDecision:
     if settings.CATALYST_QUALIFICATION_AUTHORITY is None:
         raise Refused("no_decision_authority_configured")  # POL-05: everyone, superusers included
     if not can_decide(user):
@@ -239,6 +242,7 @@ def record_decision(application_id: int, user, *, outcome: str, reason_code: str
     reason_text = clean_note(reason_text)
     human_only = bool(human_only_reason.strip())
     human_only_reason = clean_note(human_only_reason) if human_only else ""
+    notice = _notice_choice(outcome, decline_notice, withhold_reason)
     actor = f"user:{user.pk}"
     with transaction.atomic():
         application = Application.objects.select_for_update(of=("self",)).get(pk=application_id)
@@ -283,6 +287,8 @@ def record_decision(application_id: int, user, *, outcome: str, reason_code: str
                   "rubric_version": state["rubric_version"], "snapshot": state["snapshot"],
                   "evidence": state["evidence_manifest"], "runs": state["runs"], "questions": state["questions"],
                   "human_only_code": code, "suspension_ref": state["suspension_ref"] if human_only else ""}
+        if notice is not None:
+            inputs["decline_notice"] = notice  # oc4.11: the decision-maker's choice, recorded with the decision
         try:
             with transaction.atomic():
                 decision = QualificationDecision.objects.create(
@@ -324,4 +330,32 @@ def record_decision(application_id: int, user, *, outcome: str, reason_code: str
             PendingAction.objects.create(kind=kind, subject_type="application", subject_id=application.public_ref,
                                          input_ref=str(decision.public_id), idempotency_key=f"{kind}:{application.public_ref}",
                                          status=PendingAction.Status.HELD)
+        if notice is not None and notice["choice"] == declines.SEND:
+            declines.enqueue(application, decision)  # exactly one notice per decline (the key is per application)
+        elif notice is not None:
+            ApplicationEvent.objects.create(application=application, kind="decline_notice_withheld",
+                                            actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor,
+                                            data={"decision": str(decision.public_id), "reason": notice["reason"]})
     return decision
+
+
+def _notice_choice(outcome: str, choice: str, reason: str) -> dict | None:
+    """oc4.11: the decline notice is sent unless the decision-maker withholds it, with a reason of at least
+    WITHHOLD_REASON_MIN characters (when withholding is appropriate is the owner's rule; the code records the choice).
+    Only a decline makes the choice; any other outcome must leave it at the default."""
+    if choice not in declines.CHOICES:
+        raise Refused("decline_notice_choice_invalid")
+    if outcome != "decline":
+        if choice != declines.SEND:
+            raise Refused("decline_notice_choice_only_for_decline")
+        return None  # an admit or a hold sends no notice; a reason typed for a withheld notice is not recorded
+    if choice == declines.SEND:
+        if (reason or "").strip():
+            raise Refused("withhold_reason_only_when_withholding")
+        return {"choice": declines.SEND}
+    if len((reason or "").strip()) > declines.WITHHOLD_REASON_MAX:
+        raise Refused("text_too_long")
+    reason = clean_note(reason)
+    if len(reason) < declines.WITHHOLD_REASON_MIN:
+        raise Refused("withhold_reason_needed")
+    return {"choice": declines.WITHHOLD, "reason": reason}

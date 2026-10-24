@@ -226,9 +226,19 @@ def aged_waits_health() -> dict:
 
 def decision_health() -> dict:
     """9kg.30 review: whether the qualification authority is configured (POL-05), visible without a shell. Not an
-    anomaly either way: unset is the intended state until 211.7.8 is recorded."""
-    return {"qualification_authority_configured": settings.CATALYST_QUALIFICATION_AUTHORITY == "explicit_permission",
-            "anomalies": []}
+    anomaly either way: unset is the intended state until 211.7.8 is recorded.
+
+    oc4.11: the decline notice's wording state (as for the data notice: status, version, digest and synthetic flag,
+    never the wording). Once decisions can be recorded, wording that may not be sent here is an anomaly
+    (`decline_notice_unapproved`): a decline is recorded but its notice waits, with a staff item, until the owner
+    approves real wording."""
+    from applications import notices
+
+    configured = settings.CATALYST_QUALIFICATION_AUTHORITY == "explicit_permission"
+    notice = notices.status("decline_notice")
+    unusable = configured and not notices.servable(notice, settings.CATALYST_ENV)
+    return {"qualification_authority_configured": configured, "decline_notice": notice,
+            "anomalies": ["decline_notice_unapproved"] if unusable else []}
 
 
 def intake_health() -> dict:

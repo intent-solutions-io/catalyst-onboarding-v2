@@ -15,7 +15,10 @@ resumes only after all of them.
    re-keyed after T must not come back; the owner checks the roster and re-issues passwords
    (`manage.py changepassword`); a second review run leaves the re-issued passwords alone;
 3. turns every outward action that was queued, running or held into an uncertain one with a staff item (PR #89
-   review): an exchange after T left no mark in the restored record, so running it again could repeat it;
+   review): an exchange after T left no mark in the restored record, so running it again could repeat it; a
+   `send_decline` among them is never re-queued by itself: the owner compares it with the Sent folder and the
+   decision-maker decides on its item (re-queue it by hand only when no notice left, or tell the applicant another
+   way), because the accepted remedy for an uncertain decline after a restore is a staff decision (PR #98 review);
 4. queues a revocation round for every stopped request whose access removal is not complete;
 5. **replays the effect journal** (`workflow.journal`): every entry after the restored backup's recorded head is
    re-applied to the restored tables through each app's `restore.replay` (closures, revocations, staff pauses and
@@ -59,8 +62,10 @@ from workflow import journal
 OPEN_SETUP_STATES = ("invitation_pending", "invitation_sending", "invited", "presented")
 REVIEWED = "post-restore review run done"
 RECONCILED = "post-restore review run done; effects reconciled"
-# Kinds the ledger may run again safely but that still reach outside: a mail, a billed model call, a fetch.
-OUTWARD_REDELIVERABLE = ("send_verification", "run_assessment", "interpret_message", "fetch_evidence")
+# Kinds the ledger may run again safely but that still reach outside: a mail, a billed model call, a fetch. The decline
+# notice's freeze (`send_decline`, oc4.11) sends nothing itself, but one that ran after T left no record of the notice it
+# froze and sent, so running it again would send a second notice: it becomes uncertain like the others (PR #98 review).
+OUTWARD_REDELIVERABLE = ("send_verification", "run_assessment", "interpret_message", "fetch_evidence", "send_decline")
 ITEM_CONFIRMATION = "restore_confirmation_link_closed"
 ITEM_WITHDRAWAL = "restore_withdrawal_link_closed"
 # The staff items opened for applicants whose link was closed, by cause: a restore, or a leaked link-signing key (027).

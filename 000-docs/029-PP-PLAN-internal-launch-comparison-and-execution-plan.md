@@ -247,7 +247,7 @@ three exist in v2 but stay disabled at launch by default (mailbox provisioning, 
 | Paused (staff or system) | staff | shown with reason; `aged_waits.pauses` (`9kg.51`, built; application pauses only, audit only until listed) | resume by the right role; system pauses need review | built; database guard open (`9kg.6`) |
 | Refused or capped assessment snapshot (at launch: refused by suspension) | staff | `aged_waits.assessing` (`9kg.51`) | the human-only decision form (`oc4.12`, built in PR #87 on `oc4.8`'s default; `CATALYST_CAPPED_EXIT`) | built |
 | Awaiting decision | decision-maker | `aged_waits.awaiting_decision` (`9kg.51`, built; audit only until listed); the dossier flags it | decision screen | built; the authority is configuration and granted by the command (`9kg.30`, built in PR #87) |
-| Declined | none | terminal | **no notice** today (`oc4.11`) | gap |
+| Declined | none (the worker sends the notice) | terminal; the notice waits, with a staff item, while its wording is not approved here | uncertain, failed and bounced notices reach staff items the decision-maker settles; withholding is a choice on the decision form (`oc4.11`, section 17.3) | built; the real wording is the owner's (`211.7.4`, `211.7.7`) |
 | Agreement sent, awaiting signature or countersignature | applicant, then the owner (countersignature) | `aged_waits.issued_agreements` (`9kg.51`, built; pages by default; ages from the last status change) | the decision-maker cancels | built as a health bound; the agreements screen shows each agreement's last status change and age, and names the countersignature wait (`9kg.41`, appendix B) |
 | Agreement held (recipient change, custody failure, expiry, rejection) | staff | staff item, pause | decision-maker reissues as a new instance | built |
 | Provisioning held | the owner | released only by `activate_provisioning`; `aged_waits.held_followons` (`9kg.57`; with the held `send_decline` and `issue_nda`; audit only until listed) | the command | built (disabled at launch) |
@@ -266,9 +266,9 @@ screen shows its age (`9kg.41`); the stage, item and pause classes are counted b
 
 **Found by the code inventory (2026-10-23, `45f8b93`), each a VERIFY turned into a task:**
 
-- **Actions enqueued without a handler:** `send_decline` (held forever; `oc4.11`), `interpret_reply` (held until
-  staff cancel it, by design) and `provision` (released by `activate_provisioning`, by design). Unknown kinds are
-  never claimed.
+- **Actions enqueued without a handler:** `send_decline` (held forever; fixed by `oc4.11`, section 17.3: a decline
+  now queues it and `assessments.decline` runs it; held ones are cancelled), `interpret_reply` (held until staff cancel
+  it, by design) and `provision` (released by `activate_provisioning`, by design). Unknown kinds are never claimed.
 - **State changers reachable only from tests or a shell:** the decisions on an uncertain Documenso create,
   distribute or cancel (the only remedy for an unknown outcome), and agreement template approval (which
   `activate_agreements` requires): `9kg.47`. An application `on_hold` has no path back to a decision except closure,
@@ -358,7 +358,7 @@ screen shows its age (`9kg.41`); the stage, item and pause classes are counted b
 | Verification mail, questions, reminders, inbound collection | ENABLED on v2's own mailbox after the Sent reader and production allow-list exist (`9kg.49`) and the mail canary passes, with the cohort's templates, lifetimes and cadence decided | `211.7.7`, `9kg.49`, `9kg.31.1` |
 | Model advice | DISABLED; human-only assessment recorded (`oc4.12`) | `211.7.4` (data use) |
 | Qualification decision | ENABLED; the owner is the decision group, decided for the cohort under POL-05 (P3-D-9 was synthetic only) | `211.7.8`, `9kg.30` |
-| Decline notice | ENABLED through `oc4.11` with an approved template; there is no interim path (a declined case is terminal and staff sends refuse closed cases), so `oc4.11` gates release preparation | `211.7.7` |
+| Decline notice | ENABLED through `oc4.11` (built, section 17.3) once the owner approves real wording; until then a live environment refuses the placeholder and the notice waits with a staff item, so the approved template gates the go/no-go | `211.7.4`, `211.7.7` |
 | Evidence fetching (REQ-029) | DISABLED: the allow-list stays empty and every fetch is refused and recorded | `211.7.8` |
 | Agreements | ENABLED after the Documenso canary; v2's own webhook target and templates; the owner countersigns by hand | `211.7.4`, `9kg.31.2` |
 | Custody | ENABLED with encryption (`9kg.34`) at the decided location | `211.7.9`, `211.7.1` |
@@ -881,6 +881,36 @@ invitation wording's digest on the row (applications 0007, fixed by trigger in 0
   withdrawal path, instead.
 - **Not done here:** the real wording and counsel's answers; the erasure treatment of the two section 6.1 rows
   (`9kg.32`); the private roster, which stays outside the repository.
+
+### 17.3 The decline notice (`oc4.11`), 2026-10-24
+
+**Built:** a recorded decline queues one `send_decline:<application>` (`assessments.decisions`), run by
+`assessments.decline.SendDecline`, which freezes the notice from the `decline_notice` template and queues its
+`send_message`; the `decline` kind of approved message and the seeded template (correspondence migration 0019); the
+send check's one exception for that kind on a `declined` application (`correspondence.outbound.declined_notice`); the
+`decline_not_notified` item for a permanent bounce, opened before the closed-application exception
+(`correspondence.inbound`); the send or withhold choice on the decision form; the wording's state in the health
+report's decision section. The full design is `016` section 10.19. Tests: `tests/test_decline_notice.py`.
+
+- **Default built on:** council record `030` Q3's pattern (D-51) as applied to this bead on 2026-10-24: the mechanism is
+  built now and the template ships as an unapproved synthetic placeholder, refused in a live environment until the
+  owner approves real wording (`211.7.4` for the notice wording with counsel, `211.7.7` for template approval). That
+  approval still gates the go/no-go through `9kg.31.6`. The first-generation service sends no decline message, so this
+  is a deliberate improvement, not parity (section 4.2).
+- **Chose the P2 sender over a decline-specific send** because every uncertain-send rule, staff decision, hard-bounce
+  block and restore reconciliation then applies unchanged; the one exception is narrow (the `decline` kind, the
+  `declined` stage) and tested in both directions.
+- **No rationale is ever sent.** The template's one variable is the display name; a test spies on the only rendering
+  call and searches the frozen and wire message for the decision's reason code, reason text, rationale notes, policy
+  reference and identifiers.
+- **Withholding** is a recorded choice of the decision-maker with a reason (the decision record and an event); when it
+  is appropriate is the owner's rule (the bead's "deliberate-withholding rule"), not decided here.
+- **Held actions from before the handler are cancelled, never released** (migration 0019; a hand-released one is
+  cancelled by the handler because its decision made no choice about the notice).
+- **Owner decisions needed:** the real decline wording with counsel (the bracketed slots: whether a reason may be
+  requested, whether a new request may be made, what is kept and how to request erasure, whether replies are read),
+  approved on the template screen (`211.7.4`, `211.7.7`); and the withholding rule.
+- **Reviewer:** `catalyst-workflow-correspondence` (the roster in `008`); the owner approves the template.
 
 ## Appendix A. Reconciliation of the 2026-10-22 audit findings
 

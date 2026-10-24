@@ -576,7 +576,8 @@ def test_9kg_33_sent_copies_after_the_backup_settle_restored_sends_and_unknown_c
     unknown = list(StaffItem.objects.filter(reason_code=step.EFFECT_ITEM_PREFIX + "unknown_send", status="open"))
     assert len(unknown) == 2 and all(i.application == ready.app for i in unknown)  # the changed body, the unknown id
     assert not StaffItem.objects.filter(reason_code="restore_effect_resend_unverified", status="open").exists()
-    assert "@" not in result.stdout and "ada" not in result.stdout
+    # Not the bare string "ada": a random identifier in the report can contain it (CI run on PR #98).
+    assert "@" not in result.stdout and ready.app.email not in result.stdout and ready.app.display_name not in result.stdout
     refused, _ = post_restore(*LIFT)
     assert refused.returncode == 1 and "effects are unresolved" in refused.stderr and "restore_effect_unknown_send" in refused.stderr
     for item in unknown:
