@@ -29,6 +29,16 @@ def synthetic(environment: str) -> bool:
     the staging fakes share the worker's network namespace, so every loopback-only rule holds unchanged)."""
     return environment in SYNTHETIC_ENVIRONMENTS
 
+
+# Environments where an unapproved placeholder wording may be shown to a person, marked as a draft (9kg.52, 030 Q8):
+# the local and synthetic ones, listed by name. A live environment is never listed here, so it refuses to serve a
+# notice or an invitation whose wording the owner has not approved (applications.notices).
+DRAFT_WORDING_ENVIRONMENTS = frozenset({"development", "test", "staging"})
+
+
+def draft_wording_allowed(environment: str) -> bool:
+    return environment in DRAFT_WORDING_ENVIRONMENTS
+
 # Mail backends that never leave the process or the local disk.
 SINK_EMAIL_BACKENDS = frozenset({
     "django.core.mail.backends.locmem.EmailBackend",

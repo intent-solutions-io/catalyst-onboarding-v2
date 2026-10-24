@@ -26,6 +26,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Value
 from django.db.models.functions import Greatest, Least, Now
 
+from applications import members
 from applications.models import Application, Stage
 from applications.stages import StageConflict, transition
 from correspondence.models import StaffItem
@@ -62,6 +63,10 @@ INTEGRITY_HOLD = "agreement_integrity_hold"  # D-43: blocks progression and P5 u
 REISSUE_NEEDS_DECISION = "agreement_reissue_needs_decision"  # D-42: never reissued without a decision-maker
 CLOSED_WATCH_ENDED = "agreement_closed_watch_ended"  # D-44: bounded follow-up of a closed instance ended unresolved
 DETAILS_NEEDED = "agreement_details_needed"  # POL-18: the next agreement waits for confirmed required details
+# 9kg.52: the NDA is referenced (first generation, no instance) but the User Agreement is not covered. The D-15 backstop
+# (agreements 0002, 0006) refuses any User Agreement without a verified NDA instance, so nothing is issued: the owner
+# decides (record the User Agreement as on file too, or a decided change to D-15).
+REFERENCE_BLOCKED = "agreement_reference_needs_decision"
 HANDOFF = "provision"  # the held P5 action (021 step 8); no handler exists, so it never runs
 STOPPED_EVENT = "agreements_stopped"
 RESUMED_EVENT = "agreements_resumed"
@@ -366,6 +371,25 @@ def latest_details_ref(application, agreement_type) -> str:
     return str(row.public_id) if row else ""
 
 
+def _live(application, agreement_type):
+    return (AgreementInstance.objects.select_related("agreement_type", "template_version")
+            .filter(application=application, agreement_type=agreement_type, replaced_at__isnull=True)
+            .exclude(issue_status__in=("superseded", "cancelled")).first())
+
+
+def referenced(application) -> dict:
+    """9kg.52 (030 Q4, D-51): {type key: label} for the required types the owner recorded as on file from the first
+    generation ("referenced, not re-signed"). A referenced type with no live instance counts as satisfied by the
+    reference: it is never issued, it is a distinct "referenced" state and never a verified instance, so the signing,
+    custody and countersignature paths do not see it. A type the record does not cover is still issued, with one
+    exception the database decides: a User Agreement after a referenced NDA, which the D-15 backstop refuses, opens
+    `REFERENCE_BLOCKED` for the owner instead. A live instance, if one exists, governs as before. Counsel's confirmation that the reference covers the type is the
+    owner's go/no-go item (029 section 17.2), not a code check."""
+    covered = members.covers(application)
+    return {t.key: covered[t.key] for t in AgreementType.objects.filter(required=True, key__in=list(covered))
+            if _live(application, t) is None}
+
+
 def prerequisites(application):
     """(refs, digest, reason): the exact agreement prerequisites for provisioning, and an empty reason when they all
     hold. One function for the P4 hand-off and every P5 effect boundary (023 section 11.4), from the database only;
@@ -374,10 +398,15 @@ def prerequisites(application):
     types = list(AgreementType.objects.filter(required=True).order_by("order"))
     if next_type is not None or reason != "all_passed":
         return {}, "", reason or "agreements_incomplete"
-    if any(not details_confirmed(application, t) for t in types):
+    covered = referenced(application)
+    if any(not details_confirmed(application, t) for t in types if t.key not in covered):
         return {}, "", "details_needed"
     refs = {}
+    record = members.on_file(application) if covered else None
     for t in types:
+        if t.key in covered:  # 9kg.52: the reference, never an instance; a correction changes the digest
+            refs[t.key] = {"referenced": covered[t.key], "record": str(record.public_id)}
+            continue
         live = (AgreementInstance.objects.filter(application=application, agreement_type=t, replaced_at__isnull=True)
                 .exclude(issue_status__in=("superseded", "cancelled")).get())
         refs[t.key] = {"instance": str(live.public_id),
@@ -388,10 +417,10 @@ def prerequisites(application):
 
 
 def live_required_instances(application) -> list:
-    return [AgreementInstance.objects.select_related("template_version", "agreement_type").filter(
-        application=application, agreement_type=t, replaced_at__isnull=True)
-        .exclude(issue_status__in=("superseded", "cancelled")).first()
-        for t in AgreementType.objects.filter(required=True).order_by("order")]
+    """The live instance of every required type that is not referenced (9kg.52); None where one is missing."""
+    covered = referenced(application)
+    return [_live(application, t) for t in AgreementType.objects.filter(required=True).order_by("order")
+            if t.key not in covered]
 
 
 def fresh_read_problem(application) -> str:
@@ -426,9 +455,13 @@ def gate_passed(instance) -> bool:
 def next_step(application):
     """(previous instance or None, next type or None, reason). The next type is the first, by order, without a live
     instance (not superseded, cancelled or replaced); every type before it must have passed its gate. The reason is
-    "reissue" when that type had an earlier instance: issuing it again needs a decision-maker (D-42)."""
+    "reissue" when that type had an earlier instance: issuing it again needs a decision-maker (D-42). A type the
+    member's first-generation record covers (`referenced`) is skipped: never issued (9kg.52)."""
     previous = None
+    covered = referenced(application)
     for agreement_type in AgreementType.objects.filter(required=True).order_by("order"):
+        if agreement_type.key in covered:
+            continue  # 9kg.52: satisfied by the first-generation reference; `previous` stays the last real instance
         of_type = AgreementInstance.objects.select_related("agreement_type", "template_version").filter(
             application=application, agreement_type=agreement_type)
         live = of_type.exclude(issue_status__in=("superseded", "cancelled")).filter(replaced_at__isnull=True).first()
@@ -467,6 +500,13 @@ class AdvanceAgreements:
         if next_type is None:
             ledger.finish(claim, self, status=Status.DONE, error=reason,
                           write=(lambda: self.hand_off(claim, application)) if reason == "all_passed" else None)
+            return
+        if next_type.key == "user_agreement" and "nda" in referenced(application):
+            ledger.finish(claim, self, status=Status.DONE, error="reference_needs_decision", write=lambda: (
+                open_item(REFERENCE_BLOCKED, f"advance:{application.public_ref}:{next_type.key}", application=application,
+                          pending_action_id=claim.id),
+                event(application, "agreement_reference_needs_decision", {"type": next_type.key},
+                      actor_ref=f"pending_action:{claim.id}")))
             return
         if not details_confirmed(application, next_type):
             ledger.finish(claim, self, status=Status.DONE, error="details_needed", write=lambda: open_item(

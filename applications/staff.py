@@ -52,6 +52,8 @@ REASONS = {
     "assessment_input_changed": "the assessment input changed before the run; a reassessment was needed",
     "assessment_pack_refused": "the prompt pack was refused; no assessment can run",
     "assessment_suspended": "refused by suspension: model advice is disabled, a human-only assessment applies (oc4.12)",
+    "agreement_reference_needs_decision": "the NDA is on file from the first generation but the User Agreement is not;"
+                                          " nothing is issued until the owner decides",  # 9kg.52, D-15
 }
 
 

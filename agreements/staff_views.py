@@ -73,11 +73,18 @@ def _next_action(application, instances) -> tuple[str, str]:
         return "Agreements are stopped; nothing more is issued", "decision-maker"
     if AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists():
         return "Automation is paused; the sequence waits", "staff"
+    if StaffItem.objects.filter(application=application, status="open", reason_code=completion.REFERENCE_BLOCKED).exists():
+        return ("The NDA is referenced from the first generation but the User Agreement is not: the database (D-15) refuses"
+                " a User Agreement without a verified NDA, so nothing is issued. Record the User Agreement as on file"
+                " too, or decide a change to D-15", "owner")
     if StaffItem.objects.filter(application=application, status="open", reason_code__startswith="agreement_").exists():
         return "Resolve the open agreement items below", "staff"
     if application.stage == "agreements_complete":
         return "All agreements passed; the provisioning hand-off is held for P5", "owner (P5 release)"
     _, next_type, reason = completion.next_step(application)
+    if reason == "all_passed" and completion.referenced(application) and application.stage == "admitted":
+        return ("Every required agreement is on file from the first generation and referenced; the release starts the"
+                " sequence, which hands off without issuing anything", "owner (activation)")
     if next_type is not None and not completion.details_confirmed(application, next_type):
         return f"Record and confirm the details the {next_type.key} needs", "staff (confirm_required_details)"
     if reason == "waiting_for_gate":
@@ -116,17 +123,22 @@ def _context(request, application, *, error="", form=None):
                     public_id__in=[i.dedupe_key.split(":", 1)[1] for i in StaffItem.objects.filter(
                         application=application, status="open", reason_code=handlers.ORPHAN_WATCH_ENDED)]),
             })
+    # 9kg.52 (030 Q4): a type the member's first-generation record covers is referenced, not issued: shown as its own
+    # state, with no instance, no issue action and no details form.
+    covered = completion.referenced(application)
+    referenced = [{"type": t, "label": covered[t.key]} for t in types if t.key in covered]
     details = []
     for t in types:
         fields = completion.required_details(t)
-        if fields:
+        if fields and t.key not in covered:
             details.append({"type": t, "fields": fields, "draft": AgreementDetailsVersion.objects.filter(
                 application=application, agreement_type=t, status="draft").order_by("-version").first(),
                 "confirmed": completion.details_confirmed(application, t)})
     next_action, owner = _next_action(application, rows)
     user = request.user
     return {
-        "application": application, "rows": rows, "details": details, "next_action": next_action, "owner": owner,
+        "application": application, "rows": rows, "referenced": referenced, "details": details,
+        "next_action": next_action, "owner": owner,
         "items": StaffItem.objects.filter(application=application, status="open", reason_code__startswith="agreement_"),
         "handoff": PendingAction.objects.filter(kind=completion.HANDOFF, subject_id=application.public_ref).first(),
         "stop_reasons": STOP_REASONS, "dispositions": DISPOSITIONS, "error": error, "form": form or {},

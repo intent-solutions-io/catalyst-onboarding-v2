@@ -411,6 +411,8 @@ EXPECTED_TRIGGERS = {
     ("provisioning_accessrevocation", "catalyst_no_truncate"), ("provisioning_withdrawalconfirmation", "catalyst_no_truncate"),
     ("accounts_staffrolegrant", "catalyst_append_only"), ("accounts_staffrolegrant", "catalyst_no_truncate"),  # 9kg.30
     ("applications_invitation", "catalyst_invitation_fixed"), ("applications_invitation", "catalyst_no_truncate"),  # 9kg.43
+    ("applications_memberagreementonfile", "catalyst_member_on_file_fixed"),  # 9kg.52
+    ("applications_memberagreementonfile", "catalyst_no_truncate"),
 }
 
 
