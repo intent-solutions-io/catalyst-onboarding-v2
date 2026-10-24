@@ -283,6 +283,9 @@ CATALYST_SETUP_SET_TIMEOUT_SECONDS = 60  # a set_pending older than this is set_
 # (016 3.8; 2B.3). Like the handler mapping, a fixed dotted path in code, so `applications` never imports
 # `correspondence` (003 ADR-01) and the creation logic exists once.
 CATALYST_ATTENTION_OPENER = "correspondence.staff_items.open_attention"
+# 9kg.52: the same seam for the data notice and the invitation mail (applications.notices): the templates are read
+# and rendered by this module (its `approved`, `draft` and `status`), resolved by the fixed path, never by an import.
+CATALYST_NOTICE_SOURCE = "correspondence.notices"
 # P3 3B.3 (018 5.4, step 8): the same seam pattern in the other direction. `correspondence` resolves the reply
 # interpreter and the answers-confirmed hook through these fixed paths and never imports `assessments`.
 CATALYST_REPLY_INTERPRETER = "assessments.interpret.Interpreter"

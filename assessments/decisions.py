@@ -16,7 +16,10 @@ P3-D-16; D-35: per-criterion rationale, the selection-policy reference, and the 
 - **the stage** is compare-and-set from `awaiting_decision`, from `on_hold` (9kg.50: the staff path back from a hold
   to an admit or a decline, never a second hold) or from `assessing` for a human-only assessment after a failed run;
   no identity-affecting staff item is open; `admit` is refused while automation is paused;
-- **every rubric criterion** has a human rationale with capability and strength of evidence recorded separately.
+- **every rubric criterion** has a human rationale with capability and strength of evidence recorded separately;
+- **no v2 decline for an existing member** (030 Q8, 9kg.52): a decline is refused (`decline_refused_member_on_file`)
+  while the address has a live first-generation agreement-on-file record (applications.members); hold, or withdraw
+  through the withdrawal path, instead.
 
 Then: the `QualificationDecision` row, the stage move (`admitted`, `declined` or `on_hold`), an event, and one
 held follow-on for P4 (`issue_nda:<application>` for admit, `send_decline:<application>` for decline; nothing for
@@ -41,6 +44,7 @@ from django.contrib.auth.backends import ModelBackend
 from django.db import IntegrityError, transaction
 from django.db.models.functions import Now
 
+from applications import members
 from applications.models import Application, ApplicationEvent, Stage
 from applications.stages import StageConflict, transition
 from correspondence.models import Question, StaffItem
@@ -268,6 +272,8 @@ def record_decision(application_id: int, user, *, outcome: str, reason_code: str
         if Question.objects.filter(application=application, approval_state=Question.Approval.APPROVED,
                                    status__in=(Question.Status.OPEN, Question.Status.REPLY_PENDING)).exists():
             raise Refused("open_question_pending")  # sent and unanswered: withdraw it first (its reminders stop too)
+        if outcome == "decline" and members.on_file(application) is not None:
+            raise Refused("decline_refused_member_on_file")  # 030 Q8: hold or withdraw an existing member instead
         if outcome == "admit" and AutomationPause.objects.filter(subject_type="application",
                                                                  subject_id=application.public_ref).exists():
             raise Refused("admit_refused_while_paused")

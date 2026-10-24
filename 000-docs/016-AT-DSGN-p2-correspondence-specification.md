@@ -1444,3 +1444,27 @@ path clears the pause and work resumes, and the restore hold is untouched. Every
 from the catalog for its owner, search path and the application role's lack of EXECUTE. Stated limitation, as for
 every ADR-14 guard: the owner can disable the trigger, a superuser bypasses it, and a compromised application role can
 insert the event itself; the guard binds code paths and stray writes.
+
+### 10.16 The intake data notice and the invitation mail as templates (9kg.52, 2026-10-23)
+
+Two templates join the register by correspondence migration 0018, seeded as unapproved synthetic placeholders:
+`data_notice` (no variables; the one-paragraph notice of `030` Q8: what is collected, who sees it, that no model
+reads it and no link is fetched, how to withdraw and how to request erasure, with bracketed slots where counsel must
+state the recipients, the withdrawal route and the erasure route) and `invitation` (one variable, `notice`; the mail
+the owner sends by hand to an invited member). The owner approves each on the template screen like every other
+template (A1, D-29), through the same digest guard; approving one does not approve the other. The renderer is
+unchanged: only an approved version renders. `correspondence.notices` reads and renders the templates and is reached
+from `applications.notices` only through the `CATALYST_NOTICE_SOURCE` seam, so `applications` never imports this app
+(`003` ADR-01; `tests/test_processing.py` enforces it). The notice is rendered into the invitation as a value and is
+not re-expanded.
+
+**What may be served where.** In the draft environments (`config.guards.DRAFT_WORDING_ENVIRONMENTS`: development,
+test, staging) the newest draft renders with a visible marker, substituted with the standard library, never the
+template engine. Anywhere else only an approved version that is not `synthetic` is served: an approved placeholder
+is refused (`<key>_synthetic`), and when the newest approved-or-retired version is retired nothing older is served in
+its place (`<key>_retired`). A broken placeholder is a refusal with a reason code, never an error page.
+
+**How real wording is authored.** As every template version is (`question_request` in 0004, the reminder in 0012, the
+welcome in 0016, these two in 0018): a correspondence **data migration** adds a new draft version, with
+`synthetic=False`, its digest computed as in section 3.2, and the owner approves it on the template screen. No command
+and no screen writes template text, and an approved version is never edited. The design record is `029` section 17.2.
