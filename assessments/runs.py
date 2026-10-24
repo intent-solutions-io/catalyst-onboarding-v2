@@ -247,6 +247,10 @@ class RunAssessment:
             return (Status.DONE, "answer_changed", False, lambda: (
                 _finish_run(run, Run.REFUSED, error_code="answer_changed"),
                 _staff(application, "assessment_input_changed", run)), None), None, None
+        if not request.fields <= set(approval.FIELDS["assessment"]):  # oc4.9: refused before anything is reserved
+            return (Status.DONE, "fields_not_approved", False, lambda: (
+                _finish_run(run, Run.REFUSED, error_code="fields_not_approved"),
+                _staff(application, "assessment_failed", run)), None), None, None
         AssessmentInvocation.objects.create(
             run=run, application=application, snapshot_sha256=run.snapshot_sha256, attempt=claim.attempt,
             reserved_requests=REQUESTS_PER_ATTEMPT, reserved_tokens=agent.attempt_tokens())

@@ -18,6 +18,8 @@ interpreter share:
 - **approval before any live request:** `build_model(use)` asks `approval.require` for the owner's recorded approval
   of exactly this use whenever the model setting is anything but "none" or "test"; with no live branch, an approved
   use still ends `model_not_authorized`;
+- **the approved fields bound to what is sent:** the request builders report the source fields they used, and a
+  field outside `approval.FIELDS` refuses (`fields_not_approved`);
 - **a lease fence before each request, the repair included:** every request goes through `_Guarded`, which first
   renews the claim's lease through the active `workflow.keeper.LeaseKeeper` (a heartbeat thread also renews it while
   a call outlives a third of the lease); a lost lease raises `ledger.LeaseLost` and no further request is made;
@@ -128,12 +130,19 @@ def attempt_tokens() -> int:
     return 2 * settings.CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST + settings.CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT
 
 
-def run_checked(system: str, prompt: str, output_type, check, use: "approval.Use | None" = None) -> Outcome:
+def run_checked(system: str, prompt: str, output_type, check, use: "approval.Use | None" = None,
+                fields: frozenset | None = None) -> Outcome:
     """One bounded attempt: at most 2 requests (the call and one repair). `check(output)` returns problem codes;
     any code triggers the one repair (ModelRetry), and a second failure ends the attempt as invalid output.
     Shared by the assessment and the reply interpreter, so the live-model refusal, the approval check, the lease
     fence, the timeout and the limits exist once. Raises `ledger.LeaseLost` when the claim's lease is lost before a
-    request: nothing further is requested and nothing is recorded by this attempt."""
+    request: nothing further is requested and nothing is recorded by this attempt.
+
+    `fields` is the set of source fields the request builder actually used (`snapshot.Request.fields`,
+    `interpret.build_prompt`); with a `use`, the call is refused (`fields_not_approved`) unless every one is in the
+    approved field list for the purpose."""
+    if use is not None and (fields is None or not set(fields) <= set(approval.FIELDS.get(use.purpose, ()))):
+        raise ModelUnavailable("fields_not_approved")
     model = build_model(use)
     keeper = keepers.current()
     timeout = float(settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS)
@@ -176,4 +185,5 @@ def run_checked(system: str, prompt: str, output_type, check, use: "approval.Use
 
 
 def assess(request, use: "approval.Use | None" = None) -> Outcome:
-    return run_checked(request.system, request.prompt, AssessmentOutput, lambda output: problems(output, request), use)
+    return run_checked(request.system, request.prompt, AssessmentOutput, lambda output: problems(output, request), use,
+                       fields=request.fields)

@@ -1752,6 +1752,8 @@ P6_SUPPORTING = {
         "test_live_safety::test_oc4_9_a_run_with_a_live_value_and_no_approval_is_refused_before_any_reservation",
         "test_live_safety::test_oc4_9_the_reply_interpreter_needs_its_own_approval",
         "test_live_safety::test_oc4_9_the_approval_is_written_only_by_the_owner_command_and_is_append_only",
+        "test_live_safety::test_oc4_9_a_field_the_builder_adds_is_refused_before_any_reservation",
+        "test_live_safety::test_oc4_9_a_fully_populated_record_emits_exactly_the_approved_fields",
     ],
     # oc4.10 (018 section 21): the reconciliation's real-use defects 4 to 7; items 1 to 3 are the oc4.12 tests above.
     "oc4.10 the real-use defects: a dead reservation holds no slot, a handler defect requeues the run, an ended run leaves nothing started, the lease-versus-timeout guard": [

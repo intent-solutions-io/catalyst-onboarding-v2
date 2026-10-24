@@ -11,6 +11,7 @@ import asyncio
 import os
 import sys
 import time
+from types import SimpleNamespace
 
 import httpx2
 import pytest
@@ -22,14 +23,14 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from applications.models import Stage
 from applications.stages import transition
-from assessments import agent, approval, interpret, pack, runs
+from assessments import agent, approval, interpret, pack, runs, snapshot
 from assessments.models import AssessmentInvocation, AssessmentRun, ModelUseApproval
 from assessments.schema import AssessmentOutput
 from config import guards
 from tests import support
 from tests.conftest import ModelNetworkRefused
 from tests.test_assessment import a, claim_run, queued, scripted, valid  # noqa: F401  (fixtures and helpers)
-from tests.test_evidence import ev  # noqa: F401
+from tests.test_evidence import ev, url  # noqa: F401
 from tests.test_inbound import tls  # noqa: F401
 from tests.test_outbound import p2  # noqa: F401
 from workflow import keeper as keepers, ledger
@@ -112,7 +113,8 @@ def test_oc4_9_oc4_10_7_one_attempt_must_fit_in_half_the_lease():
     assert "positive" in guards.attempt_lease_problems(Fake)[0]
     # The running settings pass, and every place that counts requests per attempt agrees.
     assert guards.attempt_lease_problems(django_settings) == []
-    assert guards.ASSESSMENT_REQUESTS_PER_ATTEMPT == approval.REQUESTS_PER_ATTEMPT == runs.REQUESTS_PER_ATTEMPT == 2
+    assert (guards.ASSESSMENT_REQUESTS_PER_ATTEMPT == approval.REQUESTS_PER_ATTEMPT == runs.REQUESTS_PER_ATTEMPT
+            == 1 + approval.REPAIR_LIMIT == 2)
 
 
 def test_oc4_9_the_default_timeout_follows_a_short_lease():
@@ -375,3 +377,40 @@ def test_oc4_10_6_a_run_that_ends_early_leaves_no_invocation_started(a, monkeypa
     assert (run.status, run.error_code) == ("refused", "stage_changed")
     assert AssessmentInvocation.objects.get(run=run).status == "abandoned"  # still counted, no longer "in flight"
     assert AssessmentRun.objects.filter(pk=run.pk, finished_at__isnull=False).exists()
+
+
+# --- review fix-ups (PR #100): fields bound to what is sent ------------------------------------------------------
+
+EXTRA = ("hobby", "a hobby", "Synthetic hobby text", 400, ("claims.hobby",))
+
+
+def test_oc4_9_a_field_the_builder_adds_is_refused_before_any_reservation(a, monkeypatch, settings):
+    app, run, seen = queued(a, monkeypatch, settings, valid())
+    real = snapshot._claim_texts
+    monkeypatch.setattr(snapshot, "_claim_texts", lambda claims: [*real(claims), EXTRA])  # the builder sends a new field
+    runs.RunAssessment().run(claim_run())
+    run.refresh_from_db()
+    assert (run.status, run.error_code, seen["calls"]) == ("refused", "fields_not_approved", 0)
+    assert AssessmentInvocation.objects.count() == 0
+    # The checked run refuses on its own too, whatever its caller checked, and an unknown field set refuses.
+    use = approval.Use.current("assessment")
+    for fields in (frozenset({"claims.hobby"}), None):
+        with pytest.raises(agent.ModelUnavailable, match="^fields_not_approved$"):
+            agent.run_checked("system", "prompt", AssessmentOutput, lambda output: [], use, fields=fields)
+    assert seen["calls"] == 0
+
+
+def test_oc4_9_a_fully_populated_record_emits_exactly_the_approved_fields(a, monkeypatch, settings):
+    app, run, _ = queued(a, monkeypatch, settings, valid(), work_note_1="A synthetic parser page",
+                         work_url_2=url(a, "/missing"), experience="Synthetic experience.", confidential="on",
+                         confidential_description="Synthetic private tooling work.", cred_name_1="Synthetic cert",
+                         cred_issuer_1="Synthetic issuer", cred_identifier_1="SYN-1")
+    # A confirmed answer needs the P2 loop; its texts are supplied directly, and the real builder does the rest.
+    monkeypatch.setattr(snapshot, "_answer_texts", lambda answers: [(["Which part did you write?"], ["satisfied"],
+                                                                     "I wrote the synthetic tokenizer.")])
+    current = pack.load(run.prompt_pack)
+    request = snapshot.build_request(app, snapshot.manifest(app, current), current)
+    assert request.fields == set(approval.FIELDS["assessment"])  # every approved field is reachable, nothing else
+    prompt, fields = interpret.build_prompt({"Q1": SimpleNamespace(text="Which part did you write?")},
+                                            "I wrote the synthetic tokenizer.", snapshot._names(app), "n0nce")
+    assert fields == set(approval.FIELDS["interpretation"]) and "tokenizer" in prompt
