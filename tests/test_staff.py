@@ -314,7 +314,8 @@ def test_s1_12_staff_follow_one_applicant_from_intake_to_confirmed_contact(privi
     assert "version 1; 0 other version(s) unverified" in page
     assert "adopted (confirmed by the applicant)" in page
     assert "used (contact confirmed)" in page
-    assert "start_evidence_collection: <strong>held</strong>" in page
+    # 9kg.41: a held action waiting on the owner's release is labelled as held on policy, not a bare "held"
+    assert "start_evidence_collection: <strong>held on policy: waits for the owner&#x27;s release (activate_evidence_collection" in page
     assert "<strong>Blocked</strong>: Start evidence collection is held" in page  # held until the owner releases it
     for kind in ("submission_received", "verification_sent", "contact_verified"):
         assert kind in page

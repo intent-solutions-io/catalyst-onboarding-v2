@@ -203,6 +203,11 @@ def _context(request, application, *, error="", form=None):
                              "exceptionable": v.kind in closure.EXCEPTIONABLE and v.state in ("unsupported", "pending")}
                             for v in r.revocations.order_by("id")],
             "complete": closure.revocation_complete(r) if r.revocations.exists() else None,
+            # 9kg.41 (029 section 5.2): activation waiting on its own retry (the signing provider could not be read)
+            # is shown with its reason and age, so staff do not read a stalled case as the system still working
+            "activation_wait": PendingAction.objects.filter(
+                kind=credentials.ACTIVATE, input_ref=str(r.public_id), status=PendingAction.Status.QUEUED,
+            ).exclude(last_error="").order_by("-id").first() if r.status == "setup_complete" else None,
         })
     items = [{"item": i, "text": ITEM_TEXT.get(i.reason_code, "")} for i in open_items
              if not any(i.dedupe_key == f"provisioning:{r.public_id}" for r in requests)]

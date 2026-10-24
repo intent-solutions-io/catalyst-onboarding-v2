@@ -578,7 +578,9 @@ def test_p3_50_no_provider_client_and_no_output_field_in_control_flow():
 # --- staff: items, rerun, backfill and the screen --------------------------------------------------------
 
 def test_failed_runs_leave_resolvable_items_that_a_rerun_and_a_success_settle(a, monkeypatch):
-    assert {"assessment_failed", "assessment_capped", "assessment_input_changed", "assessment_pack_refused"} <= ACKNOWLEDGE_ONLY
+    assert {"assessment_failed", "assessment_input_changed", "assessment_pack_refused"} <= ACKNOWLEDGE_ONLY
+    # 9kg.41: a suspended or capped snapshot closes only through the human-only decision (or a later success)
+    assert not {"assessment_suspended", "assessment_capped"} & ACKNOWLEDGE_ONLY
     bad = valid(quote="A quote that appears nowhere in the evidence")
     app, run, _ = assessed(a, monkeypatch, bad, bad)
     assert open_items(app, "assessment_failed") == 1

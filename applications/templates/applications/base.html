@@ -4,6 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Request access{% endblock %}</title>
+  <style>
+  /* 9kg.41: readable at phone width: long links and answers wrap, form controls never overflow the screen */
+  body { font-family: system-ui, sans-serif; margin: 1rem; max-width: 40rem; line-height: 1.4; }
+  p, dd, li, label { overflow-wrap: anywhere; }
+  input, textarea, select { max-width: 100%; box-sizing: border-box; }
+  textarea { width: 100%; }
+  </style>
 </head>
 <body>
   <main>{% block content %}{% endblock %}</main>

@@ -17,11 +17,11 @@
 <td>{{ q.origin }}</td><td>{{ q.approval_state }}, {{ q.status }}{% if can_approve and q.approval_state == "proposed" and q.status != "withdrawn" %} <form method="post" action="{% url 'correspondence_staff:approve' q.public_id %}">{% csrf_token %}<button>Approve and send</button></form>{% endif %}</td></tr>{% endfor %}
 </table>{% else %}<p>No clarification question yet.</p>{% endif %}
 {% if can_author %}<form method="post" action="{% url 'assessments_staff:author' application.public_ref %}">{% csrf_token %}
-<label>Question <input name="text" maxlength="400" required></label>
-<label>Criterion <select name="criterion" required>{% for c in criteria %}<option value="{{ c.id }}">{{ c.id }}</option>{% endfor %}</select></label>
-<label>Evidence gap <input name="gap" maxlength="300" required></label>
-<label>Alternative route <input name="route" maxlength="300"></label>
-<label><input type="checkbox" name="requires_evidence"> needs a link or document</label>
+<label>Question <input name="text" maxlength="400" required value="{{ form.text }}"></label>
+<label>Criterion <select name="criterion" required>{% for c in criteria %}<option value="{{ c.id }}"{% if c.id == form.criterion %} selected{% endif %}>{{ c.id }}</option>{% endfor %}</select></label>
+<label>Evidence gap <input name="gap" maxlength="300" required value="{{ form.gap }}"></label>
+<label>Alternative route <input name="route" maxlength="300" value="{{ form.route }}"></label>
+<label><input type="checkbox" name="requires_evidence"{% if form.requires_evidence == "on" %} checked{% endif %}> needs a link or document</label>
 <button>Store as proposed</button></form>{% endif %}
 {% if can_rerun %}<form method="post" action="{% url 'assessments_staff:rerun' application.public_ref %}">{% csrf_token %}<label>Note <input name="note" maxlength="500"></label> <button>Queue a new assessment</button></form>{% endif %}
 {% endblock %}

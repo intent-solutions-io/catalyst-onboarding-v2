@@ -18,8 +18,8 @@ One GET of one claimed URL, checked against one approved `EvidenceSource` versio
    resolves the name, applies this module's `classify` to every answer and to the peer, and reports the peer; the
    peer is classified here once more before the TLS handshake, which stays end to end with the real host.
 
-A synthetic fixture source (`fixture_only`, refused outside `test`) replaces DNS with one pinned address, which
-`classify` admits only because the source names it; every other step is identical.
+A synthetic fixture source (`fixture_only`, refused outside `test` and `staging`) replaces DNS with one pinned
+address, which `classify` admits only because the source names it; every other step is identical.
 
 Nothing here logs a URL path, query, header or body. Results are reason codes: `Refused` (never retried) or
 `Transient` (retried a bounded number of times by the handler).

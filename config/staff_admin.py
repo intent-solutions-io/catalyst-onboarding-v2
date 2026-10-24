@@ -3,7 +3,8 @@
 Every Catalyst model admin is view-only for everyone, superusers included: add, change and delete are
 refused by the admin itself, on top of the group holding only view permissions and the database role
 holding only the grants services need. Staff can change no stage, history, adoption, message, agreement
-or account through this interface; those arrive as named staff actions in later phases (POL-13).
+or account through this interface; those are the named staff actions on the focused staff screens (the
+correspondence, decision, agreements and provisioning screens under `/staff/p2/` to `/staff/p5/`, POL-13).
 """
 
 from django.contrib import admin
@@ -48,6 +49,9 @@ def configure_site(site=admin.site):
     site.site_title = "Catalyst staff"
     site.index_title = "Applications and their history"
     site.site_url = None  # no "view site" link
+    # 9kg.41: the index lists the focused staff screens the viewer's permissions open (the links confer nothing; each
+    # screen checks its own permissions), so the queue is reachable without knowing its address.
+    site.index_template = "admin/catalyst_index.html"
     # Staff accounts and groups are managed by the owner outside the application (D-23), never here.
     if site.is_registered(Group):
         site.unregister(Group)

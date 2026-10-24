@@ -30,6 +30,7 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
 from applications.models import TERMINAL_STAGES, Application
+from applications.staff import REASONS as REASON_TEXT
 from workflow.models import AutomationPause
 
 from . import outbound, processing, staff_actions
@@ -154,7 +155,49 @@ def item_detail(request, public_id):
         # 9kg.47 review: any agreement item is handled on the agreements screen; the decided ones say so explicitly
         "agreements_screen": item.application is not None and item.reason_code.startswith("agreement_"),
         "decided_on_screen": item.reason_code in processing.AGREEMENT_SCREEN_ITEMS,
+        # 9kg.41: the plain words for the reason (the dossier's), and the P3 screen where an assessment or evidence item
+        # is acted on; acknowledging here only records that it was seen.
+        "reason_text": REASON_TEXT.get(item.reason_code, ""),
+        "p3": p3_hint(request.user, item),
+        "decided_on_decision_screen": item.reason_code in processing.DECISION_SCREEN_ITEMS,
     })
+
+
+# 9kg.41: where an assessment or evidence item is acted on, per reason, and which of those screens the viewer may open
+# (permission names only: assessments depends on correspondence, never the reverse; 003 ADR-01). A link is shown only
+# to a viewer the screen would admit; the text says what acknowledging here does and does not do.
+DECISION_SCREEN = ("review_evidence", "operate_evidence", "record_qualification_decision")
+EVIDENCE_SCREEN = ("review_evidence", "operate_evidence")
+P3_HINTS = {
+    "assessment_suspended": ("decision", "This item closes only through the human-only decision recorded there."),
+    "assessment_capped": ("decision", "This item closes only through the human-only decision recorded there."),
+    "assessment_failed": ("both", "Rerun the assessment on the evidence screen, or record a human-only assessment on the"
+                          " decision screen. Acknowledging here only records that it was seen."),
+    "assessment_input_changed": ("decision", "Acknowledging here only records that it was seen."),
+    "assessment_pack_refused": ("decision", "No assessment can run until the prompt pack is fixed; acknowledging here only"
+                                " records that it was seen."),
+    "evidence_required_unavailable": ("evidence", "Re-fetch the item or proceed without it there. Acknowledging here only"
+                                      " records that it was seen."),
+    "evidence_collection_failed": ("evidence", "Acknowledging here only records that it was seen."),
+    "adoption_changed": ("evidence", "Acknowledging here only records that it was seen."),
+    "claims_missing": ("correspondence", "A new submission with claims is needed: ask the applicant with a staff message,"
+                       " then acknowledge once it arrives."),
+}
+
+
+def p3_hint(user, item):
+    if item.application is None or item.reason_code not in P3_HINTS or user.is_superuser:
+        return None
+    where, text = P3_HINTS[item.reason_code]
+    ref = item.application.public_ref
+    links = []
+    if where in ("evidence", "both") and any(user.has_perm(f"assessments.{p}") for p in EVIDENCE_SCREEN):
+        links.append((reverse("assessments_staff:evidence", args=[ref]), "Open the evidence screen"))
+    if where in ("decision", "both") and any(user.has_perm(f"assessments.{p}") for p in DECISION_SCREEN):
+        links.append((reverse("assessments_staff:decision", args=[ref]), "Open the decision screen"))
+    if where == "correspondence" and any(can(user, p) for p in APPLICATION):
+        links.append((reverse("correspondence_staff:application", args=[ref]), "Open the application's correspondence"))
+    return {"text": text, "links": links}
 
 
 @require_GET
@@ -328,8 +371,14 @@ def resume(request, public_ref):
 @staff_page(*APPLICATION)
 def resend_verification(request, public_ref):
     application = get_object_or_404(Application, public_ref=public_ref)
-    return act(request, reverse("correspondence_staff:application", args=[public_ref]),
-               lambda: staff_actions.resend_verification(application.pk, request.user, request.POST.get("note", "")),
+    here = reverse("correspondence_staff:application", args=[public_ref])
+    try:  # 9kg.41: the resend the page offered; a double submit names one already recorded and is refused
+        expected = int(request.POST.get("resend_number", ""))
+    except ValueError:
+        expected = 0  # no number: the service checks the permission first, then refuses `page_out_of_date`
+    return act(request, here,
+               lambda: staff_actions.resend_verification(application.pk, request.user, request.POST.get("note", ""),
+                                                         expected_number=expected),
                lambda number: f"Verification message queued again (resend {number} of {settings.CATALYST_VERIFICATION_RESEND_LIMIT}).")
 
 

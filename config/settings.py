@@ -267,7 +267,7 @@ CATALYST_ACTION_HANDLERS = {
 }
 # P5 provisioning (023; D-47). Synthetic only: the adapter is a local fake set by tests, the domain a `.test` domain
 # (P5-D-1), and the limits labelled synthetic defaults (P5-D-2), never unlimited. A live adapter, a provider key and
-# the production domain are pre-live gates; the guards refuse them outside the test environment.
+# the production domain are pre-live gates; the guards refuse them outside the test and staging environments.
 CATALYST_PROVISIONING_ADAPTER = ""
 CATALYST_PROVISIONING_DOMAIN = ""
 CATALYST_PROVISIONING_METHOD = "api"  # P5-D-4: API-first against the fake; "checklist" is the recorded fallback
@@ -437,7 +437,7 @@ CATALYST_MAIL_DENIED_USER_SHA256 = [d.strip().lower() for d in os.environ.get("C
 # hash to; required in a live environment, re-checked before any login. Private: never pasted into a PR or a doc.
 CATALYST_MAIL_USER_SHA256 = os.environ.get("CATALYST_MAIL_USER_SHA256", "").strip().lower()
 
-# P4 agreements (021; 4B.1). Synthetic only: the provider is a local fake Documenso in `test`. The URL, the pinned
+# P4 agreements (021; 4B.1). Synthetic only: the provider is a local fake Documenso in `test` and `staging`. The URL, the pinned
 # address, the trust store and the API token are fixed in code and empty everywhere else, so nothing can reach a
 # real Documenso (config.guards.agreement_problems, TEST-P4-20). A production token arrives through SOPS at P6, never
 # as a setting here.
@@ -446,11 +446,11 @@ CATALYST_AGREEMENT_PROVIDER_ADDRESS = ""  # the literal loopback address the pro
 CATALYST_AGREEMENT_PROVIDER_CA_FILE = ""
 CATALYST_AGREEMENT_PROVIDER_TOKEN = ""
 # Documenso webhook secrets (021 section 6; P4-D-17): the installed version sends a plain shared secret in
-# `X-Documenso-Secret`. Two may be valid during a rotation. Fixed in code and empty outside `test`; the webhook route
+# `X-Documenso-Secret`. Two may be valid during a rotation. Fixed in code and empty outside `test` and `staging`; the webhook route
 # is mounted only in `test` and `development` until the P6 exposure decision.
 CATALYST_AGREEMENT_WEBHOOK_SECRETS: list = []
-# Custody (021 section 7; 4B.3; POL-09 open): an absolute directory outside the repository and any web root, test only
-# in synthetic P4. Fixed in code, empty everywhere else.
+# Custody (021 section 7; 4B.3; POL-09 open): an absolute directory outside the repository and any web root, test and
+# staging only (synthetic P4). Fixed in code, empty everywhere else.
 CATALYST_AGREEMENT_STORAGE_DIR = ""
 # Required details per agreement type (POL-18 open: no production field list). Synthetic field names only, set by
 # tests; fixed in code and empty everywhere else.
@@ -548,7 +548,7 @@ TIME_ZONE = "UTC"
 LANGUAGE_CODE = "en-us"
 USE_I18N = False
 
-# Local sink only outside production (config.guards). Tests use locmem.
+# A local sink in every allowed environment (production is not one yet; config.guards). Tests use locmem.
 EMAIL_BACKEND = env(
     "CATALYST_EMAIL_BACKEND",
     {"test": "django.core.mail.backends.locmem.EmailBackend",

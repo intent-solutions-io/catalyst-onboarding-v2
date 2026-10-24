@@ -3,8 +3,8 @@
 Only the documented mailbox operations Catalyst needs exist here: read one mailbox, create one, set its password,
 list the domain's forwarders, delete one the mailbox owns, read the catch-all. There is no delete,
 no suspend, no domain or reseller operation, and no way to name a path. Synthetic P5 uses a local fake that implements
-this interface in process (`CATALYST_PROVISIONING_ADAPTER`, test only). A live adapter does not exist: building one,
-its key (for one hosting user, never a reseller key) and the separate credential service it runs in are pre-live
+this interface in process (`CATALYST_PROVISIONING_ADAPTER`, test and staging only). A live adapter does not exist:
+building one, its key (for one hosting user, never a reseller key) and the separate credential service it runs in are pre-live
 gates (P5-D-6, D-47).
 
 Errors follow the P4 taxonomy: only a 4xx other than 429 is definite; a 5xx (including MXroute's 500 for a failed or

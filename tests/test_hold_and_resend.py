@@ -112,7 +112,7 @@ def test_staff_resend_supersedes_the_challenge_and_sends_the_same_message(p2):
     url = reverse("correspondence_staff:resend_verification", args=[app.public_ref])
     page = client.get(reverse("correspondence_staff:application", args=[app.public_ref])).content.decode()
     assert "Resend the verification message" in page and "0 of 3 staff resend(s) used" in page
-    assert client.post(url, {"note": "link reported broken"}).status_code == 302
+    assert client.post(url, {"note": "link reported broken", "resend_number": "1"}).status_code == 302
     old, new = challenges(app)
     assert old.superseded_at is not None and new.superseded_at is None and new.used_at is None
     assert PendingAction.objects.filter(kind="send_verification", input_ref=str(new.public_id), status="queued").exists()
@@ -142,7 +142,7 @@ def test_a_resend_is_refused_beyond_the_limit_after_verification_and_without_the
     client = Client()
     client.force_login(operator)
     url = reverse("correspondence_staff:resend_verification", args=[app.public_ref])
-    assert client.post(url).status_code == 302  # refused with its code on the screen, never a crash
+    assert client.post(url, {"resend_number": "3"}).status_code == 302  # refused with its code on the screen, never a crash
     page = client.get(reverse("correspondence_staff:application", args=[app.public_ref])).content.decode()
     assert "Refused: resend_limit_reached" in page and "Resend the verification message" not in page
     # Without the staff-send permission: a holder of another correspondence permission reaches the page but not the act.

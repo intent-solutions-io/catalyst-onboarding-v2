@@ -36,6 +36,7 @@
 
 <h3>Activation</h3>
 <p>{% if r.status == "active" %}Active.{% elif r.status == "setup_complete" %}Password set; activation pending.{% else %}Not active.{% endif %}</p>
+{% if row.activation_wait %}<p class="refused">Activation waits: {{ row.activation_wait.last_error }} (first queued {{ row.activation_wait.created_at|date:"c" }}, {{ row.activation_wait.created_at|timesince }} ago). It tries again on its own; nothing is lost. If it stays, check the signing provider; the aged-waits health check counts it.</p>{% endif %}
 
 <h3>Revocation</h3>
 {% if row.revocations %}<p>{% if row.complete %}Complete.{% else %}<strong>Not complete.</strong>{% endif %}</p>
