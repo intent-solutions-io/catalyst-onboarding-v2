@@ -13,7 +13,6 @@ viewport declaration, and the public pages carry the phone-width rules (long tex
 import re
 from urllib.parse import urlencode
 
-import pytest
 from django.core import mail
 from django.test import Client
 from django.urls import reverse
