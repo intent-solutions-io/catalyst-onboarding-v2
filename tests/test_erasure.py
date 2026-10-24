@@ -354,10 +354,10 @@ def test_9kg_32_the_adoption_record_and_the_pause_delete_guard_stay_closed_on_th
 # --- the erasure ------------------------------------------------------------------------------------------------------
 
 def test_9kg_32_an_open_subject_or_work_in_flight_is_refused_before_any_record_is_written(privileged_reset, decided):
-    open_app = subject("open@example.test", "Open Example", stage="evidence")
+    open_app = subject("open@example.test", "Opal Example", stage="evidence")
     with pytest.raises(service.Refused, match="subject_open"):
         erase(privileged_reset, open_app.public_ref)
-    busy = subject("busy@example.test", "Busy Example")
+    busy = subject("busy@example.test", "Bea Example")
     PendingAction.objects.create(kind="remind", subject_type="application", subject_id=busy.public_ref,
                                  idempotency_key=f"remind:{uuid.uuid4()}", status="queued")
     with pytest.raises(service.Refused, match="subject_has_open_work"):
@@ -471,7 +471,7 @@ def test_9kg_32_a_second_erasure_is_harmless(privileged_reset, decided):
 
 def test_9kg_32_an_interrupted_erasure_resumes(privileged_reset, decided, monkeypatch):
     # 1. Interrupted after the intent, before the transaction: the intent is open, nothing changed; a re-run finishes.
-    one = subject("one@example.test", "One Example")
+    one = subject("one@example.test", "Hedy Example")
     real_call = service._call
 
     def crash_before_commit(conn, *args, commit):
@@ -488,7 +488,7 @@ def test_9kg_32_an_interrupted_erasure_resumes(privileged_reset, decided, monkey
     assert resumed.status == "erased" and resumed.resumed and resumed.handoffs == ["mail_inbox", "mail_sent"]
     assert Application.objects.get(pk=one.pk).email == "[erased]"
     # 2. The transaction fails after the function ran: all or nothing; a re-run finishes.
-    two = subject("two@example.test", "Two Example")
+    two = subject("two@example.test", "Joan Example")
 
     def fail_inside(conn, *args, commit):
         if commit:
@@ -505,7 +505,7 @@ def test_9kg_32_an_interrupted_erasure_resumes(privileged_reset, decided, monkey
     assert erase(privileged_reset, two.public_ref).status == "erased"
     # 3. Interrupted after the commit, before the completion: the re-run finds it done and completes the record,
     #    changing nothing and writing no second audit row.
-    three = subject("three@example.test", "Three Example")
+    three = subject("three@example.test", "Mary Example")
     real_complete = record.append_complete
     monkeypatch.setattr(record, "append_complete", lambda *a, **k: (_ for _ in ()).throw(record.RecordError("unwritable")))
     with pytest.raises(service.Refused, match="record_unwritable_after_commit"):
@@ -613,7 +613,7 @@ def test_9kg_32_provider_handoffs_are_recorded_with_their_completion_date(privil
 
 
 def test_9kg_32_tombstoned_email_keys_are_unique_and_never_a_real_key(privileged_reset, decided):
-    first, second = subject("first@example.test", "First Example"), subject("second@example.test", "Second Example")
+    first, second = subject("first@example.test", "Flo Example"), subject("second@example.test", "Sid Example")
     owner = privileged_reset.connect("owner", autocommit=True)
     owner.execute("INSERT INTO applications_invitation (public_id, email_key, issued_by, note, expires_at)"
                   " VALUES (gen_random_uuid(), 'first@example.test', 'owner_command', '', now() + interval '1 day')")
