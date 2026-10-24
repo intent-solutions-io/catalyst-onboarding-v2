@@ -1,6 +1,7 @@
 """The custody leg of the restore drill (9kg.34; scripts/restore_drill.sh): synthetic only, refused outside the `test`
 and `staging` environments.
 
+    manage.py catalyst_custody_drill provision --storage-dir D --key-dir K --mirror-dir M
     manage.py catalyst_custody_drill seed    --storage-dir D --key-dir K --mirror-dir M
     manage.py catalyst_custody_drill read    --storage-dir D --key-dir K --mirror-dir M --document <public id>
     manage.py catalyst_custody_drill destroy --storage-dir D --key-dir K --mirror-dir M --document <public id>
@@ -40,7 +41,7 @@ class Command(BaseCommand):
     help = "The synthetic custody leg of the restore drill (9kg.34)."
 
     def add_arguments(self, parser):
-        parser.add_argument("action", choices=("seed", "read", "destroy", "absent"))
+        parser.add_argument("action", choices=("provision", "seed", "read", "destroy", "absent"))
         parser.add_argument("--storage-dir", required=True)
         parser.add_argument("--key-dir", required=True)
         parser.add_argument("--mirror-dir", required=True)
@@ -57,7 +58,9 @@ class Command(BaseCommand):
         settings.CATALYST_AGREEMENT_STORAGE_DIR = storage_dir
         settings.CATALYST_CUSTODY_KEY_DIR = key_dir
         settings.CATALYST_CUSTODY_KEY_MIRROR_DIR = mirror_dir
-        if action == "seed":
+        if action == "provision":
+            out = {"provisioned": keystore.provision()}
+        elif action == "seed":
             out = seed()
         elif action == "absent":
             out = absent(Path(set), marker)

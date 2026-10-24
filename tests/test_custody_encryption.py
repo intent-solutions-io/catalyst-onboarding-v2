@@ -195,6 +195,10 @@ def test_9kg_34_key_recovery_rebuilds_a_lost_directory_from_its_copy_and_never_b
     stale_path = mirror / f"{refs[0]}.key"
     stale_path.write_bytes(stale)  # and a copy of the destroyed key reappeared (a point-in-time copy: forbidden)
     stale_path.chmod(0o600)
+    with pytest.raises(keystore.KeyStoreError, match="key_store_unavailable"):  # never re-created on the fly
+        keystore.load(refs[1])
+    assert not primary.exists()
+    keystore.provision()  # the holder provisions the replacement directory first
     with pytest.raises(keystore.KeyStoreError, match="key_needs_recovery"):
         keystore.load(refs[1])
     code, report = command("catalyst_custody_keys", "--recover")  # the named holder's command
@@ -205,7 +209,10 @@ def test_9kg_34_key_recovery_rebuilds_a_lost_directory_from_its_copy_and_never_b
     assert keystore.present(refs[0]) == (False, False)  # never restored, and the stale copy is gone
     with pytest.raises(keystore.KeyStoreError, match="key_destroyed"):
         keystore.load(refs[0])
-    shutil.rmtree(mirror)  # the mirror is lost: rebuilt from the primary
+    shutil.rmtree(mirror)  # the mirror is lost: rebuilt from the primary, once re-provisioned
+    with pytest.raises(keystore.KeyStoreError, match="key_store_unavailable"):
+        keystore.recover()
+    keystore.provision()
     assert keystore.recover()["copied_to_mirror"] == 2 and keystore.present(refs[2]) == (True, True)
     # The wrapping key lost from the host: nothing opens and recovery refuses until the escrow copy is back.
     escrow = settings.CATALYST_CUSTODY_WRAPPING_KEY
@@ -303,7 +310,8 @@ def test_9kg_34_the_erasure_destroys_the_subjects_custody_keys_under_destroy_key
                                  b"%PDF-1.7 synthetic other")
     refs = [d.envelope.key_ref for d in documents]
     outcome = erase(privileged_reset, app.public_ref)
-    assert outcome.status == "erased" and outcome.retained == [] and outcome.keys_destroyed == 4
+    assert outcome.status == "erased" and outcome.retained == []
+    assert (outcome.keys_destroyed, outcome.key_files_removed) == (2, 4)  # references, and files in both directories
     assert all(keystore.present(ref) == (False, False) for ref in refs)
     assert keystore.present(other.envelope.key_ref) == (True, True)  # another person's key is untouched
     for document in documents:
@@ -315,7 +323,8 @@ def test_9kg_34_the_erasure_destroys_the_subjects_custody_keys_under_destroy_key
     complete = [e for e in entries if e.kind == "erasure_complete" and e.key == f"erasure:{app.public_ref}"][-1]
     assert {e.key for e in destroyed} == {f"custody_key:{ref}" for ref in refs}
     assert all(e.data["subject"] == str(app.public_ref) and e.seq < complete.seq for e in destroyed)
-    assert complete.data["keys_destroyed"] == 4 and complete.data["status"] == "erased"
+    assert (complete.data["keys_destroyed"], complete.data["key_files_removed"], complete.data["custody"]) == (2, 4, "keys_destroyed")
+    assert complete.data["status"] == "erased"
     assert record.fold(entries, KEY.encode())[str(app.public_ref)].retained == set()  # custody no longer retained
     count = len(journal.read())
     again = erase(privileged_reset, app.public_ref)  # a second erasure is harmless and writes nothing
@@ -330,7 +339,8 @@ def test_9kg_34_under_retain_custody_is_reported_retained_and_a_later_destroy_ke
     assert first.retained == ["custody_documents"] and first.keys_destroyed == 0 and keystore.present(ref) == (True, True)
     monkeypatch.setattr(registry, "REGISTRY", DESTROYING)
     second = erase(privileged_reset, app.public_ref)
-    assert (second.status, second.changed, second.keys_destroyed, second.retained) == ("erased", 0, 2, [])
+    assert (second.status, second.changed, second.keys_destroyed, second.key_files_removed, second.retained) == (
+        "erased", 0, 1, 2, [])
     assert keystore.present(ref) == (False, False)
 
 
@@ -345,7 +355,7 @@ def test_9kg_34_a_document_still_in_the_clear_refuses_destroy_key_before_any_rec
         erase(privileged_reset, app.public_ref)
     assert erasure_entries() == [] and Application.objects.get(pk=app.pk).email == "grace@example.test"
     assert command("catalyst_custody_keys", "--migrate", "--confirm")[1]["sealed"] == 1
-    assert erase(privileged_reset, app.public_ref).keys_destroyed == 2
+    assert erase(privileged_reset, app.public_ref).keys_destroyed == 1
 
 
 def test_9kg_34_an_interrupted_destruction_is_finished_by_recovery_or_the_next_run_and_never_undone(
@@ -448,6 +458,8 @@ def test_9kg_34_the_drill_command_seeds_reads_destroys_and_checks_a_set_for_key_
     settings.CATALYST_CUSTODY_KEY_MIRROR_DIR = ""
     dirs = ["--storage-dir", str(tmp_path / "custody"), "--key-dir", str(tmp_path / "keys"),
             "--mirror-dir", str(tmp_path / "mirror")]
+    assert command("catalyst_custody_drill", "provision", *dirs)[1]["provisioned"] == {
+        "primary": "provisioned", "mirror": "provisioned"}
     seeded = command("catalyst_custody_drill", "seed", *dirs)[1]
     assert seeded["seeded"] and seeded["marker"].startswith("SYNTHETIC-CUSTODY-DRILL-")
     assert command("catalyst_custody_drill", "read", *dirs, "--document", seeded["document"])[1] == {
@@ -479,3 +491,59 @@ def test_9kg_34_the_restore_drill_pins_its_custody_leg():
                  "custody/restored read --document", "custody_key_destroyed", "NOT RUN 9kg.34 the off-site, object-locked copy",
                  'docker volume rm "$keys_vol" "$mirror_vol"'):
         assert line in script, line
+
+
+# --- the review of PR #102, A: the key store never fails open --------------------------------------------------------
+
+def test_9kg_34_a_missing_or_unmarked_key_directory_refuses_and_is_never_created_or_read_as_empty(
+        privileged_reset, decided, custody, settings, monkeypatch):
+    from applications.models import Application
+
+    monkeypatch.setattr(registry, "REGISTRY", DESTROYING)
+    app = subject()
+    document = drill.synthetic_document(app, b"%PDF-1.7 synthetic")
+    ref = document.envelope.key_ref
+    mirror = Path(settings.CATALYST_CUSTODY_KEY_MIRROR_DIR)
+    moved = mirror.with_name("mirror-unmounted")
+    mirror.rename(moved)  # the mirror's volume is not mounted
+    with pytest.raises(keystore.KeyStoreError, match="key_store_unavailable"):
+        keystore.destroy(str(app.public_ref), [ref])
+    assert not mirror.exists()  # nothing re-created it
+    with pytest.raises(service.Refused, match="custody_key_store_unavailable"):
+        erase(privileged_reset, app.public_ref)  # refused at the dry run, before any record
+    assert erasure_entries() == [] and Application.objects.get(pk=app.pk).email == "grace@example.test"
+    moved.rename(mirror)
+    (mirror / keystore.MARKER).unlink()  # a directory without its provisioning marker is not a key store
+    with pytest.raises(keystore.KeyStoreError, match="key_store_unavailable"):
+        keystore.present(ref)
+    with pytest.raises(keystore.KeyStoreError, match="key_store_unavailable"):
+        keystore.create()
+    keystore.provision()
+    assert keystore.present(ref) == (True, True)
+
+
+@pytest.mark.django_db
+def test_9kg_34_empty_key_volumes_make_a_never_destroyed_document_unavailable_never_erased(custody, settings):
+    document = drill.synthetic_document(subject(), b"%PDF-1.7 synthetic")
+    for directory in (settings.CATALYST_CUSTODY_KEY_DIR, settings.CATALYST_CUSTODY_KEY_MIRROR_DIR):
+        shutil.rmtree(directory)  # replaced by empty volumes, then provisioned again
+    keystore.provision()
+    with pytest.raises(keystore.KeyStoreError, match="key_lost"):
+        keystore.load(document.envelope.key_ref)
+    with pytest.raises(storage.StorageError, match="custody_key_unavailable"):
+        storage.read(document.storage_key, document.sha256, document.size, document.envelope)
+
+
+@pytest.mark.django_db
+def test_9kg_34_a_restored_key_file_for_a_destroyed_reference_is_still_refused(custody, settings):
+    document = drill.synthetic_document(subject(), b"%PDF-1.7 synthetic")
+    ref = document.envelope.key_ref
+    path = Path(settings.CATALYST_CUSTODY_KEY_DIR) / f"{ref}.key"
+    blob = path.read_bytes()
+    keystore.destroy(str(document.application.public_ref), [ref])
+    path.write_bytes(blob)  # an old copy of the key comes back (a restored volume, a stray archive)
+    path.chmod(0o600)
+    with pytest.raises(keystore.KeyStoreError, match="key_destroyed"):
+        keystore.load(ref)
+    with pytest.raises(storage.StorageError, match="custody_key_destroyed"):
+        storage.read(document.storage_key, document.sha256, document.size, document.envelope)

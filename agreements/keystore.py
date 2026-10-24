@@ -75,12 +75,17 @@ WRAP_AAD = b"catalyst-custody-data-key\n"
 DOCUMENT_AAD = b"catalyst-custody-document\n"
 KEY_ID_PREFIX = b"catalyst-custody-wrapping-key-id\n"
 DESTROYED = "custody_key_destroyed"  # the journal kind (workflow.journal.KINDS)
+# Each key directory carries this marker, written only by `provision` (`catalyst_custody_keys --provision`). A directory
+# without it (an unmounted volume, an empty replacement) is never read as "no keys" and never created on the fly.
+MARKER = ".catalyst-custody-key-store"
+MARKER_TEXT = b"catalyst custody key store v1\n"
 
 
 class KeyStoreError(Exception):
     """A reason code: `keys_not_configured`, `wrapping_key_missing`, `wrapping_key_invalid`, `wrapping_key_mismatch`,
-    `key_destroyed`, `key_needs_recovery`, `key_corrupt`, `key_store_unsafe`, `key_store_unavailable`,
-    `journal_unavailable`, `sealed_file_invalid`."""
+    `key_destroyed` (journaled as destroyed), `key_lost` (absent from both directories and not journaled),
+    `key_needs_recovery`, `key_corrupt`, `key_store_unsafe`, `key_store_unavailable` (a directory or its provisioning
+    marker is missing), `destruction_incomplete`, `journal_unavailable`, `sealed_file_invalid`."""
 
     def __init__(self, code: str):
         super().__init__(code)
@@ -121,9 +126,10 @@ def configured() -> bool:
 # --- the two directories ------------------------------------------------------------------------------------------
 
 def _open_dir(path: Path) -> int:
-    """Opened once without following a link and checked through its descriptor (agreements.storage's rule)."""
+    """Opened once without following a link and checked through its descriptor (agreements.storage's rule). Never
+    created here, and refused unless it carries the provisioning marker: a missing or unmounted directory fails closed
+    (`key_store_unavailable`), it is never mistaken for an empty key store (security review of PR #102, F1)."""
     try:
-        os.makedirs(path, mode=0o700, exist_ok=True)
         fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     except OSError:
         raise KeyStoreError("key_store_unavailable") from None
@@ -131,7 +137,41 @@ def _open_dir(path: Path) -> int:
     if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
         os.close(fd)
         raise KeyStoreError("key_store_unsafe")
+    try:
+        marker = os.stat(MARKER, dir_fd=fd, follow_symlinks=False)
+    except OSError:
+        os.close(fd)
+        raise KeyStoreError("key_store_unavailable") from None
+    if not stat.S_ISREG(marker.st_mode):
+        os.close(fd)
+        raise KeyStoreError("key_store_unavailable")
     return fd
+
+
+def provision() -> dict:
+    """The one step that creates the key directories (0700) and writes their markers (`catalyst_custody_keys
+    --provision`). Idempotent: an existing marked directory is left as it is."""
+    report = {}
+    for name, path in zip(("primary", "mirror"), directories()):
+        os.makedirs(path, mode=0o700, exist_ok=True)
+        os.chmod(path, 0o700)
+        marker = path / MARKER
+        if marker.exists():
+            report[name] = "already_provisioned"
+            continue
+        fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        try:
+            os.write(fd, MARKER_TEXT)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        directory = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+        report[name] = "provisioned"
+    return report
 
 
 def _name(ref: str) -> str:
@@ -255,14 +295,32 @@ def create() -> tuple[str, bytes, str]:
     return ref, data_key, wrapping_key_id(secret)
 
 
+def journaled_destroyed() -> set:
+    """The references the journal records as destroyed. Unverified here (the web and worker processes never hold the
+    erasure key): a forged entry can only make a key refuse, never make one readable. `journal_unavailable` when the
+    journal cannot be read; an unconfigured journal (test and development only) records nothing."""
+    from workflow import journal
+
+    if not journal.configured():
+        return set()
+    try:
+        return destroyed_refs(journal.read())
+    except journal.JournalError:
+        raise KeyStoreError("journal_unavailable") from None
+
+
 def load(ref: str) -> bytes:
-    """The data key, unwrapped from the primary directory. Absent from the primary: `key_needs_recovery` while the
-    mirror still holds it, else `key_destroyed` (destroyed, or lost with its mirror: the journal tells which)."""
+    """The data key, unwrapped from the primary directory. A reference the journal records as destroyed is refused
+    (`key_destroyed`) even if a file for it is present (a restored or copied key never revives it). Absent from the
+    primary: `key_needs_recovery` while the mirror holds it, else `key_lost` (absent and never journaled: a lost or
+    unmounted store, not an erasure; security review of PR #102, F1)."""
     secret = wrapping_key()
     primary, mirror = directories()
+    if ref in journaled_destroyed():
+        raise KeyStoreError("key_destroyed")
     blob = _read(primary, ref)
     if blob is None:
-        raise KeyStoreError("key_needs_recovery" if _read(mirror, ref) is not None else "key_destroyed")
+        raise KeyStoreError("key_needs_recovery" if _read(mirror, ref) is not None else "key_lost")
     return _unwrap(secret, ref, blob)
 
 
@@ -300,9 +358,10 @@ def destroyed_refs(entries) -> set:
 
 
 def destroy(subject_ref: str, refs) -> int:
-    """Destroy each key: journal it (before), unlink the mirror's copy, then the primary's. Idempotent: a key already
-    gone counts as destroyed. Returns how many key files were removed. Needs the key directories and the journal, not
-    the wrapping key."""
+    """Destroy each key: journal it (before), unlink the mirror's copy, then the primary's, then verify that no file
+    of any reference remains in either directory (`destruction_incomplete` otherwise). Idempotent. Returns how many key
+    files were removed (the caller reports the number of references separately). Needs the key directories (both
+    provisioned) and the journal, not the wrapping key."""
     from workflow import journal
 
     primary, mirror = directories()
@@ -315,6 +374,9 @@ def destroy(subject_ref: str, refs) -> int:
             raise KeyStoreError("journal_unavailable")  # never unlink what the record does not hold
         removed += int(_unlink(mirror, ref))
         removed += int(_unlink(primary, ref))
+    for ref in set(refs):  # verified, not assumed: every reference is gone from both directories
+        if _read(mirror, ref) is not None or _read(primary, ref) is not None:
+            raise KeyStoreError("destruction_incomplete")
     return removed
 
 

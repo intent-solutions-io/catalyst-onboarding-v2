@@ -239,6 +239,7 @@ fresh_custody_db() {
 fresh_custody_db
 e --profile ops create backup >/dev/null 2>&1 && e --profile ops rm -f backup >/dev/null 2>&1  # compose makes its volumes
 docker run --rm --user 0 -v "$keys_vol:/k" -v "$mirror_vol:/m" "$CATALYST_IMAGE" sh -c 'chown 10001:10001 /k /m && chmod 0700 /k /m'
+cdrill /var/lib/catalyst/custody provision >/dev/null  # the key volumes' explicit provisioning step (markers)
 seeded="$(cdrill /var/lib/catalyst/custody seed)"
 document="$(field "$seeded" document)" marker="$(field "$seeded" marker)"
 check "9kg.34 a synthetic document is stored sealed under its own key (the real write path)" test -n "$document" -a -n "$marker"

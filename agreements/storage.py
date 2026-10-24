@@ -265,6 +265,8 @@ def read(key: str, expected_sha256: str, size: int, envelope=None) -> bytes:
     except keystore.KeyStoreError as exc:
         if exc.code == "key_destroyed":
             raise StorageError(DESTROYED) from None
+        # key_lost, key_needs_recovery, a store that is missing or unmarked, the journal: the environment, never an
+        # erasure (security review of PR #102, F1)
         if exc.code == "sealed_file_invalid":
             raise StorageError("stored_file_mismatch") from None
         raise StorageError("custody_key_unavailable") from None

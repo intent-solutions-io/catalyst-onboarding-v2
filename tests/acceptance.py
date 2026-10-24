@@ -1664,6 +1664,9 @@ P6_SUPPORTING = {
         "test_custody_encryption::test_9kg_34_the_backup_and_the_erasure_command_never_hold_the_wrapping_key_and_no_backup_touches_a_key_directory",
         "test_custody_encryption::test_9kg_34_the_drill_command_seeds_reads_destroys_and_checks_a_set_for_key_material",
         "test_custody_encryption::test_9kg_34_the_restore_drill_pins_its_custody_leg",
+        "test_custody_encryption::test_9kg_34_a_missing_or_unmarked_key_directory_refuses_and_is_never_created_or_read_as_empty",
+        "test_custody_encryption::test_9kg_34_empty_key_volumes_make_a_never_destroyed_document_unavailable_never_erased",
+        "test_custody_encryption::test_9kg_34_a_restored_key_file_for_a_destroyed_reference_is_still_refused",
     ],
     "9kg.47 staff screens for the shell-only agreement states (021 section 20)": [
         "test_agreement_screens::test_an_unknown_create_is_decided_on_the_screen_and_refused_without_the_permission",

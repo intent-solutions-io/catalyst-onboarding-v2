@@ -51,7 +51,8 @@ class Outcome:
     journal_head: str
     resumed: bool = False
     retained: list = None
-    keys_destroyed: int = 0
+    keys_destroyed: int = 0  # references verified gone from both key directories (9kg.34)
+    key_files_removed: int = 0
 
 
 def _code(exc) -> str:
@@ -140,10 +141,10 @@ def erase(conn, subject_ref: str, authority: str, reason: str, rows=None) -> Out
         dry = _call(conn, subject_ref, authority, reason, classes, commit=False)  # refusals surface before the intent
         if destroy and int(dry.get("custody_plaintext") or 0):
             raise Refused("custody_plaintext_unmigrated")  # a plaintext copy is beyond any key: seal it first
-        keys_left = destroy and _any_key_present(dry.get("custody_keys") or [])
+        keys_left = destroy and bool(_pending(dry.get("custody_keys") or []))
         if dry["status"] == "nothing_to_erase" and not keys_left:
             return Outcome("nothing_to_erase", str(subject_ref), 0, [], record.head_string(),
-                           retained=_retained(dry, destroy))
+                           retained=_retained(dry, destroy and _all_destroyed(dry.get("custody_keys") or [])))
         if real_key:
             subject = record.subject_hash(email_key, secret)
         elif state is not None and state.intent is not None:
@@ -152,7 +153,7 @@ def erase(conn, subject_ref: str, authority: str, reason: str, rows=None) -> Out
             raise Refused("record_subject_unknown")
         try:
             record.append_intent(subject_ref, subject, kid, authority, reason, classes, dry.get("handoffs") or [],
-                                 _retained(dry, destroy), secret)
+                                 _retained(dry, False), secret)
         except record.RecordError as exc:
             raise Refused(f"record_{exc.code}") from None
     try:
@@ -160,43 +161,56 @@ def erase(conn, subject_ref: str, authority: str, reason: str, rows=None) -> Out
     except Refused as refusal:
         _complete(subject_ref, subject, kid, f"refused_{refusal.code}", 0, secret)
         raise
-    removed = 0
-    if destroy and result.get("custody_keys"):
+    refs = sorted(set(result.get("custody_keys") or []))
+    performed = destroy and bool(_pending(refs))
+    files = 0
+    if destroy and refs:
         try:  # after the commit: an interruption leaves the intent open, and the next run destroys what is left
-            removed = keystore.destroy(str(subject_ref), result["custody_keys"])
+            files = keystore.destroy(str(subject_ref), refs)  # verifies every reference is gone, or raises
         except keystore.KeyStoreError as exc:
             raise Refused(f"custody_{exc.code}_after_commit") from None
     status = result["status"]
     if resumed and status == "nothing_to_erase":
         status = "already_erased"  # the interrupted run's transaction had committed
-    elif status == "nothing_to_erase" and removed:
+    elif status == "nothing_to_erase" and performed:
         status = "erased"  # the tables were already tombstoned; the custody keys were not (9kg.34)
-    _complete(subject_ref, subject, kid, status, result.get("changed", 0), secret, removed)
+    keys = len(refs) if destroy else 0
+    _complete(subject_ref, subject, kid, status, result.get("changed", 0), secret, keys, files,
+              custody_destroyed=destroy and bool(refs))
     folded = record.fold(journal.read(), secret).get(str(subject_ref))
     return Outcome(status, str(subject_ref), int(result.get("changed", 0)), sorted(folded.handoffs_owed),
-                   record.head_string(), resumed, sorted(folded.retained), removed)
+                   record.head_string(), resumed, sorted(folded.retained), keys, files)
 
 
-def _retained(result: dict, destroy: bool) -> list:
-    """What the erasure leaves in place: `custody_documents` unless the custody keys are destroyed (9kg.34)."""
+def _retained(result: dict, destroyed: bool) -> list:
+    """What the erasure leaves in place. `custody_documents` leaves the list only once every key of the subject is
+    verified gone (security review of PR #102, F1): the intent always names it, and the completion clears it."""
     retained = set(result.get("retained") or [])
-    if destroy:
+    if destroyed:
         retained.discard("custody_documents")
     return sorted(retained)
 
 
-def _any_key_present(refs) -> bool:
-    """Whether any of the subject's custody keys still exists in either key directory (an earlier erasure under
-    `retain`, or an interrupted destruction, leaves one); a key store that cannot be read refuses."""
+def _pending(refs) -> list:
+    """The subject's custody keys not yet destroyed: not journaled as destroyed, or still present in a key directory
+    (an earlier erasure under `retain`, an interrupted destruction, a restored file). A reference absent but never
+    journaled is pending too: it is journaled and verified, never assumed. A key store that cannot be read refuses."""
     try:
-        return any(any(keystore.present(ref)) for ref in refs)
+        destroyed = keystore.journaled_destroyed()
+        return [ref for ref in refs if ref not in destroyed or any(keystore.present(ref))]
     except keystore.KeyStoreError as exc:
         raise Refused(f"custody_{exc.code}") from None
 
 
-def _complete(subject_ref, subject, kid, status, changed, secret, keys_destroyed=0):
+def _all_destroyed(refs) -> bool:
+    return bool(refs) and not _pending(refs)
+
+
+def _complete(subject_ref, subject, kid, status, changed, secret, keys_destroyed=0, key_files_removed=0,
+              custody_destroyed=False):
     try:
-        record.append_complete(subject_ref, subject, kid, status, changed, secret, keys_destroyed)
+        record.append_complete(subject_ref, subject, kid, status, changed, secret, keys_destroyed, key_files_removed,
+                               custody_destroyed)
     except record.RecordError as exc:
         # The database transaction has committed; the intent stays open and the next run completes it.
         raise Refused(f"record_{exc.code}_after_commit") from None

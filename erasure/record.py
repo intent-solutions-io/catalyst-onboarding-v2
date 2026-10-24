@@ -126,10 +126,11 @@ def append_intent(subject_ref, subject: str, kid: str, authority: str, reason: s
                                                    "phase": "intent"}, secret)
 
 
-def append_complete(subject_ref, subject: str, kid: str, status: str, changed: int, secret, keys_destroyed: int = 0):
+def append_complete(subject_ref, subject: str, kid: str, status: str, changed: int, secret, keys_destroyed: int = 0,
+                    key_files_removed: int = 0, custody_destroyed: bool = False):
     data = {"subject": subject, "key_id": kid, "status": status, "changed": int(changed), "phase": "done"}
-    if keys_destroyed:  # 9kg.34: only when a custody key file was removed, so other completions keep their shape
-        data["keys_destroyed"] = int(keys_destroyed)
+    if custody_destroyed:  # 9kg.34: every custody key of the subject verified gone; other completions keep their shape
+        data.update(custody="keys_destroyed", keys_destroyed=int(keys_destroyed), key_files_removed=int(key_files_removed))
     return _append("erasure_complete", subject_ref, data, secret)
 
 
@@ -202,6 +203,8 @@ def fold(entries, secret: bytes | None, forged: list | None = None) -> dict:
             state.retained = set(entry.data.get("retained") or [])
         elif entry.kind == "erasure_complete" and state.intent is not None:
             state.complete = entry
+            if entry.data.get("custody") == "keys_destroyed":  # 9kg.34: retained until every key is verified gone
+                state.retained.discard("custody_documents")
         elif entry.kind == "erasure_handoff":
             state.handoffs_done[entry.data["provider"]] = entry.data["completed_on"]
     return out

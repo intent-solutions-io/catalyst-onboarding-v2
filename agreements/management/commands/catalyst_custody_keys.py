@@ -1,10 +1,14 @@
 """The custody keys, for the operator (9kg.34; agreements.keystore): their state, the migration of documents stored in
 the clear before 9kg.34, and key recovery by the named holder.
 
+    manage.py catalyst_custody_keys --provision
     manage.py catalyst_custody_keys --status
     manage.py catalyst_custody_keys --migrate --confirm
     manage.py catalyst_custody_keys --recover
 
+- `--provision`: the one step that creates the key directory and its mirror (0700) and writes each one's
+  provisioning marker. Nothing else ever creates them: every other operation refuses with `key_store_unavailable` when a
+  directory or its marker is missing, so an unmounted volume is never read as an empty key store.
 - `--status` (read-only): documents sealed and still in the clear, keys in the key directory and in its mirror, keys
   the journal records as destroyed and whether any of them is still present, sealed documents whose key is missing
   (recoverable from the mirror, or lost), migrated documents whose plaintext file is still on disk, and keys no
@@ -39,6 +43,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         action = parser.add_mutually_exclusive_group(required=True)
+        action.add_argument("--provision", action="store_true", help="create the key directories and their markers")
         action.add_argument("--status", action="store_true", help="report the keys' state (read-only)")
         action.add_argument("--migrate", action="store_true", help="seal every document stored in the clear")
         action.add_argument("--recover", action="store_true", help="re-align the key directory and its mirror")
@@ -52,11 +57,13 @@ class Command(BaseCommand):
     def refuse(self, code: str):
         self.emit({"refused": code}, False)
 
-    def handle(self, *args, status, migrate, recover, confirm, **options):
+    def handle(self, *args, provision, status, migrate, recover, confirm, **options):
         if runtime.process_kind() in runtime.ENFORCED_KINDS:
             self.refuse("not_a_management_process")
         try:
-            if status:
+            if provision:
+                self.emit(keystore.provision(), True)
+            elif status:
                 report = state()
                 self.emit(report, report["healthy"])
             elif migrate:

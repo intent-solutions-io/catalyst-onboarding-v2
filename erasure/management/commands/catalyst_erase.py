@@ -71,5 +71,6 @@ class Command(BaseCommand):
         self.stdout.write(json.dumps({"status": outcome.status, "subject": outcome.subject_ref, "changed": outcome.changed,
                                       "handoffs": outcome.handoffs, "resumed": outcome.resumed,
                                       "retained": outcome.retained or [], "keys_destroyed": outcome.keys_destroyed,
+                                      "key_files_removed": outcome.key_files_removed,
                                       "custody_scope": custody_policy.SCOPE,
                                       "journal_head": outcome.journal_head}, sort_keys=True))

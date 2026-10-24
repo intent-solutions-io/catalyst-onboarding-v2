@@ -24,13 +24,16 @@ from workflow.models import PendingAction
 
 
 def custody_keys(settings, tmp_path):
-    """9kg.34: a synthetic wrapping key (random per test) and a key directory and mirror outside the custody
-    directory."""
+    """9kg.34: a synthetic wrapping key (random per test) and a provisioned key directory and mirror outside the
+    custody directory."""
     import secrets
 
     settings.CATALYST_CUSTODY_WRAPPING_KEY = secrets.token_hex(32)
     settings.CATALYST_CUSTODY_KEY_DIR = str(tmp_path / "custody-keys")
     settings.CATALYST_CUSTODY_KEY_MIRROR_DIR = str(tmp_path / "custody-keys-mirror")
+    from agreements import keystore
+
+    keystore.provision()  # the explicit provisioning step: nothing else creates the key directories
 
 
 @pytest.fixture
