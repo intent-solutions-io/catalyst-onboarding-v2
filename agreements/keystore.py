@@ -389,11 +389,35 @@ def destroy(subject_ref: str, refs) -> int:
     return removed
 
 
-def recover() -> dict:
+def sweep() -> dict:
+    """Finish every destruction the journal records (review of PR #102, F4): any key file of a journaled-destroyed
+    reference, in either directory, is removed (mirror first) and the removal verified. Needs only the directories and
+    the journal, never the wrapping key, so it runs where that key is absent: the restore lift and the start of the web
+    and worker processes. A restored or copied key file therefore never outlives its journaled destruction. Not
+    configured: nothing to do. A missing directory, marker or journal refuses (`key_store_unavailable`,
+    `journal_unavailable`): fail closed."""
+    if not configured():
+        return {"status": "not_configured", "removed": 0}
+    primary, mirror = directories()
+    destroyed = journaled_destroyed()
+    in_primary, in_mirror = _listing(primary), _listing(mirror)
+    removed = 0
+    for ref in sorted((in_primary | in_mirror) & destroyed):
+        removed += int(_unlink(mirror, ref)) + int(_unlink(primary, ref))
+        if _read(mirror, ref) is not None or _read(primary, ref) is not None:
+            raise KeyStoreError("destruction_incomplete")
+    return {"status": "swept", "removed": removed}
+
+
+def recover(expected_head: str) -> dict:
     """The named holder's recovery (custody_policy `recovery_holder`): make the primary and the mirror hold the same
     keys again, copying each wrapped key that one lacks from the other after checking that it unwraps under the
     wrapping key; and finish every destruction the journal records, in both. A key the journal records as destroyed is
-    never copied anywhere. Refuses without a readable journal."""
+    never copied anywhere. Refuses without a readable journal, and unless the journal holds `expected_head` (the
+    out-of-band head the erasure command prints, PR #99; `none` only for a journal with no erasure and no destruction):
+    an emptied, truncated or replaced journal would forget destructions and let recovery revive their keys (review of
+    PR #102, F4). The mismatch is `journal_mismatch`."""
+    from erasure.record import HEAD
     from workflow import journal
 
     secret = wrapping_key()
@@ -401,9 +425,18 @@ def recover() -> dict:
     if not journal.configured():
         raise KeyStoreError("journal_unavailable")
     try:
-        destroyed = destroyed_refs(journal.read())
-    except journal.JournalError:
-        raise KeyStoreError("journal_unavailable") from None
+        entries = journal.read()
+        if expected_head == "none":
+            if any(e.kind == DESTROYED or e.kind.startswith("erasure_") for e in entries):
+                raise journal.JournalError("journal_mismatch")
+        else:
+            found = HEAD.fullmatch(expected_head or "")
+            if found is None or int(found.group(2)) < 1:
+                raise KeyStoreError("bad_head")
+            journal.verify_anchor(entries, found.group(1), int(found.group(2)), found.group(3))
+        destroyed = destroyed_refs(entries)
+    except journal.JournalError as exc:
+        raise KeyStoreError("journal_mismatch" if exc.code == "journal_mismatch" else "journal_unavailable") from None
     report = {"copied_to_primary": 0, "copied_to_mirror": 0, "destruction_finished": 0, "unrecoverable": 0}
     in_primary, in_mirror = _listing(primary), _listing(mirror)
     for ref in sorted((in_primary | in_mirror) & destroyed):

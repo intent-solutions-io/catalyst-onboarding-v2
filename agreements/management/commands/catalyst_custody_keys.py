@@ -4,7 +4,7 @@ the clear before 9kg.34, and key recovery by the named holder.
     manage.py catalyst_custody_keys --provision
     manage.py catalyst_custody_keys --status
     manage.py catalyst_custody_keys --migrate --confirm
-    manage.py catalyst_custody_keys --recover
+    manage.py catalyst_custody_keys --recover --expect-head <identity:seq:hash | none>
     manage.py catalyst_custody_keys --reap-orphans [--confirm] [--min-age-seconds N]
 
 - `--provision`: the one step that creates the key directory and its mirror (0700) and writes each one's
@@ -22,7 +22,9 @@ the clear before 9kg.34, and key recovery by the named holder.
 - `--recover`: the named holder's recovery (agreements.custody_policy `recovery_holder`, within `recovery_time_bound`)
   after a key directory or its mirror was lost or damaged: makes both hold the same keys again from the copy that
   survives, never restoring a key the journal records as destroyed, and finishes any destruction left half done. The
-  wrapping key comes from the escrow, as a secret file, for this run.
+  wrapping key comes from the escrow, as a secret file, for this run. `--expect-head` (the journal head kept out of
+  band, as for `catalyst_erasure_record`) is required: a journal that does not hold it is refused, because an emptied
+  or rolled-back journal would forget destructions.
 
 - `--reap-orphans` (review of PR #102, F2): a key no envelope names (and the journal does not record as destroyed) and
   a sealed file no envelope names are what a crash between a write and its record leaves. A dry run lists the counts;
@@ -58,6 +60,7 @@ class Command(BaseCommand):
         action.add_argument("--recover", action="store_true", help="re-align the key directory and its mirror")
         action.add_argument("--reap-orphans", action="store_true", help="list (or with --confirm remove) orphans")
         parser.add_argument("--confirm", action="store_true", help="required with --migrate; acts with --reap-orphans")
+        parser.add_argument("--expect-head", default="", help="--recover: the journal head kept out of band (PR #99)")
         parser.add_argument("--min-age-seconds", type=int, default=3600, help="--reap-orphans: leave younger orphans")
 
     def emit(self, report: dict, ok: bool):
@@ -68,7 +71,8 @@ class Command(BaseCommand):
     def refuse(self, code: str):
         self.emit({"refused": code}, False)
 
-    def handle(self, *args, provision, status, migrate, recover, reap_orphans, confirm, min_age_seconds, **options):
+    def handle(self, *args, provision, status, migrate, recover, reap_orphans, confirm, min_age_seconds, expect_head,
+               **options):
         if runtime.process_kind() in runtime.ENFORCED_KINDS:
             self.refuse("not_a_management_process")
         try:
@@ -85,7 +89,9 @@ class Command(BaseCommand):
             elif reap_orphans:
                 self.emit(reap(confirm, max(0, min_age_seconds)), True)
             else:
-                self.emit(keystore.recover(), True)
+                if not expect_head:
+                    self.refuse("expect_head_required")
+                self.emit(keystore.recover(expect_head), True)
         except keystore.KeyStoreError as exc:
             self.refuse(exc.code)
         except storage.StorageError as exc:

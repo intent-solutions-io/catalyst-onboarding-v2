@@ -201,7 +201,7 @@ def test_9kg_34_key_recovery_rebuilds_a_lost_directory_from_its_copy_and_never_b
     keystore.provision()  # the holder provisions the replacement directory first
     with pytest.raises(keystore.KeyStoreError, match="key_needs_recovery"):
         keystore.load(refs[1])
-    code, report = command("catalyst_custody_keys", "--recover")  # the named holder's command
+    code, report = command("catalyst_custody_keys", "--recover", "--expect-head", record.head_string())  # the holder
     assert code == 0 and report["copied_to_primary"] == 2 and report["destruction_finished"] == 1
     assert report["scope"] == custody_policy.SCOPE
     for (ref, _, blob), name, n in zip(sealed[1:], names[1:], (1, 2)):
@@ -211,28 +211,29 @@ def test_9kg_34_key_recovery_rebuilds_a_lost_directory_from_its_copy_and_never_b
         keystore.load(refs[0])
     shutil.rmtree(mirror)  # the mirror is lost: rebuilt from the primary, once re-provisioned
     with pytest.raises(keystore.KeyStoreError, match="key_store_unavailable"):
-        keystore.recover()
+        keystore.recover(record.head_string())
     keystore.provision()
-    assert keystore.recover()["copied_to_mirror"] == 2 and keystore.present(refs[2]) == (True, True)
+    assert keystore.recover(record.head_string())["copied_to_mirror"] == 2 and keystore.present(refs[2]) == (True, True)
     # The wrapping key lost from the host: nothing opens and recovery refuses until the escrow copy is back.
     escrow = settings.CATALYST_CUSTODY_WRAPPING_KEY
     settings.CATALYST_CUSTODY_WRAPPING_KEY = ""
     with pytest.raises(keystore.KeyStoreError, match="wrapping_key_missing"):
         keystore.load(refs[1])
     with pytest.raises(keystore.KeyStoreError, match="wrapping_key_missing"):
-        keystore.recover()
+        keystore.recover(record.head_string())
     settings.CATALYST_CUSTODY_WRAPPING_KEY = secrets.token_hex(32)  # not the escrowed key
     with pytest.raises(keystore.KeyStoreError, match="wrapping_key_mismatch"):
         keystore.load(refs[1])
     (mirror / f"{refs[1]}.key").unlink()
-    assert keystore.recover()["unrecoverable"] == 1  # wrapped under another key: reported, never copied
+    assert keystore.recover(record.head_string())["unrecoverable"] == 1  # wrapped under another key: reported, never copied
     settings.CATALYST_CUSTODY_WRAPPING_KEY = escrow
-    assert keystore.recover()["copied_to_mirror"] == 1 and keystore.present(refs[1]) == (True, True)
+    assert keystore.recover(record.head_string())["copied_to_mirror"] == 1 and keystore.present(refs[1]) == (True, True)
     assert keystore.open_sealed(sealed[1][2], names[1], refs[1]) == b"%PDF-1.7 synthetic 1"
     # Recovery needs the journal: without it, it cannot know what was destroyed, so it refuses.
+    head = record.head_string()
     settings.CATALYST_EFFECT_JOURNAL_DIR = ""
     with pytest.raises(keystore.KeyStoreError, match="journal_unavailable"):
-        keystore.recover()
+        keystore.recover(head)
     # A key never exists without its recovery copy: a mirror that cannot be written leaves no primary copy either.
     settings.CATALYST_EFFECT_JOURNAL_DIR = str(custody.parent / "effects")
     mirror.chmod(0o755)
@@ -374,7 +375,7 @@ def test_9kg_34_an_interrupted_destruction_is_finished_by_recovery_or_the_next_r
     assert keystore.present(ref) == (True, True)
     assert [e.key for e in journal.read() if e.kind == keystore.DESTROYED] == [f"custody_key:{ref}"]  # recorded first
     monkeypatch.setattr(keystore, "_unlink", real)
-    assert keystore.recover()["destruction_finished"] == 2  # recovery finishes it; it never restores the key
+    assert keystore.recover(record.head_string())["destruction_finished"] == 2  # recovery finishes it; it never restores the key
     assert keystore.present(ref) == (False, False)
     outcome = erase(privileged_reset, app.public_ref)  # the next run completes the record
     assert outcome.resumed and outcome.status == "already_erased" and record.list_open()["open"] == []
@@ -670,3 +671,50 @@ def test_9kg_34_lingering_plaintext_of_a_destroyed_key_is_removed_and_one_failur
     assert not (custody / erased.storage_key).exists()  # removed without opening the sealed copy
     assert not (custody / fine.storage_key).exists()
     assert (custody / damaged.storage_key).exists()  # kept: the only verifiable copy, and reported
+
+
+
+# --- the review of PR #102, D: a restore cannot undo a destruction ----------------------------------------------------
+
+@pytest.mark.django_db
+def test_9kg_34_the_sweep_finishes_journaled_destructions_without_the_wrapping_key_and_fails_closed(custody, settings):
+    from django.core.exceptions import ImproperlyConfigured
+
+    from config.apps import sweep_custody_keys
+
+    document = drill.synthetic_document(subject(), b"%PDF-1.7 synthetic")
+    ref = document.envelope.key_ref
+    copies = {d: (Path(d) / f"{ref}.key").read_bytes()
+              for d in (settings.CATALYST_CUSTODY_KEY_DIR, settings.CATALYST_CUSTODY_KEY_MIRROR_DIR)}
+    keystore.destroy(str(document.application.public_ref), [ref])
+    for directory, blob in copies.items():  # a restored volume brings both copies back
+        (Path(directory) / f"{ref}.key").write_bytes(blob)
+        (Path(directory) / f"{ref}.key").chmod(0o600)
+    settings.CATALYST_CUSTODY_WRAPPING_KEY = ""  # the restore lift and the start-up sweep never hold it
+    assert keystore.sweep() == {"status": "swept", "removed": 2}
+    assert keystore.present(ref) == (False, False) and keystore.sweep()["removed"] == 0
+    (Path(settings.CATALYST_CUSTODY_KEY_MIRROR_DIR) / keystore.MARKER).unlink()
+    with pytest.raises(ImproperlyConfigured, match="custody key sweep failed .key_store_unavailable."):
+        sweep_custody_keys()  # web and worker refuse to start rather than run with an unchecked store
+    settings.CATALYST_CUSTODY_KEY_DIR = settings.CATALYST_CUSTODY_KEY_MIRROR_DIR = ""
+    assert keystore.sweep() == {"status": "not_configured", "removed": 0}
+    root = Path(__file__).resolve().parent.parent  # where it runs: the lift, the worker's start, the web's start
+    assert "keystore.sweep()" in (root / "config/post_restore.py").read_text()
+    assert "sweep_custody_keys()" in (root / "workflow/management/commands/run_worker.py").read_text()
+    assert 'process_kind() == "web"' in (root / "config/apps.py").read_text()
+
+
+@pytest.mark.django_db
+def test_9kg_34_recovery_needs_the_out_of_band_head_and_refuses_a_journal_that_lost_it(custody, settings):
+    document = drill.synthetic_document(subject(), b"%PDF-1.7 synthetic")
+    keystore.destroy(str(document.application.public_ref), [document.envelope.key_ref])
+    head = record.head_string()
+    code, report = command("catalyst_custody_keys", "--recover")
+    assert code == 1 and report["refused"] == "expect_head_required"
+    identity, seq, digest = head.split(":")
+    for wrong, reason in ((f"{identity}:{seq}:{'0' * 64}", "journal_mismatch"),
+                          (f"{'0' * 32}:{seq}:{digest}", "journal_mismatch"),
+                          ("none", "journal_mismatch"), ("not-a-head", "bad_head")):
+        code, report = command("catalyst_custody_keys", "--recover", "--expect-head", wrong)
+        assert code == 1 and report["refused"] == reason, wrong
+    assert command("catalyst_custody_keys", "--recover", "--expect-head", head)[0] == 0
