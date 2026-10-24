@@ -806,7 +806,7 @@ def test_p2_40_an_evidence_source_is_refused_outside_test():
 def test_p2_05_a_paused_application_sends_nothing_until_resumed(ready):
     from workflow.models import AutomationPause
 
-    pause = AutomationPause.objects.create(subject_type="application", subject_id=ready.app.public_ref,
+    AutomationPause.objects.create(subject_type="application", subject_id=ready.app.public_ref,
                                            reason="synthetic", actor_ref="user:0")
     _, message = ask(ready)
     run_worker()

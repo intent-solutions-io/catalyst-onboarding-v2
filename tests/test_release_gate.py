@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 GATE = ROOT / "scripts/require_green_ci.py"
 RELEASE = ROOT / ".github/workflows/release.yml"
 CI = ROOT / ".github/workflows/ci.yml"
+TARGETED = ROOT / ".github/workflows/targeted.yml"
 SHA = "a" * 40
 RUNTIME = "Runtime checks (Python 3.14.8, PostgreSQL 16.15)"
 DOCS = "Markdown lint and doc index check"
@@ -80,6 +81,24 @@ def test_the_gate_requires_exactly_the_ci_job_names():
     spec.loader.exec_module(module)
     jobs = re.findall(r"^  [a-z_]+:\n    name: (.+)$", CI.read_text(), flags=re.M)
     assert sorted(module.REQUIRED) == sorted(jobs) == sorted([RUNTIME, DOCS])
+
+
+def test_the_targeted_lane_is_dispatch_only_and_never_a_required_check():
+    """Bead catalyst-v2-9kg.45 (009 section 5.3): the targeted workflow reports, it never gates. Its only trigger is a
+    dispatch, its job name is not one the gate reads, the dispatcher's text reaches steps only through the job's
+    environment and is validated first (PR #41 review), and it runs on the same digest-pinned images as ci.yml."""
+    text = TARGETED.read_text()
+    assert re.search(r"^on:\n  workflow_dispatch:\n", text, flags=re.M) and "pull_request" not in text and "push:" not in text
+    jobs = re.findall(r"^  [a-z_]+:\n    name: (.+)$", text, flags=re.M)
+    assert jobs and not set(jobs) & {RUNTIME, DOCS}
+    uses = [line.strip() for line in text.splitlines() if "${{ inputs." in line]
+    assert uses == ["PYTEST_SELECTION: ${{ inputs.selection }}"], uses
+    assert re.findall(r"^      - name: (.+)$", text, flags=re.M)[0] == "Validate the selection input"
+    for use in re.findall(r"uses: (\S+)", text):
+        assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", use), use
+    digests = re.compile(r"(?:python|postgres):[\w.-]+@sha256:[0-9a-f]{64}")
+    assert sorted(set(digests.findall(text))) == sorted(set(digests.findall(CI.read_text())))
+    assert len(set(digests.findall(text))) == 2
 
 
 def release_steps():

@@ -14,7 +14,6 @@ from django.test import Client
 from config.post_restore import ITEMS
 from correspondence.models import StaffItem
 from tests import support
-from tests.support import manage_as_owner
 from tests.test_closure import cl  # noqa: F401  (fixture chain)
 from tests.test_credentials import invited
 from tests.test_outbound import FORM, VALID, staff

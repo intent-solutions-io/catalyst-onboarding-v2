@@ -56,7 +56,7 @@ def protect(apps, schema_editor):
             USING ERRCODE = 'insufficient_privilege';
         END $$
     """, params=None)  # params=None: the RAISE format's % signs are not query placeholders
-    schema_editor.execute(f"""
+    schema_editor.execute("""
         CREATE FUNCTION public.catalyst_append_only_strict() RETURNS trigger
         LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
         BEGIN

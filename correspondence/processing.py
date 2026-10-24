@@ -590,14 +590,14 @@ def confirm_question_outcome(message_id: int, outcomes: dict, user, note: str = 
         application = Application.objects.select_for_update(of=("self",)).get(pk=message.application_id)
         links = list(QuestionReplyLink.objects.select_related("question").filter(inbound_message_id=message_id, state="pending")
                      .order_by("question_id"))
-        list(Question.objects.select_for_update(of=("self",)).filter(pk__in=[l.question_id for l in links]).order_by("id"))
+        list(Question.objects.select_for_update(of=("self",)).filter(pk__in=[link.question_id for link in links]).order_by("id"))
         if expected_digest is not None and InboundMessage.objects.filter(pk=message_id).values_list(
                 "derived_text_sha256", flat=True).first() != expected_digest:
             raise Refused("reply_text_changed_since_shown")
         if not InboundMessage.objects.filter(pk=message_id, status=Inbound.AWAITING_PROCESSING).update(
                 status=Inbound.PROCESSED, processed_at=Now()):
             raise Refused("reply_already_decided")  # a concurrent decision or process_reply won (TEST-P2-32)
-        if {l.question_id for l in links} != set(outcomes) or not all(o in OUTCOMES for o in outcomes.values()):
+        if {link.question_id for link in links} != set(outcomes) or not all(o in OUTCOMES for o in outcomes.values()):
             raise Refused("an_outcome_is_needed_for_every_pending_question")
         for link in links:
             QuestionReplyLink.objects.filter(pk=link.pk).update(state="applied", outcome=OUTCOMES[outcomes[link.question_id]],
