@@ -481,7 +481,7 @@ def test_9kg_34_the_drill_command_seeds_reads_destroys_and_checks_a_set_for_key_
     backup_set = tmp_path / "set"
     shutil.copytree(tmp_path / "custody", backup_set / "custody")
     clean = command("catalyst_custody_drill", "absent", *dirs, "--set", str(backup_set), "--marker", seeded["marker"])[1]
-    assert (clean["key_material_found"], clean["plaintext_marker_found"]) == (0, 0)
+    assert (clean["key_material_found"], clean["plaintext_marker_found"], clean["sealed_files_in_set"]) == (0, 0, 1)
     leaked = next((tmp_path / "keys").glob("*.key"))
     shutil.copy(leaked, backup_set / "leaked.key")  # the negative control: a set that did hold a key
     (backup_set / "plain.pdf").write_text(f"%PDF {seeded['marker']}")
@@ -489,6 +489,8 @@ def test_9kg_34_the_drill_command_seeds_reads_destroys_and_checks_a_set_for_key_
     assert dirty["key_material_found"] >= 1 and dirty["plaintext_marker_found"] == 1 and dirty["key_files_in_set"] == 1
     assert command("catalyst_custody_drill", "destroy", *dirs, "--document", seeded["document"])[1]["destroyed"] == 2
     assert command("catalyst_custody_drill", "read", *dirs, "--document", seeded["document"])[1]["code"] == "custody_key_destroyed"
+    assert command("catalyst_custody_drill", "journaled", *dirs, "--document", seeded["document"])[1] == {
+        "journaled_destroyed": True, "verified": True, "forged": 0, "scope": custody_policy.SCOPE}
     settings.CATALYST_ENV = "development"
     from django.core.management.base import CommandError
     with pytest.raises(CommandError, match="synthetic"):
@@ -502,6 +504,8 @@ def test_9kg_34_the_restore_drill_pins_its_custody_leg():
     leg reported NOT RUN."""
     script = (Path(__file__).resolve().parent.parent / "scripts" / "restore_drill.sh").read_text()
     for line in ("catalyst_custody_drill", "custody_wrapping_key", "absent --set", "destroy --document",
+                 "positive control", "negative control: the backup refuses", "sealed_files_in_set", "needles",
+                 "volumes_before", "journaled --document",
                  "custody/restored read --document", "custody_key_destroyed", "NOT RUN 9kg.34 the off-site, object-locked copy",
                  'docker volume rm "$keys_vol" "$mirror_vol"'):
         assert line in script, line

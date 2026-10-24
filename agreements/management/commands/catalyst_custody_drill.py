@@ -17,6 +17,7 @@ directories on the command line and this command points the settings at them for
   recorded one, or `refused` with the code (`custody_key_destroyed` after a destruction);
 - `destroy` destroys the document's key with `agreements.keystore.destroy`, the step the erasure performs under the
   registry's `destroy_key` (the erasure itself refuses while the registry is undecided, so the drill calls the step);
+- `journaled` says whether the journal records the document's key as destroyed, with its mac verified;
 - `absent` reads every file of a backup set and reports whether any holds key material (a wrapped key file's bytes,
   a data key, the wrapping key, in raw, hex or base64 form) or the document's plaintext marker.
 
@@ -41,7 +42,7 @@ class Command(BaseCommand):
     help = "The synthetic custody leg of the restore drill (9kg.34)."
 
     def add_arguments(self, parser):
-        parser.add_argument("action", choices=("provision", "seed", "read", "destroy", "absent"))
+        parser.add_argument("action", choices=("provision", "seed", "read", "destroy", "absent", "journaled"))
         parser.add_argument("--storage-dir", required=True)
         parser.add_argument("--key-dir", required=True)
         parser.add_argument("--mirror-dir", required=True)
@@ -64,6 +65,8 @@ class Command(BaseCommand):
             out = seed()
         elif action == "absent":
             out = absent(Path(set), marker)
+        elif action == "journaled":
+            out = journaled(document)
         else:
             out = read(document) if action == "read" else destroy(document)
         self.stdout.write(json.dumps({**out, "scope": custody_policy.SCOPE}, sort_keys=True))
@@ -168,4 +171,20 @@ def absent(backup_set: Path, marker: str) -> dict:
         found_keys += sum(1 for n in needles if n in data)
         found_marker += int(marker.encode() in data)
     return {"files": len(files), "needles": len(needles), "key_material_found": found_keys,
-            "plaintext_marker_found": found_marker, "key_files_in_set": sum(1 for p in files if p.suffix == ".key")}
+            "plaintext_marker_found": found_marker, "key_files_in_set": sum(1 for p in files if p.suffix == ".key"),
+            # the sealed files the set holds: a check that read an empty or wrong directory cannot pass
+            "sealed_files_in_set": sum(1 for p in files if p.read_bytes().startswith(keystore.MAGIC))}
+
+
+def journaled(ref: str) -> dict:
+    """Whether the journal records the document's key as destroyed, its mac verified under the erasure key."""
+    from workflow import journal
+
+    stored, envelope = _document(ref)
+    if envelope is None:
+        raise CommandError("the document is not sealed")
+    forged = []
+    secret = keystore._erasure_secret()
+    refs = keystore.destroyed_refs(journal.read(), secret, forged)
+    return {"journaled_destroyed": envelope.key_ref in refs, "verified": secret is not None,
+            "forged": len(forged)}

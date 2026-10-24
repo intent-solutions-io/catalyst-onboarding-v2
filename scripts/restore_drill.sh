@@ -239,46 +239,66 @@ fresh_custody_db() {
   e --profile provision run --rm provision-roles >/dev/null 2>&1
   e run --rm --no-deps -T migrate python manage.py migrate --noinput >/dev/null 2>&1
 }
+volumes_before="$(docker volume ls -q | sort)"  # the leg must leave no volume behind (release-ops review 4)
 fresh_custody_db
 e --profile ops create backup >/dev/null 2>&1 && e --profile ops rm -f backup >/dev/null 2>&1  # compose makes its volumes
 docker run --rm --user 0 -v "$keys_vol:/k" -v "$mirror_vol:/m" "$CATALYST_IMAGE" sh -c 'chown 10001:10001 /k /m && chmod 0700 /k /m'
 cdrill /var/lib/catalyst/custody provision >/dev/null  # the key volumes' explicit provisioning step (markers)
-seeded="$(cdrill /var/lib/catalyst/custody seed)"
+# Two synthetic documents (two applicants): one is destroyed after the backup, the other is the positive control.
+seeded="$(cdrill /var/lib/catalyst/custody seed)" control_seeded="$(cdrill /var/lib/catalyst/custody seed)"
 document="$(field "$seeded" document)" marker="$(field "$seeded" marker)"
-check "9kg.34 a synthetic document is stored sealed under its own key (the real write path)" test -n "$document" -a -n "$marker"
+control="$(field "$control_seeded" document)" control_marker="$(field "$control_seeded" marker)"
+check "9kg.34 two synthetic documents are stored sealed under their own keys (the real write path)" \
+  test -n "$document" -a -n "$marker" -a -n "$control" -a -n "$control_marker"
 [ -n "$document" ] || sed 's/^/  seed said: /' "$work/cdrill.err" | tail -3
-check "9kg.34 control: before destruction it opens and its plaintext hash matches the recorded one" \
-  test "$(field "$(cdrill /var/lib/catalyst/custody read --document "$document")" sha256_matches)" = True
+check "9kg.34 control: before destruction both open and their plaintext hashes match the recorded ones" \
+  test "$(field "$(cdrill /var/lib/catalyst/custody read --document "$document")" sha256_matches):$(field \
+    "$(cdrill /var/lib/catalyst/custody read --document "$control")" sha256_matches)" = True:True
+# Negative control (release-ops review 5): a backup process given the wrapping key refuses before writing anything.
+e --profile ops run --rm -v "$work/secrets/custody_wrapping_key:/run/secrets/custody_wrapping_key:ro" backup \
+  >"$work/backup-with-key.out" 2>&1
+check "9kg.34 negative control: the backup refuses to run holding the custody wrapping key" \
+  grep -q "may not hold the custody wrapping key" "$work/backup-with-key.out"
 custody_receipt="$(e --profile ops run --rm backup 2>/dev/null | tail -1)"
 custody_set="$(field "$custody_receipt" name)"
-check "9kg.34 the backup wrote a set holding the sealed custody file" test -n "$custody_set"
+check "9kg.34 the backup wrote a set holding the sealed custody files" test -n "$custody_set"
 [ -n "$custody_set" ] || { echo "  backup said: $custody_receipt"; custody_set=missing; }
 docker run --rm --user 0 -v "${custody_project}_catalyst-backups:/sets:ro" -v "$archive:/archive" "$CATALYST_IMAGE" \
   sh -c "cp -a /sets/$custody_set /archive/custody-$custody_set && chown -R 10001:10001 /archive"
 absent="$(cdrill /var/lib/catalyst/custody absent --set "/archive/custody-$custody_set" --marker "$marker")"
+check "9kg.34 the set holds both sealed files and was read (sealed files 2, files at least 3, needles at least 8)" \
+  test "$(field "$absent" sealed_files_in_set):$([ "$(field "$absent" files)" -ge 3 ] 2>/dev/null && echo read):$([ \
+    "$(field "$absent" needles)" -ge 8 ] 2>/dev/null && echo needles)" = "2:read:needles"
 check "9kg.34 the set holds no key material (no key file, no wrapped key, no data key, no wrapping key)" \
-  test "$(field "$absent" key_material_found):$(field "$absent" key_files_in_set):$([ "$(field "$absent" files)" -ge 3 ] 2>/dev/null && echo read)" = "0:0:read"
+  test "$(field "$absent" key_material_found):$(field "$absent" key_files_in_set)" = "0:0"
 check "9kg.34 ... and no plaintext (the document's marker is in no file of the set)" test "$(field "$absent" plaintext_marker_found)" = 0
-check "9kg.34 the key is destroyed after the backup (journaled, then unlinked from the mirror and the key directory)" \
+check "9kg.34 one key is destroyed after the backup (journaled with its mac, then unlinked from the mirror and the key directory)" \
   test "$(field "$(cdrill /var/lib/catalyst/custody destroy --document "$document")" destroyed)" = 2
-check "9kg.34 the live copy can no longer be opened" \
+check "9kg.34 the live copy of that document can no longer be opened" \
   test "$(field "$(cdrill /var/lib/catalyst/custody read --document "$document")" code)" = custody_key_destroyed
 e rm -sf db >/dev/null 2>&1 && docker volume rm "${custody_project}_catalyst-db" >/dev/null 2>&1  # the database is lost
 fresh_custody_db
 e --profile ops run --rm --no-deps -T -v "$archive:/archive:ro" restore python manage.py catalyst_restore \
   --from "/archive/custody-$custody_set" --storage-dir /var/lib/catalyst/custody/restored --confirm-database catalyst \
   >"$work/restore-custody.out" 2>&1
-check "9kg.34 the older set restores into a fresh database (rows and the sealed file come back)" test $? = 0
+check "9kg.34 the older set restores into a fresh database (rows and the sealed files come back)" test $? = 0
 grep -q '"restored"' "$work/restore-custody.out" || grep -E "refused|failed" "$work/restore-custody.out" | sed 's/^/  custody restore said: /' | tail -2
-check "9kg.34 the restored rows name the document and its envelope" test "$(e run --rm --no-deps -T migrate python manage.py shell -c \
-  "from agreements.models import CustodyEnvelope, StoredDocument; print(StoredDocument.objects.count(), CustodyEnvelope.objects.count())" 2>/dev/null | tail -1)" = "1 1"
+check "9kg.34 the restored rows name both documents and their envelopes" test "$(e run --rm --no-deps -T migrate python manage.py shell -c \
+  "from agreements.models import CustodyEnvelope, StoredDocument; print(StoredDocument.objects.count(), CustodyEnvelope.objects.count())" 2>/dev/null | tail -1)" = "2 2"
+restored_absent="$(cdrill /var/lib/catalyst/custody absent --set /var/lib/catalyst/custody/restored --marker "$marker")"
+check "9kg.34 the restored directory holds both sealed files and no plaintext" \
+  test "$(field "$restored_absent" sealed_files_in_set):$(field "$restored_absent" plaintext_marker_found)" = "2:0"
+check "9kg.34 positive control: after the restore, the document whose key survived opens and its hash matches" \
+  test "$(field "$(cdrill /var/lib/catalyst/custody/restored read --document "$control")" sha256_matches)" = True
 check "9kg.34 the restore of the older backup cannot open the destroyed subject's document" \
   test "$(field "$(cdrill /var/lib/catalyst/custody/restored read --document "$document")" code)" = custody_key_destroyed
-check "9kg.34 ... and the restored file holds no plaintext" test "$(field "$(cdrill /var/lib/catalyst/custody absent \
-  --set /var/lib/catalyst/custody/restored --marker "$marker")" plaintext_marker_found)" = 0
+check "9kg.34 ... and the journal names its key as destroyed, with a verified mac" \
+  test "$(field "$(cdrill /var/lib/catalyst/custody/restored journaled --document "$document")" journaled_destroyed)" = True
 echo "NOT RUN 9kg.34 the off-site, object-locked copy: it is reached only through the host's backup fabric, not from this repository; the live-chain drill is a go/no-go evidence item"
 e --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
 docker volume rm "$keys_vol" "$mirror_vol" >/dev/null 2>&1
+check "9kg.34 the leg left no volume behind (the same volume list before and after)" \
+  test "$(docker volume ls -q | sort)" = "$volumes_before"
 
 # The drill's own checks between restore_started and restore_finished (the refused second restore, the control probe)
 # add a few seconds; the figure is an upper bound for this step at synthetic scale.
