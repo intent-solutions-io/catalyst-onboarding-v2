@@ -1858,8 +1858,9 @@ revised after the PR #99 data, security and release-operations reviews).**
     only; the file's content is never logged.
 - **The real list.** The repository holds synthetic names only (`tests/egress-deny.example`,
   `deploy/staging/egress-deny`). The estate's real production host names are an operator-supplied file, mounted
-  read-only into the egress service at deploy time; that is a host-preparation item of `9kg.28`, and the evidence
-  register now carries TEST-P6-28's residual there.
+  read-only into the egress service at deploy time; that is a host-preparation item of `9kg.28`. The evidence
+  register keeps TEST-P6-28 partial on `9kg.39`, whose boundary is enabling fetching, so the real list blocks
+  exactly that (PR #101 security review).
 - **Staging.** `deploy/staging/egress-deny` holds the synthetic names and one public stand-in for a production host
   (`one.one.one.one`, not a host of this estate), bind-mounted read-only at `/etc/catalyst/egress-deny` into the
   `egress` service alone, the way production mounts the real list.

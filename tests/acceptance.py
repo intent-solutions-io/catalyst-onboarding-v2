@@ -1854,6 +1854,7 @@ RESIDUAL_BOUNDARIES = {  # the earliest boundary each residual bead blocks (029 
     "9kg.25": "real-data storage",
     "9kg.27": "the provider canaries (9kg.31.1 to .3)",
     "9kg.28": "the dark deploy (9kg.31.5)",
+    "9kg.39": "enabling fetching",
     "9kg.31.5": "the go/no-go (9kg.31.6)",
 }
 REVISION = re.compile(r"^([0-9a-f]{7,40}|[0-9]{8,})$")  # a commit, or a workflow run id
@@ -1902,9 +1903,11 @@ P6_EVIDENCE = {
                    "note": "proven on a stand-in Learn site; the live Learn read awaits its preconditions and the owner's go"},
     "TEST-P6-27": {"proofs": [STAGING_CHECK]},
     # 9kg.39: the proxy denies production hosts by name and by resolved address (synthetic list and a public stand-in);
-    # what remains is the operator-supplied list of the estate's real hosts, mounted on the host.
-    "TEST-P6-28": {"proofs": ["pytest", STAGING_CHECK], "partial": "9kg.28",
-                   "residual": "the operator-supplied deny list of the estate's real production hosts, mounted on the host"},
+    # what remains is the operator-supplied list of the estate's real hosts, mounted on the host. Its host work is a
+    # 9kg.28 item, but the residual stays on 9kg.39 so it blocks enabling fetching, the boundary it gates (PR #101).
+    "TEST-P6-28": {"proofs": ["pytest", STAGING_CHECK], "partial": "9kg.39",
+                   "residual": "the operator-supplied deny list of the estate's real production hosts, mounted on the "
+                               "host and refusing a canary from it (host item in 9kg.28)"},
     "TEST-P6-29": {"proofs": ["pytest", RESTORE_DRILL], "partial": "9kg.25", "residual": "erasure replay after a restore"},
     "TEST-P6-30": {"proofs": ["pytest", STAGING_CHECK]},
     "TEST-P6-31": {"proofs": ["pytest", STAGING_CHECK], "pytest": "shape", "partial": "9kg.28",
