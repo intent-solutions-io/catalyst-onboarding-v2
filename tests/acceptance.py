@@ -1678,6 +1678,7 @@ P6_SUPPORTING = {
         "test_custody_encryption::test_9kg_34_erasure_0003_reverses_to_exactly_the_function_0002_installs",
         "test_custody_encryption::test_9kg_34_a_document_left_in_the_clear_past_the_dry_run_is_refused_after_the_commit_and_the_rerun_finishes",
         "test_custody_encryption::test_9kg_34_the_first_erasure_under_destroy_key_names_the_key_destruction_in_its_audit_row",
+        "test_custody_encryption::test_9kg_34_envelope_rules_one_per_document_hex_formats_and_unmigrated_means_the_documents_own_file",
     ],
     "9kg.47 staff screens for the shell-only agreement states (021 section 20)": [
         "test_agreement_screens::test_an_unknown_create_is_decided_on_the_screen_and_refused_without_the_permission",

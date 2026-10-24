@@ -87,7 +87,15 @@ class Migration(migrations.Migration):
                     models.CheckConstraint(
                         condition=models.Q(("scheme", "aes-256-gcm/v1")),
                         name="custody_envelope_scheme_known",
-                    )
+                    ),
+                    models.CheckConstraint(
+                        condition=models.Q(("cipher_sha256__regex", "^[0-9a-f]{64}$")),
+                        name="custody_envelope_cipher_sha256_hex",
+                    ),
+                    models.CheckConstraint(
+                        condition=models.Q(("key_ref__regex", "^[0-9a-f]{32}$")),
+                        name="custody_envelope_key_ref_hex",
+                    ),
                 ],
             },
         ),

@@ -1852,6 +1852,9 @@ option c; council `030` Q3 and Q4, D-51 provisional; the storage location and ac
   - The associated data binds each sealed file to its own name and key reference, and each wrapped key to its
     reference. A file moved to another name, or paired with another key, does not open.
   - A write refuses without keys, in every environment. Nothing new is ever stored in the clear.
+  - Envelope rules (data review of PR #102, K5): one envelope per document; no repair or re-seal until wrapping-key
+    rotation is built (a follow-up); `wrapping_key_id` is the wrapping key's id at seal time; an envelope not
+    `migrated` names the document's own file. The digest and the key reference are checked as hex by the database.
 - **Where the keys live.** Two directories, `CATALYST_CUSTODY_KEY_DIR` and its live mirror
   `CATALYST_CUSTODY_KEY_MIRROR_DIR`, one `<reference>.key` file per document (0600, in a 0700 directory owned by the
   process user). This is the same separation `9kg.32` uses for the erasure journal and its head.

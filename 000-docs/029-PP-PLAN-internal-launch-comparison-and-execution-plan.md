@@ -564,6 +564,10 @@ A `CustodyEnvelope` row (insert-only) names the sealed file, the key reference a
 `StoredDocument.sha256` is still the plaintext's hash, checked after opening. A write refuses without keys, in every
 environment.
 
+Envelope rules (data review of PR #102, K5): one envelope per document; no repair or re-seal until wrapping-key
+rotation is built (a follow-up); `wrapping_key_id` is the wrapping key's id at seal time; an envelope not `migrated`
+names the document's own file; the database checks the digest and the key reference as hex.
+
 **Keys outside the rollback domain.** The wrapped keys live in `CATALYST_CUSTODY_KEY_DIR` and its live mirror
 `CATALYST_CUSTODY_KEY_MIRROR_DIR`, never in the database or the custody directory:
 

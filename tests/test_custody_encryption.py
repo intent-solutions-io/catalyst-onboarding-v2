@@ -850,3 +850,30 @@ def test_9kg_34_the_first_erasure_under_destroy_key_names_the_key_destruction_in
     assert classes == [*registry.anonymized_classes(DESTROYING), catalog.CUSTODY_AUDIT_CLASS]
     intent = [e for e in erasure_entries() if e.kind == "erasure_intent" and e.key == f"erasure:{app.public_ref}"][0]
     assert catalog.CUSTODY_AUDIT_CLASS not in intent.data["classes"]  # the replay's classes stay the registry's
+
+
+# --- the data review of PR #102, K5: the envelope's rules -------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_9kg_34_envelope_rules_one_per_document_hex_formats_and_unmigrated_means_the_documents_own_file(custody):
+    from django.db import IntegrityError, transaction
+
+    app = subject()
+    stored = drill.synthetic_document(app, b"%PDF-1.7 synthetic stored")
+    legacy = drill.synthetic_document(app, b"%PDF-1.7 synthetic legacy", sealed=False)
+    _interrupted_migration(legacy)
+    for envelope in CustodyEnvelope.objects.select_related("document"):
+        if not envelope.migrated:  # sealed when stored: the document's own file
+            assert envelope.storage_key == envelope.document.storage_key
+        else:
+            assert envelope.storage_key != envelope.document.storage_key
+    assert CustodyEnvelope.objects.filter(migrated=False).count() == 1
+    fields = {**{f: getattr(stored.envelope, f) for f in ("scheme", "wrapping_key_id", "cipher_size")},
+              "storage_key": f"{uuid.uuid4().hex}.pdf"}
+    for bad in ({"cipher_sha256": "X" * 64, "key_ref": secrets.token_hex(16)},
+                {"cipher_sha256": "0" * 64, "key_ref": "not-a-reference"}):
+        with pytest.raises(IntegrityError), transaction.atomic():
+            CustodyEnvelope.objects.create(document=drill.synthetic_document(app, b"%PDF-1.7 x", sealed=False),
+                                           **fields, **bad)
+    with pytest.raises(IntegrityError), transaction.atomic():  # one envelope per document
+        CustodyEnvelope.objects.create(document=stored, **fields, cipher_sha256="0" * 64, key_ref=secrets.token_hex(16))
