@@ -440,7 +440,7 @@ def test_9kg_52_the_dossier_shows_the_member_on_file_state(privileged_reset, set
     corrected = staff.get(change_url(app)).content.decode()
     assert f"first-generation: nda {LABEL_C};" in corrected and f"corrected from nda {LABEL_A}, user_agreement {LABEL_B}" in corrected
     invite(owner, BOB)  # the state follows the address, not the application
-    other = intake(Client(), email=BOB, name="Bob Example")
+    other = intake(Client(), email=BOB, name="Other Example")  # a name on the scan's fixture list (9kg.40)
     assert members.on_file(other) is None and "new participant" in staff.get(change_url(other)).content.decode()
     assert Application.objects.count() == 2
 
