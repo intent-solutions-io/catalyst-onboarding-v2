@@ -1195,11 +1195,12 @@ branch exists in `agent.build_model`. These protections make a later live branch
 
 | Protection | As built | Test (`tests/test_live_safety.py`) |
 |---|---|---|
-| Lease fence before each request and before the repair | every request goes through a wrapper model that first renews the claim's lease (`workflow.keeper.LeaseKeeper.fence`, in a worker thread because the ORM may not run on the event loop); a lost lease raises `LeaseLost`, no further request is made and nothing is recorded; the invocation stays counted and the next claim abandons it | two requests, two fences; a lease lost during the call leaves the repair unrequested |
+| Lease fence before each request and before the repair | every request goes through a wrapper model that first renews the claim's lease (`workflow.keeper.LeaseKeeper.fence`, in a worker thread because the ORM may not run on the event loop, bounded by the request timeout: a fence that cannot confirm in time counts as a lost lease); a lost lease raises `LeaseLost`, no further request is made and nothing is recorded; the invocation stays counted and the next claim abandons it. A model other than a test model is refused without an active keeper (`no_lease_fence`); streaming requests are refused (`streaming_not_allowed`) | two requests, two fences; a lease lost during the call leaves the repair unrequested; a slow fence; no keeper; streaming |
 | One attempt fits in half the lease | `config.guards.attempt_lease_problems`: 2 x `CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS` at most half of `CATALYST_WORKER_LEASE_SECONDS`, refused at start-up; the timeout defaults to a quarter of the lease, at most 60 s | the guard, and a 2 s lease still starting |
-| Heartbeat for calls longer than the lease | the run's call (and the interpreter's, in `correspondence.processing`) runs inside a `LeaseKeeper` whose daemon thread renews the lease every third of the lease on its own connection; a renewal that fails marks the lease lost | a 2.5 s call under a 1 s lease is never reclaimable |
+| Heartbeat for calls longer than the lease | the run's call (and the interpreter's, in `correspondence.processing`) runs inside a `LeaseKeeper` whose daemon thread renews the lease every third of the lease on its own connection; a renewal that fails marks the lease lost. The keeper is bounded: after one attempt's worth of time (2 x the request timeout plus a third of the lease) it stops renewing and marks the lease lost, so a call stuck in code that cannot be cancelled lets the lease run out and the action becomes reclaimable. Its renewals never write the worker-alive file (6B.4, `ledger.fence(beat=False)`); the calling side beats after each completed request, so the dead-man timer stays honest for a long call that progresses and fires for a stuck one | a 2.5 s call under a 1 s lease is never reclaimable; an uncancellable 3 s block under a 1 s bound becomes reclaimable and never touches the liveness file |
 | Provider-side timeout, enforced | each request is bounded by the timeout around the model call (`asyncio.wait_for`) and the same value goes to the provider client as `timeout`; a timeout is a provider error (retried within the attempt bound, then `failed`), never an adverse result | a hanging model ends `TimeoutError` within the bound |
-| Raising HTTP transport in tests | an autouse fixture makes `httpx2` (the library PydanticAI's provider clients use) and `httpx`, where installed, raise on every request, loopback included | a request through PydanticAI's own client raises |
+| Raising HTTP transport in tests | an autouse fixture patches `Client.send`, `AsyncClient.send` and the default transports of `httpx2` (the library PydanticAI's provider clients use) and of `httpx` where installed, so every request raises, loopback included and whatever transport class of these libraries a client uses. It does not cover another HTTP library: a test fails if the dependencies gain `openai`, `anthropic`, `requests`, `aiohttp` or `httpx`, and a static test keeps every PydanticAI `Agent` in `assessments/agent.py` | PydanticAI's own client and a client with a mock transport raise; the dependency tripwire; the `Agent` scan |
+| Approved fields bound to what is sent | the request builders report the source fields they actually used (`snapshot.Request.fields` from `build_request` and `_claim_texts`; `interpret.build_prompt`); the run's pre-call refuses a field outside `approval.FIELDS` before anything is reserved, and the checked run refuses it again (`fields_not_approved`), for a live model against the recorded approval's terms on every request | a field the builder adds is refused; a fully populated synthetic record emits exactly the approved fields |
 | Pre-call approval | below | below |
 
 **The pre-call approval check.** No live request without the owner's recorded approval of exactly that request.
@@ -1209,14 +1210,21 @@ role, with no web path, and naming the approval the owner cites and who ran the 
 prints the **terms**: the provider and model id, the exact field list that may leave Catalyst (`approval.FIELDS`, per
 purpose), the prompt pack and its digest, the rubric and output schema versions, every budget, the request timeout
 and the repair limit, and stores them with their digest. `approval.require` recomputes the terms for the call at hand
-before any reservation (the run's and the interpreter's pre-call) and again in the checked run, and refuses:
+before any reservation (the run's and the interpreter's pre-call) and then, for a live model, before **every request**
+inside the checked run (the repair and any later caller included, next to the lease fence), and refuses:
 `model_use_not_approved` (no record, or a revocation), `model_use_approval_stale` (any term changed, or the run was
 frozen under another pack: a stale snapshot), `model_not_authorized` (the setting names no provider and model id).
 The assessment and the interpreter need separate approvals (purpose `assessment` or `interpretation`); both share
 the daily budget, which is one of the terms. Chose a database row written by an owner command over a code-fixed
 setting, because the approval must be audited and refusable per term without a release, and over an admin screen,
-because no web path may create one (D-23). An approval is necessary, never sufficient: the start-up guard still
-refuses any live value of `CATALYST_ASSESSMENT_MODEL`.
+because no web path may create one (D-23). The approval reference is a decision code (`[a-z0-9_.:-]{3,64}`, a database
+constraint), never free text. An approval is necessary, never sufficient: the start-up guard still refuses any live
+value of `CATALYST_ASSESSMENT_MODEL`. The table's triggers stop every role, the owner included, from changing a row;
+the owner role could still drop a trigger by DDL, and the compensating control is the owner-credential custody rule:
+the migration-owner login is used only by owner-run commands and never held by an agent session (`030`, identity
+binding; the per-secret files of `026` section 5). Approval terms for the endpoint, the key and the provider's
+retention, and a check that the triggers are present, are entry criteria for the first live branch, recorded on
+`oc4.7`, not built here.
 
 **The reconciliation defects (`oc4.10`, D-40 reconciliation of 2026-10-18).**
 
@@ -1225,9 +1233,9 @@ refuses any live value of `CATALYST_ASSESSMENT_MODEL`.
 | 1 policy labels decisions while the synthetic rubric is relied on | fixed by `oc4.12` (section 20): the policy-to-pack binding guard and `policy_not_bound_to_pack` | `test_human_only` (policy guard) |
 | 2 the policy is not in the decision digest | fixed by `oc4.12`: the digest binds the policy reference | `test_human_only` (digest) |
 | 3 a human-only decision records no pack or rubric under a policy | fixed by `oc4.12`: pack, digest and rubric in their own columns | `test_human_only` (digest) |
-| 4 a dead reserved run holds a global concurrency slot | fixed: only a reserved run whose action still holds an unexpired lease counts (`runs.in_flight`); the heartbeat keeps a live call's lease. No staff item is opened: once the slot is free nothing is stuck but the paused application, which staff paused and resume, and the next claim abandons the dead invocation (counted) | dead run frees the slot; a live one still holds it |
+| 4 a dead reserved run holds a global concurrency slot | fixed: only a reserved run whose action still holds an unexpired lease counts (`runs.in_flight`); the heartbeat keeps a live call's lease. No staff item is opened: once the slot is free the other applications are no longer blocked, and the next claim abandons the dead invocation (counted). The paused application itself stays blocked: its dead run is still `reserved`, so the human-only exit (which needs no run in flight) waits until staff lift the pause and the reclaim ends the run | dead run frees the slot; a live one still holds it |
 | 5 a handler defect leaves the run reserved during backoff | fixed: `record("action_failed")` with attempts left returns the run to queued and abandons the attempt's invocation (counted), like a provider error | the run is queued between attempts |
-| 6 invocations stay started on early exits | fixed: any run that ends abandons its still-started invocations (`_finish_run`) | a reclaim that exits on a stage change |
+| 6 invocations stay started on early exits | fixed for every run that ends: it abandons its still-started invocations (`_finish_run`). A run that has not ended keeps its invocation `started` (counted at its reservation): after a lost lease until the next claim, and for a dead run on a paused application until the pause lifts and the reclaim ends or continues it | a reclaim that exits on a stage change |
 | 7 no guard ties the lease to the model timeout | fixed by the `oc4.9` half-lease guard (built once) | the guard |
 
 **Owner decisions (not decided here; current behaviour kept, conservative where the code chooses):**
@@ -1238,11 +1246,17 @@ refuses any live value of `CATALYST_ASSESSMENT_MODEL`.
 2. **Whether a pack change forces reassessment.** Unchanged: a succeeded run stays valid for its snapshot under the
    pack it was frozen with; a new pack does not invalidate it. Conservative where a policy is set: a decision whose
    pack is not the policy's bound pack is refused (`policy_not_bound_to_pack`), and a live call under a pack other than
-   the approved one is refused (`model_use_approval_stale`).
+   the approved one is refused (`model_use_approval_stale`). A case whose latest run is under another pack is cleared
+   only by a staff rerun while it is in `assessing` (the rerun freezes the current pack). In `awaiting_decision` or
+   `on_hold` neither a decision (admit, decline, hold or human-only) nor a rerun is open to staff: the case waits for
+   the owner (re-binding the policy, or this decision), it returns to `assessing` only through a clarification
+   round (a staff question, then its confirmed answers, within the round cap), or staff withdraw it through the withdrawal path.
 3. **What activating SP-L2-1 must require.** Unchanged: the start-up guard refuses a policy that is unbound, bound to
    an unusable pack or bound to a synthetic rubric; the `f1u.6` evidence (and through it `oc4.7` and `oc4.9`) is the
    recorded prerequisite. Whether activation also needs a recorded model-use approval for the bound pack is the
    owner's.
+4. **Whether `CATALYST_CAPPED_EXIT` stays `human_only`.** It is the `oc4.8` recommended default carried by `oc4.12`,
+   not ratified by the owner; `none` would leave a capped snapshot waiting for the owner's budget decision instead.
 
 **Not built, by design:** the live provider client and model branch, an owner screen for approvals, and any change
 to the daily budget's default of 0.

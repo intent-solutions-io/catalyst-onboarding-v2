@@ -162,7 +162,11 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   half the worker lease, a raising HTTP transport in tests, and the pre-call approval check: no live request without
   the owner's recorded approval (`approve_model_use`, append-only, assessments migration 0011) naming the provider,
   model id, field list, pack, rubric and schema versions, budgets, timeout and repair limit, for the assessment and the
-  reply interpreter alike; any changed term or a run frozen under another pack refuses. No live model branch exists
+  reply interpreter alike; any changed term or a run frozen under another pack refuses. After review: the fields the
+  request builders send are bound to the approved list (`fields_not_approved`), the approval is re-checked before every
+  request, a live model needs the fence (`no_lease_fence`), streaming is refused, the keeper is bounded and never
+  writes the worker-alive file, the test transport patches the clients' `send`, and the approval reference is a code.
+  No live model branch exists
 
 ### Changed
 
