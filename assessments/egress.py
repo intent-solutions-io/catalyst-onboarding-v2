@@ -12,6 +12,23 @@ goes through here as an HTTP CONNECT tunnel, so the deny is absolute and lives i
 4. The connected peer is checked again, then reported in the reply (`X-Catalyst-Peer`) so the fetcher checks it a
    third time before its TLS handshake. TLS is end to end: the proxy never sees the content or the path.
 5. Tunnels are bounded in number and in time. Nothing is logged but outcome codes: never a host, a path or a byte.
+6. The estate's own production hosts are denied (9kg.39; TEST-P6-28). An operator-supplied, secret-free file
+   (`CATALYST_EGRESS_DENY_FILE`) lists logical host names; each denies itself and every name under it. A name is
+   refused before any lookup; every address the target resolves to, and then the connected peer, is refused when it
+   is an address a denied name resolves to. The denied names are resolved afresh at both checks, and every address
+   they have ever resolved to stays denied for the life of the process, so a DNS change toward or away from a
+   production address between the check and the connection cannot open a way through. A missing, unreadable, empty
+   or malformed file refuses every request. Only this policy reads the file: the fetcher, the Documenso and mail
+   adapters never do. Each fetch and each redirect hop is its own CONNECT, so every hop passes every check here.
+
+Deny file format (one entry per line; `#` starts a comment; blank lines ignored; ASCII; at most 64 KiB):
+
+    # production hosts of this estate (synthetic names here; the real list is supplied at deploy time)
+    prod-a.example.test
+    prod-b.example.test
+
+An entry is a dotted DNS name, never an address or a single label; an entry that is not one makes the whole file
+malformed (refuse everything), never quietly skipped.
 """
 
 import ipaddress
@@ -31,6 +48,8 @@ logger = logging.getLogger("assessments.egress")
 NAME = re.compile(r"(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]*[a-z][a-z0-9-]*")
 HEAD_LIMIT, HEAD_SECONDS, CONNECT_SECONDS, IDLE_SECONDS, TUNNEL_SECONDS = 4096, 10, 10, 30, 120
 SYNTHETIC = ("test", "staging")
+DENY_FILE_LIMIT, DENY_SEEN_LIMIT = 65536, 4096
+NO_SUCH_NAME = {socket.EAI_NONAME, getattr(socket, "EAI_NODATA", -5)}
 
 
 class Refusal(Exception):
@@ -53,6 +72,25 @@ class Policy:
                 raise SystemExit("egress: the fixture port must be an unprivileged port number")
             ports.add(int(fixture_port))
         self.ports = frozenset(ports)
+        self.deny = load_deny(environ.get("CATALYST_EGRESS_DENY_FILE", ""))
+        self.denied_seen: set = set()
+        self.lock = threading.Lock()
+
+    def name_denied(self, host: str) -> bool:
+        return any(host == name or host.endswith("." + name) for name in self.deny or ())
+
+    def denied_addresses(self) -> frozenset:
+        """Every address a denied name resolves to now, together with every one it has resolved to before. A name
+        that does not exist denies nothing; a lookup that fails or runs out of time refuses (502, so retried)."""
+        answers = resolve_names(self.deny)
+        if any(addresses is None for addresses in answers.values()):
+            raise Refusal(502, "deny_list_unresolved")
+        fresh = {canonical(ip) for addresses in answers.values() for ip in addresses} - {""}
+        with self.lock:
+            if len(self.denied_seen | fresh) > DENY_SEEN_LIMIT:
+                raise Refusal(502, "deny_list_unresolved")
+            self.denied_seen |= fresh
+            return frozenset(self.denied_seen)
 
     def target(self, head: bytes):
         """(host, port, addresses, extra) for a CONNECT request head, or a Refusal."""
@@ -63,6 +101,8 @@ class Policy:
             raise Refusal(400, "bad_request") from None
         if method != "CONNECT" or not version.startswith("HTTP/1."):
             raise Refusal(405, "connect_only")
+        if not self.deny:  # no deny list, no egress at all
+            raise Refusal(403, "deny_list_unavailable")
         host, _, port_text = authority.rpartition(":")
         if not port_text.isdigit() or int(port_text) not in self.ports:
             raise Refusal(403, "port_not_allowed")
@@ -77,7 +117,67 @@ class Policy:
             return host, port, [literal], frozenset({literal})
         if not NAME.fullmatch(host):
             raise Refusal(400, "bad_host")
+        if self.name_denied(host.rstrip(".")):  # before any lookup
+            raise Refusal(403, "host_denied")
         return host, port, resolve(host, port), frozenset()
+
+
+def load_deny(path: str) -> tuple:
+    """The denied names, or () (refuse everything) for a missing, unreadable, oversized, empty or malformed file. The
+    content is never logged."""
+    if not path:
+        return ()
+    try:
+        with open(path, "rb") as handle:
+            raw = handle.read(DENY_FILE_LIMIT + 1)
+        text = raw.decode("ascii")
+    except (OSError, UnicodeDecodeError):
+        return ()
+    if len(raw) > DENY_FILE_LIMIT:
+        return ()
+    names = []
+    for line in text.splitlines():
+        entry = line.split("#", 1)[0].strip().lower().rstrip(".")
+        if not entry:
+            continue
+        if not NAME.fullmatch(entry):
+            return ()
+        names.append(entry)
+    return tuple(dict.fromkeys(names))
+
+
+def canonical(ip: str) -> str:
+    """One spelling per address: the zone dropped and an IPv4-mapped IPv6 address unwrapped, so `::ffff:a.b.c.d`, its
+    hex form and `a.b.c.d` compare equal. Anything that is not an address is ""."""
+    try:
+        addr = ipaddress.ip_address(str(ip).split("%", 1)[0])
+    except ValueError:
+        return ""
+    if addr.version == 6 and addr.ipv4_mapped is not None:
+        addr = addr.ipv4_mapped
+    return str(addr)
+
+
+def resolve_names(names) -> dict:
+    """name -> its addresses ([] for a name that does not exist), or None for a lookup that failed or ran out of time.
+    The lookups run together under one deadline, each in a daemon thread (`getaddrinfo` has no timeout)."""
+    box = {}
+
+    def lookup(name):
+        try:
+            box[name] = [info[4][0] for info in socket.getaddrinfo(name, 443, 0, socket.SOCK_STREAM)]
+        except socket.gaierror as exc:
+            box[name] = [] if exc.errno in NO_SUCH_NAME else None
+        except (OSError, UnicodeError):
+            box[name] = None
+
+    workers = [threading.Thread(target=lookup, args=(name,), daemon=True) for name in names]
+    for worker in workers:
+        worker.start()
+    deadline = time.monotonic() + CONNECT_SECONDS
+    for worker in workers:
+        worker.join(max(0.0, deadline - time.monotonic()))
+    return {name: box.get(name) for name in names}
 
 
 def resolve(host: str, port: int) -> list:
@@ -148,6 +248,9 @@ def handle(client, policy: Policy) -> str:
         host, port, addresses, extra = policy.target(read_head(client))
         if not addresses or not all(classify(ip, extra) for ip in addresses):
             raise Refusal(403, "address_not_allowed")
+        denied = policy.denied_addresses()
+        if any(canonical(ip) in denied for ip in addresses):
+            raise Refusal(403, "address_denied")
         for address in addresses:  # every answer already passed classify; try each until one connects
             try:
                 upstream = socket.create_connection((address, port), timeout=CONNECT_SECONDS)
@@ -159,6 +262,8 @@ def handle(client, policy: Policy) -> str:
         peer = upstream.getpeername()[0]
         if not classify(peer, extra):
             raise Refusal(403, "peer_not_allowed")
+        if canonical(peer) in policy.denied_addresses():  # resolved afresh: a DNS change since the check is caught here
+            raise Refusal(403, "peer_denied")
         reply(client, 200, "ok", peer)
         upstream.settimeout(IDLE_SECONDS)
         client.settimeout(IDLE_SECONDS)
