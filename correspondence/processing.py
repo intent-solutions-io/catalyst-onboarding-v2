@@ -29,6 +29,7 @@ from django.utils.module_loading import import_string
 
 from applications.models import TERMINAL_STAGES, Application, ApplicationEvent
 from workflow import journal, ledger
+from workflow.keeper import LeaseKeeper
 from workflow.models import AutomationPause, PendingAction
 
 from .inbound import ANSWERABLE, PROCESS_REPLY, queue_processing, refresh_question_status
@@ -492,7 +493,11 @@ class InterpretMessage:
         except ledger.LeaseLost:
             return
         interpreter, interpretation, request, questions = prepared
-        outcome = interpreter.interpret(request)  # outside any transaction
+        try:
+            with LeaseKeeper(claim):  # oc4.9: a heartbeat, and a lease fence before each model request and the repair
+                outcome = interpreter.interpret(request)  # outside any transaction
+        except ledger.LeaseLost:
+            return  # another claim owns the action: nothing further is requested or recorded here
         ledger.finish(claim, self, status=Status.DONE, write=lambda: self._record(interpretation, request, questions, outcome))
 
     def precall(self, claim):

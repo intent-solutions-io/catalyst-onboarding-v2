@@ -1737,6 +1737,22 @@ P6_SUPPORTING = {
         "test_decline_notice::test_oc4_11_the_handler_is_registered_redeliverable_and_automated",
         "test_decision::test_p3_44_a_decision_is_one_transaction_with_its_follow_on",
     ],
+    # oc4.9 (018 section 21): the live-call protections, built before any live model call; none makes a live request.
+    "oc4.9 the lease fence before each request and the repair, the half-lease check, the heartbeat, the enforced timeout, the raising transport and the recorded owner approval": [
+        "test_live_safety::test_oc4_9_the_lease_is_fenced_before_each_request_and_before_the_repair",
+        "test_live_safety::test_oc4_9_a_lease_lost_before_the_repair_makes_no_further_request",
+        "test_live_safety::test_oc4_9_oc4_10_7_one_attempt_must_fit_in_half_the_lease",
+        "test_live_safety::test_oc4_9_the_default_timeout_follows_a_short_lease",
+        "test_live_safety::test_oc4_9_a_call_longer_than_the_lease_keeps_its_lease_by_heartbeat",
+        "test_live_safety::test_oc4_9_the_keeper_marks_the_lease_lost_when_a_renewal_fails",
+        "test_live_safety::test_oc4_9_the_request_timeout_is_enforced_around_the_call",
+        "test_live_safety::test_oc4_9_a_timed_out_attempt_is_retried_then_ends_failed_with_no_stage_change",
+        "test_live_safety::test_oc4_9_the_raising_transport_refuses_every_model_http_request",
+        "test_live_safety::test_oc4_9_no_live_request_without_a_recorded_approval_and_any_changed_term_refuses",
+        "test_live_safety::test_oc4_9_a_run_with_a_live_value_and_no_approval_is_refused_before_any_reservation",
+        "test_live_safety::test_oc4_9_the_reply_interpreter_needs_its_own_approval",
+        "test_live_safety::test_oc4_9_the_approval_is_written_only_by_the_owner_command_and_is_append_only",
+    ],
     "9kg.5 the database freezes inbound provenance and outbound and reply-link identity for every role (internal-launch batch item 6)": [
         "test_provenance_freezes::test_9kg5_a_frozen_inbound_column_refuses_an_update_for_every_role",
         "test_provenance_freezes::test_9kg5_the_updatable_inbound_columns_still_update_through_the_application_role_and_the_owner",

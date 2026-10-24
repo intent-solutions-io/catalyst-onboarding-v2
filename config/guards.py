@@ -278,7 +278,23 @@ def assessment_problems(settings, environ: Mapping[str, str]) -> list[str]:
         problems.append("CATALYST_ASSESSMENT_MODEL must be 'none' or 'test'; live model use is not authorized")
     elif mode == "test" and not synthetic(getattr(settings, "CATALYST_ENV", "")):
         problems.append("CATALYST_ASSESSMENT_MODEL 'test' is allowed only in the test and staging environments")
-    return problems
+    return problems + attempt_lease_problems(settings)
+
+
+ASSESSMENT_REQUESTS_PER_ATTEMPT = 2  # the call and the one repair (assessments.agent.REPAIRS + 1)
+
+
+def attempt_lease_problems(settings) -> list[str]:
+    """oc4.9, oc4.10 item 7: one model attempt (at most two requests, each bounded by the request timeout) must fit in
+    half the worker lease, like the mail, fetch and agreement deadlines, so a running attempt is never reclaimed."""
+    timeout = getattr(settings, "CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS", 60)
+    lease = getattr(settings, "CATALYST_WORKER_LEASE_SECONDS", 300)
+    if not timeout or timeout <= 0:
+        return ["CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS must be a positive number of seconds"]
+    if ASSESSMENT_REQUESTS_PER_ATTEMPT * timeout * 2 > lease:
+        return ["one assessment attempt (2 x CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS) must fit in half of "
+                "CATALYST_WORKER_LEASE_SECONDS"]
+    return []
 
 
 def decision_problems(settings, environ: Mapping[str, str]) -> list[str]:

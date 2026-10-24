@@ -11,8 +11,23 @@ One attempt = at most 2 model requests (the call and one repair, `retries=1`): a
 `schema.problems` raises `ModelRetry` once, then `UnexpectedModelBehavior` ends the attempt as invalid output.
 SDK and transport retries do not exist here (no provider client); the ledger's attempt bound is the only other
 retry layer, so the requests per snapshot are bounded by 2 x the attempt bound (018 6).
+
+oc4.9, the live-call protections (018 section 21), all in the one checked-run path the assessment and the reply
+interpreter share:
+
+- **approval before any live request:** `build_model(use)` asks `approval.require` for the owner's recorded approval
+  of exactly this use whenever the model setting is anything but "none" or "test"; with no live branch, an approved
+  use still ends `model_not_authorized`;
+- **a lease fence before each request, the repair included:** every request goes through `_Guarded`, which first
+  renews the claim's lease through the active `workflow.keeper.LeaseKeeper` (a heartbeat thread also renews it while
+  a call outlives a third of the lease); a lost lease raises `ledger.LeaseLost` and no further request is made;
+- **a provider-side timeout Catalyst enforces:** each request is bounded by
+  `CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS` around the model call (and the same value goes to a provider client
+  as its own timeout); a timeout is a provider error, never an adverse result. One attempt fits in half the lease
+  (`config.guards.attempt_lease_problems`).
 """
 
+import asyncio
 from dataclasses import dataclass
 
 from django.conf import settings
@@ -21,9 +36,12 @@ from pydantic_ai import models as _models
 from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.models.wrapper import WrapperModel
 
 from config import guards
+from workflow import keeper as keepers, ledger
 
+from . import approval
 from .schema import AssessmentOutput, problems
 
 _models.ALLOW_MODEL_REQUESTS = False  # 018 5.5, first layer: no request to a non-test model, in any environment
@@ -60,19 +78,43 @@ class Outcome:
     output_mode: str = "tool"  # the default output mode for a pydantic output type
 
 
-# Bounds a live model would also need (018 6); passed on every run so they are already exercised.
-MODEL_SETTINGS = {"max_tokens": 4000, "temperature": 0.0, "timeout": 60}
+# Bounds a live model would also need (018 6); passed on every run so they are already exercised. The timeout is
+# filled from CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS on every call (oc4.9).
+MODEL_SETTINGS = {"max_tokens": 4000, "temperature": 0.0}
 
 
-def build_model():
+def build_model(use: "approval.Use | None" = None):
     if _models.ALLOW_MODEL_REQUESTS:  # nothing may switch the first layer back on
         raise ModelUnavailable("model_requests_enabled")
-    if settings.CATALYST_ASSESSMENT_MODEL == "test" and guards.synthetic(settings.CATALYST_ENV):
+    mode = settings.CATALYST_ASSESSMENT_MODEL
+    if mode == "test" and guards.synthetic(settings.CATALYST_ENV):
         model = TEST_MODEL if TEST_MODEL is not None else TestModel()
         if not isinstance(model, (TestModel, FunctionModel)):
             raise ModelUnavailable("model_not_a_test_model")
         return model
-    raise ModelUnavailable("model_not_authorized")
+    if mode not in ("none", "test"):  # a live value: the owner's recorded approval of this exact use first (oc4.9)
+        if use is None:
+            raise ModelUnavailable("model_use_not_approved")
+        try:
+            approval.require(use)
+        except approval.NotApproved as exc:
+            raise ModelUnavailable(str(exc)) from None
+    raise ModelUnavailable("model_not_authorized")  # no live branch exists: an approval is necessary, never sufficient
+
+
+class _Guarded(WrapperModel):
+    """Every request, the repair included: the lease fence first (in a worker thread, since the ORM may not run on the
+    event loop), then the model call bounded by the request timeout (oc4.9)."""
+
+    def __init__(self, wrapped, fence, timeout: float):
+        super().__init__(wrapped)
+        self.fence, self.timeout = fence, timeout
+
+    async def request(self, messages, model_settings, model_request_parameters):
+        if self.fence is not None:
+            await asyncio.to_thread(self.fence)
+        return await asyncio.wait_for(self.wrapped.request(messages, model_settings, model_request_parameters),
+                                      timeout=self.timeout)
 
 
 def _usage(result):
@@ -86,12 +128,17 @@ def attempt_tokens() -> int:
     return 2 * settings.CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST + settings.CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT
 
 
-def run_checked(system: str, prompt: str, output_type, check) -> Outcome:
+def run_checked(system: str, prompt: str, output_type, check, use: "approval.Use | None" = None) -> Outcome:
     """One bounded attempt: at most 2 requests (the call and one repair). `check(output)` returns problem codes;
     any code triggers the one repair (ModelRetry), and a second failure ends the attempt as invalid output.
-    Shared by the assessment and the reply interpreter, so the live-model refusal and the limits exist once."""
-    model = build_model()
-    agent = Agent(model, output_type=output_type, system_prompt=system, retries=1)
+    Shared by the assessment and the reply interpreter, so the live-model refusal, the approval check, the lease
+    fence, the timeout and the limits exist once. Raises `ledger.LeaseLost` when the claim's lease is lost before a
+    request: nothing further is requested and nothing is recorded by this attempt."""
+    model = build_model(use)
+    keeper = keepers.current()
+    timeout = float(settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS)
+    guarded = _Guarded(model, keeper.fence if keeper is not None else None, timeout)
+    agent = Agent(guarded, output_type=output_type, system_prompt=system, retries=approval.REPAIR_LIMIT)
 
     last = []
 
@@ -108,7 +155,9 @@ def run_checked(system: str, prompt: str, output_type, check) -> Outcome:
                          output_tokens_limit=settings.CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT,
                          total_tokens_limit=attempt_tokens())
     try:
-        result = agent.run_sync(prompt, usage_limits=limits, model_settings=MODEL_SETTINGS)
+        result = agent.run_sync(prompt, usage_limits=limits, model_settings={**MODEL_SETTINGS, "timeout": timeout})
+    except ledger.LeaseLost:
+        raise
     except UsageLimitExceeded:
         raise BudgetStop("usage_limit_exceeded") from None
     except UnexpectedModelBehavior as exc:
@@ -126,5 +175,5 @@ def run_checked(system: str, prompt: str, output_type, check) -> Outcome:
     return Outcome(result.output, requests, input_tokens, output_tokens, getattr(model, "model_name", type(model).__name__))
 
 
-def assess(request) -> Outcome:
-    return run_checked(request.system, request.prompt, AssessmentOutput, lambda output: problems(output, request))
+def assess(request, use: "approval.Use | None" = None) -> Outcome:
+    return run_checked(request.system, request.prompt, AssessmentOutput, lambda output: problems(output, request), use)

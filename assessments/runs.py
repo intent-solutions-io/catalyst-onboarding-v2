@@ -12,6 +12,11 @@
   3. a fenced record transaction: the result once; on success the stage moves `assessing → awaiting_decision`
      whatever the output says (staff own the next step); otherwise a staff item and no stage change.
   A recorded invocation is never refunded. A result whose lease was lost is discarded with its transaction.
+
+oc4.9: the call runs inside a `workflow.keeper.LeaseKeeper` (a heartbeat while the call outlives a third of the lease,
+and a fence before each request and before the repair: a lost lease makes no further request), and the pre-call
+check passes the run's own frozen versions to `agent.build_model`, so a live value needs the owner's recorded
+approval of exactly this use.
 """
 
 import logging
@@ -27,9 +32,10 @@ from applications.stages import StageConflict, transition
 from correspondence.models import StaffItem
 from correspondence.staff_items import open_item, resolve_item
 from workflow import ledger
+from workflow.keeper import LeaseKeeper
 from workflow.models import AutomationPause, PendingAction
 
-from . import agent, clarification, pack as packs, snapshot
+from . import agent, approval, clarification, pack as packs, snapshot
 from .models import AssessmentInvocation, AssessmentRun
 from .schema import SCHEMA_VERSION, flags
 
@@ -37,7 +43,7 @@ logger = logging.getLogger(__name__)
 Status = PendingAction.Status
 Run = AssessmentRun.Status
 KIND = "run_assessment"
-REQUESTS_PER_ATTEMPT = 2
+REQUESTS_PER_ATTEMPT = approval.REQUESTS_PER_ATTEMPT  # the call and the one repair
 _GLOBAL_LOCK = 0x43415441  # pg advisory lock for the global counters (concurrency, daily budget)
 
 
@@ -145,7 +151,13 @@ class RunAssessment:
             logger.warning("action %s (%s): lease lost before the call; nothing called", claim.id, claim.kind)
             return
         try:
-            outcome = agent.assess(request)  # outside any transaction
+            with LeaseKeeper(claim):  # oc4.9: a heartbeat, and a fence before each request and before the repair
+                outcome = agent.assess(request, approval.Use.for_run(run))  # outside any transaction
+        except ledger.LeaseLost:
+            # Another claim owns the action now: nothing more is requested or recorded here. The invocation stays
+            # counted; the next claim abandons it before any further call.
+            logger.warning("action %s (%s): lease lost during the attempt; no further request", claim.id, claim.kind)
+            return
         except agent.ModelUnavailable as exc:
             self._end(claim, run, Run.REFUSED, str(exc), staff="assessment_failed")
         except agent.InvalidOutput as exc:
@@ -176,7 +188,7 @@ class RunAssessment:
                     lambda: _finish_run(run, Run.REFUSED, error_code="stage_changed"), None), None, None
         try:  # before the pause check (oc4.12): a paused application under the suspension ends refused at once, so the
             # human-only path is open to staff instead of a requeued run that blocks it; nothing is reserved either way
-            agent.build_model()
+            agent.build_model(approval.Use.for_run(run))  # oc4.9: a live value needs the approval of this run's versions
         except agent.ModelUnavailable as exc:
             reason = str(exc)
             item = "assessment_suspended" if settings.CATALYST_ASSESSMENT_MODEL == "none" else "assessment_failed"
