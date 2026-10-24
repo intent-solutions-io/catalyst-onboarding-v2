@@ -103,10 +103,9 @@ def install(apps, schema_editor):
 
 
 def uninstall(apps, schema_editor):
-    retention = _retention_literal(schema_editor)
     schema_editor.execute("DROP FUNCTION IF EXISTS public.catalyst_erase(uuid, text, text, text[])")
-    for name in catalog.GUARDED_FUNCTIONS:
-        schema_editor.execute(catalog.without_branch(_definition(schema_editor, name), retention), params=None)
+    for name in catalog.GUARDED_FUNCTIONS:  # by the branch's markers, so the role literal it was written with is moot
+        schema_editor.execute(catalog.without_branch(_definition(schema_editor, name)), params=None)
     for table, trigger in catalog.ERASABLE_STRICT:
         schema_editor.execute(f"DROP TRIGGER {trigger} ON public.{table}")
         schema_editor.execute(f"CREATE TRIGGER {trigger} BEFORE UPDATE OR DELETE ON public.{table} "

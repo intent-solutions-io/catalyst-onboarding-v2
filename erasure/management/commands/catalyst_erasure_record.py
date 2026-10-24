@@ -4,6 +4,9 @@ erasures"), open intents and owed provider handoffs.
 
     manage.py catalyst_erasure_record --expect-head <identity>:<seq>:<hash>
     manage.py catalyst_erasure_record --expect-head none      # only before the first erasure
+    manage.py catalyst_erasure_record --list-open             # no head needed: the chain and macs only
+
+`--list-open` shows an interrupted first erasure, before any head was printed.
 
 Prints one JSON line with counts, the current head and the public references of open intents. Exit 0 when the record
 is intact, the head is present and nothing is open; 1 otherwise."""
@@ -19,11 +22,13 @@ class Command(BaseCommand):
     help = "Verify the durable erasure record against the head kept out of band."
 
     def add_arguments(self, parser):
-        parser.add_argument("--expect-head", required=True, help="the head printed by the last erasure, or 'none'")
+        group = parser.add_mutually_exclusive_group(required=True)
+        group.add_argument("--expect-head", help="the head printed by the last erasure or handoff, or 'none'")
+        group.add_argument("--list-open", action="store_true", help="verify the chain and macs and list open intents")
 
-    def handle(self, *args, expect_head, **options):
+    def handle(self, *args, expect_head, list_open, **options):
         try:
-            report = record.verify(expect_head)
+            report = record.list_open() if list_open else record.verify(expect_head)
         except record.RecordError as exc:
             self.stderr.write(f"erasure record refused: {exc.code}")
             raise SystemExit(1) from None

@@ -12,10 +12,14 @@ Order of operations, each step refusing before anything changes:
 5. one database transaction: `public.catalyst_erase(...)` writes the erasure audit row and the tombstones;
 6. the completion is appended.
 
-Re-running the command after any interruption finishes the erasure (an open intent is resumed with its own hash);
-re-running it after a completion changes nothing and writes nothing.
+Re-running the command after any interruption finishes the erasure: an open intent is resumed with its own hash,
+checked against the row's key while the row still holds one, with the classes of the registry in force and this run's
+authority and reason, and without the registry gate (an erasure already begun is finished). Re-running it after a
+completion changes nothing and writes nothing. A subject whose key is already a tombstone is still run, scoped by its
+own references, so a class added later reaches it.
 """
 
+import hmac
 from dataclasses import dataclass
 
 from django.conf import settings
@@ -40,6 +44,7 @@ class Outcome:
     handoffs: list
     journal_head: str
     resumed: bool = False
+    retained: list = None
 
 
 def _code(exc) -> str:
@@ -83,11 +88,13 @@ def _call(conn, subject_ref, authority, reason, classes, *, commit: bool) -> dic
 
 def erase(conn, subject_ref: str, authority: str, reason: str, rows=None) -> Outcome:
     """Erase the person behind `subject_ref` (an application's public_ref, or an invitation's public_id). `conn` is a
-    psycopg connection as the retention role, not in a transaction. `rows` replaces the registry (tests)."""
+    psycopg connection as the retention role, not in a transaction. `rows` replaces the registry (tests).
+
+    A new erasure needs a registry with no problem. Finishing an open intent does not (the erasure already began and
+    stopping halfway helps nobody), but it takes nothing from the journal on trust: the classes come from the registry
+    in force, the authority and reason from this command, and while the row still holds a real key the intent's hash
+    must be that key's hash under the erasure key (an intent is also verified by its mac when folded)."""
     rows = registry.current() if rows is None else rows
-    problems = registry.problems(rows)
-    if problems:
-        raise Refused("registry_undecided", problems)
     if not catalog.CODE.fullmatch(authority or "") or not catalog.CODE.fullmatch(reason or ""):
         raise Refused("malformed_request")
     try:
@@ -98,41 +105,62 @@ def erase(conn, subject_ref: str, authority: str, reason: str, rows=None) -> Out
     except journal.JournalError as exc:
         raise Refused(f"record_{exc.code}") from None
     _role_check(conn)
-    classes = registry.anonymized_classes(rows)
-    kid = record.key_id(secret)
-    state = record.fold(entries).get(str(subject_ref))
+    forged = []
+    state = record.fold(entries, secret, forged).get(str(subject_ref))
+    if str(subject_ref) in forged:
+        raise Refused("record_forged_entry")
     resumed = state is not None and state.open
+    if not resumed:
+        problems = registry.problems(rows)
+        if problems:
+            raise Refused("registry_undecided", problems)
+    classes = [c for c in registry.SUBJECT_CLASSES if (rows.get(c) or {}).get("treatment") == registry.ANONYMIZE]
+    if not classes:
+        raise Refused("registry_undecided", ["no_class_anonymized"])
+    kid = record.key_id(secret)
     email_key = _email_key(conn, subject_ref)
+    real_key = email_key is not None and not (email_key.startswith("erased:") and "@" not in email_key)
     if resumed:
-        intent = state.intent.data
-        subject, classes, authority, reason = intent["subject"], intent["classes"], intent["authority"], intent["reason"]
-        kid = intent["key_id"]
+        subject = state.intent.data["subject"]
+        if real_key and not hmac.compare_digest(subject, record.subject_hash(email_key, secret)):
+            raise Refused("record_subject_mismatch")
+        if state.intent.data.get("key_id") != kid:
+            raise Refused("record_key_mismatch")
     elif email_key is None:
         raise Refused("unknown_subject")
-    elif email_key.startswith("erased:"):
-        # Already erased (by this reference or another of the same person): nothing to do and nothing to record.
-        return Outcome("already_erased", str(subject_ref), 0, [], record.head_string())
     else:
-        subject = record.subject_hash(email_key, secret)
         dry = _call(conn, subject_ref, authority, reason, classes, commit=False)  # refusals surface before the intent
+        if dry["status"] == "nothing_to_erase":
+            return Outcome("nothing_to_erase", str(subject_ref), 0, [], record.head_string(),
+                           retained=sorted(dry.get("retained") or []))
+        if real_key:
+            subject = record.subject_hash(email_key, secret)
+        elif state is not None and state.intent is not None:
+            subject = state.intent.data["subject"]  # the key is already a tombstone: the earlier record names the person
+        else:
+            raise Refused("record_subject_unknown")
         try:
-            record.append_intent(subject_ref, subject, kid, authority, reason, classes, dry.get("handoffs") or [])
+            record.append_intent(subject_ref, subject, kid, authority, reason, classes, dry.get("handoffs") or [],
+                                 dry.get("retained") or [], secret)
         except record.RecordError as exc:
             raise Refused(f"record_{exc.code}") from None
     try:
         result = _call(conn, subject_ref, authority, reason, classes, commit=True)
     except Refused as refusal:
-        _complete(subject_ref, subject, kid, f"refused_{refusal.code}", 0)
+        _complete(subject_ref, subject, kid, f"refused_{refusal.code}", 0, secret)
         raise
-    _complete(subject_ref, subject, kid, result["status"], result.get("changed", 0))
-    owed = state.intent.data.get("handoffs", []) if resumed else (result.get("handoffs") or [])
-    return Outcome(result["status"], str(subject_ref), int(result.get("changed", 0)), sorted(owed),
-                   record.head_string(), resumed)
+    status = result["status"]
+    if resumed and status == "nothing_to_erase":
+        status = "already_erased"  # the interrupted run's transaction had committed
+    _complete(subject_ref, subject, kid, status, result.get("changed", 0), secret)
+    folded = record.fold(journal.read(), secret).get(str(subject_ref))
+    return Outcome(status, str(subject_ref), int(result.get("changed", 0)), sorted(folded.handoffs_owed),
+                   record.head_string(), resumed, sorted(folded.retained))
 
 
-def _complete(subject_ref, subject, kid, status, changed):
+def _complete(subject_ref, subject, kid, status, changed, secret):
     try:
-        record.append_complete(subject_ref, subject, kid, status, changed)
+        record.append_complete(subject_ref, subject, kid, status, changed, secret)
     except record.RecordError as exc:
         # The database transaction has committed; the intent stays open and the next run completes it.
         raise Refused(f"record_{exc.code}_after_commit") from None
@@ -141,7 +169,10 @@ def _complete(subject_ref, subject, kid, status, changed):
 def handoff(subject_ref: str, provider: str, completed_on: str) -> str:
     """Record the owner's completion of one manual provider deletion for an erased subject."""
     try:
-        state = record.fold(journal.read()).get(str(subject_ref))
+        secret = record.key()
+        state = record.fold(journal.read(), secret).get(str(subject_ref))
+    except record.RecordError as exc:
+        raise Refused(f"record_{exc.code}") from None
     except journal.JournalError as exc:
         raise Refused(f"record_{exc.code}") from None
     if state is None or not state.erased:
@@ -149,7 +180,7 @@ def handoff(subject_ref: str, provider: str, completed_on: str) -> str:
     if provider not in state.handoffs_owed:
         raise Refused("handoff_not_owed")
     try:
-        record.append_handoff(subject_ref, provider, completed_on)
+        record.append_handoff(subject_ref, provider, completed_on, secret)
     except record.RecordError as exc:
         raise Refused(f"record_{exc.code}") from None
     return record.head_string()

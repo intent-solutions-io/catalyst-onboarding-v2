@@ -69,6 +69,22 @@ ITEMS = {"restore": (ITEM_CONFIRMATION, ITEM_WITHDRAWAL),
 # 9kg.33: items reconciliation opens, one per unresolved effect; the lift refuses while any is open.
 EFFECT_ITEM_PREFIX = "restore_effect_"
 ITEM_OUTWARD = "restore_effect_outward_action"
+# 9kg.32 (PR #99 reviews): until replay after a restore exists (9kg.25, erasure.registry.REPLAY_BUILT), a journal that
+# holds any erasure means the restored tables may hold an erased person again; the review opens this item and the lift
+# refuses outright, whether or not the item was resolved by hand.
+ITEM_ERASURE = "restore_effect_erasure_unreplayed"
+
+
+def erasures_unreplayed() -> bool:
+    """True while the journal holds an erasure and nothing can replay it (an unreadable journal counts as true)."""
+    from erasure import record, registry
+
+    if registry.REPLAY_BUILT:
+        return False
+    try:
+        return record.any_erasure(journal.read())
+    except journal.JournalError:
+        return True
 RESOLVED_BY_OWNER = "owner_resolved_after_restore"
 LIVE_STATUSES = ("queued", "running", "held")
 
@@ -231,6 +247,9 @@ def review() -> dict:
     else:
         report["staff_passwords_disabled"] = 0
     entries, opener = replay_journal(report, row)
+    if journal.configured() and erasures_unreplayed():
+        opener(ITEM_ERASURE, "erasure:unreplayed")
+        report.setdefault("effects", {})["erasure"] = "unreplayed"
     uncertain_outward(report, opener)
     rounds = 0
     for request in ProvisioningRequest.objects.filter(stop_requested_at__isnull=False):
@@ -326,6 +345,9 @@ def run(lift: bool, outward_checked: bool = False, no_closures_after_backup: boo
             raise PostRestoreError("the review found evidence missing or unreachable; run the review again until it reports reconciled")
         if row.reason != RECONCILED:
             raise PostRestoreError("run the review first (without --lift), then lift")
+        if journal.configured() and erasures_unreplayed():
+            raise PostRestoreError(f"{ITEM_ERASURE}: the effect journal holds erasures and replay (9kg.25) is not built; "
+                                   "the restored tables may hold an erased person, so the hold stays")
         items = open_effect_items()
         if items:
             raise PostRestoreError("effects are unresolved: resolve each restore_effect_* item (--resolve <id> --note ...): "

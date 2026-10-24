@@ -83,9 +83,11 @@ KINDS = {
     "model_usage": {"requests"},
     # 9kg.32 (erasure.record): the durable erasure record. Keyed `erasure:<public reference>`; `subject` is the keyed
     # hash of the email key and `key_id` names its key, never the key or the address.
-    "erasure_intent": {"subject", "key_id", "authority", "reason", "classes", "handoffs", "phase"},
-    "erasure_complete": {"subject", "key_id", "status", "changed", "phase"},
-    "erasure_handoff": {"provider", "completed_on", "phase"},
+    # `mac` is HMAC-SHA-256 under the erasure key over the kind, the key and the rest of the data, so an entry cannot be
+    # forged or altered without the key (PR #99 security review).
+    "erasure_intent": {"subject", "key_id", "authority", "reason", "classes", "handoffs", "retained", "phase", "mac"},
+    "erasure_complete": {"subject", "key_id", "status", "changed", "phase", "mac"},
+    "erasure_handoff": {"provider", "completed_on", "phase", "mac"},
 }
 RESTRICTIVE = ("application_closed", "access_revocation", "automation_pause", "question_withdrawn", "staff_role_changed")
 

@@ -295,6 +295,10 @@ GUARDED_FUNCTIONS = (
     "catalyst_credential_setup_fixed", "catalyst_withdrawal_confirmation_fixed", "catalyst_access_revocation_fixed",
     "catalyst_provisioning_reservation_fixed", "catalyst_run_result_once", "catalyst_interpretation_result_once",
     "catalyst_pause_fixed",
+    # Every other UPDATE trigger on a table with subject columns carries the branch too (PR #99 review: the coverage
+    # test is derived from pg_trigger, not this list), so no trigger added there can refuse the audited path unseen.
+    "catalyst_fetcher_applications_application_update", "catalyst_fetcher_assessments_evidenceitem_update",
+    "catalyst_fetcher_workflow_pendingaction_update", "catalyst_decided_stage_needs_decision", "catalyst_restore_hold_fixed",
 )
 # Row triggers that used the strict refusal on a table with subject columns: they move to
 # catalyst_erasable_append_only (the same refusal, with the branch). The adoption record keeps the strict function.
@@ -440,7 +444,7 @@ def update_statements(existing: dict) -> list[tuple[str, str, str]]:
 
 def checker_sql(retention_literal: str, existing: dict) -> str:
     return f"""CREATE OR REPLACE FUNCTION public.catalyst_erasure_admits(p_table text, p_old jsonb, p_new jsonb)
-RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $fn$
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
 BEGIN
   IF NOT pg_catalog.pg_has_role(session_user, {retention_literal}, 'MEMBER') OR NOT EXISTS (
        SELECT 1 FROM public.erasure_erasureaudit a
@@ -478,8 +482,10 @@ def erase_sql(retention_literal: str, existing: dict) -> str:
     erasure function, SECURITY DEFINER (it runs as the owner while the session stays the retention login), EXECUTE for
     the retention role only. One transaction: it locks the subject's applications, refuses unless every one is terminal
     and nothing of the subject is still in flight, writes the erasure audit row, then sets each anonymized class to its
-    tombstones. A subject already erased, or with nothing left to change, returns without writing anything, so a
-    second erasure is harmless."""
+    tombstones. A subject with nothing left to change returns `nothing_to_erase` without writing anything (the audit
+    row is rolled back with its sub-block), so a second erasure is harmless; a subject whose key is already a tombstone
+    is scoped by its own references, so a class added later still reaches it. It also reports the provider handoffs
+    owed and what it retains (`custody_documents` until 9kg.34)."""
     terminal = ", ".join(_lit(s) for s in TERMINAL_STAGES)
     open_statuses = ", ".join(_lit(s) for s in OPEN_ACTION_STATUSES)
     final = ", ".join(_lit(s) for s in FINAL_REVOCATION_STATES)
@@ -490,7 +496,7 @@ def erase_sql(retention_literal: str, existing: dict) -> str:
     updates = "\n".join(blocks)
     return f"""CREATE OR REPLACE FUNCTION public.catalyst_erase(p_subject uuid, p_authority text, p_reason text,
                                                  p_classes text[])
-RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $fn$
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
 DECLARE
   v_key text;
   v_apps bigint[];
@@ -499,6 +505,8 @@ DECLARE
   v_total bigint := 0;
   v_tables jsonb := '{{}}'::jsonb;
   v_handoffs text[] := ARRAY[]::text[];
+  v_retained text[] := ARRAY[]::text[];
+  v_tombstoned boolean;
 BEGIN
   IF NOT pg_catalog.pg_has_role(session_user, {retention_literal}, 'MEMBER') THEN
     RAISE EXCEPTION 'erasure: refused for this login' USING ERRCODE = 'CE007';
@@ -515,15 +523,26 @@ BEGIN
       RAISE EXCEPTION 'erasure: unknown subject' USING ERRCODE = 'CE002';
     END IF;
   END IF;
-  IF v_key LIKE 'erased:%' THEN
-    RETURN pg_catalog.jsonb_build_object('status', 'already_erased', 'changed', 0, 'tables', '{{}}'::jsonb,
-                                         'handoffs', '[]'::jsonb);
+  -- A tombstone (never a real key: no @) means an earlier erasure ran. The key can no longer find anything, so the
+  -- subject is scoped by its own references and the key-selected rows are skipped (v_key NULL matches nothing); the
+  -- other classes still run, so a class or a step added later (9kg.34) reaches an already-erased subject.
+  v_tombstoned := v_key LIKE 'erased:%' AND pg_catalog.strpos(v_key, '@') = 0;
+  IF v_tombstoned THEN
+    v_key := NULL;
+    SELECT coalesce(pg_catalog.array_agg(s.id ORDER BY s.id), ARRAY[]::bigint[]),
+           coalesce(pg_catalog.array_agg(s.public_ref ORDER BY s.id), ARRAY[]::uuid[])
+      INTO v_apps, v_refs
+      FROM (SELECT a.id, a.public_ref FROM public.applications_application a
+            WHERE a.public_ref = p_subject
+               OR a.id IN (SELECT i.application_id FROM public.applications_invitation i WHERE i.public_id = p_subject)
+            ORDER BY a.id FOR UPDATE) s;
+  ELSE
+    SELECT coalesce(pg_catalog.array_agg(s.id ORDER BY s.id), ARRAY[]::bigint[]),
+           coalesce(pg_catalog.array_agg(s.public_ref ORDER BY s.id), ARRAY[]::uuid[])
+      INTO v_apps, v_refs
+      FROM (SELECT a.id, a.public_ref FROM public.applications_application a WHERE a.email_key = v_key
+            ORDER BY a.id FOR UPDATE) s;
   END IF;
-  SELECT coalesce(pg_catalog.array_agg(s.id ORDER BY s.id), ARRAY[]::bigint[]),
-         coalesce(pg_catalog.array_agg(s.public_ref ORDER BY s.id), ARRAY[]::uuid[])
-    INTO v_apps, v_refs
-    FROM (SELECT a.id, a.public_ref FROM public.applications_application a WHERE a.email_key = v_key
-          ORDER BY a.id FOR UPDATE) s;
   IF EXISTS (SELECT 1 FROM public.applications_application a WHERE a.id = ANY(v_apps) AND a.stage NOT IN ({terminal})) THEN
     RAISE EXCEPTION 'erasure: the subject has an open application' USING ERRCODE = 'CE003';
   END IF;
@@ -554,6 +573,13 @@ BEGIN
                          AND q.status NOT IN ('awaiting_approval', 'superseded'))) THEN
     v_handoffs := v_handoffs || 'mail_host_mailbox'::text;
   END IF;
+  IF EXISTS (SELECT 1 FROM public.assessments_assessmentrun r WHERE r.application_id = ANY(v_apps)) THEN
+    v_handoffs := v_handoffs || 'model_provider'::text;  -- what the model provider kept of a request, if anything
+  END IF;
+  -- Not erased by this function: the custody PDFs (registry row signed_documents; 9kg.34 destroys their keys).
+  IF EXISTS (SELECT 1 FROM public.agreements_storeddocument d WHERE d.application_id = ANY(v_apps)) THEN
+    v_retained := v_retained || 'custody_documents'::text;
+  END IF;
   BEGIN
     INSERT INTO public.erasure_erasureaudit (subject_ref, authority, reason_code, classes)
       VALUES (p_subject, p_authority, p_reason, pg_catalog.to_jsonb(p_classes));
@@ -563,10 +589,12 @@ BEGIN
     END IF;
   EXCEPTION WHEN SQLSTATE 'CE001' THEN
     RETURN pg_catalog.jsonb_build_object('status', 'nothing_to_erase', 'changed', 0, 'tables', '{{}}'::jsonb,
-                                         'handoffs', pg_catalog.to_jsonb(v_handoffs));
+                                         'handoffs', pg_catalog.to_jsonb(v_handoffs),
+                                         'retained', pg_catalog.to_jsonb(v_retained));
   END;
   RETURN pg_catalog.jsonb_build_object('status', 'erased', 'changed', v_total, 'tables', v_tables,
-                                       'handoffs', pg_catalog.to_jsonb(v_handoffs));
+                                       'handoffs', pg_catalog.to_jsonb(v_handoffs),
+                                       'retained', pg_catalog.to_jsonb(v_retained));
 END $fn$"""
 
 
@@ -590,9 +618,12 @@ def with_branch(definition: str, retention_literal: str) -> str:
     return definition[:found.end()] + branch(retention_literal) + definition[found.end():]
 
 
-def without_branch(definition: str, retention_literal: str) -> str:
-    """The inverse of with_branch: the definition exactly as it was before."""
-    text = branch(retention_literal)
-    if definition.count(text) != 1:
+BRANCH_PATTERN = re.compile(r"\n[ \t]*" + re.escape(BRANCH_BEGIN) + r".*?" + re.escape(BRANCH_END), re.DOTALL)
+
+
+def without_branch(definition: str) -> str:
+    """The inverse of with_branch, by the begin and end markers (whatever role literal the branch was written with):
+    the definition exactly as it was before."""
+    if len(BRANCH_PATTERN.findall(definition)) != 1:
         raise ValueError("the function does not carry exactly one erasure branch")
-    return definition.replace(text, "", 1)
+    return BRANCH_PATTERN.sub("", definition, count=1)

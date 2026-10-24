@@ -65,6 +65,7 @@ def raises_sqlstate(code, conn, statement, params):
 def decided(monkeypatch, settings):
     """A decided synthetic registry and a synthetic erasure key (the shipped registry is undecided: refuse)."""
     monkeypatch.setattr(registry, "REGISTRY", DECIDED)
+    monkeypatch.setattr(registry, "REPLAY_BUILT", True)  # what 9kg.25 will flip; until then nothing real proceeds
     settings.CATALYST_ERASURE_KEY = KEY
     return DECIDED
 
@@ -144,9 +145,17 @@ def digests(owner) -> dict:
 def test_9kg_32_the_registry_ships_undecided_and_refuses_the_erasure_and_a_real_backup(privileged_reset, settings):
     assert registry.REGISTRY.keys() == DECIDED.keys()
     assert all(row == {"treatment": "undecided", "retention": "undecided"} for row in registry.REGISTRY.values())
-    assert len(registry.problems()) == 2 * len(registry.REGISTRY) and registry.problems(DECIDED) == []
-    assert registry.problems({**DECIDED, "signed_documents": {"treatment": "anonymize", "retention": "p1y"}}) == [
-        "signed_documents.treatment:unsupported"]  # only `retain` until 9kg.34 destroys keys
+    assert registry.REPLAY_BUILT is False  # 9kg.25 flips it with the replay
+    assert len(registry.problems()) == 2 * len(registry.REGISTRY) + 1
+    assert registry.problems(DECIDED) == ["replay:not_built"]  # decided rows still cannot open live backups
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(registry, "REPLAY_BUILT", True)
+        assert registry.problems(DECIDED) == []
+        assert registry.problems({**DECIDED, "signed_documents": {"treatment": "anonymize", "retention": "p1y"}}) == [
+            "signed_documents.treatment:unsupported"]  # only `retain` until 9kg.34 destroys keys
+        for stranded in registry.KEY_SELECTED_CLASSES:  # their rows are found only by the real key
+            assert registry.problems({**DECIDED, stranded: {"treatment": "retain", "retention": "p1y"}}) == [
+                "application_identity:retains_key_selected_classes"], stranded
     settings.CATALYST_ERASURE_KEY = KEY
     app = subject()
     with pytest.raises(service.Refused) as refused:
@@ -158,8 +167,11 @@ def test_9kg_32_the_registry_ships_undecided_and_refuses_the_erasure_and_a_real_
     settings.CATALYST_ENV = "production"
     with pytest.raises(backup.BackupError, match="erasure registry has undecided values"):
         backup.backup(None, None, None, "set")  # refused before the connection or any directory is touched
+    from config import system_health
+    assert system_health.backup_health()["anomalies"] == ["registry_blocked"]
     settings.CATALYST_ENV = "test"
     backup.refuse_real_backup_while_undecided()
+    assert system_health.backup_health()["anomalies"] == []
 
 
 # --- the map ---------------------------------------------------------------------------------------------------------
@@ -207,6 +219,7 @@ def test_9kg_32_the_branch_is_in_every_guarded_function_once_and_the_installed_f
         triggers = {(table, name): function for table, name, function in cursor.fetchall()}
     for name in (*catalog.GUARDED_FUNCTIONS, "catalyst_erasable_append_only"):
         assert sources[name].count(catalog.branch(retention)) == 1, name
+        assert len(catalog.BRANCH_PATTERN.findall(sources[name])) == 1, name
     with_branch = {name for name, src in sources.items() if catalog.BRANCH_BEGIN in src}
     assert with_branch == {*catalog.GUARDED_FUNCTIONS, "catalyst_erasable_append_only"}
     # The strict refusal, the adoption record, every no-truncate trigger and the pause DELETE guard stay as they were.
@@ -221,17 +234,15 @@ def test_9kg_32_the_branch_is_in_every_guarded_function_once_and_the_installed_f
     for name, generated in (("catalyst_erasure_admits", catalog.checker_sql(retention, existing)),
                             ("catalyst_erase", catalog.erase_sql(retention, existing))):
         assert sources[name] == generated.split("$fn$")[1], name
-    # Every table with subject columns and a refusing trigger carries the branch on that trigger's function.
-    guarded_tables = {t for (t, _), f in triggers.items() if f in with_branch}
-    for table in ("applications_submissionversion", "applications_applicationevent", "assessments_qualificationdecision",
-                  "assessments_evidencecapture", "assessments_assessmentrun", "correspondence_replyinterpretation",
-                  "correspondence_approvedmessage", "correspondence_inboundmessage", "correspondence_outboundmessage",
-                  "applications_invitation", "applications_memberagreementonfile", "agreements_agreementdetailsversion",
-                  "agreements_agreementrecipient", "agreements_documentaccess", "applications_retentionaudit",
-                  "correspondence_staffitemresolution", "provisioning_provisioningevidence", "provisioning_credentialsetup",
-                  "provisioning_withdrawalconfirmation", "provisioning_accessrevocation",
-                  "provisioning_addressreservation", "workflow_automationpause"):
-        assert table in guarded_tables, table
+    # Derived from the catalog, not a list (PR #99 review): every UPDATE trigger on a table with subject columns calls a
+    # function that carries the branch, so no trigger there can refuse the audited path unseen.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT c.relname, t.tgname, p.proname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid"
+                       " JOIN pg_proc p ON p.oid = t.tgfoid WHERE NOT t.tgisinternal AND (t.tgtype::int & 16) <> 0")
+        updates = cursor.fetchall()
+    subject_tables = {t for t, cols in catalog.subject_columns().items() if any(s.tombstone != catalog.DELETE for s in cols.values())}
+    uncovered = [(t, g, f) for t, g, f in updates if t in subject_tables and f not in with_branch]
+    assert uncovered == [] and {t for t, _, _ in updates} & subject_tables
 
 
 @pytest.mark.django_db
@@ -371,7 +382,8 @@ def test_9kg_32_an_open_subject_or_work_in_flight_is_refused_before_any_record_i
         service.erase(privileged_reset.connect("owner"), str(busy.public_ref), AUTHORITY, REASON)
 
 
-def test_9kg_32_the_erased_subject_is_gone_from_every_view_job_attachment_and_derivative(cl, monkeypatch, decided):
+def test_9kg_32_the_subject_is_gone_from_every_table_view_job_and_derivative_and_the_custody_copy_is_reported_retained(
+        cl, monkeypatch, decided):
     from provisioning import closure
 
     app, request = active_member(cl, monkeypatch)
@@ -417,7 +429,10 @@ def test_9kg_32_the_erased_subject_is_gone_from_every_view_job_attachment_and_de
     assert not PendingAction.objects.filter(subject_id=app.public_ref, status__in=("queued", "running", "held", "uncertain"))
     outcome = erase(cl.committed, app.public_ref)
     assert outcome.status == "erased" and outcome.changed > 20
-    assert set(outcome.handoffs) == {"documenso", "mail_sent", "mail_inbox", "mail_host_mailbox"}
+    assert {"documenso", "mail_sent", "mail_inbox", "mail_host_mailbox"} <= set(outcome.handoffs)
+    # Not erased here, and said so: the signed PDFs in custody (registry row signed_documents; 9kg.34 destroys keys).
+    assert outcome.retained == ["custody_documents"]
+    assert record.fold(journal.read(), KEY.encode())[str(app.public_ref)].retained == {"custody_documents"}
     assert owner_scan(owner, *markers) == {}  # gone from every table: views, jobs, attachments, derivatives
     assert owner.execute("SELECT count(*) FROM accounts_requestthrottle WHERE key = %s", [bucket]).fetchone()[0] == 0
     erased = Application.objects.get(pk=app.pk)
@@ -458,7 +473,7 @@ def test_9kg_32_a_second_erasure_is_harmless(privileged_reset, decided):
     owner = privileged_reset.connect("owner", autocommit=True)
     state, entries, written = digests(owner), erasure_entries(), audits(privileged_reset)
     again = erase(privileged_reset, app.public_ref)
-    assert again.status == "already_erased" and again.changed == 0
+    assert again.status == "nothing_to_erase" and again.changed == 0
     assert digests(owner) == state and erasure_entries() == entries and audits(privileged_reset) == written
     assert len(written) == 1
     # The function itself is harmless too, called directly a second time.
@@ -466,7 +481,7 @@ def test_9kg_32_a_second_erasure_is_harmless(privileged_reset, decided):
     result = retention.execute("SELECT public.catalyst_erase(%s, %s, %s, %s)",
                                [app.public_ref, AUTHORITY, REASON, registry.anonymized_classes(DECIDED)]).fetchone()[0]
     retention.commit()
-    assert result["status"] == "already_erased" and digests(owner) == state
+    assert result["status"] == "nothing_to_erase" and digests(owner) == state
 
 
 def test_9kg_32_an_interrupted_erasure_resumes(privileged_reset, decided, monkeypatch):
@@ -481,7 +496,7 @@ def test_9kg_32_an_interrupted_erasure_resumes(privileged_reset, decided, monkey
     monkeypatch.setattr(service, "_call", crash_before_commit)
     with pytest.raises(Crash):
         erase(privileged_reset, one.public_ref)
-    state = record.fold(journal.read())[str(one.public_ref)]
+    state = record.fold(journal.read(), KEY.encode())[str(one.public_ref)]
     assert state.open and Application.objects.get(pk=one.pk).email == "one@example.test"
     monkeypatch.setattr(service, "_call", real_call)
     resumed = erase(privileged_reset, one.public_ref)
@@ -510,12 +525,12 @@ def test_9kg_32_an_interrupted_erasure_resumes(privileged_reset, decided, monkey
     monkeypatch.setattr(record, "append_complete", lambda *a, **k: (_ for _ in ()).throw(record.RecordError("unwritable")))
     with pytest.raises(service.Refused, match="record_unwritable_after_commit"):
         erase(privileged_reset, three.public_ref)
-    assert Application.objects.get(pk=three.pk).email == "[erased]" and record.fold(journal.read())[str(three.public_ref)].open
+    assert Application.objects.get(pk=three.pk).email == "[erased]" and record.fold(journal.read(), KEY.encode())[str(three.public_ref)].open
     monkeypatch.setattr(record, "append_complete", real_complete)
     done = erase(privileged_reset, three.public_ref)
     assert done.status == "already_erased" and done.resumed and done.handoffs == ["mail_inbox", "mail_sent"]
     assert len(audits(privileged_reset, three.public_ref)) == 1
-    folded = record.fold(journal.read())
+    folded = record.fold(journal.read(), KEY.encode())
     assert all(folded[str(s.public_ref)].erased and not folded[str(s.public_ref)].open for s in (one, two, three))
 
 
@@ -546,8 +561,11 @@ def test_9kg_32_the_record_is_written_before_the_transaction_and_is_sensitive_an
     assert intent_data["subject"] != record.subject_hash("grace@example.test", b"another-synthetic-key-0123456789abcdef")
     assert intent_data["key_id"] == record.key_id(KEY.encode()) and KEY not in json.dumps([e.data for e in entries])
     assert intent_data["classes"] == registry.anonymized_classes(DECIDED) and intent_data["authority"] == AUTHORITY
-    assert entries[1].data == {"subject": intent_data["subject"], "key_id": intent_data["key_id"], "status": "erased",
-                               "changed": outcome.changed, "phase": "done"}
+    assert {k: v for k, v in entries[1].data.items() if k != "mac"} == {
+        "subject": intent_data["subject"], "key_id": intent_data["key_id"], "status": "erased", "changed": outcome.changed,
+        "phase": "done"}
+    for entry in entries:  # each entry carries a mac under the erasure key over its kind, key and data
+        assert entry.data["mac"] == record.entry_mac(entry.kind, entry.key, entry.data, KEY.encode())
     with open(os.path.join(journal.directory(), journal.FILE), "rb") as handle:
         assert b"grace" not in handle.read().lower()
     assert all(v != app.pk for e in entries for v in e.data.values())  # no numeric id anywhere
@@ -575,7 +593,7 @@ def test_9kg_32_the_record_verifies_against_the_out_of_band_head_and_an_emptied_
     assert record.verify("none")["erased"] == 0  # no erasure yet: `none` is the right head
     outcome = erase(privileged_reset, app.public_ref)
     report = record.verify(outcome.journal_head)
-    assert report == {"journal_head": outcome.journal_head, "erased": 1, "open": [], "handoffs_outstanding": 2}
+    assert report == {"journal_head": outcome.journal_head, "erased": 1, "open": [], "handoffs_outstanding": 2, "retained": 0}
     with pytest.raises(record.RecordError, match="journal_mismatch"):
         record.verify("none")  # erasures exist: the head kept out of band is required
     with pytest.raises(record.RecordError, match="bad_head"):
@@ -608,7 +626,7 @@ def test_9kg_32_provider_handoffs_are_recorded_with_their_completion_date(privil
         service.handoff(str(app.public_ref), "mail_sent", "24 October")
     head = service.handoff(str(app.public_ref), "mail_sent", "2026-10-24")
     assert record.verify(head)["handoffs_outstanding"] == 1
-    state = record.fold(journal.read())[str(app.public_ref)]
+    state = record.fold(journal.read(), KEY.encode())[str(app.public_ref)]
     assert state.handoffs_done == {"mail_sent": "2026-10-24"} and state.outstanding == ["mail_inbox"]
 
 
@@ -641,6 +659,7 @@ import django
 django.setup()
 from erasure import registry
 registry.REGISTRY = json.loads(sys.argv[1])
+registry.REPLAY_BUILT = True
 from django.core.management import call_command
 call_command("catalyst_erase", "--subject", sys.argv[2], "--authority", "pol-10:synthetic-decision", "--reason", "subject-request")
 """
@@ -687,17 +706,35 @@ def test_9kg_32_the_command_runs_only_as_the_retention_login_and_never_as_web_or
 # --- the migration -----------------------------------------------------------------------------------------------------
 
 def test_9kg_32_the_erasure_migration_reverses_and_reapplies_and_keeps_the_rows(privileged_reset, decided):
+    """The reverse leaves every guarded function exactly as it is in a database that never ran erasure 0002 (a fresh
+    one migrated to 0002's dependencies only), and the reapply restores the branches."""
+    import importlib
+
+    from tests.test_backup_commands import admin
+
     app = subject()
     owner = privileged_reset.connect("owner", autocommit=True)
-    retention_literal = owner.execute("SELECT quote_literal(%s)", [ROLES["retention"]]).fetchone()[0]
-
-    def definition(name):
-        return owner.execute("SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
-                             " WHERE n.nspname = 'public' AND p.proname = %s", [name]).fetchone()[0]
-    installed = {name: definition(name) for name in catalog.GUARDED_FUNCTIONS}
-    manage_as_owner("migrate", "erasure", "0001", "--verbosity", "0")
-    for name, text in installed.items():
-        assert definition(name) == catalog.without_branch(text, retention_literal), name  # exactly as before
+    query = ("SELECT p.proname, pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
+             " WHERE n.nspname = 'public' AND p.proname = ANY(%s)")
+    installed = dict(owner.execute(query, [list(catalog.GUARDED_FUNCTIONS)]).fetchall())
+    fresh = f"catalyst_erasure_{uuid.uuid4().hex[:10]}"
+    with admin("postgres") as conn:
+        conn.execute(sql.SQL("CREATE DATABASE {} OWNER {}").format(sql.Identifier(fresh), sql.Identifier(ROLES["owner"])))
+    try:
+        env = {"CATALYST_DB_NAME": fresh, "CATALYST_DB_USER": ROLES["owner"],
+               "CATALYST_DB_PASSWORD": os.environ["CATALYST_DB_OWNER_PASSWORD"]}
+        for app_label, name in importlib.import_module("erasure.migrations.0002_erasure_path").Migration.dependencies:
+            result = run([sys.executable, "manage.py", "migrate", app_label, name, "--verbosity", "0"], timeout=300, **env)
+            assert result.returncode == 0, result.stderr
+        with admin(fresh) as conn:
+            before = dict(conn.execute(query, [list(catalog.GUARDED_FUNCTIONS)]).fetchall())
+        assert set(before) == set(catalog.GUARDED_FUNCTIONS)
+        manage_as_owner("migrate", "erasure", "0001", "--verbosity", "0")
+        assert dict(owner.execute(query, [list(catalog.GUARDED_FUNCTIONS)]).fetchall()) == before  # exactly as before
+        assert all(definition == catalog.without_branch(installed[name]) for name, definition in before.items())
+    finally:
+        with admin("postgres") as conn:
+            conn.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(fresh)))
     assert owner.execute("SELECT count(*) FROM pg_proc WHERE proname IN ('catalyst_erase', 'catalyst_erasure_admits',"
                          " 'catalyst_erasable_append_only')").fetchone()[0] == 0
     assert owner.execute("SELECT count(*) FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid"
@@ -706,5 +743,150 @@ def test_9kg_32_the_erasure_migration_reverses_and_reapplies_and_keeps_the_rows(
                          " 'agreements_documentaccess', 'correspondence_staffitemresolution',"
                          " 'provisioning_provisioningevidence')").fetchone()[0] == 5
     manage_as_owner("migrate", "--verbosity", "0")
-    assert {name: definition(name) for name in catalog.GUARDED_FUNCTIONS} == installed
+    assert dict(owner.execute(query, [list(catalog.GUARDED_FUNCTIONS)]).fetchall()) == installed
     assert erase(privileged_reset, app.public_ref).status == "erased"
+
+
+# --- the reviews of PR #99 ---------------------------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_9kg_32_the_new_functions_have_their_owner_definer_and_search_path():
+    from django.db import connection
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT p.proname, p.prosecdef, p.proconfig, pg_get_userbyid(p.proowner) FROM pg_proc p"
+                       " JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = ANY(%s)",
+                       [["catalyst_erase", "catalyst_erasure_admits", "catalyst_erasable_append_only",
+                         "catalyst_erasure_audit_txid"]])
+        rows = {name: (definer, config, owner) for name, definer, config, owner in cursor.fetchall()}
+    assert rows == {
+        "catalyst_erase": (True, ["search_path=pg_catalog, public, pg_temp"], ROLES["owner"]),
+        "catalyst_erasure_admits": (True, ["search_path=pg_catalog, public, pg_temp"], ROLES["owner"]),
+        "catalyst_erasable_append_only": (False, ["search_path=public, pg_temp"], ROLES["owner"]),
+        "catalyst_erasure_audit_txid": (False, ["search_path=public, pg_temp"], ROLES["owner"]),
+    }
+
+
+def test_9kg_32_a_forged_intent_or_handoff_is_refused_and_a_resume_trusts_nothing_from_the_journal(
+        privileged_reset, decided, monkeypatch):
+    app = subject()
+    ref = str(app.public_ref)
+    # A forged intent (no valid mac) for a subject: the erasure refuses rather than resume it.
+    journal.append("erasure_intent", f"erasure:{ref}", {"subject": "0" * 64, "key_id": "0" * 16, "authority": "x:forged",
+                                                       "reason": "forged", "classes": ["submissions"], "handoffs": [],
+                                                       "retained": [], "phase": "intent", "mac": "f" * 64})
+    with pytest.raises(service.Refused, match="record_forged_entry"):
+        erase(privileged_reset, ref)
+    with pytest.raises(record.RecordError, match="forged_entry"):
+        record.list_open()
+    assert Application.objects.get(pk=app.pk).email == "grace@example.test"
+    # An intent with a valid mac but another person's hash (as if moved from another subject): refused on resume.
+    other = subject("other.person@example.test", "Hedy Example")
+    secret = KEY.encode()
+    record.append_intent(other.public_ref, record.subject_hash("someone.else@example.test", secret),
+                         record.key_id(secret), AUTHORITY, REASON, ["submissions"], [], [], secret)
+    with pytest.raises(service.Refused, match="record_subject_mismatch"):
+        erase(privileged_reset, other.public_ref)
+    # A resume takes the classes from the registry and the codes from this run, never from the intent.
+    third = subject("third.person@example.test", "Joan Example")
+    record.append_intent(third.public_ref, record.subject_hash("third.person@example.test", secret),
+                         record.key_id(secret), "old:authority", "old-reason", ["submissions"], ["mail_sent"], [], secret)
+    resumed = erase(privileged_reset, third.public_ref)
+    assert resumed.resumed and resumed.status == "erased"
+    assert Application.objects.get(pk=third.pk).email == "[erased]"  # identity erased though the intent named submissions
+    assert audits(privileged_reset, third.public_ref)[-1][1:3] == (AUTHORITY, REASON)
+    # A forged handoff (no valid mac) closes nothing, and verification refuses the record.
+    done = subject("done.person@example.test", "Mary Example")
+    erase(privileged_reset, done.public_ref)
+    journal.append("erasure_handoff", f"erasure:{done.public_ref}", {"provider": "mail_sent", "completed_on": "2026-10-24",
+                                                                     "phase": "done", "mac": "a" * 64})
+    assert record.fold(journal.read(), secret)[str(done.public_ref)].outstanding == ["mail_inbox", "mail_sent"]
+    with pytest.raises(record.RecordError, match="forged_entry"):
+        record.verify(record.head_string())
+
+
+def test_9kg_32_an_interrupted_first_erasure_is_listed_without_a_head_and_raises_a_health_anomaly(
+        privileged_reset, decided, monkeypatch):
+    from config import system_health
+
+    app = subject()
+
+    def crash(conn, *args, commit):
+        if commit:
+            raise Crash("killed")
+        return real(conn, *args, commit=commit)
+    real = service._call
+    monkeypatch.setattr(service, "_call", crash)
+    with pytest.raises(Crash):
+        erase(privileged_reset, app.public_ref)
+    monkeypatch.setattr(service, "_call", real)
+    assert record.list_open()["open"] == [str(app.public_ref)]
+    assert system_health.erasure_health()["anomalies"] == ["intent_open"]
+    with pytest.raises(SystemExit):
+        call_command("catalyst_erasure_record", "--list-open")
+    # The resume needs no registry gate: an erasure already begun is finished even while a value is undecided.
+    monkeypatch.setattr(registry, "REPLAY_BUILT", False)
+    assert erase(privileged_reset, app.public_ref).status == "erased"
+    assert record.list_open()["open"] == []
+    assert system_health.erasure_health()["anomalies"] == ["handoff_owed"]
+
+
+def test_9kg_32_handoff_dates_and_heads_are_checked(privileged_reset, decided):
+    app = subject()
+    outcome = erase(privileged_reset, app.public_ref)
+    tomorrow = (timezone.now().date() + timedelta(days=1)).isoformat()
+    for bad in (tomorrow, "2026-13-01", "2026-10-24T10:00", "24 October"):
+        with pytest.raises(service.Refused, match="record_malformed"):
+            service.handoff(str(app.public_ref), "mail_sent", bad)
+    identity, _, digest = outcome.journal_head.split(":")
+    with pytest.raises(record.RecordError, match="bad_head"):
+        record.verify(f"{identity}:0:{digest}")  # a head names seq 1 or later
+
+
+def test_9kg_32_the_erasure_key_is_refused_in_web_and_worker_processes(settings):
+    from config import guards
+
+    settings.CATALYST_ERASURE_KEY = KEY
+    assert guards.erasure_key_problems(settings, "web") and guards.erasure_key_problems(settings, "worker")
+    assert guards.erasure_key_problems(settings, "management") == [] == guards.erasure_key_problems(settings, "reconcile")
+    settings.CATALYST_ERASURE_KEY = ""
+    assert guards.erasure_key_problems(settings, "web") == []
+
+
+def test_9kg_32_a_key_that_starts_like_a_tombstone_but_has_an_at_sign_is_a_real_key(privileged_reset, decided):
+    app = subject("erased:real@example.test", "Opal Example")
+    outcome = erase(privileged_reset, app.public_ref)
+    assert outcome.status == "erased"
+    assert Application.objects.get(pk=app.pk).email_key == f"erased:{app.public_ref}"
+
+
+def test_9kg_32_an_already_tombstoned_subject_still_runs_the_classes_scoped_by_its_references(privileged_reset, decided):
+    app = subject()
+    erase(privileged_reset, app.public_ref)
+    owner = privileged_reset.connect("owner", autocommit=True)
+    # A row the first run could not see (as a class added later would find): an event with a note.
+    owner.execute("INSERT INTO applications_applicationevent (application_id, kind, actor_type, actor_ref, data)"
+                  " VALUES (%s, 'late_note', 'staff', 'user:1', '{\"note\": \"Grace Example again\"}')", [app.pk])
+    again = erase(privileged_reset, app.public_ref)
+    assert again.status == "erased" and again.changed == 1
+    assert ApplicationEvent.objects.get(application=app, kind="late_note").data == {}
+
+
+def test_9kg_32_a_restore_hold_cannot_lift_while_the_journal_holds_an_unreplayed_erasure(privileged_reset, decided):
+    from django.db import connection
+
+    from config import post_restore
+
+    app = subject()
+    erase(privileged_reset, app.public_ref)
+    assert post_restore.erasures_unreplayed() is False  # replay "built" in this test's registry
+    owner = privileged_reset.connect("owner", autocommit=True)
+    owner.execute("INSERT INTO workflow_automationpause (subject_type, subject_id, reason, actor_ref, created_at)"
+                  " VALUES ('system', '00000000-0000-0000-0000-00000000aaaa', %s, 'catalyst_restore|::', now())",
+                  [post_restore.RECONCILED])
+    result = run([sys.executable, "manage.py", "catalyst_post_restore", "--confirm-database", connection.settings_dict["NAME"],
+                  "--lift", "--outward-checked", "--no-closures-after-backup"], timeout=120,
+                 CATALYST_DB_NAME=connection.settings_dict["NAME"], CATALYST_DB_USER=ROLES["owner"],
+                 CATALYST_DB_PASSWORD=os.environ["CATALYST_DB_OWNER_PASSWORD"])
+    assert result.returncode != 0 and post_restore.ITEM_ERASURE in result.stderr, result.stderr
+    assert owner.execute("SELECT count(*) FROM workflow_automationpause WHERE subject_type = 'system'").fetchone()[0] == 1

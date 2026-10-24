@@ -356,7 +356,8 @@ def test_every_catalyst_function_has_a_fixed_search_path_an_owner_and_no_applica
     assert len(functions) >= 20 and {"catalyst_history_append_only", "catalyst_pause_resume_guard", "catalyst_event_txid",
                                      "catalyst_restore_hold_fixed"} <= {f[0] for f in functions}
     for name, security_definer, config, owner, app_can_execute in functions:
-        assert config and "search_path=public, pg_temp" in config, name
+        # 9kg.32: a security-definer function may also put pg_catalog first (PR #99 security review)
+        assert config and ({"search_path=public, pg_temp", "search_path=pg_catalog, public, pg_temp"} & set(config)), name
         assert owner == ROLES["owner"], name
         assert app_can_execute is False, name
     assert dict((f[0], f[1]) for f in functions)["catalyst_history_append_only"] is True  # the audited retention path

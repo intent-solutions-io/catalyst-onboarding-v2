@@ -8,7 +8,8 @@ The subject is an application's public reference (or an invitation's, for a pers
 covers every record of that person's email key. It refuses while the registry (erasure.registry) has an undecided
 value. Re-run the same command after any interruption: an open intent is finished; a completed erasure is left alone.
 
-Prints one JSON line: the outcome, the number of values changed, the provider handoffs owed and the journal head.
+Prints one JSON line: the outcome, the number of values changed, the provider handoffs owed, what was retained rather
+than erased (`custody_documents` until 9kg.34 destroys the custody keys) and the journal head.
 Keep the head out of band (the private operations record): `catalyst_erasure_record --expect-head` checks it. Never
 prints an address, a name or a numeric id. Exit 0 on success, 1 when refused."""
 
@@ -63,4 +64,5 @@ class Command(BaseCommand):
             self.refuse(f"database_error {type(exc).__name__} {exc.sqlstate or ''}".rstrip())
         self.stdout.write(json.dumps({"status": outcome.status, "subject": outcome.subject_ref, "changed": outcome.changed,
                                       "handoffs": outcome.handoffs, "resumed": outcome.resumed,
+                                      "retained": outcome.retained or [],
                                       "journal_head": outcome.journal_head}, sort_keys=True))

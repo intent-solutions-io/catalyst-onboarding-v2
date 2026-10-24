@@ -502,6 +502,16 @@ def process_role_problems(settings, kind: str) -> list[str]:
     return problems
 
 
+def erasure_key_problems(settings, kind: str) -> list[str]:
+    """9kg.32 (PR #99 security review): the erasure key is for the owner-run erasure command and the restore's replay
+    only; a web or worker process (the kinds declared in code) that holds it refuses to start."""
+    from config.runtime import ENFORCED_KINDS
+
+    if kind in ENFORCED_KINDS and getattr(settings, "CATALYST_ERASURE_KEY", ""):
+        return [f"CATALYST_ERASURE_KEY may not be given to a {kind} process (the erasure command and replay only)"]
+    return []
+
+
 INTAKE_FIXED = ("CATALYST_INTAKE_MODE", "CATALYST_CLIENT_IDENTITY")
 INTAKE_MODES = ("invitation", "open")
 CLIENT_IDENTITY_SOURCES = ("proxy", "direct")
@@ -539,6 +549,7 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + secret_problems(settings, environ)
         + journal_problems(settings)
         + process_role_problems(settings, _process_kind())
+        + erasure_key_problems(settings, _process_kind())
         + intake_problems(settings, environ)
     )
 
