@@ -432,3 +432,16 @@ def test_9kg39_the_remembered_addresses_are_bounded_per_name_and_never_latch_the
     dns["prod-a.example.test"] = ["192.0.2.1"]  # the oldest addresses go first, the newest stay
     remembered = (policy.denied_addresses(), policy.remembered["prod-a.example.test"])[1]
     assert remembered[-1] == "192.0.2.1" and "203.0.113.79" in remembered and "203.0.113.0" not in remembered
+
+
+def test_9kg39_a_list_in_which_no_name_resolves_refuses_everything_and_start_up_counts_them(proxy, monkeypatch, dns,
+                                                                                           caplog):
+    public(monkeypatch, "93.184.215.14")
+    monkeypatch.setattr(egress, "resolve", lambda host, port: ["93.184.215.14"])
+    dns["prod-a.example.test"] = []  # every name now resolves to nothing (prod-b already does)
+    with caplog.at_level("INFO", logger="assessments.egress"):
+        port = proxy(egress.Policy(TEST_ENV))
+        assert refusal(connect(port, "innocent.example.test:443")) == ("503", "deny_list_resolves_nothing")
+    assert "egress deny_names_unresolved=2" in caplog.text and "example.test" not in caplog.text
+    dns["prod-a.example.test"] = [PROD_V4]  # one name resolving again is enough
+    assert egress.Policy(TEST_ENV).startup() == ["deny_names_unresolved=1"]

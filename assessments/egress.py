@@ -18,8 +18,8 @@ goes through here as an HTTP CONNECT tunnel, so the deny is absolute and lives i
    is an address a denied name resolves to. The denied names are resolved afresh at both checks, and every address
    they resolved to before stays denied (up to 64 per name, the oldest evicted first, the fresh answer always kept),
    so a DNS change toward or away from a production address between the check and the connection cannot open a
-   way through. A missing, unreadable, empty
-   or malformed file refuses every request. Only this policy reads the file: the fetcher, the Documenso and mail
+   way through. A missing, unreadable, empty or malformed file, or a list in which no name resolves to anything,
+   refuses every request; at start the proxy logs how many names resolve to nothing (`deny_names_unresolved=N`). Only this policy reads the file: the fetcher, the Documenso and mail
    adapters never do. Each fetch and each redirect hop is its own CONNECT, so every hop passes every check here.
 
 Deny file format (one entry per line; `#` starts a comment; blank lines ignored; ASCII; at most 64 KiB and 256 names):
@@ -95,7 +95,22 @@ class Policy:
                     self.remember(name, addresses)
             if failed:
                 logger.info("egress deny_lookup_stale")
-            return frozenset(ip for kept in self.remembered.values() for ip in kept)
+            denied = frozenset(ip for kept in self.remembered.values() for ip in kept)
+        if not denied:  # a list in which no name resolves denies nothing at all: refuse rather than pretend
+            raise Refusal(503, "deny_list_resolves_nothing")
+        return denied
+
+    def startup(self) -> list:
+        """The outcome codes logged once at start: how many deny names resolve to nothing (never which ones). The
+        pass also seeds each name's last good answer."""
+        if not self.deny:
+            return []
+        answers = resolve_names(self.deny)
+        with self.lock:
+            for name, addresses in answers.items():
+                if addresses is not None:
+                    self.remember(name, addresses)
+        return [f"deny_names_unresolved={sum(1 for addresses in answers.values() if not addresses)}"]
 
     def remember(self, name: str, addresses) -> None:
         """Keep a name's fresh answer in full and as many earlier addresses as fit, evicting the oldest address that
@@ -303,6 +318,8 @@ def serve(listen: str, policy: Policy, limit: int = 16, ready: threading.Event |
     server = socket.create_server((host or "0.0.0.0", int(port)), reuse_port=False)
     server.settimeout(1)
     slots = threading.BoundedSemaphore(limit)
+    for code in policy.startup():
+        logger.info("egress %s", code)  # a count or a code, never a name
     if ready is not None:
         ready.listen_port = server.getsockname()[1]
         ready.set()
