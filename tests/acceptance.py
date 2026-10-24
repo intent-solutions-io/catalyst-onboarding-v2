@@ -1466,6 +1466,7 @@ P6_CASES = {
         "test_egress::test_9kg39_a_failed_lookup_keeps_the_last_good_answer",
         "test_egress::test_9kg39_one_lookup_pass_uses_one_thread_and_a_slow_name_is_a_failure",
         "test_egress::test_9kg39_a_list_in_which_no_name_resolves_refuses_everything_and_start_up_counts_them",
+        "test_egress::test_9kg39_a_broken_deny_list_is_transient_for_the_fetcher_logged_at_start_and_unhealthy",
     ],
     "TEST-P6-29": [
         "test_post_restore::test_6b7b_links_from_before_the_restore_stop_working_the_negative_control",

@@ -189,9 +189,9 @@ def test_9kg39_a_missing_unreadable_empty_or_malformed_deny_file_refuses_everyth
     assert policy.deny == ()
     with pytest.raises(egress.Refusal) as refused:  # even an ordinary public name: no deny list, no egress
         policy.target(b"CONNECT evidence.example.test:443 HTTP/1.1\r\n\r\n")
-    assert (refused.value.status, refused.value.code) == (403, "deny_list_unavailable")
+    assert (refused.value.status, refused.value.code) == (503, "deny_list_unavailable")
     if content is None:  # and the live proxy says the same, with a code and nothing else
-        assert refusal(connect(proxy(policy), "evidence.example.test:443")) == ("403", "deny_list_unavailable")
+        assert refusal(connect(proxy(policy), "evidence.example.test:443")) == ("503", "deny_list_unavailable")
 
 
 def test_9kg39_the_deny_file_takes_names_comments_and_blank_lines(tmp_path):
@@ -445,3 +445,23 @@ def test_9kg39_a_list_in_which_no_name_resolves_refuses_everything_and_start_up_
     assert "egress deny_names_unresolved=2" in caplog.text and "example.test" not in caplog.text
     dns["prod-a.example.test"] = [PROD_V4]  # one name resolving again is enough
     assert egress.Policy(TEST_ENV).startup() == ["deny_names_unresolved=1"]
+
+
+def test_9kg39_a_broken_deny_list_is_transient_for_the_fetcher_logged_at_start_and_unhealthy(ev, settings, proxy, caplog,
+                                                                                            tmp_path):
+    environ = {"CATALYST_ENV": "test", "CATALYST_EVIDENCE_FIXTURE_ADDRESS": "127.0.0.1",
+               "CATALYST_EGRESS_FIXTURE_PORT": str(ev.site.port)}  # no deny file
+    with caplog.at_level("INFO", logger="assessments.egress"):
+        settings.CATALYST_EVIDENCE_PROXY = f"127.0.0.1:{proxy(egress.Policy(environ))}"
+    assert "egress deny_list_unavailable" in caplog.text  # once, at start
+    ev.site.page("/w", "<p>never reached</p>")
+    with pytest.raises(fetch.Transient, match="^egress_unavailable$"):  # retried, never a final refusal
+        fetch.fetch(url(ev, "/w"), source(ev))
+    assert not ev.site.requests
+    import subprocess
+    import sys
+    check = [sys.executable, "-m", "assessments.egress", "--check"]
+    broken = subprocess.run(check, cwd=ROOT, env={"CATALYST_ENV": "test", "PATH": "/usr/bin:/bin"}, capture_output=True)
+    healthy = subprocess.run(check, cwd=ROOT, env={"CATALYST_ENV": "test", "CATALYST_EGRESS_DENY_FILE": DENY_FILE,
+                                                   "PATH": "/usr/bin:/bin"}, capture_output=True)
+    assert (broken.returncode, healthy.returncode) == (1, 0) and not broken.stdout + healthy.stdout

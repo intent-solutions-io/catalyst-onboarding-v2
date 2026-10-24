@@ -104,7 +104,7 @@ class Policy:
         """The outcome codes logged once at start: how many deny names resolve to nothing (never which ones). The
         pass also seeds each name's last good answer."""
         if not self.deny:
-            return []
+            return ["deny_list_unavailable"]
         answers = resolve_names(self.deny)
         with self.lock:
             for name, addresses in answers.items():
@@ -131,8 +131,8 @@ class Policy:
             raise Refusal(400, "bad_request") from None
         if method != "CONNECT" or not version.startswith("HTTP/1."):
             raise Refusal(405, "connect_only")
-        if not self.deny:  # no deny list, no egress at all
-            raise Refusal(403, "deny_list_unavailable")
+        if not self.deny:  # no deny list, no egress at all; 503 so the fetcher retries, as for a proxy that is down
+            raise Refusal(503, "deny_list_unavailable")
         host, _, port_text = authority.rpartition(":")
         if not port_text.isdigit() or int(port_text) not in self.ports:
             raise Refusal(403, "port_not_allowed")
@@ -243,7 +243,7 @@ def read_head(client) -> bytes:
 
 def reply(client, status: int, code: str, peer: str = "") -> None:
     reason = {200: "Connection established", 400: "Bad Request", 403: "Forbidden", 405: "Method Not Allowed",
-              502: "Bad Gateway", 503: "Service Unavailable"}[status]
+              502: "Bad Gateway", 503: "Service Unavailable"}[status]  # 502 and 503: transient for the fetcher
     extra = f"X-Catalyst-Peer: {peer}\r\n" if peer else f"X-Catalyst-Refusal: {code}\r\n"
     client.sendall(f"HTTP/1.1 {status} {reason}\r\n{extra}Content-Length: 0\r\n\r\n".encode("ascii"))
 
@@ -347,6 +347,9 @@ def serve(listen: str, policy: Policy, limit: int = 16, ready: threading.Event |
         server.close()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__" and sys.argv[1:] == ["--check"]:
+    # The container healthcheck: the deny list as mounted now loads (it never prints the file or a name).
+    sys.exit(0 if Policy().deny else 1)
+elif __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
     serve(os.environ.get("CATALYST_EGRESS_LISTEN", "0.0.0.0:3128"), Policy())

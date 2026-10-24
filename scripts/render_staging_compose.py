@@ -125,6 +125,9 @@ def definition() -> dict:
     egress["environment"] = {"CATALYST_ENV": "staging", "CATALYST_EGRESS_LISTEN": "0.0.0.0:3128",
                              "CATALYST_EGRESS_DENY_FILE": "/etc/catalyst/egress-deny"}
     egress["volumes"] = ["./egress-deny:/etc/catalyst/egress-deny:ro"]
+    # Healthy only while the mounted list loads (PR #101 review): a broken list is visible, not just refused per request.
+    egress["healthcheck"] = {"test": ["CMD", "python", "-m", "assessments.egress", "--check"],
+                             "interval": "10s", "timeout": "5s", "retries": 3}
     del egress["secrets"]
     migrate = catalyst(["sh", "-c", "python manage.py migrate --noinput && python manage.py schedule_session_cleanup"
                        " && python manage.py schedule_verification_sweep"],
