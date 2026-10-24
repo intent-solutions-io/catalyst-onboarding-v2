@@ -282,14 +282,20 @@ check "TEST-P6-27 the applicant confirms (200, and the confirmed page's own sent
   "[ \"\$(tail -1 <<<\"\$1\")\" = 200 ] && grep -q 'Your email address is confirmed' <<<\"\$1\"" _ "$answer"
 sleep 3  # the worker loop has had its turn: anything not held would have started
 # Every registered kind is counted except an explicit allow-list (the verification mail to the file sink, the session
-# clean-up), so a provider-reaching kind added later is covered without editing this check.
+# clean-up), so a provider-reaching kind added later is covered without editing this check. The verification-expiry
+# sweep (9kg.66, scheduled by migrate since PR #97) reaches no provider and is allowed only as itself: its one system
+# subject, queued, running or done (a pass that ran and queued its successor); a failed or uncertain sweep still counts.
 dark="$(owner_run migrate python manage.py shell -c "
 from django.conf import settings
 from workflow.models import PendingAction as P
+from correspondence.verification import EXPIRY_SWEEP, EXPIRY_SWEEP_SUBJECT
 allowed = {'send_verification', 'clear_sessions'}
 registry = set(settings.CATALYST_ACTION_HANDLERS)
-print(int(allowed <= registry), P.objects.filter(kind='start_evidence_collection', status='held').count(),
-      P.objects.filter(kind__in=registry - allowed).exclude(status='held').count())" | tail -1 || true)"
+sweep = P.objects.filter(kind=EXPIRY_SWEEP, subject_type=EXPIRY_SWEEP_SUBJECT[0], subject_id=EXPIRY_SWEEP_SUBJECT[1],
+                         status__in=('queued', 'running', 'done'))
+print(int(allowed <= registry and EXPIRY_SWEEP in registry),
+      P.objects.filter(kind='start_evidence_collection', status='held').count(),
+      P.objects.filter(kind__in=registry - allowed).exclude(status='held').exclude(pk__in=sweep).count())" | tail -1 || true)"
 read -r allow_ok held_count others <<<"$dark"
 check "TEST-P6-27 control: the allow-list names registered kinds" test "${allow_ok:-}" = 1
 check "TEST-P6-27 the evidence collection is held until activation" test "${held_count:-}" = 1

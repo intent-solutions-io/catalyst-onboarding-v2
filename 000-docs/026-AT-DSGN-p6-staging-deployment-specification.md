@@ -1882,9 +1882,17 @@ revised after the PR #99 data, security and release-operations reviews).**
     All five new checks and every TEST-P6-30 check passed: the stand-in refused by name, a name under it refused,
     `1.1.1.1.nip.io` and `1.0.0.1.nip.io` refused by resolved address, and the file present in the proxy and absent
     from the fetcher. The tunnelled public name is the control and shows the list loaded.
-  - The one FAIL is outside this change: "TEST-P6-27 no other registered action exists outside the held state".
-    Since PR #97 (`9kg.66`), migrate schedules the verification-expiry sweep, whose kind is not in that check's
-    allow-list. The drill revision in the evidence register is unchanged until a clean run.
+  - The one FAIL was outside this change: "TEST-P6-27 no other registered action exists outside the held state".
+    Since PR #97 (`9kg.66`), migrate schedules the verification-expiry sweep, whose kind was not in that check's
+    allow-list.
+- **Scope extension (decided by the coordinator, its own commit): the TEST-P6-27 check admits the sweep.** The
+  dark-deploy check counts every registered action outside the held state except an allow-list. It now also admits
+  `verification_expiry_sweep`, and only as itself: its one system subject, in the states `queued`, `running` or `done`
+  (a pass that ran and queued its successor). A failed or uncertain sweep, or any other new kind, still fails the
+  check, and the control now also requires the sweep's kind to be registered. No test pinned the allow-list, so
+  none changed. Re-run once on the dev box, 2026-10-24: `scripts/staging_check.sh` **133 of 133 PASS, exit 0**,
+  every TEST-P6-27, 28 and 30 check included. That run's image was built from the working tree with the extension
+  not yet committed, so the drill revision in the evidence register is left unchanged.
 - **Stated limits.** The proxy trusts its resolver: a resolver that answered the deny names falsely would hide
   their addresses, so network isolation and the host allow-list stay the controls that hold against that. The
   staging stand-in and `nip.io` are outside dependencies of the staging check, like the existing TEST-P6-30 cases.
