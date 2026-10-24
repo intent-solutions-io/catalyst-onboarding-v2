@@ -801,3 +801,32 @@ def test_9kg_34_erasure_0003_reverses_to_exactly_the_function_0002_installs(priv
     finally:
         manage_as_owner("migrate", "--verbosity", "0")
     assert owner.execute(query).fetchone()[0] == with_custody
+
+
+# --- the data review of PR #102, K2: the plaintext refusal is the committed call's own --------------------------------
+
+def test_9kg_34_a_document_left_in_the_clear_past_the_dry_run_is_refused_after_the_commit_and_the_rerun_finishes(
+        privileged_reset, decided, custody, monkeypatch):
+    monkeypatch.setattr(registry, "REGISTRY", DESTROYING)
+    app = subject()
+    sealed = drill.synthetic_document(app, b"%PDF-1.7 synthetic sealed")
+    drill.synthetic_document(app, b"%PDF-1.7 synthetic legacy", sealed=False)
+    real_call = service._call
+
+    def racing(conn, *args, commit):
+        result = real_call(conn, *args, commit=commit)
+        if not commit:  # the dry run read the documents before a concurrent change: it saw none in the clear
+            result = {**result, "custody_plaintext": 0}
+        return result
+    monkeypatch.setattr(service, "_call", racing)
+    with pytest.raises(service.Refused, match="custody_plaintext_unmigrated_after_commit"):
+        erase(privileged_reset, app.public_ref)
+    assert record.list_open()["open"] == [str(app.public_ref)]  # the intent stays open
+    assert keystore.present(sealed.envelope.key_ref) == (True, True)  # nothing destroyed
+    monkeypatch.setattr(service, "_call", real_call)
+    with pytest.raises(service.Refused, match="custody_plaintext_unmigrated_after_commit"):
+        erase(privileged_reset, app.public_ref)  # the resumed branch makes the same check
+    assert command("catalyst_custody_keys", "--migrate", "--confirm")[1]["sealed"] == 1
+    outcome = erase(privileged_reset, app.public_ref)
+    assert outcome.resumed and outcome.keys_destroyed == 2 and outcome.retained == []
+    assert record.list_open()["open"] == []

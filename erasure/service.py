@@ -165,6 +165,11 @@ def erase(conn, subject_ref: str, authority: str, reason: str, rows=None) -> Out
     except Refused as refusal:
         _complete(subject_ref, subject, kid, f"refused_{refusal.code}", 0, secret)
         raise
+    if destroy and int(result.get("custody_plaintext") or 0):
+        # Data review of PR #102, K2: the dry run's check rolled back with its locks, and a resumed run has no dry
+        # run; this is the committed call's own reading. A document still in the clear is beyond every key, so nothing
+        # is destroyed and the intent stays open: seal it (`--migrate --confirm`), then run the erasure again.
+        raise Refused("custody_plaintext_unmigrated_after_commit")
     refs = sorted(set(result.get("custody_keys") or []))
     performed = destroy and bool(_pending(refs))
     files = 0

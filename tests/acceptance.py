@@ -1676,6 +1676,7 @@ P6_SUPPORTING = {
         "test_custody_encryption::test_9kg_34_recovery_needs_the_out_of_band_head_and_refuses_a_journal_that_lost_it",
         "test_custody_encryption::test_9kg_34_a_destruction_entry_carries_a_mac_and_a_forged_one_is_reported_never_acted_on",
         "test_custody_encryption::test_9kg_34_erasure_0003_reverses_to_exactly_the_function_0002_installs",
+        "test_custody_encryption::test_9kg_34_a_document_left_in_the_clear_past_the_dry_run_is_refused_after_the_commit_and_the_rerun_finishes",
     ],
     "9kg.47 staff screens for the shell-only agreement states (021 section 20)": [
         "test_agreement_screens::test_an_unknown_create_is_decided_on_the_screen_and_refused_without_the_permission",

@@ -588,12 +588,13 @@ BEGIN
   END IF;
 {CUSTODY_BEGIN}  -- 9kg.34: the key references of the subject's sealed documents, so the command destroys the keys outside the
   -- database under `destroy_key`; reachable for a tombstoned subject too (erasure 0003; its reverse strips this block).
-  SELECT coalesce(pg_catalog.array_agg(e.key_ref ORDER BY e.id), ARRAY[]::text[]) INTO v_custody_keys
-    FROM public.agreements_custodyenvelope e JOIN public.agreements_storeddocument d ON d.id = e.document_id
+  -- One statement, one snapshot: the sealed documents' keys and the documents still in the clear can never disagree
+  -- about a document a concurrent migration seals in between (data review of PR #102, K2).
+  SELECT coalesce(pg_catalog.array_agg(e.key_ref ORDER BY e.id) FILTER (WHERE e.id IS NOT NULL), ARRAY[]::text[]),
+         pg_catalog.count(*) FILTER (WHERE e.id IS NULL)
+    INTO v_custody_keys, v_custody_plaintext
+    FROM public.agreements_storeddocument d LEFT JOIN public.agreements_custodyenvelope e ON e.document_id = d.id
     WHERE d.application_id = ANY(v_apps);
-  SELECT pg_catalog.count(*) INTO v_custody_plaintext FROM public.agreements_storeddocument d
-    WHERE d.application_id = ANY(v_apps)
-      AND NOT EXISTS (SELECT 1 FROM public.agreements_custodyenvelope e WHERE e.document_id = d.id);
 {CUSTODY_END}  BEGIN
     INSERT INTO public.erasure_erasureaudit (subject_ref, authority, reason_code, classes)
       VALUES (p_subject, p_authority, p_reason, pg_catalog.to_jsonb(p_classes));
