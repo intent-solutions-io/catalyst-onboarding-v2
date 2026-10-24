@@ -204,13 +204,15 @@ CATALYST_HEALTH_HARD_BOUNCE_AGE_SECONDS = number("CATALYST_HEALTH_HARD_BOUNCE_AG
 # target above) and the page list says which classes raise a health anomaly (default: all); a class not listed is
 # still counted and its oldest age printed. The values are the owner's (211.7.2, 211.7.7); these are placeholders.
 CATALYST_HEALTH_AGED_WAIT_CLASSES = ("assessing", "awaiting_decision", "on_hold", "open_staff_items", "pauses",
-                                     "replies_awaiting_processing", "issued_agreements", "provisioning_activation")
+                                     "replies_awaiting_processing", "issued_agreements", "provisioning_activation",
+                                     "held_followons")  # 9kg.57
 CATALYST_HEALTH_AGED_WAIT_SECONDS = {
     name: number(f"CATALYST_HEALTH_AGED_WAIT_{name.upper()}_SECONDS", str(CATALYST_HEALTH_PENDING_AGE_SECONDS), cast=float,
                  minimum=0) for name in CATALYST_HEALTH_AGED_WAIT_CLASSES}
 # Default page list: the three classes that are bad in themselves (a reply nobody is processing, a sent agreement
 # nobody signs, an activation the provider keeps refusing); the stage, item and pause classes are counted and
-# printed but page only once the owner lists them (211.7.2).
+# printed but page only once the owner lists them (211.7.2). So are the held follow-ons (9kg.57): at the internal
+# launch a held decline notice (oc4.11) and a held provisioning hand-off (provisioning disabled) are the plan, not a fault.
 CATALYST_HEALTH_AGED_WAITS_PAGE = [n.strip() for n in os.environ.get(
     "CATALYST_HEALTH_AGED_WAITS_PAGE", "replies_awaiting_processing,issued_agreements,provisioning_activation").split(",") if n.strip()]
 if set(CATALYST_HEALTH_AGED_WAITS_PAGE) - set(CATALYST_HEALTH_AGED_WAIT_CLASSES):

@@ -151,6 +151,11 @@ def journal_health() -> dict:
 STAGE_WAITS = {"assessing": "assessing", "awaiting_decision": "awaiting_decision", "on_hold": "on_hold"}
 # A sent agreement still awaiting the applicant's signature, or the countersignature once the applicant signed.
 AWAITING_SIGNATURE = ("not_started", "partially_signed", "signing_complete_observed")
+# 9kg.57: the follow-ons a decision or the agreements hand-off leave held for the owner's release or a policy: the decline
+# notice (`send_decline`, oc4.11), the NDA (`issue_nda`, activate_agreements) and the provisioning hand-off (`provision`,
+# activate_provisioning), which is also how an application waits in `agreements_complete` (021 step 8, 023 11.11), so
+# that stage is counted once, through its hand-off. Counted by kind and status only, whether or not a handler exists.
+HELD_FOLLOWONS = ("send_decline", "issue_nda", "provision")
 
 
 def _stage_wait(stage: str):
@@ -182,6 +187,10 @@ def _waits() -> dict:
                                                                signing_status__in=AWAITING_SIGNATURE), "updated_at"),
         "provisioning_activation": (PendingAction.objects.filter(kind="provision_activate", status=PendingAction.Status.QUEUED),
                                     "created_at"),
+        # From `updated_at`: when the action was created held or last returned to held (a refused `issue_nda` goes back
+        # to held); nothing else updates a held row.
+        "held_followons": (PendingAction.objects.filter(kind__in=HELD_FOLLOWONS, status=PendingAction.Status.HELD),
+                           "updated_at"),
     })
     return waits
 
@@ -196,6 +205,9 @@ def aged_waits_health() -> dict:
         aged = queryset.filter(**{f"{column}__lt": now - timedelta(seconds=threshold)}).count() if oldest else 0
         report[name] = {"waiting": queryset.count(), "aged": aged, "oldest_seconds": int(age),
                         "threshold_seconds": int(threshold), "pages": name in settings.CATALYST_HEALTH_AGED_WAITS_PAGE}
+        if name == "held_followons":  # which follow-on is waiting: kind names and counts, never an identifier
+            past = queryset.filter(**{f"{column}__lt": now - timedelta(seconds=threshold)})
+            report[name]["aged_by_kind"] = {kind: past.filter(kind=kind).count() for kind in HELD_FOLLOWONS}
     report["anomalies"] = sorted(name for name, values in report.items() if values["aged"] and values["pages"])
     return report
 

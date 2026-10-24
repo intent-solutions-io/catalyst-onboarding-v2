@@ -250,7 +250,7 @@ three exist in v2 but stay disabled at launch by default (mailbox provisioning, 
 | Declined | none | terminal | **no notice** today (`oc4.11`) | gap |
 | Agreement sent, awaiting signature or countersignature | applicant, then the owner (countersignature) | `aged_waits.issued_agreements` (`9kg.51`, built; pages by default; ages from the last status change) | the decision-maker cancels | built as a health bound; the agreements screen shows each agreement's last status change and age, and names the countersignature wait (`9kg.41`, appendix B) |
 | Agreement held (recipient change, custody failure, expiry, rejection) | staff | staff item, pause | decision-maker reissues as a new instance | built |
-| Provisioning held | the owner | released only by `activate_provisioning` | the command | built (disabled at launch) |
+| Provisioning held | the owner | released only by `activate_provisioning`; `aged_waits.held_followons` (`9kg.57`; with the held `send_decline` and `issue_nda`; audit only until listed) | the command | built (disabled at launch) |
 | Provisioning unknown outcome, or provider unavailable at activation | worker, then staff | reconcile by read; never create again; `aged_waits.provisioning_activation` for the unavailable case (`9kg.51`, built; pages by default) | staff item | built against the fake |
 | Withdrawal racing provisioning | worker | the withdrawal services cancel and revoke; unsupported checks stay unresolved | staff item | built against the fake |
 | On hold | staff | `aged_waits.on_hold` (`9kg.51`, built; audit only until listed); the dossier flags it | the decision form: admit or decline (`9kg.50`, built in PR #87) | built |
@@ -259,8 +259,9 @@ three exist in v2 but stay disabled at launch by default (mailbox provisioning, 
 
 The bounds and whether each pages are the owner's values (`211.7.2`, `211.7.7`); the health part that counts aged
 waits is `9kg.51` (`026` section 17). **Still unbounded after PR #87:** verification sent and unconfirmed (the
-challenge lifetime is its only bound), provisioning held (released only by the owner's command) and the restore
-hold (lifted only by `catalyst_post_restore`); the agreement-sent row gained the health bound, and the agreements
+challenge lifetime is its only bound; since `9kg.66` its expiry opens a staff item), provisioning held (released only
+by the owner's command; since `9kg.57` counted with the other held follow-ons in `aged_waits.held_followons`) and the
+restore hold (lifted only by `catalyst_post_restore`); the agreement-sent row gained the health bound, and the agreements
 screen shows its age (`9kg.41`); the stage, item and pause classes are counted but page only once the owner lists them.
 
 **Found by the code inventory (2026-10-23, `45f8b93`), each a VERIFY turned into a task:**

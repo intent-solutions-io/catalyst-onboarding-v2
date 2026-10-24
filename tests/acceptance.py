@@ -1567,6 +1567,10 @@ P6_SUPPORTING = {
         "test_system_health::test_9kg_51_thresholds_and_paging_are_per_wait_class",
         "test_system_health::test_9kg_51_the_default_page_list_is_the_three_bad_classes_and_the_authority_flag_is_reported",
     ],
+    "9kg.57 held send_decline, issue_nda and provision follow-ons (agreements_complete) have their own aged-waits class (026 section 17)": [
+        "test_system_health::test_9kg_57_held_followons_age_each_held_kind_from_its_last_hold_and_raise_their_own_code",
+        "test_system_health::test_9kg_51_each_aged_wait_raises_its_code_and_clears_when_resolved",
+    ],
     "9kg.30 the staff role matrix, the grant command and the append-only grant record (029 section 17.1)": [
         "test_staff_roles::test_every_permission_a_staff_screen_checks_has_a_grant_path",
         "test_staff_roles::test_each_group_role_confers_exactly_its_matrix_set",
