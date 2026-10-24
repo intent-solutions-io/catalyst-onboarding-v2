@@ -1789,6 +1789,11 @@ P6_SUPPORTING = {
         "test_live_safety::test_oc4_9_a_client_with_its_own_transport_class_is_refused_too",
         "test_live_safety::test_oc4_9_no_unpatched_http_or_provider_library_enters_the_dependencies",
         "test_live_safety::test_oc4_9_only_the_agent_module_builds_a_pydantic_ai_agent",
+        "test_live_safety::test_oc4_9_a_row_that_is_not_what_it_claims_to_be_refuses_as_stale",
+        "test_live_safety::test_oc4_9_an_assessment_approval_is_refused_while_the_rubric_is_synthetic",
+        "test_live_safety::test_oc4_9_a_builder_that_sends_an_undeclared_field_fails_the_absence_check",
+        "test_live_safety::test_oc4_9_a_change_to_how_a_request_is_built_needs_a_new_builder_version",
+        "test_live_safety::test_oc4_9_a_revocation_during_the_lease_fence_stops_the_request",
     ],
     # oc4.10 (018 section 21): the reconciliation's real-use defects 4 to 7; items 1 to 3 are the oc4.12 tests above.
     "oc4.10 the real-use defects: a dead reservation holds no slot, a handler defect requeues the run, an ended run leaves nothing started, the lease-versus-timeout guard": [

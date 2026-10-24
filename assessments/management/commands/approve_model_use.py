@@ -6,8 +6,11 @@ the record, so the running application can never approve its own model use, and 
 The command computes the terms from the code and settings in force (`assessments.approval.terms`): the provider and
 model id given here, the exact field list, the current prompt pack, its digest, the rubric and schema versions, every
 budget, the request timeout and the repair limit. It prints them and their digest before writing, and writes one
-append-only `ModelUseApproval` row naming the approval the owner cites and who ran the command. Any later change to
-those terms makes the approval stale, so every live call refuses until the owner approves the new terms.
+append-only `ModelUseApproval` row naming the approval the owner cites and who ran the command. The approval is
+standing and terms-bound: it covers every request whose terms match, for every applicant, until revoked, and has no
+expiry. Any later change to those terms makes the approval stale, so every live call refuses until the owner approves
+the new terms. An assessment approval is refused while the current pack's rubric is marked synthetic: a synthetic
+rubric may not be approved for live use (there is no override; allowing it is an owner decision).
 
 - `--show` prints the terms and digest and writes nothing.
 - `--revoke` records a revocation: every live call for the purpose refuses from then on.
@@ -62,6 +65,9 @@ class Command(BaseCommand):
             use = approval.Use.current(purpose)
         except packs.PackRefused as exc:
             raise CommandError(f"the current prompt pack is refused ({exc}); nothing to approve") from None
+        if purpose == "assessment" and packs.load(packs.CURRENT).rubric.get("synthetic", True):
+            raise CommandError("the current assessment rubric is synthetic (POL-04 wording not approved); a synthetic "
+                               "rubric may not be approved for live use")
         terms = approval.terms(use, *named)
         digest = approval.digest(terms)
         self.stdout.write(json.dumps(terms, indent=2, sort_keys=True))

@@ -7,7 +7,9 @@ request (tests/conftest.py, the raising transport). The live branch itself does 
 approval shows the approval check passing and the call still refusing.
 """
 
+import ast
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -62,6 +64,22 @@ def approve(purpose="assessment", *flags, expect=0, provider="minimax", model_id
         CATALYST_DB_PASSWORD=os.environ["CATALYST_DB_OWNER_PASSWORD"], **env)
     assert result.returncode == expect, (result.stdout, result.stderr)
     return result.stdout + result.stderr
+
+
+INSERT_APPROVAL = ("INSERT INTO assessments_modeluseapproval (purpose, action, provider, model_id, terms, terms_sha256,"
+                   " approval_ref, actor_ref) VALUES (%s, %s, %s, %s, %s, %s, 'synthetic:oc4.9', 'owner_command')")
+
+
+def record_approval(privileged_reset, purpose="assessment", provider="minimax", model_id="MiniMax-M3", terms=None,
+                    digest=None, row_provider=None, row_model_id=None):
+    """An approval row inserted as the migration owner. The command refuses an assessment approval while the rubric is
+    synthetic (every pack is), so the tests that need a recorded assessment approval write the row the command would,
+    or, for the fidelity tests, a row it would not."""
+    terms = terms if terms is not None else approval.terms(approval.Use.current(purpose), provider, model_id)
+    owner = privileged_reset.connect("owner", autocommit=True)
+    owner.execute(INSERT_APPROVAL, [purpose, "approve", row_provider or provider, row_model_id or model_id,
+                                    json.dumps(terms), digest or approval.digest(terms)])
+    return owner
 
 
 def refused_with(use):
@@ -227,15 +245,16 @@ def test_oc4_9_the_raising_transport_refuses_every_model_http_request():
 
 # --- the pre-call approval check ---------------------------------------------------------------------------------
 
-def test_oc4_9_no_live_request_without_a_recorded_approval_and_any_changed_term_refuses(privileged_reset, settings):
+def test_oc4_9_no_live_request_without_a_recorded_approval_and_any_changed_term_refuses(privileged_reset, settings,
+                                                                                           monkeypatch):
     settings.CATALYST_ASSESSMENT_MODEL = LIVE
     use = approval.Use.current("assessment")
     assert refused_with(use) == "model_use_not_approved"
     assert refused_with(None) == "model_use_not_approved"  # a live value with nothing to check is refused too
-    out = approve()
+    record_approval(privileged_reset)  # the command refuses a synthetic rubric (below); the row is what it would write
     record = ModelUseApproval.objects.get()
-    assert f"terms digest {record.terms_sha256}" in out and record.terms == approval.terms(use, "minimax", "MiniMax-M3")
-    assert set(record.terms) >= {"provider", "model_id", "fields", "pack", "pack_sha256", "rubric_version",
+    assert record.terms == approval.terms(use, "minimax", "MiniMax-M3")
+    assert set(record.terms) >= {"provider", "model_id", "fields", "builder", "pack", "pack_sha256", "rubric_version",
                                  "schema_version", "budgets", "repair_limit", "request_timeout_seconds"}
     assert record.terms["fields"] == list(approval.FIELDS["assessment"]) and record.terms["repair_limit"] == 1
     # Approved: the check passes, and the call still refuses, because no live branch exists.
@@ -250,6 +269,21 @@ def test_oc4_9_no_live_request_without_a_recorded_approval_and_any_changed_term_
     settings.CATALYST_ASSESSMENT_MODEL = "minimax:MiniMax-M2.7"  # the model id
     assert refused_with(use) == "model_use_approval_stale"
     settings.CATALYST_ASSESSMENT_MODEL = LIVE
+    settings.CATALYST_ASSESSMENT_ROUNDS += 1  # how the request is built: the clarification rounds
+    assert refused_with(use) == "model_use_approval_stale"
+    settings.CATALYST_ASSESSMENT_ROUNDS -= 1
+    for name, value in (("BUILDER_VERSION", "2"), ("REPAIR_LIMIT", 0)):  # the builder version; the request limits
+        monkeypatch.setattr(approval, name, value)
+        assert refused_with(use) == "model_use_approval_stale", name
+        monkeypatch.undo()
+    for module, name in ((snapshot, "ANSWER_CHARS"), (snapshot, "MAX_ITEMS"), (interpret, "REPLY_CHARS")):  # the caps
+        monkeypatch.setattr(module, name, getattr(module, name) + 1)
+        assert refused_with(use) == "model_use_approval_stale", name
+        monkeypatch.undo()
+    monkeypatch.setattr(agent, "MODEL_SETTINGS", {**agent.MODEL_SETTINGS, "temperature": 0.5})  # the model settings
+    assert refused_with(use) == "model_use_approval_stale"
+    monkeypatch.undo()
+    assert refused_with(use) == "model_not_authorized"
     for changed in ({"rubric_version": use.rubric_version + 1}, {"schema_version": "99"},
                     {"pack": "assessment_v2", "pack_sha256": pack.PINNED["assessment_v2"]}):  # a stale snapshot's versions
         assert refused_with(approval.Use(**{**use.__dict__, **changed})) == "model_use_approval_stale"
@@ -276,10 +310,12 @@ def test_oc4_9_a_run_with_a_live_value_and_no_approval_is_refused_before_any_res
 def test_oc4_9_the_reply_interpreter_needs_its_own_approval(privileged_reset, settings):
     settings.CATALYST_ASSESSMENT_MODEL = LIVE
     assert interpret.Interpreter().admit(None) == "model_use_not_approved"
-    approve("assessment")  # the assessment's approval does not cover the interpreter
+    record_approval(privileged_reset)  # the assessment's approval does not cover the interpreter
     assert interpret.Interpreter().admit(None) == "model_use_not_approved"
-    approve("interpretation")
+    out = approve("interpretation")
     record = ModelUseApproval.objects.get(purpose="interpretation")
+    assert f"terms digest {record.terms_sha256}" in out and record.terms == approval.terms(
+        approval.Use.current("interpretation"), "minimax", "MiniMax-M3")
     assert record.terms["pack"] == pack.INTERPRET and record.terms["fields"] == list(approval.FIELDS["interpretation"])
     assert record.terms["schema_version"] == interpret.InterpretOutput.model_fields["schema_version"].annotation.__args__[0]
     assert interpret.Interpreter().admit(None) == "model_not_authorized"  # approved; still no live branch
@@ -288,15 +324,15 @@ def test_oc4_9_the_reply_interpreter_needs_its_own_approval(privileged_reset, se
 
 
 def test_oc4_9_the_approval_is_written_only_by_the_owner_command_and_is_append_only(privileged_reset):
-    out = approve("assessment", "--show")
+    out = approve("interpretation", "--show")
     assert "terms digest" in out and not ModelUseApproval.objects.exists()  # --show writes nothing
-    assert "--approval-ref is required" in approve("assessment", expect=1, ref=None)
-    assert "--provider" in approve("assessment", provider="Not A Provider", expect=1)
-    approve("assessment")
+    assert "--approval-ref is required" in approve("interpretation", expect=1, ref=None)
+    assert "--provider" in approve("interpretation", provider="Not A Provider", expect=1)
+    approve("interpretation")
     record = ModelUseApproval.objects.get()
     assert record.approval_ref == "synthetic:oc4.9:approval" and record.actor_ref.startswith("owner_command")
     # The reference is a decision code, never free text: the command and the database both refuse one.
-    assert "decision code" in approve("assessment", ref="Owner said yes on the phone", expect=1)
+    assert "decision code" in approve("interpretation", ref="Owner said yes on the phone", expect=1)
     owner = privileged_reset.connect("owner", autocommit=True)
     with pytest.raises(errors.CheckViolation):
         owner.execute("INSERT INTO assessments_modeluseapproval (purpose, action, provider, model_id, terms, terms_sha256,"
@@ -319,6 +355,32 @@ def test_oc4_9_the_approval_is_written_only_by_the_owner_command_and_is_append_o
     root = Path(support.ROOT)
     for path in [*root.glob("*/urls.py"), *root.glob("*/*views*.py"), *root.glob("*/staff_urls.py"), *root.glob("*/admin.py")]:
         assert "ModelUseApproval" not in path.read_text() and "approve_model_use" not in path.read_text(), path
+
+
+def test_oc4_9_a_row_that_is_not_what_it_claims_to_be_refuses_as_stale(privileged_reset, settings):
+    settings.CATALYST_ASSESSMENT_MODEL = LIVE
+    use = approval.Use.current("assessment")
+    good = approval.terms(use, "minimax", "MiniMax-M3")
+    # Each row below carries the digest of the current terms, which is what the first check compares; only the
+    # fidelity check can refuse it.
+    record_approval(privileged_reset, terms={**good, "fields": [*good["fields"], "claims.extra"]}, digest=approval.digest(good))
+    assert refused_with(use) == "model_use_approval_stale"  # the stored terms do not hash to the stored digest
+    record_approval(privileged_reset, row_provider="other-provider")
+    assert refused_with(use) == "model_use_approval_stale"  # the provider column names another provider
+    record_approval(privileged_reset, row_model_id="MiniMax-M2.7")
+    assert refused_with(use) == "model_use_approval_stale"  # the model id column names another model
+    record_approval(privileged_reset)
+    assert refused_with(use) == "model_not_authorized"  # a row that is what it claims to be passes the check
+
+
+def test_oc4_9_an_assessment_approval_is_refused_while_the_rubric_is_synthetic(privileged_reset):
+    assert pack.load(pack.CURRENT).rubric["synthetic"] is True
+    for flags in ((), ("--show",)):
+        out = approve("assessment", *flags, expect=1)
+        assert "synthetic" in out and "may not be approved for live use" in out
+    assert not ModelUseApproval.objects.exists()
+    approve("interpretation")  # the interpreter has no rubric; its approval is unaffected
+    assert ModelUseApproval.objects.get().purpose == "interpretation"
 
 
 # --- oc4.10 items 4 to 6 -------------------------------------------------------------------------------------
@@ -418,20 +480,74 @@ def test_oc4_9_a_field_the_builder_adds_is_refused_before_any_reservation(a, mon
     assert seen["calls"] == 0
 
 
-def test_oc4_9_a_fully_populated_record_emits_exactly_the_approved_fields(a, monkeypatch, settings):
+SENTINELS = ("SENTINEL-CRED-ID", "sentinel-work-url", "ada@example.test", "Ada Example")  # fields that must not leave
+
+
+def assert_absent(sentinels, *prompts):
+    for prompt in prompts:
+        for sentinel in sentinels:
+            assert sentinel not in prompt, f"{sentinel!r} reached a prompt"
+
+
+def populated(a, monkeypatch, settings):
     app, run, _ = queued(a, monkeypatch, settings, valid(), work_note_1="A synthetic parser page",
-                         work_url_2=url(a, "/missing"), experience="Synthetic experience.", confidential="on",
+                         work_url_2=url(a, "/sentinel-work-url"), experience="Synthetic experience.", confidential="on",
                          confidential_description="Synthetic private tooling work.", cred_name_1="Synthetic cert",
-                         cred_issuer_1="Synthetic issuer", cred_identifier_1="SYN-1")
+                         cred_issuer_1="Synthetic issuer", cred_identifier_1="SENTINEL-CRED-ID")
     # A confirmed answer needs the P2 loop; its texts are supplied directly, and the real builder does the rest.
     monkeypatch.setattr(snapshot, "_answer_texts", lambda answers: [(["Which part did you write?"], ["satisfied"],
                                                                      "I wrote the synthetic tokenizer.")])
     current = pack.load(run.prompt_pack)
-    request = snapshot.build_request(app, snapshot.manifest(app, current), current)
+    return app, snapshot.build_request(app, snapshot.manifest(app, current), current), current
+
+
+def interpreter_prompt(app):
+    return interpret.build_prompt({"Q1": SimpleNamespace(text="Which part did you write?")},
+                                  "I wrote the synthetic tokenizer.", snapshot._names(app), "n0nce")
+
+
+def test_oc4_9_a_fully_populated_record_emits_exactly_the_approved_fields(a, monkeypatch, settings):
+    app, request, _ = populated(a, monkeypatch, settings)
     assert request.fields == set(approval.FIELDS["assessment"])  # every approved field is reachable, nothing else
-    prompt, fields = interpret.build_prompt({"Q1": SimpleNamespace(text="Which part did you write?")},
-                                            "I wrote the synthetic tokenizer.", snapshot._names(app), "n0nce")
+    prompt, fields = interpreter_prompt(app)
     assert fields == set(approval.FIELDS["interpretation"]) and "tokenizer" in prompt
+    # The declared list is not the measurement: what is in the text is. An undeclared field's text is absent from both.
+    assert "Synthetic parser" in request.prompt  # the check is not vacuous: approved text is there
+    assert_absent(SENTINELS, request.prompt, prompt)
+
+
+def test_oc4_9_a_builder_that_sends_an_undeclared_field_fails_the_absence_check(a, monkeypatch, settings):
+    real = snapshot._claim_texts
+    # Sends the credential identifier and the applicant's email in a claim block while declaring no new field.
+    monkeypatch.setattr(snapshot, "_claim_texts", lambda claims: [
+        *real(claims), ("undeclared", "undeclared", "SENTINEL-CRED-ID ada@example.test", 400, ())])
+    app, request, _ = populated(a, monkeypatch, settings)
+    assert request.fields == set(approval.FIELDS["assessment"])  # the declaration looks fine
+    with pytest.raises(AssertionError, match="reached a prompt"):
+        assert_absent(SENTINELS, request.prompt)
+
+
+BUILDER_PIN = ("1", "aff313030fb21974151a02deaa84dd84642c93124138fb23d1426746f789b7d8")  # (approval.BUILDER_VERSION, sha256 of the sources below)
+
+
+def builder_source_digest():
+    """The source of the functions that decide what a request contains, read as text (no import side effects)."""
+    chunks = []
+    for module, names in (("snapshot", ("clean", "scrub", "_fence", "build_request")), ("interpret", ("build_prompt",))):
+        text = (Path(support.ROOT) / "assessments" / f"{module}.py").read_text()
+        tree = ast.parse(text)
+        for name in names:
+            node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
+            chunks.append(ast.get_source_segment(text, node))
+    return hashlib.sha256("\n\n".join(chunks).encode()).hexdigest()
+
+
+def test_oc4_9_a_change_to_how_a_request_is_built_needs_a_new_builder_version():
+    version, pinned = BUILDER_PIN
+    assert approval.BUILDER_VERSION == version and builder_source_digest() == pinned, (
+        "clean, scrub, _fence, build_request or build_prompt changed: bump approval.BUILDER_VERSION (every approval "
+        "goes stale, which is the point) and update BUILDER_PIN with the new version and "
+        f"{builder_source_digest()}")
 
 
 # --- review fix-ups: the fence is mandatory for a live model; the approval is checked on every request -----------
@@ -491,7 +607,22 @@ def test_oc4_9_the_approval_is_rechecked_before_the_repair(privileged_reset, mon
     monkeypatch.setattr(agent, "build_model", lambda use=None: WrapperModel(tool_model(calls, during=revoke)))
     with pytest.raises(agent.ModelUnavailable, match="^model_use_not_approved$"):
         agent.run_checked("system", "prompt", Out, lambda output: ["again"], use, fields=frozenset())
-    assert calls == [1] and stub_keeper.fences == 1  # the first request was approved; the repair was never sent
+    # The first request was approved; the repair was fenced, then refused by the check that follows the fence.
+    assert calls == [1] and stub_keeper.fences == 2
+
+
+def test_oc4_9_a_revocation_during_the_lease_fence_stops_the_request(privileged_reset, monkeypatch, settings,
+                                                                    stub_keeper):
+    settings.CATALYST_ASSESSMENT_MODEL = LIVE
+    use = approval.Use.current("assessment")
+    owner = record_approval(privileged_reset)
+    calls = []
+    revoke = lambda: owner.execute(INSERT_APPROVAL, ["assessment", "revoke", "", "", "{}", ""])  # noqa: E731
+    stub_keeper.fence = revoke  # the owner revokes while the fence runs: the approval check is the last gate
+    monkeypatch.setattr(agent, "build_model", lambda use=None: WrapperModel(tool_model(calls)))
+    with pytest.raises(agent.ModelUnavailable, match="^model_use_not_approved$"):
+        agent.run_checked("system", "prompt", Out, lambda output: [], use, fields=frozenset())
+    assert calls == []  # no request was sent
 
 
 def test_oc4_9_a_fence_that_cannot_confirm_in_time_is_a_lost_lease(monkeypatch, settings, stub_keeper):

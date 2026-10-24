@@ -1208,21 +1208,29 @@ branch exists in `agent.build_model`. These protections make a later live branch
 | Approved fields bound to what is sent | the request builders report the source fields they actually used (`snapshot.Request.fields` from `build_request` and `_claim_texts`; `interpret.build_prompt`); the run's pre-call refuses a field outside `approval.FIELDS` before anything is reserved, and the checked run refuses it again (`fields_not_approved`), for a live model against the recorded approval's terms on every request | a field the builder adds is refused; a fully populated synthetic record emits exactly the approved fields |
 | Pre-call approval | below | below |
 
-**The pre-call approval check.** No live request without the owner's recorded approval of exactly that request.
-The approval is a `ModelUseApproval` row (assessments migration 0011): written only by the owner-run
+**The pre-call approval check.** No live request without the owner's recorded approval of the terms that request is
+built and sent under. The approval is a **standing, terms-bound approval for one purpose**: it is valid for every
+request whose terms match, for every applicant, until the owner revokes it or a term changes, and it has no expiry (an
+expiry or a request cap is an owner decision, not built here; the table's shape is migration 0011). The check before
+every call is per request; the approval is not. The approval is a `ModelUseApproval` row (assessments migration
+0011): written only by the owner-run
 `approve_model_use` command as the migration owner role, read-only for the application role, append-only for every
 role, with no web path, and naming the approval the owner cites and who ran the command. The command computes and
 prints the **terms**: the provider and model id, the exact field list that may leave Catalyst (`approval.FIELDS`, per
-purpose), the prompt pack and its digest, the rubric and output schema versions, every budget, the request timeout
+purpose), how the request is built (`approval.builder()`: `BUILDER_VERSION`, every size cap, the model settings,
+the clarification rounds and the request and tool-call limits), the prompt pack and its digest, the rubric and output schema versions, every budget, the request timeout
 and the repair limit, and stores them with their digest. `approval.require` recomputes the terms for the call at hand
 before any reservation (the run's and the interpreter's pre-call) and then, for a live model, before **every request**
-inside the checked run (the repair and any later caller included, next to the lease fence), and refuses:
-`model_use_not_approved` (no record, or a revocation), `model_use_approval_stale` (any term changed, or the run was
+inside the checked run (the repair and any later caller included, after the lease fence, so it is the last gate before the call and an owner's revocation during the fence still stops the request), and refuses:
+`model_use_not_approved` (no record, or a revocation), `model_use_approval_stale` (any term changed, a row whose stored terms do not hash to its digest or whose provider or model id column names another model, or the run was
 frozen under another pack: a stale snapshot), `model_not_authorized` (the setting names no provider and model id).
 The assessment and the interpreter need separate approvals (purpose `assessment` or `interpretation`); both share
 the daily budget, which is one of the terms. Chose a database row written by an owner command over a code-fixed
 setting, because the approval must be audited and refusable per term without a release, and over an admin screen,
-because no web path may create one (D-23). The approval reference is a decision code (`[a-z0-9_.:-]{3,64}`, a database
+because no web path may create one (D-23). The command refuses an assessment approval while the current pack's rubric
+is marked synthetic, with no override: a synthetic rubric may not be approved for live use, and allowing it is an owner
+decision. A source-hash test pins `snapshot.clean`, `scrub`, `_fence`, `build_request` and `interpret.build_prompt`, so a
+change to how a request is built forces a `BUILDER_VERSION` bump and with it a new approval. The approval reference is a decision code (`[a-z0-9_.:-]{3,64}`, a database
 constraint), never free text. An approval is necessary, never sufficient: the start-up guard still refuses any live
 value of `CATALYST_ASSESSMENT_MODEL`. The table's triggers stop every role, the owner included, from changing a row;
 the owner role could still drop a trigger by DDL, and the compensating control is the owner-credential custody rule:
@@ -1262,6 +1270,11 @@ retention, and a check that the triggers are present, are entry criteria for the
    owner's.
 4. **Whether `CATALYST_CAPPED_EXIT` stays `human_only`.** It is the `oc4.8` recommended default carried by `oc4.12`,
    not ratified by the owner; `none` would leave a capped snapshot waiting for the owner's budget decision instead.
+5. **Whether the standing approval needs an expiry or a request cap.** Not built; the recommended default is none for
+   now, with revocation as the control (the approval is standing and terms-bound, section 21).
+6. **Whether `confidential_description` and fetched third-party text may leave Catalyst, and what the applicant is
+   told.** Both are in the approved field list today; counsel's answer and the applicant notice are entry criteria for
+   the first live branch (`oc4.7`).
 
 **Not built, by design:** the live provider client and model branch, an owner screen for approvals, and any change
 to the daily budget's default of 0.

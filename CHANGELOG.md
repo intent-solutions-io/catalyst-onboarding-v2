@@ -160,13 +160,18 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   fence before each model request and before the repair, a heartbeat that keeps the lease of a call longer than the
   lease (`workflow.keeper`), a request timeout Catalyst enforces around the call, the guard that one attempt fits in
   half the worker lease, a raising HTTP transport in tests, and the pre-call approval check: no live request without
-  the owner's recorded approval (`approve_model_use`, append-only, assessments migration 0011) naming the provider,
-  model id, field list, pack, rubric and schema versions, budgets, timeout and repair limit, for the assessment and the
-  reply interpreter alike; any changed term or a run frozen under another pack refuses. After review: the fields the
+  the owner's recorded standing, terms-bound approval (`approve_model_use`, append-only, assessments migration 0011, no
+  expiry) naming the provider, model id, field list, how the request is built, pack, rubric and schema versions,
+  budgets, timeout and repair limit, for the assessment and
+  the reply interpreter alike; any changed term or a run frozen under another pack refuses. After review: the fields the
   request builders send are bound to the approved list (`fields_not_approved`), the approval is re-checked before every
   request, a live model needs the fence (`no_lease_fence`), streaming is refused, the keeper is bounded and never
   writes the worker-alive file, the test transport patches the clients' `send`, and the approval reference is a code.
-  No live model branch exists
+  Security review fix-ups: the approval is relabelled standing, not per-request; the terms bind the builder version, the
+  size caps, the model settings and the request limits (a source-hash test forces a version bump); the approval check
+  runs after the lease fence, as the last gate; a row whose terms, provider or model id do not match its digest is
+  stale; an assessment approval is refused while the rubric is synthetic; the field-absence tests measure the prompt
+  text. No live model branch exists
 - The egress deny list (bead `9kg.39`, TEST-P6-28; `026` section 16, `018` section 3.3): the fetcher's egress proxy
   refuses the estate's own production hosts by name (and every name under one) before any lookup, by every address
   those names resolve to, and at the connected peer, re-resolving the names at each check and keeping every address

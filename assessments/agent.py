@@ -19,7 +19,8 @@ interpreter share:
   of exactly this use whenever the model setting is anything but "none" or "test"; with no live branch, an approved
   use still ends `model_not_authorized`;
 - **the approved fields bound to what is sent:** the request builders report the source fields they used, and a
-  field outside `approval.FIELDS` (and, live, outside the recorded approval's terms) refuses (`fields_not_approved`);
+  field outside `approval.FIELDS` refuses (`fields_not_approved`); a live approval's terms carry that same list, so
+  `approval.require` refuses a changed list as stale;
 - **the approval re-checked on every request** (a live model): the repair and any later caller included;
 - **a lease fence before each request, the repair included:** every request goes through `_Guarded`, which first
   renews the claim's lease through the active `workflow.keeper.LeaseKeeper` (a heartbeat thread also renews it while
@@ -107,27 +108,27 @@ def build_model(use: "approval.Use | None" = None):
 
 
 class _Guarded(WrapperModel):
-    """Every request, the repair included (oc4.9): the approval re-check (a live model only) and the lease fence first,
-    each in a worker thread (the ORM may not run on the event loop) and each bounded by the request timeout, then the
-    model call bounded by the same timeout, then a worker-alive beat from the calling side. A fence that cannot
-    confirm the lease in time counts as a lost lease; an approval re-check that cannot finish in time refuses. Streaming
-    is refused: nothing here uses it, and it would bypass the bound on the response."""
+    """Every request, the repair included (oc4.9): the lease fence, then the approval re-check (a live model only, the
+    last gate before the call), each in a worker thread (the ORM may not run on the event loop) and each bounded by
+    the request timeout, then the model call bounded by the same timeout, then a worker-alive beat from the calling
+    side. A fence that cannot confirm the lease in time counts as a lost lease; an approval re-check that cannot finish
+    in time refuses. Streaming is refused: nothing here uses it, and it would bypass the bound on the response."""
 
     def __init__(self, wrapped, *, fence, check, after, timeout: float):
         super().__init__(wrapped)
         self.fence, self.check, self.after, self.timeout = fence, check, after, timeout
 
     async def request(self, messages, model_settings, model_request_parameters):
-        if self.check is not None:
-            try:
-                await asyncio.wait_for(asyncio.to_thread(self.check), timeout=self.timeout)
-            except TimeoutError:
-                raise approval.NotApproved("approval_check_timeout") from None
         if self.fence is not None:
             try:
                 await asyncio.wait_for(asyncio.to_thread(self.fence), timeout=self.timeout)
             except TimeoutError:
                 raise ledger.LeaseLost from None
+        if self.check is not None:  # last gate before the call: an owner's revocation during the fence still stops it
+            try:
+                await asyncio.wait_for(asyncio.to_thread(self.check), timeout=self.timeout)
+            except TimeoutError:
+                raise approval.NotApproved("approval_check_timeout") from None
         response = await asyncio.wait_for(self.wrapped.request(messages, model_settings, model_request_parameters),
                                           timeout=self.timeout)
         if self.after is not None:
@@ -138,13 +139,12 @@ class _Guarded(WrapperModel):
         raise ModelUnavailable("streaming_not_allowed")
 
 
-def _recheck(use, fields):
-    """Per request, for a live model: the approval still stands for this use, and names every field being sent."""
+def _recheck(use):
+    """Per request, for a live model: the approval still stands for this use. `approval.require` checks the recorded
+    terms, field list included, against the code's, and `run_checked` has already held `fields` inside that list."""
     def check():
         try:
-            record = approval.require(use)
-            if not set(fields) <= set((record.terms or {}).get("fields") or ()):
-                raise approval.NotApproved("fields_not_approved")
+            approval.require(use)
         finally:
             connections.close_all()  # always a worker thread: close the connection it opened
     return check
@@ -184,7 +184,7 @@ def run_checked(system: str, prompt: str, output_type, check, use: "approval.Use
         raise ModelUnavailable("model_use_not_approved")
     timeout = float(settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS)
     guarded = _Guarded(model, fence=keeper.fence if keeper is not None else None,
-                       check=_recheck(use, fields or frozenset()) if live else None,
+                       check=_recheck(use) if live else None,
                        after=keeper.beat if keeper is not None else None, timeout=timeout)
     agent = Agent(guarded, output_type=output_type, system_prompt=system, retries=approval.REPAIR_LIMIT)
 
@@ -198,7 +198,7 @@ def run_checked(system: str, prompt: str, output_type, check, use: "approval.Use
             raise ModelRetry("The output broke these rules; fix them and answer again: " + ", ".join(found))
         return output
 
-    limits = UsageLimits(request_limit=2, tool_calls_limit=2,
+    limits = UsageLimits(request_limit=approval.REQUESTS_PER_ATTEMPT, tool_calls_limit=approval.REQUESTS_PER_ATTEMPT,
                          per_request_input_tokens_limit=settings.CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST,
                          output_tokens_limit=settings.CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT,
                          total_tokens_limit=attempt_tokens())
