@@ -26,7 +26,8 @@ Selection policy: {{ policy_ref }}.</p>
 </table>
 {% if not state.run %}<p>Model advice is unavailable or suspended for this snapshot. This is a human-only assessment (D-35), recorded with the structured reason <code>{{ state.human_only_code }}</code>{% if state.suspension_ref %} citing the suspension record {{ state.suspension_ref }}{% endif %}, the same criteria and the same snapshot.</p>
 <label>Why a human-only assessment <input name="human_only_reason" maxlength="300" required value="{{ form.human_only_reason }}"></label>{% endif %}
-{% if form %}<p><strong>Your reasoning above is kept; choose the outcome again</strong> after reading the current state (an outcome is never carried over).</p>{% endif %}
+{% if changed %}<p class="refused" role="alert"><strong>The case changed since you opened this page; your selections were cleared.</strong> Read the current state above, then choose each capability, strength and the outcome again (your notes are kept).</p>
+{% elif form %}<p><strong>Your reasoning above is kept; choose the outcome again</strong> after reading the current state (an outcome is never carried over).</p>{% endif %}
 <label>Outcome <select name="outcome" required><option value="">choose</option>{% for o in outcomes %}<option value="{{ o }}">{{ o }}</option>{% endfor %}</select></label>
 <label>Reason code <input name="reason_code" maxlength="40" pattern="[a-z][a-z_]{2,39}" required value="{{ form.reason_code }}"></label>
 <label>Reason <input name="reason_text" maxlength="500" value="{{ form.reason_text }}"></label>

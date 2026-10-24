@@ -3,7 +3,7 @@
 <h1>Agreements: <bdi>{{ application.display_name|visible }}</bdi></h1>
 <p>Stage: {{ application.stage }}. <strong>Next:</strong> {{ next_action }} (owner: {{ owner }}).</p>
 {% if error %}<p class="refused" role="alert">{{ error }}</p>{% endif %}
-{% if handoff %}<p>Provisioning hand-off: {{ handoff.status }} (held for P5; nothing runs it).</p>{% endif %}
+{% if handoff %}<p>Provisioning hand-off: {{ handoff.status }} (held until the owner releases it with activate_provisioning; nothing else runs it).</p>{% endif %}
 
 {% for row in rows %}
 <section aria-labelledby="ag-{{ row.instance.public_id }}">
@@ -90,7 +90,7 @@
 {% if may.confirm_required_details %}
 <form method="post" action="{% url 'agreements_staff:act' application.public_ref %}">{% csrf_token %}
 <input type="hidden" name="action" value="record_details"><input type="hidden" name="type" value="{{ d.type.key }}">
-{% for f, value in d.posted %}<label>{{ f }} <input name="field-{{ f }}" maxlength="200" required value="{{ value }}"></label>{% endfor %}
+{% for f, value in d.posted %}<label>{{ f }} <input name="field-{{ f }}" maxlength="200" required autocomplete="off" value="{{ value }}"></label>{% endfor %}
 <button>Record as a draft</button></form>
 {% if d.draft %}<form method="post" action="{% url 'agreements_staff:act' application.public_ref %}">{% csrf_token %}
 <input type="hidden" name="action" value="confirm_details"><input type="hidden" name="details" value="{{ d.draft.public_id }}">

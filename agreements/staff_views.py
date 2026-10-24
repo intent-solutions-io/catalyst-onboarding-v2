@@ -76,7 +76,8 @@ def _next_action(application, instances) -> tuple[str, str]:
     if StaffItem.objects.filter(application=application, status="open", reason_code__startswith="agreement_").exists():
         return "Resolve the open agreement items below", "staff"
     if application.stage == "agreements_complete":
-        return "All agreements passed; the provisioning hand-off is held for P5", "owner (P5 release)"
+        return ("All agreements passed; the provisioning hand-off is held until the owner releases it"
+                " (activate_provisioning)", "owner")
     _, next_type, reason = completion.next_step(application)
     if next_type is not None and not completion.details_confirmed(application, next_type):
         return f"Record and confirm the details the {next_type.key} needs", "staff (confirm_required_details)"

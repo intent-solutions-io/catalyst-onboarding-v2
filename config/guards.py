@@ -95,7 +95,7 @@ def is_loopback_literal(host: str) -> bool:
 def mail_host_allowed(environment: str, host: str, test_host: str) -> bool:
     """016 section 6, A-4 (D-28, amends REQ-022): a literal loopback address in `development`, `test` and `staging`,
     or, in `test` only, the one named test-service host. Names other than that one are refused, so a
-    real provider can never be configured outside production."""
+    real provider can never be configured in any allowed environment (production is not one yet)."""
     if environment not in ALLOWED_ENVIRONMENTS:
         return False
     if is_loopback_literal(host):

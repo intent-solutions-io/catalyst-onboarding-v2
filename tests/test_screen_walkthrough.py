@@ -222,7 +222,7 @@ def test_walk_a_refused_details_draft_keeps_the_typed_values(k, monkeypatch, set
                                  "field-tax_region": "   "})
     page = refused.content.decode()
     assert refused.status_code == 409 and "record_details: refused (field_invalid)" in page
-    assert 'name="field-mailing_country" maxlength="200" required value="Exampleland"' in page
+    assert 'name="field-mailing_country" maxlength="200" required autocomplete="off" value="Exampleland"' in page
 
 
 def test_walk_a_declined_agreement_is_reissued_once_from_the_screen(h, monkeypatch):
@@ -289,6 +289,7 @@ def test_walk_evidence_fetching_disabled_refuses_every_claim_visibly_and_the_cas
     page = client_for(ev.assessor).get(reverse("assessments_staff:evidence", args=[app.public_ref])).content.decode()
     assert "refused (no_approved_source)" in page and "an unavailable or private source never counts against the applicant" in page
     assert ev.site.requests == []  # nothing was fetched
+    assert Application.objects.get(pk=app.pk).stage in ("assessing", "awaiting_decision")  # the case moved on
 
 
 # --- where staff start, and the phone check ---------------------------------------------------------------------
@@ -296,8 +297,17 @@ def test_walk_evidence_fetching_disabled_refuses_every_claim_visibly_and_the_cas
 def test_walk_the_admin_index_lists_the_staff_screens_a_role_can_open(mailbox):
     page = client_for(mailbox.operator).get(reverse("admin:index")).content.decode()
     assert "Staff screens (where staff act)" in page and reverse("correspondence_staff:queue") in page
+    assert reverse("correspondence_staff:templates") not in page  # the operator holds no template permission
+    owner = client_for(mailbox.owner).get(reverse("admin:index")).content.decode()  # the message-template owner
+    assert reverse("correspondence_staff:templates") in owner and f'href="{reverse("correspondence_staff:queue")}"' not in owner
+    for group, link in (("Agreement template owner", "agreements_staff:templates"),
+                        ("Evidence source owner", "assessments_staff:sources")):
+        holder = staff(mailbox, f"index-{group.split()[0].lower()}", group)
+        assert reverse(link) in client_for(holder).get(reverse("admin:index")).content.decode(), group
     root = staff(mailbox, "root-index", superuser=True)
     assert "Staff screens (where staff act)" not in client_for(root).get(reverse("admin:index")).content.decode()
+    reader = staff(mailbox, "index-reader", "Read-only staff")
+    assert "Staff screens (where staff act)" not in client_for(reader).get(reverse("admin:index")).content.decode()
 
 
 def test_walk_every_page_declares_the_phone_viewport_and_the_public_pages_wrap(p2):
@@ -310,3 +320,142 @@ def test_walk_every_page_declares_the_phone_viewport_and_the_public_pages_wrap(p
     assert invalid.status_code == 200 and 'value="Ada"' in page and "A synthetic reason." in page  # kept on an error
     operator = client_for(staff(p2, "viewport-operator", "Correspondence operator"))
     assert VIEWPORT in operator.get(reverse("correspondence_staff:queue")).content.decode()
+
+
+# --- the operator review of PR #93 ------------------------------------------------------------------------------
+
+def test_walk_a_decision_refused_because_the_case_changed_clears_every_judgment_and_keeps_only_notes(d, monkeypatch):
+    app = ready_app(d, monkeypatch)
+    decider = client_for(d.decider)
+    form = {"digest": "0" * 64, "outcome": "admit", "reason_code": "synthetic_reason", "reason_text": "Typed reason."}
+    for criterion in rationale():
+        form.update({f"cap-{criterion}": "shown", f"str-{criterion}": "strong", f"note-{criterion}": f"Note for {criterion}."})
+    refused = decider.post(reverse("assessments_staff:decide", args=[app.public_ref]), form)
+    page = refused.content.decode()
+    assert refused.status_code == 409 and "Refused: changed_since_shown" in page
+    assert "The case changed since you opened this page; your selections were cleared." in page
+    assert " selected>" not in page  # no capability, strength or outcome is carried onto the new state
+    assert 'value="synthetic_reason"' not in page and 'value="Typed reason."' not in page
+    for criterion in rationale():
+        assert f'value="Note for {criterion}."' in page  # only the free-text notes come back
+    assert QualificationDecision.objects.filter(application=app).count() == 0
+
+
+def test_walk_a_suspended_assessment_item_closes_only_through_the_decision_and_links_by_permission(d, settings):
+    settings.CATALYST_ASSESSMENT_MODEL = "none"  # the launch: model advice disabled
+    app = collect_evidence(d, work_url_1=url(d, "/w"), contribution="I wrote the parser.")
+    run_worker()
+    [item] = StaffItem.objects.filter(application=app, reason_code="assessment_suspended", status="open")
+    page_url = reverse("correspondence_staff:item", args=[item.public_id])
+    operator = client_for(staff(d, "item-operator", "Correspondence operator"))
+    page = operator.get(page_url).content.decode()
+    assert "closes only through the human-only decision recorded there" in page
+    assert 'value="acknowledge"' not in page and "You hold no permission that resolves this item here" not in page
+    assert reverse("assessments_staff:decision", args=[app.public_ref]) not in page  # the operator cannot open it
+    assert "needs a permission you do not hold" in page
+    refused = followed(operator, reverse("correspondence_staff:resolve", args=[item.public_id]), {"code": "acknowledge"})
+    assert "Refused: resolution_not_allowed_for_this_reason" in refused
+    both = client_for(staff(d, "item-both", "Correspondence operator", "Assessment operator"))
+    assert reverse("assessments_staff:decision", args=[app.public_ref]) in both.get(page_url).content.decode()
+    assert StaffItem.objects.get(pk=item.pk).status == "open"
+
+
+def test_walk_a_blocked_mail_channel_is_decided_on_the_item_page_and_the_send_goes_once_resent(ready):
+    ready.use(ScriptedSMTP({"mail": 550}))  # the mail host refuses the sender: the channel is blocked
+    question = Question.objects.create(application=ready.app, text="Which synthetic project best shows your work?")
+    from correspondence import outbound
+
+    message = outbound.approve_question(question.pk, ready.operator)
+    run_worker()
+    [item] = StaffItem.objects.filter(reason_code="smtp_transport_blocked", status="open")
+    decider = client_for(ready.decider)
+    page = decider.get(reverse("correspondence_staff:item", args=[item.public_id])).content.decode()
+    assert "What happened: the mail channel is blocked." in page and 'value="authorize_resend"' in page
+    ready.use(ScriptedSMTP())  # the cause is fixed: the mail host accepts again
+    decide = reverse("correspondence_staff:send_decision", args=[item.public_id])
+    assert "Decision recorded." in followed(decider, decide, {"decision": "authorize_resend", "note": "Relay fixed"})
+    assert "Refused: nothing_to_decide" in followed(decider, decide, {"decision": "authorize_resend"})
+    run_worker()
+    message.refresh_from_db()
+    assert message.disposition == "accepted_by_server" and len(ready.server.messages) == 1
+
+
+def test_walk_a_mailbox_resync_shows_on_the_queue_and_clears_itself(mailbox, settings):
+    from tests.test_inbound import reply
+
+    _, message = sent_question(mailbox)
+    mailbox.imap.deliver(reply(message, body="one"))
+    mailbox.imap.deliver(reply(message, body="two"))
+    collect_mail()
+    settings.CATALYST_MAIL_BATCH_SIZE = 1
+    mailbox.imap.renumber()
+    collect_mail()  # a partial resync pass
+    operator = client_for(mailbox.operator)
+    queue = operator.get(reverse("correspondence_staff:queue")).content.decode()
+    assert ": resync;" in queue and "mailbox_uidvalidity_changed" in queue
+    collect_mail()
+    queue = operator.get(reverse("correspondence_staff:queue")).content.decode()
+    assert ": ok;" in queue  # the worker finishes the resync; staff only acknowledge the item
+
+
+def test_walk_more_double_submits_act_once(mailbox):
+    """The staff-message confirm: a second confirmation of the same preview is refused and queues nothing more."""
+    from correspondence.models import ApprovedMessage
+
+    operator = client_for(mailbox.operator)
+    preview = operator.post(reverse("correspondence_staff:preview_message", args=[mailbox.app.public_ref]),
+                            {"subject": "Synthetic subject", "body": "Synthetic body."}).content.decode()
+    action = re.search(r'action="(/staff/p2/drafts/[^"]+/confirm/)"', preview).group(1)
+    digest = re.search(r'name="digest" value="([0-9a-f]+)"', preview).group(1)
+    assert "Staff message confirmed and queued." in followed(operator, action, {"digest": digest})
+    assert "Refused: draft_already_confirmed" in followed(operator, action, {"digest": digest})
+    assert ApprovedMessage.objects.filter(application=mailbox.app, kind="staff_message").count() == 1
+
+
+def test_walk_a_double_submitted_rerun_queues_one_run(a, monkeypatch):
+    from assessments.models import AssessmentRun
+    from tests.test_assessment import assessed, valid
+
+    bad = valid(quote="A quote that appears nowhere in the evidence")
+    app, _, _ = assessed(a, monkeypatch, bad, bad)
+    runs = AssessmentRun.objects.filter(application=app).count()
+    assessor = client_for(a.assessor)
+    rerun = reverse("assessments_staff:rerun", args=[app.public_ref])
+    assert "A new assessment run was queued." in followed(assessor, rerun, {"note": "Try again."})
+    assert "Refused: run_in_flight" in followed(assessor, rerun, {"note": "Try again."})
+    assert AssessmentRun.objects.filter(application=app).count() == runs + 1
+
+
+def test_walk_a_double_submitted_agreement_cancel_cancels_once(k, monkeypatch):
+    from tests.test_agreements import issued, nda
+
+    app = issued(k, monkeypatch)
+    instance = nda(app)
+    decider = client_for(k.agreement_decider)
+    act = reverse("agreements_staff:act", args=[app.public_ref])
+    assert decider.post(act, {"action": "cancel", "instance": str(instance.public_id)}).status_code == 302
+    again = decider.post(act, {"action": "cancel", "instance": str(instance.public_id)})
+    assert again.status_code == 409 and "cancel: refused (not_live)" in again.content.decode()
+    assert app.events.filter(kind="agreement_cancel_requested").count() == 1
+
+
+def test_walk_double_submitted_provisioning_approve_and_close_act_once(cl, monkeypatch):
+    from provisioning.models import AccessRevocation
+
+    app = complete(cl, monkeypatch)
+    assert release()["released"] == 1
+    request = request_of(app)
+    act = reverse("provisioning_staff:act", args=[app.public_ref])
+    approver = client_for(cl.approver)
+    form = {"action": "approve", "request": str(request.public_id), "digest": request.approval_digest}
+    assert approver.post(act, form).status_code == 302
+    again = approver.post(act, form)
+    assert again.status_code == 409 and "approve: refused (" in again.content.decode()
+    closer = client_for(cl.closer)
+    close = {"action": "close", "outcome": "closed", "note": "Synthetic closure for the walkthrough"}
+    assert closer.post(act, close).status_code == 302
+    revocations = AccessRevocation.objects.filter(request__application=app).count()
+    again = closer.post(act, close)
+    assert again.status_code == 409 and "close: refused (" in again.content.decode()
+    assert Application.objects.get(pk=app.pk).stage == "closed"
+    assert AccessRevocation.objects.filter(request__application=app).count() == revocations

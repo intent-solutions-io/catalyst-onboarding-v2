@@ -136,7 +136,8 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   submit; the decision, clarification and agreement-details forms keep what was typed after a refusal (never the
   decision's outcome); the dossier labels actions held on policy; the staff item page states each reason in plain
   words and links the decision and evidence screens; the agreements screen names the countersignature wait and shows
-  each agreement's age; the provisioning screen shows an activation waiting on an unavailable provider; the staff
+  each agreement's age; a suspended or capped assessment item closes only through the human-only decision; a decision
+  refused because the case changed clears every judgment; the provisioning screen shows an activation waiting on an unavailable provider; the staff
   index lists the screens a role can open; the public pages wrap at phone width; stale help text and docstrings
   corrected (the worker's help line, "in this slice", test-only where staging is allowed, "outside production", the
   `016` line on a paused staff-send reconcile)

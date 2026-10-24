@@ -196,7 +196,13 @@ def decide(request, public_ref):
             reason_text=post.get("reason_text", ""), expected_digest=post.get("digest", ""), rationale=rationale,
             human_only_reason=post.get("human_only_reason", ""))
     except services.Refused as exc:  # the page shows the new state with the typed reasoning kept (9kg.41)
-        return refused_page(request, "assessments/staff/decision.html", _decision_context(request, application, post), exc)
+        changed = str(exc) == "changed_since_shown"
+        # The case changed under the form: judgments made against the old state are never carried onto the new one;
+        # only the free-text notes come back (operator review of PR #93).
+        kept = {k: v for k, v in post.items() if k.startswith("note-")} if changed else post
+        context = _decision_context(request, application, kept)
+        context["changed"] = changed
+        return refused_page(request, "assessments/staff/decision.html", context, exc)
     messages.success(request, "Decision recorded.")
     return redirect(reverse("assessments_staff:decision", args=[public_ref]))
 
