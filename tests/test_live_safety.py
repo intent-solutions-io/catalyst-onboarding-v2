@@ -15,13 +15,15 @@ import time
 import httpx2
 import pytest
 from django.conf import settings as django_settings
-from django.db import connection
+from django.db import connection, transaction
 from psycopg import errors
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
+from applications.models import Stage
+from applications.stages import transition
 from assessments import agent, approval, interpret, pack, runs
-from assessments.models import AssessmentInvocation, ModelUseApproval
+from assessments.models import AssessmentInvocation, AssessmentRun, ModelUseApproval
 from assessments.schema import AssessmentOutput
 from config import guards
 from tests import support
@@ -31,7 +33,7 @@ from tests.test_evidence import ev  # noqa: F401
 from tests.test_inbound import tls  # noqa: F401
 from tests.test_outbound import p2  # noqa: F401
 from workflow import keeper as keepers, ledger
-from workflow.models import PendingAction
+from workflow.models import AutomationPause, PendingAction
 
 LIVE = "minimax:MiniMax-M3"  # a live value: refused at start-up by the guard; set here only to reach the check
 
@@ -300,3 +302,76 @@ def test_oc4_9_the_approval_is_written_only_by_the_owner_command_and_is_append_o
     root = Path(support.ROOT)
     for path in [*root.glob("*/urls.py"), *root.glob("*/*views*.py"), *root.glob("*/staff_urls.py"), *root.glob("*/admin.py")]:
         assert "ModelUseApproval" not in path.read_text() and "approve_model_use" not in path.read_text(), path
+
+
+# --- oc4.10 items 4 to 6 -------------------------------------------------------------------------------------
+
+def test_oc4_10_4_a_dead_reserved_run_on_a_paused_application_holds_no_concurrency_slot(a, monkeypatch, settings):
+    settings.CATALYST_ASSESSMENT_CONCURRENT_RUNS = 1
+    owner = a.committed.connect("owner", autocommit=True)
+    app, run, _ = queued(a, monkeypatch, settings, valid())
+    rival, rival_run, seen = queued(a, monkeypatch, settings, valid(), email="rival@example.test")  # the live script
+    # The rival's worker died mid-attempt (reserved, its lease expired), and staff paused the rival: the claim skips
+    # it, so nothing would ever finish it.
+    owner.execute("UPDATE assessments_assessmentrun SET status = 'reserved' WHERE id = %s", [rival_run.pk])
+    owner.execute("UPDATE workflow_pendingaction SET status = 'running', lease_token = gen_random_uuid(),"
+                  " lease_expires_at = now() - interval '1 second' WHERE input_ref = %s", [str(rival_run.public_id)])
+    AutomationPause.objects.create(subject_type="application", subject_id=rival.public_ref, reason="synthetic", actor_ref="t")
+    assert runs.in_flight().count() == 0
+    runs.RunAssessment().run(claim_run())
+    run.refresh_from_db()
+    assert (run.status, seen["calls"]) == ("succeeded", 1)  # not held behind the dead run's slot
+
+
+def test_oc4_10_4_a_live_reserved_run_still_holds_its_slot(a, monkeypatch, settings):
+    settings.CATALYST_ASSESSMENT_CONCURRENT_RUNS = 1
+    owner = a.committed.connect("owner", autocommit=True)
+    app, run, _ = queued(a, monkeypatch, settings, valid())
+    rival, rival_run, seen = queued(a, monkeypatch, settings, valid(), email="rival@example.test")
+    owner.execute("UPDATE assessments_assessmentrun SET status = 'reserved' WHERE id = %s", [rival_run.pk])
+    owner.execute("UPDATE workflow_pendingaction SET status = 'running', lease_token = gen_random_uuid(),"
+                  " lease_expires_at = now() + interval '5 minutes' WHERE input_ref = %s", [str(rival_run.public_id)])
+    claim = claim_run()
+    runs.RunAssessment().run(claim)
+    action = PendingAction.objects.get(pk=claim.id)
+    assert (action.status, action.last_error, seen["calls"]) == ("queued", "global_concurrency", 0)
+
+
+def test_oc4_10_5_a_handler_defect_returns_the_run_to_queued_for_its_retry(a, monkeypatch, settings):
+    calls = {"n": 0}
+    real = runs.RunAssessment._succeed
+
+    def crash_once(self, claim, run, request, outcome):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("synthetic handler defect after the call")
+        return real(self, claim, run, request, outcome)
+    monkeypatch.setattr(runs.RunAssessment, "_succeed", crash_once)
+    app, run, seen = queued(a, monkeypatch, settings, valid())
+    assert ledger.run_one({"run_assessment": runs.RunAssessment()})
+    run.refresh_from_db()
+    assert run.status == "queued"  # waiting out the backoff, holding no concurrency slot
+    assert list(AssessmentInvocation.objects.filter(run=run).values_list("status", flat=True)) == ["abandoned"]
+    assert runs.in_flight().count() == 0
+    assert ledger.run_one({"run_assessment": runs.RunAssessment()})
+    run.refresh_from_db()
+    assert run.status == "succeeded" and seen["calls"] == 2
+
+
+def test_oc4_10_6_a_run_that_ends_early_leaves_no_invocation_started(a, monkeypatch, settings):
+    owner = a.committed.connect("owner", autocommit=True)
+    app, run, _ = queued(a, monkeypatch, settings, valid())
+    claim = claim_run()
+    scripted(monkeypatch, valid(), during=lambda seen: owner.execute(
+        "UPDATE workflow_pendingaction SET lease_token = gen_random_uuid() WHERE id = %s", [claim.id]))
+    runs.RunAssessment().run(claim)  # the lease was lost during the call: the invocation stays started (counted)
+    assert AssessmentInvocation.objects.get(run=run).status == "started"
+    owner.execute("UPDATE workflow_pendingaction SET lease_expires_at = now() - interval '1 second' WHERE id = %s",
+                  [claim.id])
+    with transaction.atomic():
+        transition(app.pk, (Stage.ASSESSING,), Stage.AWAITING_DECISION, event_kind="synthetic_stage_move")
+    runs.RunAssessment().run(claim_run())  # the reclaim exits early: the stage changed
+    run.refresh_from_db()
+    assert (run.status, run.error_code) == ("refused", "stage_changed")
+    assert AssessmentInvocation.objects.get(run=run).status == "abandoned"  # still counted, no longer "in flight"
+    assert AssessmentRun.objects.filter(pk=run.pk, finished_at__isnull=False).exists()

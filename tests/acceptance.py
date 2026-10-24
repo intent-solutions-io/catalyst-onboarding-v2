@@ -1753,6 +1753,16 @@ P6_SUPPORTING = {
         "test_live_safety::test_oc4_9_the_reply_interpreter_needs_its_own_approval",
         "test_live_safety::test_oc4_9_the_approval_is_written_only_by_the_owner_command_and_is_append_only",
     ],
+    # oc4.10 (018 section 21): the reconciliation's real-use defects 4 to 7; items 1 to 3 are the oc4.12 tests above.
+    "oc4.10 the real-use defects: a dead reservation holds no slot, a handler defect requeues the run, an ended run leaves nothing started, the lease-versus-timeout guard": [
+        "test_live_safety::test_oc4_10_4_a_dead_reserved_run_on_a_paused_application_holds_no_concurrency_slot",
+        "test_live_safety::test_oc4_10_4_a_live_reserved_run_still_holds_its_slot",
+        "test_live_safety::test_oc4_10_5_a_handler_defect_returns_the_run_to_queued_for_its_retry",
+        "test_live_safety::test_oc4_10_6_a_run_that_ends_early_leaves_no_invocation_started",
+        "test_live_safety::test_oc4_9_oc4_10_7_one_attempt_must_fit_in_half_the_lease",
+        "test_human_only::test_the_digest_carries_the_policy_and_a_bound_policy_still_records_the_pack_and_rubric",
+        "test_human_only::test_the_guard_refuses_a_policy_that_is_unbound_or_bound_to_a_synthetic_pack",
+    ],
     "9kg.5 the database freezes inbound provenance and outbound and reply-link identity for every role (internal-launch batch item 6)": [
         "test_provenance_freezes::test_9kg5_a_frozen_inbound_column_refuses_an_update_for_every_role",
         "test_provenance_freezes::test_9kg5_the_updatable_inbound_columns_still_update_through_the_application_role_and_the_owner",
