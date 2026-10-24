@@ -61,10 +61,14 @@ from .models import MailboxCursor
 from .rendering import TemplateRefused, canonical_digest
 from .scheduling import reschedule_on_resume
 from .staff_items import clean_note, event, hard_bounce_open, resolve_item
+from .verification import EXPIRED_ITEM
 
 Disposition = ApprovedMessage.Disposition
 Status = PendingAction.Status
 DECISIONS = ("abandon", "authorize_resend", "revise")
+# 9kg.67: the words on each decision button; the code stays the submitted value and the recorded decision.
+DECISION_LABELS = {"abandon": "Abandon further attempts", "authorize_resend": "Authorize a resend",
+                   "revise": "Revise from the current template"}
 CLOSED = (Disposition.ACCEPTED_BY_SERVER, Disposition.ACCEPTED_BY_EVIDENCE, Disposition.SUPERSEDED,
           Disposition.OPERATOR_ABANDONED)
 
@@ -174,7 +178,10 @@ def resend_verification(application_id: int, user, note: str = "", expected_numb
 
     `expected_number` (9kg.41) is the resend the screen offered (resends used when the page was drawn, plus one). A
     double submit, or a second tab, names a resend that is already recorded and is refused as
-    `resend_already_recorded`, so one click on the page never sends two messages. The screen always passes it."""
+    `resend_already_recorded`, so one click on the page never sends two messages. The screen always passes it.
+
+    An open `verification_expired` item (9kg.66) for the application is resolved by the resend, in the same
+    transaction, with the resolution code `verification_resent` and this staff member as the actor."""
     from applications.models import OPEN_STAGES
     from applications.services import reissue_challenge
 
@@ -199,6 +206,11 @@ def resend_verification(application_id: int, user, note: str = "", expected_numb
         reissue_challenge(application)
         event(application, VERIFICATION_RESENT, {"resend_number": number, "note": note},
               actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
+        # 9kg.66: a resend answers the expired-link item, so it resolves it, recorded as this staff member's act.
+        for item in StaffItem.objects.select_for_update(of=("self",)).filter(
+                application=application, reason_code=EXPIRED_ITEM, status=StaffItem.Status.OPEN).order_by("id"):
+            resolve_item(item, code=VERIFICATION_RESENT, actor_ref=actor, note=note,
+                         effects={"reason": EXPIRED_ITEM, "resend_number": number})
     return number
 
 

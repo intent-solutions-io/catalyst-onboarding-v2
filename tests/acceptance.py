@@ -1551,6 +1551,7 @@ P6_SUPPORTING = {
         "test_post_restore::test_9kg_33_the_restore_drill_pins_its_shape_for_the_effect_reconciliation",
         "test_startup::test_9kg_33_a_deployment_needs_an_effect_journal_directory_outside_the_repository",
         "test_guards::test_9kg_33_the_effect_journal_directory_is_required_outside_the_local_environments",
+        "test_guards::test_9kg_33_the_fetcher_starts_without_a_journal_and_a_journaling_process_does_not",
     ],
     "9kg.49 the read-only Sent-folder evidence source and the production mail-host allow-list (029 section 5.2)": [
         "test_inbound::test_9kg_49_an_uncertain_send_is_settled_as_sent_by_a_provider_copy_in_the_sent_folder",
@@ -1567,6 +1568,10 @@ P6_SUPPORTING = {
         "test_system_health::test_9kg_51_thresholds_and_paging_are_per_wait_class",
         "test_system_health::test_9kg_51_the_default_page_list_is_the_three_bad_classes_and_the_authority_flag_is_reported",
     ],
+    "9kg.57 held send_decline, issue_nda and provision follow-ons (agreements_complete) have their own aged-waits class (026 section 17)": [
+        "test_system_health::test_9kg_57_held_followons_age_each_held_kind_from_its_last_hold_and_raise_their_own_code",
+        "test_system_health::test_9kg_51_each_aged_wait_raises_its_code_and_clears_when_resolved",
+    ],
     "9kg.30 the staff role matrix, the grant command and the append-only grant record (029 section 17.1)": [
         "test_staff_roles::test_every_permission_a_staff_screen_checks_has_a_grant_path",
         "test_staff_roles::test_each_group_role_confers_exactly_its_matrix_set",
@@ -1577,6 +1582,11 @@ P6_SUPPORTING = {
         "test_staff_roles::test_no_runbook_or_design_step_grants_with_raw_sql_or_a_shell",
         "test_staff_roles::test_every_group_membership_has_a_latest_grant_row",
     ],
+    "9kg.56 the read-only grant-ledger audit reconciles memberships and direct permissions with the grant record (029 section 17.1)": [
+        "test_staff_roles::test_9kg_56_the_audit_reports_access_planted_by_raw_owner_sql_and_health_carries_the_counts",
+        "test_staff_roles::test_9kg_56_revoke_records_access_a_restore_removed_and_the_audit_names_differences_without_a_remedy",
+        "test_staff_roles::test_9kg_56_the_application_role_reads_everything_the_staff_roles_health_part_reads",
+    ],
     "9kg.50 the hold exit through the decision service and the staff verification resend (018 section 19, 016 section 10.14)": [
         "test_hold_and_resend::test_an_on_hold_case_comes_back_to_a_decision_through_the_service",
         "test_hold_and_resend::test_an_on_hold_case_comes_back_through_the_decision_form_and_a_refused_user_sees_403",
@@ -1585,6 +1595,18 @@ P6_SUPPORTING = {
         "test_hold_and_resend::test_a_resend_is_refused_beyond_the_limit_after_verification_and_without_the_permission",
         "test_hold_and_resend::test_a_resend_is_refused_while_a_hard_bounce_is_open",
         "test_hold_and_resend::test_the_dossier_flags_a_case_awaiting_decision_or_on_hold_and_links_the_decision_screen",
+    ],
+    "9kg.66 the expiry of an unverified application's only link opens one staff item the resend resolves (016 section 10.17)": [
+        "test_hold_and_resend::test_9kg_66_an_expired_only_link_opens_one_staff_item_that_the_staff_resend_resolves",
+        "test_hold_and_resend::test_9kg_66_no_item_once_the_applicant_confirmed_a_newer_link_is_out_or_the_case_closed",
+        "test_hold_and_resend::test_9kg_66_an_acknowledged_item_is_never_reopened_for_the_same_challenge",
+        "test_hold_and_resend::test_9kg_66_the_sweep_is_scheduled_at_deployment_and_its_absence_is_a_health_anomaly",
+        "test_hold_and_resend::test_9kg_66_an_open_item_closes_itself_once_the_applicant_verifies_or_the_case_closes",
+    ],
+    "9kg.67 every staff resolution and decision button shows a plain label and submits its code (016 section 10.18)": [
+        "test_staff_screens::test_9kg_67_every_resolution_and_decision_button_shows_a_plain_label_and_submits_its_code",
+        "test_staff_screens::test_p2_42_identity_resolution_needs_the_decision_maker_through_the_screen",
+        "test_staff_screens::test_p2_42_the_item_page_shows_the_evidence_and_offers_only_lawful_decisions",
     ],
     "oc4.12 the human-only assessment path completed for a launch with model advice disabled (018 section 20)": [
         "test_human_only::test_the_decision_service_and_screen_never_import_the_model_layer",
@@ -1642,6 +1664,7 @@ P6_SUPPORTING = {
         "test_pause_guard::test_9kg6_a_system_pause_clears_only_with_a_staff_resume_event_with_a_note_in_the_same_transaction",
         "test_pause_guard::test_9kg6_a_staff_pause_clears_with_the_resume_event_even_inside_a_savepoint",
         "test_pause_guard::test_9kg6_no_earlier_event_and_no_rolled_back_savepoint_event_clears_a_staff_pause",
+        "test_pause_guard::test_9kg6_a_resume_event_from_before_the_marker_existed_carries_the_migrations_id_and_clears_no_pause",
         "test_pause_guard::test_9kg6_an_unknown_subject_type_is_guarded_and_cannot_be_cleared",
         "test_pause_guard::test_9kg6_the_transaction_marker_is_on_no_read_surface",
         "test_pause_guard::test_9kg6_the_event_transaction_marker_is_always_the_databases_own",
@@ -1760,7 +1783,8 @@ P6_LIVE_ONLY = {
 #                ("inspected" | "canary" | "walkthrough", <what>, <commit or run id>, <record>). Default: ["pytest"].
 #   pytest       what the gated tests show: "behaviour" (default) or "shape" (they pin the code's shape; the
 #                behaviour is a drill's, so a PASS is not behaviour evidence on its own; 028 section 4).
-#   environment  where the pytest proof ran (default TEST_ENVIRONMENT); a drill's is DRILL_ENVIRONMENT.
+#   environment  where the pytest proof ran (default TEST_ENVIRONMENT). A drill's is DRILL_ENVIRONMENT unless the
+#                drill proof names its own as a third element, ("drill", "scripts/<name>.sh", <environment>) (9kg.64).
 #   partial      None (every clause shown) or the residual bead that carries the clauses not yet shown.
 #   residual     what is not yet shown (required with `partial`).
 #   note         anything the counts must not hide (a stand-in, an owner-set target).
@@ -1773,7 +1797,7 @@ DRILL_ENVIRONMENT = "staging stack on the dev box"
 # The drill scripts: the commit whose 026 section 16 record holds the drill's result, and that record.
 DRILLS = {
     "scripts/staging_check.sh": {"revision": "a5a19fd", "record": "026 section 16, 6B.11 part 1 (PR #75); the dark deploy at 2cb12cf (PR #79)"},
-    "scripts/deploy_drill.sh": {"revision": "74cbb53", "record": "026 section 16, 6B.10 (PR #73); batch 2 at main (PRs #82 to #85)"},
+    "scripts/deploy_drill.sh": {"revision": "74cbb53", "record": "026 section 16, 6B.10 (PR #73); batch 2 at main (PRs #82 to #85); 9kg.63 under invitation-only intake"},
     "scripts/alert_drill.sh": {"revision": "ae10624", "record": "026 section 16, 6B.12 (PR #77)"},
     "scripts/restore_drill.sh": {"revision": "472789c", "record": "026 section 16, 6B.13 (PR #78)"},
     "scripts/cutover_rehearsal.sh": {"revision": "2cb12cf", "record": "026 section 16, 6B.11 part 3 (PR #79)"},
@@ -1784,12 +1808,13 @@ RESIDUAL_BOUNDARIES = {  # the earliest boundary each residual bead blocks (029 
     "9kg.28": "the dark deploy (9kg.31.5)",
     "9kg.39": "enabling fetching",
     "9kg.31.5": "the go/no-go (9kg.31.6)",
-    "9kg.63": "release preparation (9kg.31.4)",
 }
 REVISION = re.compile(r"^([0-9a-f]{7,40}|[0-9]{8,})$")  # a commit, or a workflow run id
 STAGING_CHECK, DEPLOY_DRILL, ALERT_DRILL, RESTORE_DRILL, CUTOVER = (
     ("drill", "scripts/staging_check.sh"), ("drill", "scripts/deploy_drill.sh"), ("drill", "scripts/alert_drill.sh"),
     ("drill", "scripts/restore_drill.sh"), ("drill", "scripts/cutover_rehearsal.sh"))
+# 9kg.64: the cutover rehearsal ran against a stand-in Learn site, so that proof, not the pytest one, says so.
+CUTOVER_ON_STAND_IN = (*CUTOVER, "a stand-in Learn site beside the staging stack on the dev box")
 ATTESTATION_RUN = ("inspected", "image run 39780920293 on main: build, content check, SBOM, scan and attestation",
                    "178da42", "028 section 4; GitHub Actions run 39780920293")
 BUZZ_DELIVERY = ("canary", "one real delivery read back from Buzz", "ae10624", "026 section 16, 6B.12 (PR #77)")
@@ -1823,13 +1848,10 @@ P6_EVIDENCE = {
     "TEST-P6-23": {"proofs": ["pytest", RESTORE_DRILL]},
     "TEST-P6-24": {"proofs": [DEPLOY_DRILL, "pytest"], "pytest": "shape",
                    "since_028": "9kg.37 (PR #84): a stale backup receipt and another deploy's backup are refused, drilled"},
-    "TEST-P6-25": {"proofs": [RESTORE_DRILL, DEPLOY_DRILL, "pytest"], "pytest": "shape", "partial": "9kg.63",
-                   "residual": "the deploy drill's data-kept check in the N+1 block fails under the invitation-only intake "
-                               "default since PR #85 (59 of 60 on 2026-10-23); the drill must issue an invitation before "
-                               "each submission and be re-run green; 9kg.38 (PR #84) drilled the N+1 expand reverted to N on "
-                               "the expanded schema and a contract revert refused, 60 of 60, before PR #85 changed the default"},
-    "TEST-P6-26": {"proofs": [CUTOVER, "pytest"], "pytest": "shape",
-                   "environment": "a stand-in Learn site beside the staging stack on the dev box",
+    "TEST-P6-25": {"proofs": [RESTORE_DRILL, DEPLOY_DRILL, "pytest"], "pytest": "shape",
+                   "since_028": "9kg.38 (PR #84): the N+1 expand reverted to N on the expanded schema and a contract revert "
+                                "refused, drilled 60 of 60; drilled 60 of 60 again under invitation-only intake (9kg.63)"},
+    "TEST-P6-26": {"proofs": [CUTOVER_ON_STAND_IN, "pytest"], "pytest": "shape",
                    "note": "proven on a stand-in Learn site; the live Learn read awaits its preconditions and the owner's go"},
     "TEST-P6-27": {"proofs": [STAGING_CHECK]},
     "TEST-P6-28": {"proofs": ["pytest", STAGING_CHECK], "partial": "9kg.39",
@@ -1889,7 +1911,9 @@ def _proof(case: str, raw, environment: str) -> dict:
     if kind == "drill":
         if where not in DRILLS:
             raise RegisterError(f"{case}: unknown drill script {where!r}")
-        return {"type": kind, "where": where, "environment": DRILL_ENVIRONMENT, **DRILLS[where]}
+        if len(rest) > 1 or (rest and not (isinstance(rest[0], str) and rest[0].strip())):
+            raise RegisterError(f"{case}: a drill proof takes at most its own environment, a non-empty text")
+        return {"type": kind, "where": where, "environment": rest[0] if rest else DRILL_ENVIRONMENT, **DRILLS[where]}
     if len(rest) != 2 or not REVISION.match(rest[0]) or not rest[1]:
         raise RegisterError(f"{case}: a {kind} proof needs a commit or run id and a record")
     return {"type": kind, "where": where, "environment": "recorded", "revision": rest[0], "record": rest[1]}

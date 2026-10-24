@@ -1514,3 +1514,49 @@ its place (`<key>_retired`). A broken placeholder is a refusal with a reason cod
 welcome in 0016, these two in 0018): a correspondence **data migration** adds a new draft version, with
 `synthetic=False`, its digest computed as in section 3.2, and the owner approves it on the template screen. No command
 and no screen writes template text, and an approved version is never edited. The design record is `029` section 17.2.
+
+### 10.17 An expired only link opens a staff item (9kg.66, 2026-10-24)
+
+The screen walkthrough (`029` appendix B, GAP 1) found that an unverified application whose only verification link
+expires prompts nothing: the applicant holds no working link and staff are not told. Built:
+
+- **The sweep.** `verification_expiry_sweep` (`correspondence.verification`) is a recurring ledger action like the
+  session clean-up: each pass opens the items, then queues its successor `CATALYST_VERIFICATION_SWEEP_SECONDS` (900,
+  fixed in code) later, and the chain survives a final failure. `manage.py schedule_verification_sweep` (idempotent)
+  starts it at deployment, after migrate, beside `schedule_session_cleanup` (`deploy/staging/compose.yaml`); outside
+  the local environments `catalyst_health` reports `verification.verification_sweep_unscheduled` when no pass is
+  queued or running. It sends nothing and is not automation, so an application's pause does not hold it; the restore
+  hold stops it like every action.
+- **What opens.** For an open application with contact unverified whose active challenge (unused, not superseded;
+  there is at most one, since issuance supersedes the previous) has expired by the database clock, one
+  `verification_expired` item keyed `challenge:<challenge>`, re-checked with the application locked. **Once per
+  challenge:** an item for that challenge, open or resolved, is never opened again, so a re-run, a redelivered pass or
+  an acknowledged item adds nothing; a resent link that also expires is a new challenge and a new item. Items carry
+  identifiers and the reason code only.
+- **How it closes.** The staff resend (section 10.14) resolves the application's open `verification_expired` item in
+  its own transaction, with the resolution code `verification_resent`, the staff member as the actor and the resend
+  number in the effects. The item page states the reason in plain words and links the application's correspondence
+  screen, where the resend is. Each pass first closes, as the system (code `verification_superseded`, with the
+  application locked), every open item whose application has since been verified or has left the open stages, so a
+  confirmation through a new submission or a closure ends the item without staff (review of PR #97). A holder of
+  `resolve_exception` may also acknowledge it.
+- **The first pass after deployment** opens an item for every open, unverified application whose link has already
+  expired (200 per pass, oldest expiry first, the rest on the next passes); once per challenge is intended, so this
+  backlog appears once.
+- **Chosen over** a per-challenge check queued by intake or by the send: that adds a second action to the S1 path and
+  changes the accepted GATE-S1 histories and counts; the sweep leaves the S1 path exactly as accepted.
+
+Tests: `tests/test_hold_and_resend.py` (`9kg.66` in `tests/acceptance.py`).
+
+### 10.18 Plain labels on the resolution buttons (9kg.67, 2026-10-24)
+
+The walkthrough (`029` appendix B, GAP 5) found the staff item page's buttons showing internal codes such as
+`address_usable_again`. Each resolution code and the acknowledgement now has a plain-English label
+(`processing.RESOLUTION_LABELS`), and so does each send decision (`staff_actions.DECISION_LABELS`). The label is the
+button text only: the code stays the submitted value, the allow-list key in `resolve_exception`, the resolution
+record and the audit trail, so nothing a service checks or records changes. Chose labels in code beside the
+allow-lists over labels in the template because the allow-list and its words then change together, and a test
+fails when a new code has no label. Tests: `tests/test_staff_screens.py` (`9kg.67` in `tests/acceptance.py`): every
+code has a label that is not itself a code; on the item page no button text equals a raw code and each code is the
+value of a form whose button shows its label; the earlier tests that matched button text now match the submitted
+values.

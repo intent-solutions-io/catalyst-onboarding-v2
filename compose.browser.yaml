@@ -1,0 +1,37 @@
+# The phone-width browser check (bead catalyst-v2-9kg.68; 009 section 5.3), an overlay on compose.yaml used only by
+# scripts/browser_check.sh. It adds one service, a headless Chromium behind Playwright's own server, and points the
+# test container at it. The browser container never reaches the application: tests/browser_phone_check.py answers
+# every page request in-process through Django's test client, so this service needs no published port and no route to
+# the database. compose.yaml and the full suite (scripts/test.sh) are unchanged; the image pin lives here, not there,
+# so the Python and PostgreSQL pins stay the only two that compose.yaml and ci.yml share (tests/test_startup.py).
+#
+# The image carries the browsers and their system libraries for this exact Playwright release (1.63.0, the version
+# requirements/browser.txt pins; the module refuses a mismatch). It has no Playwright package, so the server's own
+# copy is installed from the same hash-locked requirements/browser.txt at start-up.
+
+services:
+  browser:
+    image: mcr.microsoft.com/playwright/python:v1.63.0-noble@sha256:72bd171a9ffc2b4b59532aaa6210e21014d07093120dc25528870c0b840da1f0
+    user: pwuser
+    init: true
+    volumes:
+      - ./requirements:/requirements:ro
+    environment:
+      HOME: /tmp
+      PYTHONDONTWRITEBYTECODE: "1"
+    command: >-
+      sh -c "python -m pip install --quiet --disable-pip-version-check --require-hashes --no-deps --target /tmp/pw
+      -r /requirements/browser.txt
+      && PYTHONPATH=/tmp/pw exec python -m playwright run-server --host 0.0.0.0 --port 3000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 3000), 2)"]
+      interval: 2s
+      timeout: 5s
+      retries: 90
+
+  test:
+    depends_on:
+      browser:
+        condition: service_healthy
+    environment:
+      CATALYST_BROWSER_WS: "ws://browser:3000/"

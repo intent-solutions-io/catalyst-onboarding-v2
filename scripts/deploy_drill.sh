@@ -59,8 +59,14 @@ applied_with() { CATALYST_IMAGE="$1" compose run --rm --no-deps -T web python ma
 in_web() { compose exec -T web python manage.py shell -c "$1" 2>/dev/null | tail -1; }
 drill_column() { in_web "from django.db import connection as c; cur = c.cursor(); cur.execute(\"select count(*) from information_schema.columns where table_name = 'workflow_pendingaction' and column_name = 'drill_note'\"); print(cur.fetchone()[0])"; }
 applications() { in_web "from applications.models import Application; print(Application.objects.count())"; }
-submit() {  # submit <email>: an applicant through the real form, via the proxy (as staging_check.sh does)
+invite() {  # invite <email>: 9kg.63, intake is invitation-only (9kg.43), so the owner invites the address first, as
+  # restore_drill.sh does: the owner-run command on the serving image, as the migration owner.
+  CATALYST_IMAGE="$(serving)" compose run --rm --no-deps -T migrate python manage.py catalyst_invite "$1" \
+    --issued-by "deploy drill" --note "synthetic drill applicant" 2>/dev/null | grep -q '"issued": true'
+}
+submit() {  # submit <email>: the owner's invitation, then an applicant through the real form, via the proxy
   local jar="$work/jar-$1" form csrf
+  invite "$1" || return 1
   form="$(curl -sk -c "$jar" --resolve catalyst.staging.test:18443:127.0.0.1 https://catalyst.staging.test:18443/request-access/)"
   csrf="$(grep -oE 'name="csrfmiddlewaretoken" value="[^"]+"' <<<"$form" | head -1 | sed 's/.*value="//; s/"$//')"
   [ "$(curl -sk -b "$jar" -o /dev/null -w '%{http_code}' --resolve catalyst.staging.test:18443:127.0.0.1 \

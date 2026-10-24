@@ -468,6 +468,12 @@ def journal_problems(settings) -> list[str]:
         return []
     from workflow import journal
 
+    if getattr(settings, "CATALYST_PROCESS_ROLE", "") == "fetcher":
+        # 9kg.63: the fetcher makes no effect and mounts no journal (scripts/render_staging_compose.py names a directory
+        # it never has, so a stray write fails loudly); requiring that directory to exist kept it from starting. The
+        # role is read, not the process kind: this check runs at start-up, before the worker command declares its kind,
+        # and a web process with the fetcher role is refused by process_role_problems.
+        return []
     kind = _process_kind()
     problem = journal.directory_problem(write=kind in ("web", "worker", "reconcile"))
     if problem and not (problem == "not_configured"):

@@ -252,6 +252,8 @@ def test_9kg_51_each_aged_wait_raises_its_code_and_clears_when_resolved(k, monke
                                           status="awaiting_processing", from_matches_verified_address=True)
     activation = PendingAction.objects.create(kind="provision_activate", subject_type="application", subject_id=signed.public_ref,
                                               idempotency_key="aged-waits-probe-activate")
+    followon = PendingAction.objects.create(kind="send_decline", subject_type="application", subject_id=held.public_ref,
+                                            idempotency_key="aged-waits-probe-decline", status="held")  # 9kg.57
     report = health()[1]["aged_waits"]  # under the default thresholds (the pending-age target): every wait is fresh
     assert aged_codes() == [] and set(report) == {*classes, "anomalies"}
     assert all(report[name]["waiting"] >= 1 and report[name]["oldest_seconds"] >= 0 for name in classes), report
@@ -265,6 +267,9 @@ def test_9kg_51_each_aged_wait_raises_its_code_and_clears_when_resolved(k, monke
     # are checked well inside the next three seconds
     assert aged_codes() == sorted(classes) and health()[0] == 1
     assert health()[1]["aged_waits"]["on_hold"]["oldest_seconds"] >= 3
+    # The held follow-ons have their own test (9kg.57); the decisions below create fresh ones, so stop paging that class.
+    PendingAction.objects.filter(pk=followon.pk).update(status="cancelled")
+    settings.CATALYST_HEALTH_AGED_WAITS_PAGE = [name for name in classes if name != "held_followons"]
     # Resolving each wait clears its code (a new wait a resolution creates is fresh, so it raises nothing yet).
     decide(k, waiting, "admit")
     assert "awaiting_decision" not in aged_codes()
@@ -314,3 +319,45 @@ def test_9kg_51_the_default_page_list_is_the_three_bad_classes_and_the_authority
     assert CATALYST_HEALTH_AGED_WAITS_PAGE == ["replies_awaiting_processing", "issued_agreements", "provisioning_activation"]
     report = health()[1]
     assert report["decision"] == {"qualification_authority_configured": False, "anomalies": []}
+
+
+def test_9kg_57_held_followons_age_each_held_kind_from_its_last_hold_and_raise_their_own_code(pv, monkeypatch, settings):
+    """Held `issue_nda` (an admit), `send_decline` (a decline's notice, held until oc4.11), and the `provision` hand-off
+    an application in `agreements_complete` waits on, each aged past the class's own threshold, raise
+    `aged_waits.held_followons`; a released or cancelled follow-on and a held action of another kind are not counted.
+    Codes, kind names and counts only."""
+    from tests.test_assessment import scripted, valid
+    from tests.test_decision import decide
+    from tests.test_evidence import collect, url
+
+    done = complete(pv, monkeypatch)  # agreements complete: the held `provision` hand-off awaits the owner's release
+    scripted(monkeypatch, valid())
+    nda = collect(pv, email="nda@example.test", work_url_1=url(pv, "/w"), contribution="I wrote the parser.")
+    decide(pv, nda, "admit")  # the admit's `issue_nda` is created held (activation already ran for the first case)
+    assert PendingAction.objects.filter(kind="issue_nda", subject_id=nda.public_ref, status="held").exists()
+    PendingAction.objects.create(kind="send_decline", subject_type="application", subject_id=nda.public_ref,
+                                 idempotency_key="held-followons-decline", status="held")  # by kind and status, oc4.11 or not
+    PendingAction.objects.create(kind="start_evidence_collection", subject_type="application", subject_id=nda.public_ref,
+                                 idempotency_key="held-followons-other-kind", status="held")  # not a follow-on: not counted
+    settings.CATALYST_HEALTH_AGED_WAIT_SECONDS = {**settings.CATALYST_HEALTH_AGED_WAIT_SECONDS, "held_followons": 3}
+    report = health()[1]["aged_waits"]["held_followons"]
+    assert (report["waiting"], report["aged"], report["threshold_seconds"], report["pages"]) == (3, 0, 3, False)
+    assert aged_codes() == []  # fresh, and audit only by default (the default page list leaves the class out)
+    settings.CATALYST_HEALTH_AGED_WAITS_PAGE = ["held_followons"]
+    assert aged_codes() == []  # still fresh
+    time.sleep(4)
+    report = health()[1]["aged_waits"]["held_followons"]
+    assert report["aged_by_kind"] == {"send_decline": 1, "issue_nda": 1, "provision": 1} and report["oldest_seconds"] >= 3
+    assert aged_codes() == ["held_followons"] and health()[0] == 1
+    text = json.dumps(health()[1])
+    assert str(done.public_ref) not in text and str(nda.public_ref) not in text
+    # Each follow-on leaving held clears its share; the code clears with the last one.
+    for kind, status in (("issue_nda", "queued"), ("send_decline", "cancelled")):  # released by the owner; withdrawn
+        PendingAction.objects.filter(kind=kind, status="held").update(status=status)
+        assert aged_codes() == ["held_followons"]
+    assert Application.objects.get(pk=done.pk).stage == "agreements_complete"
+    PendingAction.objects.filter(kind="provision", status="held").update(status="queued")  # the owner's release
+    assert aged_codes() == [] and health()[1]["aged_waits"]["held_followons"]["waiting"] == 0
+    # A follow-on returned to held ages from its return, not from its creation (the refused `issue_nda` case).
+    PendingAction.objects.filter(kind="issue_nda").update(status="held", updated_at=timezone.now())
+    assert health()[1]["aged_waits"]["held_followons"]["aged"] == 0 and aged_codes() == []
