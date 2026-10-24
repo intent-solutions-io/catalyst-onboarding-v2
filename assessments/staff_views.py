@@ -101,7 +101,7 @@ def _rows(application):
 
 
 def refused_page(request, template, context, exc):
-    """9kg.41: a refused form comes back with what the person typed (the agreements and provisioning screens' rule), the
+    """9kg.41: a refused form comes back with what the person typed (the P4 and P5 screens' rule), the
     refusal code on the page and status 409, instead of a redirect that drops the typed text."""
     messages.error(request, f"Refused: {exc}")
     return render(request, template, context, status=409)
