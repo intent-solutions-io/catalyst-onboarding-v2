@@ -675,6 +675,7 @@ def test_the_report_prints_the_register_and_counts_partial_live_only_and_support
                                  "1 live-only recorded), partial 1 (residual beads: 9kg.28 (01))")
     assert lines["shape-only"] == "shape-only pytest evidence (behaviour shown by a drill): TEST-P6-01; live-only: TEST-P6-03"
     # register.json, written at the end of the full run: rows, commit, digest when known, each proof's record pointer.
+    assert not register_file.with_name("register.json.tmp").exists()  # written whole, then moved into place
     written = json.loads(register_file.read_text())
     assert written["commit"] == "e" * 40 and written["image_digest"] is None and written["gate"] == "GATE-STAGING"
     # 9kg.64: the run as it ended, not a row list alone: its exit status, the supporting groups and every gate's counts.
@@ -728,6 +729,31 @@ def test_the_run_commit_is_stamped_by_test_sh_and_ci_keeps_the_register_as_a_pin
     upload = runtime[runtime.index("- name: Keep the evidence register (register.json)"):]
     assert tests_step < runtime.index("- name: Keep the evidence register (register.json)")
     assert "if: ${{ always() }}" in upload and "uses: actions/upload-artifact@" in upload and "path: register.json" in upload
+    # PR #95 review: an artifact-service failure cannot fail the required check.
+    assert upload.split("uses:", 1)[0].count("continue-on-error: true") == 1
+
+
+def test_test_sh_marks_a_run_on_a_changed_working_tree_dirty(tmp_path):
+    """PR #95 review: the stamp says when the tree had changes. The block of scripts/test.sh that sets the commit runs
+    against a stub git (the test image has none): a clean tree gives the commit, a changed one the commit with -dirty,
+    and no repository gives unrecorded."""
+    test_sh = (ROOT / "scripts/test.sh").read_text()
+    block = test_sh[test_sh.index('CATALYST_RUN_COMMIT="$(git rev-parse'):test_sh.index("export CATALYST_RUN_COMMIT")]
+    stub = tmp_path / "bin" / "git"
+    stub.parent.mkdir()
+    stub.write_text('#!/bin/sh\n[ -n "$STUB_NO_REPO" ] && exit 128\n'
+                    'case "$1" in rev-parse) echo ' + "a" * 40 + ' ;; status) printf "%s" "$STUB_STATUS" ;; esac\n')
+    stub.chmod(0o755)
+
+    def stamp(**env):
+        result = subprocess.run(["bash", "-c", block + 'printf "%s" "$CATALYST_RUN_COMMIT"'], capture_output=True, text=True,
+                                env={"PATH": f"{stub.parent}:/usr/bin:/bin", **env}, timeout=30)
+        assert result.returncode == 0, result.stderr
+        return result.stdout
+
+    assert stamp(STUB_STATUS="") == "a" * 40
+    assert stamp(STUB_STATUS=" M scripts/test.sh\n") == "a" * 40 + "-dirty"
+    assert stamp(STUB_NO_REPO="1") == "unrecorded"
 
 
 def test_every_p6_test_is_mapped():

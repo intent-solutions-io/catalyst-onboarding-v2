@@ -221,13 +221,16 @@ def write_register(statuses, exit_status: int) -> str:
         gates[gate] = {kind: {s: [statuses[g] for g in groups].count(s) for s in ("PASS", "FAIL", "INCOMPLETE", "NOT RUN")}
                        for kind, groups in (("numbered", cases), ("supporting", supporting))}
     path = register_path()
-    with open(path, "w", encoding="utf-8") as out:
+    # Written beside the target and moved into place (PR #95 review), so a reader never sees a half-written file.
+    temporary = path + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as out:
         json.dump({"gate": "GATE-STAGING", "commit": run_commit(), "exit_status": exit_status,
                    "image_digest": os.environ.get("CATALYST_IMAGE") or None,
                    "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "rows": rows,
                    "summary": acceptance.summarise(rows),
                    "supporting": {group: statuses[group] for group in acceptance.P6_SUPPORTING},
                    "gates": gates}, out, indent=1, sort_keys=True)
+    os.replace(temporary, path)
     return path
 
 

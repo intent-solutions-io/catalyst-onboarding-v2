@@ -10,7 +10,11 @@ cd "$(dirname "$0")/.."
 export CATALYST_UID="$(id -u)" CATALYST_GID="$(id -g)"
 # 9kg.64: the commit this run tests, from the host's git (the test image has no git); compose.yaml passes it to the
 # test service, and the evidence register stamps it on its report and on register.json.
+# A working tree with changes is marked -dirty: the run tested more than the commit (PR #95 review).
 CATALYST_RUN_COMMIT="$(git rev-parse HEAD 2>/dev/null)" || CATALYST_RUN_COMMIT=unrecorded
+if [ "$CATALYST_RUN_COMMIT" != unrecorded ] && [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+  CATALYST_RUN_COMMIT="$CATALYST_RUN_COMMIT-dirty"
+fi
 export CATALYST_RUN_COMMIT
 # CATALYST_TEST_PROJECT lets a caller choose the name; that name is then the caller's responsibility, and
 # the script refuses to use one that already has containers so it can never clean up someone else's run.

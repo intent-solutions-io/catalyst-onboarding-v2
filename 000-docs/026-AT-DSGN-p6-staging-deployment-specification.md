@@ -437,9 +437,10 @@ it writes `register.json` (`CATALYST_EVIDENCE_REGISTER`, or the repository root,
 commit, its exit status, the image digest when known, each proof's record pointer, the summary, GATE-STAGING's
 supporting-group statuses and every gate's numbered and supporting counts, so the go/no-go package reads it
 rather than transcribing the report. The run's commit is `CATALYST_RUN_COMMIT`, which `scripts/test.sh` exports from
-the host's `git rev-parse HEAD` and `compose.yaml` passes to the test service (the image has no git), else CI's
+the host's `git rev-parse HEAD` (with `-dirty` appended when the working tree has changes) and `compose.yaml` passes to the test service (the image has no git), else CI's
 `GITHUB_SHA`; CI uploads `register.json` from the runtime job as the `evidence-register` artifact whatever the
-result, through `actions/upload-artifact` pinned by commit (`9kg.64`). The gate itself is unchanged: a full run still needs every numbered case and
+result, through `actions/upload-artifact` pinned by commit, a step that cannot fail the required check
+(`continue-on-error`); the file is written to `register.json.tmp` and moved into place (`9kg.64`). The gate itself is unchanged: a full run still needs every numbered case and
 supporting group PASS. `tests/test_acceptance.py` checks the register's shape and its refusals, that it reproduces
 after-action report `028` section 4 case by case (21 proven, one of them on a stand-in, and 17 partly; a later change
 to a case's completeness must carry a `since_028` note in its entry, so the AAR stays historical and the register and
@@ -1725,8 +1726,12 @@ personal-data scan and the pause-row guard (TEST-P6-35).**
   caught it. `config.guards.journal_problems` now exempts the fetcher role (read from `CATALYST_PROCESS_ROLE`, since
   the check runs before the worker command declares its kind; a web process may not carry that role at all,
   `process_role_problems`); every other process still needs a private, writable directory.
-  `tests/test_guards.py` covers both sides. The restore drill and `scripts/staging_check.sh` start the same fetcher
-  and were not re-run here.
+  `tests/test_guards.py` covers both sides, including the whole start-up check (`all_problems`) still refusing a web
+  process that claims the fetcher role with no journal directory.
+- **The other two drills that start the fetcher, re-run once on the dev box, 2026-10-24** at `7963943` (this change's
+  second commit; the review follow-ups touch only tests, `scripts/test.sh` and CI, none of them in the image):
+  `scripts/staging_check.sh` **128 of 128 PASS, exit 0** (154 s), with "fetcher is running" and every fetcher
+  isolation check green; `scripts/restore_drill.sh` **43 of 43 PASS, exit 0** (226 s). Both removed their stacks.
 - **The drill on the dev box, 2026-10-24**, `scripts/deploy_drill.sh` with the estate wrapper, run against `main` at
   `dba8a85` (PR #93) with this change's drill script and start-up check in the image (the image is built from the
   working tree and labelled with `HEAD`): **60 of 60 PASS, exit 0, 17 minutes 22 seconds.** Two earlier runs that

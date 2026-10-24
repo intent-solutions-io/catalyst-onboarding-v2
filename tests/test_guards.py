@@ -217,6 +217,12 @@ def test_9kg_33_the_fetcher_starts_without_a_journal_and_a_journaling_process_do
             "CATALYST_EFFECT_JOURNAL_DIR is missing: a private (0700) directory this process can write"]
     # A web process may not carry the fetcher role at all, so the exemption cannot reach the web path.
     assert guards.process_role_problems(staging(CATALYST_PROCESS_ROLE="fetcher"), "web")
+    # And through the whole start-up check (PR #95 release-ops review): a web process claiming the fetcher role with
+    # no journal directory is still refused, whatever the journal rule exempts.
+    settings.CATALYST_ENV = "staging"
+    settings.CATALYST_PROCESS_ROLE = "fetcher"
+    monkeypatch.setattr(guards, "_process_kind", lambda: "web")
+    assert "the web process may not run as CATALYST_PROCESS_ROLE=fetcher" in guards.all_problems(settings, {})
 
 
 def test_6b1_review_staging_refuses_a_private_mail_peer_like_development(settings):

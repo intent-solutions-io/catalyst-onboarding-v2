@@ -81,6 +81,7 @@ jobs:
       # result; a run whose register was refused writes none, so the warning, not a stale file, says so.
       - name: Keep the evidence register (register.json)
         if: ${{ always() }}
+        continue-on-error: true  # an artifact-service failure must never fail the required check (PR #95 review)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: evidence-register
