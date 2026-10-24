@@ -108,7 +108,7 @@ This is the single source for how work is authorized. `CLAUDE.md` and `AGENTS.md
 | Markdown | `npx --yes markdownlint-cli2@0.23.2 "**/*.md"` | broken formatting that hides content | 2.1-2.7 s warm; in CI (action pinned by commit) |
 | Doc index | `bash scripts/check-docs.sh index` (CI step "Every filed doc appears in 000-docs/000-INDEX.md" calls it) | filed documents nobody can find | 0.07 s; in CI |
 | Agent definitions | **CI:** the step "Agent definitions stay read-only and well formed" in `ci.yml` (frontmatter parses, 14 fields, name matches file, no Write/Edit/Bash/Agent/Task/NotebookEdit/Skill granted, Agent denied, model allowed, no permission bypass). **Local, when definitions change:** `claude plugin validate .claude/agents` plus the Intent Solutions validator behind `/validate-agent` (maintainer's tooling, not vendored here) | malformed or over-privileged specialists | CI step 0.09 s locally; IS validator 2.4 s for eleven (owner-local) |
-| Python lint and dependency audit | **CI:** the step "Python lint and dependency audit (ruff, pip-audit; 009 section 5.1)" in the docs job, on every pull request. **Local:** `ruff check .` (ruff 0.16.2; rules in `pyproject.toml`) and, from a virtual environment with `pip install --require-hashes --no-deps -r requirements/lint.txt`, `python -m pip_audit --disable-pip --no-deps --require-hashes -r requirements/base.txt -r requirements/dev.txt -r requirements/docs.txt -r requirements/lint.txt` | undefined and unused names, import and comparison mistakes, syntax errors; a locked dependency with a known vulnerability | ruff 0.45 s over 286 files; pip-audit 4.8 s with a warm cache, 10.3 s with a fresh one, over 57 distinct locked distributions; the hash-locked tool install 21 s (2026-10-23, bead `catalyst-v2-9kg.46`) |
+| Python lint and dependency audit | **CI:** the step "Python lint and dependency audit (ruff, pip-audit; 009 section 5.1)" in the docs job, on every pull request. **Local:** `ruff check .` (ruff 0.16.2; rules in `pyproject.toml`) and, from a virtual environment with `pip install --require-hashes --no-deps -r requirements/lint.txt`, `python -m pip_audit --disable-pip --no-deps --require-hashes -r requirements/base.txt -r requirements/dev.txt -r requirements/docs.txt -r requirements/lint.txt -r requirements/browser.txt` | undefined and unused names, import and comparison mistakes, syntax errors; a locked dependency with a known vulnerability | ruff 0.45 s over 286 files; pip-audit 4.8 s with a warm cache, 10.3 s with a fresh one, over 57 distinct locked distributions; the hash-locked tool install 21 s (2026-10-23, bead `catalyst-v2-9kg.46`) |
 | Runtime tests | `scripts/test.sh` locally (a unique Compose project per run; it provisions the three database roles, then runs the suite; cleanup removes only that run's resources); CI job "Runtime checks (Python 3.14.8, PostgreSQL 16.15)" with the same digest-pinned images, aggregated into the required check | settings, start-up guards, data-model constraints, database roles and append-only protection, migrations; a skip, xfail or xpass fails the run | 130 tests, 61.2 s of tests, 88 s wall locally (2026-10-10, 1B.2 branch) |
 | Secrets | **CI:** gitleaks 8.30.1 (checksum-verified download) over full Git history, redacted output | credentials in the public repository | 0.32 s locally over history; 1.1 s over the working tree |
 | Sensitive content beyond secrets | `python3 -m config.personal_data_scan --class evidence` over the committed evidence set (run by the suite, so in CI; `026` section 11.2) plus manual diff review for private paths, internal access details and agreement text elsewhere | public exposure | scan 0.1 s locally; the rest manual (gitleaks finds credentials, not personal data) |
@@ -144,7 +144,7 @@ place, is proposal P4. Until then "same version as CI" holds only while the acti
 every pull request reports it under the existing required check and no job or check name changed (section 5.5; the
 release gate's two names are unchanged). Scope: ruff's default rule set (`E4`, `E7`, `E9`, `F`) over every tracked Python
 file, with `F811` ignored under `tests/` because test modules import fixtures from other test modules and then name them as
-test parameters; `pip-audit` over the four hash-locked requirement files, reading them without installing anything and
+test parameters; `pip-audit` over the hash-locked requirement files (four then; five since `browser.txt`, bead `catalyst-v2-9kg.68`), reading them without installing anything and
 failing on any known vulnerability, fixed or not (a waiver is an explicit `--ignore-vuln` with its reason in the
 workflow). Both tools are hash-locked in `requirements/lint.txt`, compiled like `docs.txt`. Measured on the development
 host: ruff 0.45 s, pip-audit 4.8 s warm and 10.3 s with a fresh cache, the tool install 21 s; the step runs after the
@@ -184,6 +184,37 @@ names); a targeted run is reported, never gated (`tests/acceptance.py` marks a s
   listed. It adds no required check, no path filter and no change to an existing job; `tests/test_release_gate.py`
   checks that it stays dispatch-only, outside the gate's names and on the same pinned images. A dispatch needs the
   workflow on `main`, so its hosted-runner time is read off the first dispatch after merge.
+
+**Phone-width browser check (added 2026-10-24, bead `catalyst-v2-9kg.68`).** One real browser check of the public
+applicant pages, which the screen walkthrough (`029` appendix B, GAP 6) could only read as HTML. Decision: **a
+documented pre-release step plus a dispatch-only CI job**, not part of the required check. Chose that over a job on
+every pull request because the check pulls a browser image of about 1 GB compressed and adds about four minutes for
+pages that change rarely, while a skip cannot stand in the full suite (a skip fails the run, section 5.6).
+
+- *What it runs.* `tests/browser_phone_check.py` (not collected by the full suite: the name does not start with
+  `test_`) in a headless Chromium at 375 px (a mobile context, so the viewport declaration is honoured only if the page
+  declares it) and at 1,280 px: request access in open mode and in invitation mode with the data notice, request
+  received, confirm your address and its result, set your own password with its refusal and its result, withdraw and
+  its result. On each page it asserts that the layout width equals the device width, that the document is no wider than
+  the viewport, and that every form control is visible, inside the viewport, usable by pointer (Playwright's
+  actionability checks) and reached by the Tab key; the forms are filled and submitted in the browser. Every page
+  request is answered in-process by Django's test client with CSRF checks enforced, inside the test's transaction, on
+  synthetic data from the existing helpers; a request for any other origin fails the test, so the browser reaches
+  nothing.
+- *Pins.* Playwright 1.63.0, hash-locked in `requirements/browser.txt` (compiled like `dev.txt`, constrained to it, and
+  in the `pip-audit` step); the browser image `mcr.microsoft.com/playwright/python:v1.63.0-noble` by digest in the
+  overlay `compose.browser.yaml`, so `compose.yaml` and the full suite are unchanged. The module refuses a client
+  version that differs from the image tag.
+- *Where it runs.* Locally, `scripts/browser_check.sh` (isolation and cleanup as `scripts/test.sh`; arguments go to
+  pytest). In CI, the dispatch-only workflow "Phone-width browser check" (`browser.yml`) runs the same script; it takes
+  no input, adds no required check and changes no existing job, and `tests/test_release_gate.py` checks that it stays
+  dispatch-only and outside the gate's names. Run it before a release that touches a public template or its styles, and
+  before wider enrollment (`9kg.31.10`).
+- *Measured* on the development host, 2026-10-24: 6 tests passed in 118 s of pytest, 4 min 10 s wall including both
+  dependency installs and the role provisioning. The check fails as it should: with the viewport declaration removed
+  the phone layout was 980 px wide, and with the wrapping rule removed an unbroken 250-character link on the confirm
+  page made the document 2,000 px wide; both runs failed and the restored templates passed. The hosted-runner time is
+  read off the first dispatch after merge.
 
 The map at `main` `3477231` plus this change (55 test modules), with each row's measured share of the suite from the
 2026-10-23 profile (section 5.4; shares from the development-host run of the 1,452-test suite, the hosted-runner

@@ -924,8 +924,9 @@ driven with synthetic data through the real Django views using the Django test c
 walkthrough's own tests are in `tests/test_screen_walkthrough.py` (23 tests, mapped in `tests/acceptance.py` under
 P6 supporting `9kg.41`).
 
-**Phone and desktop.** The repository has no browser-test tooling (no Playwright or Selenium), so the phone check
-is a rendered-HTML check, not a rendered-pixel one. Every page template declares the phone viewport. The public pages
+**Phone and desktop.** When this walkthrough ran the repository had no browser-test tooling (no Playwright or
+Selenium), so the phone check was a rendered-HTML check, not a rendered-pixel one; GAP 6 below has since been addressed
+by a real browser check of the public pages (`9kg.68`). Every page template declares the phone viewport. The public pages
 (request access, received, confirm, set password, withdraw) now carry phone-width rules: long links and answers wrap,
 and form controls never overflow the screen. The request form keeps every typed value after a validation error. The
 staff screens are desktop-first tables used on named devices (section 7); on a phone, wide tables scroll sideways.
@@ -974,8 +975,8 @@ larger than a small fix, recorded with a bead suggestion and not changed here.
 | 32 | Disabled: mailbox provisioning | `provisioning_staff:provisioning` | the owner | the held hand-off (row 24); without an adapter nothing is committed and staff are told | none at launch | OK (`test_provisioning::test_review_without_an_adapter_nothing_is_committed_and_staff_are_told`). |
 
 **Totals:** 35 states walked. 24 are OK as they stand, each with one or more cited tests. 11 were FIXED in this
-PR, each with a test: rows 1, 3, 10, 11, 12, 13, 14, 15, 17, 21 and 26. Five GAPs remain open (below): rows 2, 13 and
-17 point at GAPs 1, 3 and 4, and GAPs 5 and 6 cover all the screens. GAP 2 was fixed in this PR (rows 10 and 11).
+PR, each with a test: rows 1, 3, 10, 11, 12, 13, 14, 15, 17, 21 and 26. Five GAPs remained open (below): rows 2, 13 and
+17 point at GAPs 1, 3 and 4, and GAPs 5 and 6 cover all the screens (GAP 6 since addressed by `9kg.68`). GAP 2 was fixed in this PR (rows 10 and 11).
 
 **Double submits.** One form acted twice: the verification resend (row 1, fixed). These POSTs were each submitted twice
 through the view in a test and acted once:
@@ -1025,9 +1026,12 @@ staff item page states each reason in plain words, and the dossier shares the sa
 5. *Resolution buttons show codes.* For example `address_usable_again` and `mark_spoof` are shown as codes, not
    plain labels; the reason is now in plain words. Suggest: a small bead giving each resolution code a plain label,
    with the tests that match on the codes updated.
-6. *No rendered phone check.* No browser tooling is installed. Suggest: a bead to add one Playwright check of the
-   public pages at phone width before outside applicants (`9kg.31.10`). Accepting this as deferred for the internal
-   cohort is the owner's decision.
+6. *No rendered phone check.* **Addressed by `9kg.68`:** `tests/browser_phone_check.py`, run by
+   `scripts/browser_check.sh` (a pre-release step, and dispatchable in CI as "Phone-width browser check"; `009` section
+   5.3), renders request access (open and invitation mode), received, confirm, set password and withdraw, and each
+   result page, in headless Chromium at 375 px and 1,280 px: no horizontal scroll, the viewport declaration honoured,
+   every control visible, usable and reached by the Tab key. All passed on first measurement with no template change.
+   It is listed for the wider-enrollment decision (`9kg.31.10`).
 
 ### B.1 Screens the internal cohort will not exercise at launch (for the go/no-go package)
 
