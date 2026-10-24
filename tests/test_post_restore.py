@@ -296,6 +296,12 @@ def test_9kg_33_a_journal_that_cannot_be_written_is_observable_and_refuses_readi
 
     settings.CATALYST_ENV = "staging"
     assert journal.directory_problem(write=True) == ""
+    if os.geteuid() == 0:
+        # CI's job container runs the suite as root, which ignores mode bits; emulate the service user (uid 10001),
+        # for whom a directory without the owner's write bit is unwritable.
+        real_access = os.access
+        monkeypatch.setattr(os, "access", lambda p, m: real_access(p, m) and (
+            not m & os.W_OK or bool(os.stat(p).st_mode & 0o200)))
     os.chmod(effect_journal, 0o500)
     try:
         assert journal.directory_problem(write=True) == "unwritable"
