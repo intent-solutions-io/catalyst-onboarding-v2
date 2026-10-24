@@ -31,7 +31,8 @@ RUN echo "$CATALYST_COMMIT" > /app/COMMIT && chmod -R a-w /app \
     && install -d -o catalyst -g catalyst -m 0750 /run/catalyst \
     && install -d -o catalyst -g catalyst -m 0700 /var/lib/catalyst/mail \
     && install -d -o catalyst -g catalyst -m 0755 /srv/static \
-    && install -d -o catalyst -g catalyst -m 0700 /var/lib/catalyst/backups /var/lib/catalyst/custody
+    && install -d -o catalyst -g catalyst -m 0700 /var/lib/catalyst/backups /var/lib/catalyst/custody \
+    && install -d -o catalyst -g catalyst -m 0700 /var/lib/catalyst/effects
 # Mount points (6B.5b): the web socket's directory, shared only with the proxy's group; the private file mail sink;
 # the static copy the proxy serves. A named volume takes these owners and modes on first use.
 USER catalyst

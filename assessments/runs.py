@@ -215,6 +215,9 @@ class RunAssessment:
         AssessmentInvocation.objects.create(
             run=run, application=application, snapshot_sha256=run.snapshot_sha256, attempt=claim.attempt,
             reserved_requests=REQUESTS_PER_ATTEMPT, reserved_tokens=agent.attempt_tokens())
+        from .interpret import record_usage
+
+        record_usage()  # 9kg.33: the day's total into the effect journal once this reservation commits
         AssessmentRun.objects.filter(pk=run.pk).update(status=Run.RESERVED, request_sha256=request.sha256)
         return None, run, request
 

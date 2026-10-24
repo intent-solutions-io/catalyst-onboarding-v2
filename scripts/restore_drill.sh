@@ -8,6 +8,9 @@
 # bootstrap administrator's credential, after every restore negative control has been refused. The post-restore step
 # runs (review, then lift), the stack starts, and the drill shows the restored data, the closed links and a working
 # form. RPO and RTO are measured and printed for the owner's targets (P6-D-7). Cases: TEST-P6-21 (in part), 22, 23, 29.
+# 9kg.33: an effect after the backup (a staff account created) is journaled outside the backup; the journal is carried
+# to the recovery host like the archive; the review replays it and opens its staff item, the lift is refused until the
+# owner resolves it, and the restored stack has no such account.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 work="$(mktemp -d)"
@@ -22,7 +25,8 @@ b() { CATALYST_PUBLIC_PORT=19443 CATALYST_STAFF_PORT=19444 docker compose --proj
 cleanup() {
   a --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
   b --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
-  docker run --rm --user 0 -v "$work:/w" "$CATALYST_IMAGE" sh -c 'rm -rf /w/archive' >/dev/null 2>&1  # owned by 10001
+  docker compose --project-name "catalyst-restore-empty-$$" -f deploy/staging/compose.yaml --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
+  docker run --rm --user 0 -v "$work:/w" "$CATALYST_IMAGE" sh -c 'rm -rf /w/archive /w/effects' >/dev/null 2>&1  # owned by 10001
   docker image rm "$CATALYST_IMAGE" >/dev/null 2>&1
   rm -rf "$work"
 }
@@ -33,6 +37,10 @@ as_root() { docker run --rm --user 0 -v "$archive:/archive" "$@"; }  # the archi
 count_applications() {  # count_applications <a|b>: the number of applications, as the owner (a count, never a row)
   "$1" run --rm --no-deps -T migrate python manage.py shell -c \
     "from applications.models import Application; print(Application.objects.count())" 2>/dev/null | tail -1
+}
+invite() {  # invite <a|b> <email>: 9kg.43, intake is invitation-only, so the owner invites the synthetic address first
+  "$1" run --rm --no-deps -T migrate python manage.py catalyst_invite "$2" --issued-by "restore drill" \
+    --note "synthetic drill applicant" 2>/dev/null | grep -q '"issued": true'
 }
 apply() {  # apply <port> <email>: one synthetic applicant through the public form; prints the response code
   local port="$1" jar="$work/jar" page csrf url="https://catalyst.staging.test:$1"
@@ -66,6 +74,7 @@ a up -d --wait db >/dev/null 2>&1
 a --profile provision run --rm provision-roles >/dev/null 2>&1
 a up -d --wait web worker fetcher egress proxy >/dev/null 2>&1 || { echo "FAIL the source stack did not come up"; exit 1; }
 for n in 1 2 3; do
+  check "the owner invites synthetic applicant $n (invitation-only intake)" invite a "before-$n@example.test"
   check "the source takes synthetic applicant $n through its form" test "$(apply 18443 "before-$n@example.test")" = 302
 done
 for _ in $(seq 30); do
@@ -82,20 +91,34 @@ manifest="$(python3 -c 'import json,sys;print(json.loads(sys.argv[1])["manifest_
 check "TEST-P6-21 the backup wrote a set with a manifest digest" test -n "$set_name" -a -n "$manifest"
 check_not "TEST-P6-35 the backup receipt holds no personal data" grep -q '@' <<<"$receipt"
 check "the source has three applications at the backup" test "$(count_applications a)" = 3
+invite a after-backup@example.test
 check "an applicant after the backup is accepted by the source" test "$(apply 18443 after-backup@example.test)" = 302
+# 9kg.33: an effect after the backup point, journaled outside the backup (the owner-run command, as in production).
+check "9kg.33 a staff account created after the backup is an effect the backup cannot know" test "$(a run --rm --no-deps -T \
+  -e CATALYST_DRILL_STAFF_PASSWORD="synthetic-drill-$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 24)" \
+  migrate python manage.py add_readonly_staff after-backup-staff --password-env CATALYST_DRILL_STAFF_PASSWORD \
+  --approval-ref "restore drill (synthetic)" 2>/dev/null | tail -1)" = "created read-only staff account 'after-backup-staff'"
 
 # The archive on the host: a copy of the set, private, read by the restore through a read-only mount.
 volume="${source_project}_catalyst-backups"
 docker run --rm --user 0 -v "$volume:/sets:ro" -v "$archive:/archive" "$CATALYST_IMAGE" \
   sh -c "cp -a /sets/$set_name /archive/ && chown -R 10001:10001 /archive"
 check "TEST-P6-35 the archived set is 0700 and its files 0600" bash -c "[ \"\$(docker run --rm --user 0 -v '$archive:/archive:ro' '$CATALYST_IMAGE' sh -c 'stat -c %a /archive/$set_name; find /archive/$set_name -type f -exec stat -c %a {} + | sort -u')\" = \$'700\\n600' ]"
-a down -v >/dev/null 2>&1  # the source is gone: only the archive remains
+# The effect journal is carried to the recovery host like the archive: it lives outside the backup's rollback domain.
+install -d -m 0700 "$work/effects"
+docker run --rm --user 0 -v "${source_project}_catalyst-effects:/effects:ro" -v "$work/effects:/carry" "$CATALYST_IMAGE" \
+  sh -c "cp -a /effects/. /carry/"
+check "9kg.33 the effect journal was carried off the source host" \
+  docker run --rm --user 0 -v "$work/effects:/carry:ro" "$CATALYST_IMAGE" sh -c 'test -s /carry/effects.jsonl'  # owned by 10001
+a down -v >/dev/null 2>&1  # the source is gone: only the archive and the carried journal remain
 
 # --- the target: a separate, migrated, empty stack ------------------------------------------------------------
 recovery_started=$(date +%s)  # the RTO clock starts with an empty host: the target is part of the recovery
 b up -d --wait db >/dev/null 2>&1
 b --profile provision run --rm provision-roles >/dev/null 2>&1
 b run --rm --no-deps -T migrate python manage.py migrate --noinput >/dev/null 2>&1
+docker run --rm --user 0 -v "$work/effects:/carry:ro" -v "${target_project}_catalyst-effects:/effects" "$CATALYST_IMAGE" \
+  sh -c "cp -a /carry/. /effects/ && chown -R 10001:10001 /effects && chmod 0700 /effects"
 refused_with() { grep -q "restore refused: $1" "$work/restore.out"; }  # this exact refusal, not any failure
 restore() {  # restore <set dir under /archive> [catalyst_restore arguments]: the restore's exit status
   b --profile ops run --rm --no-deps -T -v "$archive:/archive:ro" restore python manage.py catalyst_restore \
@@ -125,12 +148,29 @@ b up -d --no-deps --wait web proxy >/dev/null 2>&1
 for _ in $(seq 30); do offered 19443 "$link" && break; sleep 1; done
 check "TEST-P6-29 control: before the post-restore step, the restored link still opens" offered 19443 "$link"
 b stop web proxy >/dev/null 2>&1  # the post-restore step runs with nothing serving (026 section 6)
-b run --rm --no-deps -T migrate python manage.py catalyst_post_restore --confirm-database catalyst >"$work/post.out" 2>&1
+b --profile ops run --rm --no-deps -T restore python manage.py catalyst_post_restore --confirm-database catalyst >"$work/post.out" 2>&1
 check "the post-restore review runs" test $? = 0
 [ "$fail" = 0 ] || sed 's/^/  post-restore said: /' "$work/post.out" | tail -3
-b run --rm --no-deps -T migrate python manage.py catalyst_post_restore --confirm-database catalyst --lift \
+# 9kg.33: the review replayed the journal (the account created after the backup is a grant: the owner's act, so it
+# is a staff item, never a replay), every provider read it needed completed, and the lift waits for the item.
+report="$(tail -1 "$work/post.out")"
+effect_item="$(python3 -c 'import json,sys;r=json.loads(sys.argv[1]);print(next((i.split(":",1)[1] for i in r["effect_items_open"] if i.startswith("restore_effect_staff_account:")), ""))' "$report" 2>/dev/null)"
+check "9kg.33 the review read the journal and reconciled every provider it needed (no evidence missing)" \
+  test "$(python3 -c 'import json,sys;r=json.loads(sys.argv[1]);print(r["effects"]["journal"], len(r["effects"]["blocked"]))' "$report" 2>/dev/null)" = "ok 0"
+check "9kg.33 the account created after the backup is a staff item for the owner, not a replay" test -n "$effect_item"
+b --profile ops run --rm --no-deps -T restore python manage.py catalyst_post_restore --confirm-database catalyst --lift \
+  --outward-checked --no-closures-after-backup >"$work/lift-refused.out" 2>&1
+check "9kg.33 the lift is refused while a restore_effect_ item is open" test $? = 1
+check "9kg.33 ... for that reason" grep -q "effects are unresolved" "$work/lift-refused.out"
+b --profile ops run --rm --no-deps -T restore python manage.py catalyst_post_restore --confirm-database catalyst \
+  --resolve "$effect_item" --note "Drill: the owner re-creates the account after the restore" >"$work/resolve.out" 2>&1
+check "9kg.33 the owner resolves the effect with a reason" test $? = 0
+b --profile ops run --rm --no-deps -T restore python manage.py catalyst_post_restore --confirm-database catalyst --lift \
   --outward-checked --no-closures-after-backup >"$work/lift.out" 2>&1
-check "the post-restore lift runs" test $? = 0
+check "the post-restore lift runs once the effects are reconciled and resolved (effects reconciled)" test $? = 0
+check "9kg.33 the restored stack has no account created after the backup (a grant is never replayed from a file)" \
+  test "$(b run --rm --no-deps -T migrate python manage.py shell -c \
+    "from accounts.models import User; print(User.objects.filter(username='after-backup-staff').count())" 2>/dev/null | tail -1)" = 0
 b up -d --wait web worker fetcher egress proxy >/dev/null 2>&1
 ready=""
 for _ in $(seq 60); do
@@ -141,7 +181,29 @@ restore_finished=$(date +%s)
 check "TEST-P6-22 the restored stack serves the form" test -n "$ready"
 check "TEST-P6-22 the restored data is the backup's (three applications, not the later one)" test "$(count_applications b)" = 3
 check "TEST-P6-29 the confirmation link from before the backup is closed on the restored stack" closed 19443 "$link"
+invite b after-restore@example.test
 check "the restored stack takes a new applicant" test "$(apply 19443 after-restore@example.test)" = 302
+
+# The restored stack's checks are done: take it down first, so the third stack's networks fit the host's address pools
+# (a shared dev box can run out of predefined pools with three stacks up at once).
+b --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
+# 9kg.33, a second leg: a third stack restores the same set with an empty effect journal; the restore refuses before
+# the load, because the receipt's anchor is not in the journal (journal_mismatch), and the stack stays empty.
+empty_project="catalyst-restore-empty-$$"
+c() { CATALYST_PUBLIC_PORT=20443 CATALYST_STAFF_PORT=20444 docker compose --project-name "$empty_project" -f deploy/staging/compose.yaml "$@"; }
+c up -d --wait db >/dev/null 2>&1
+c --profile provision run --rm provision-roles >/dev/null 2>&1
+c run --rm --no-deps -T migrate python manage.py migrate --noinput >/dev/null 2>&1
+c --profile ops run --rm --no-deps -T -v "$archive:/archive:ro" restore python manage.py catalyst_restore \
+  --from "/archive/$set_name" --storage-dir /var/lib/catalyst/custody/restored --confirm-database catalyst \
+  --expect-manifest-sha256 "$manifest" >"$work/restore-empty.out" 2>&1
+status=$?
+check "9kg.33 the third stack came up (not an infrastructure failure)" bash -c "! grep -q 'address pools\|No space left' '$work/restore-empty.out'"
+check "9kg.33 a restore with an empty effect journal is refused before the load" test "$status" = 1
+check "9kg.33 ... because the receipt's anchor is not in the journal" grep -q "journal_mismatch" "$work/restore-empty.out"
+grep -q "journal_mismatch" "$work/restore-empty.out" || grep -E "refused|failed" "$work/restore-empty.out" | sed 's/^/  empty-journal restore said: /' | tail -2
+check "9kg.33 ... and the empty target stayed empty" test "$(count_applications c)" = 0
+c --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
 
 # The drill's own checks between restore_started and restore_finished (the refused second restore, the control probe)
 # add a few seconds; the figure is an upper bound for this step at synthetic scale.

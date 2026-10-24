@@ -22,7 +22,7 @@ from django.db import connection, transaction
 from django.db.models import Max, Min
 
 from applications.models import TERMINAL_STAGES, Application, ApplicationEvent
-from workflow import ledger
+from workflow import journal, ledger
 from workflow.models import AutomationPause, PendingAction
 
 from .questions import sent_text
@@ -181,6 +181,10 @@ class SendReminder(_QuestionAction):
             event(application, "reminder_queued", {"question": str(question.public_id), "n": int(n),
                                                    "send_ref": str(message.send_ref)},
                   actor_ref=f"pending_action:{claim.id}")
+            # 9kg.33: the reminder's identity at queue time; `send_begun` (outbound) marks when it left. The replay
+            # moves the series position on the left entry, and the Sent-folder read attributes the copy by send_ref.
+            journal.record("reminder_queued", f"reminder:{question.public_id}:{int(n)}",
+                           {"n": int(n), "question": str(question.public_id), "send_ref": str(message.send_ref)})
         return Decision(Status.DONE, write=write)
 
 

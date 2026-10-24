@@ -28,7 +28,7 @@ from django.db.models.functions import Now
 from django.utils.module_loading import import_string
 
 from applications.models import TERMINAL_STAGES, Application, ApplicationEvent
-from workflow import ledger
+from workflow import journal, ledger
 from workflow.models import AutomationPause, PendingAction
 
 from .inbound import ANSWERABLE, PROCESS_REPLY, queue_processing, refresh_question_status
@@ -155,6 +155,8 @@ class InterpretUnavailable:
 
 class ReplyInterpreter(Protocol):
     def interpret(self, request: InterpretRequest) -> "InterpretResult | InterpretUnavailable": ...
+
+    def reserved(self) -> None: ...  # 9kg.33: the reservation is a fact; the budget floor is journaled
 
 
 OWN_LINE_MIN = 15  # a sent line or question this long, found in a reply, is our text even unquoted (3B.3 review)
@@ -288,9 +290,11 @@ def strip_quotes(text: str) -> str:
 
 def _pause(application, reason: str) -> None:
     if not AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists():
+        journal.prepare("automation_pause", f"pause:{application.public_ref}", {"state": "paused", "by": "system"})
         AutomationPause.objects.create(subject_type="application", subject_id=application.public_ref, reason=reason,
                                        actor_ref="system:correspondence")
         event(application, "automation_paused", {"reason": reason})
+        journal.record("automation_pause", f"pause:{application.public_ref}", {"state": "paused", "by": "system", "phase": "done"})
 
 
 def _before_decide(message) -> None:
@@ -506,6 +510,7 @@ class InterpretMessage:
         interpretation = ReplyInterpretation.objects.create(
             message=message, application=application, attempt=attempt, text_sha256=message.derived_text_sha256,
             reserved_requests=interpreter.requests_per_attempt)
+        interpreter.reserved()  # 9kg.33: the shared daily budget's floor survives a restore (the effect journal)
         questions = [link.question for link in links]
         sent = message.approved_message.frozen_body if message.approved_message_id else ""
         request = InterpretRequest(
@@ -598,6 +603,8 @@ def confirm_question_outcome(message_id: int, outcomes: dict, user, note: str = 
             QuestionReplyLink.objects.filter(pk=link.pk).update(state="applied", outcome=OUTCOMES[outcomes[link.question_id]],
                                                                 actor_ref=actor, updated_at=Now())
             refresh_question_status(Question.objects.get(pk=link.question_id))
+            journal.record("reply_link_outcome", f"reply_link:{link.question.public_id}:{message.public_id}",
+                           {"state": "applied", "outcome": OUTCOMES[outcomes[link.question_id]]})
         _cancel_interpretation(message)
         for item in _review_items(message):
             resolve_item(item, code="confirmed", actor_ref=actor, note=note,

@@ -241,7 +241,7 @@ three exist in v2 but stay disabled at launch by default (mailbox provisioning, 
 | Question sent, awaiting reply | applicant | reminder cadence and maximum (POL-06 synthetic values), then `escalate_unanswered` to staff; after escalation, the staff item's age (`9kg.51`) | staff item | built; the post-escalation bound is `9kg.51` |
 | Reply awaiting staff processing | staff | `aged_waits.replies_awaiting_processing` (`9kg.51`, built in PR #87; pages by default) | staff item | built |
 | Reply unmatched, unverified, sender-mismatched, or on a closed application | staff | `aged_waits.open_staff_items` (`9kg.51`, built; audit only until the owner lists it) | staff exception item (the unmatched rule for a misdirected first-generation reply is `dy7.2`) | built |
-| Uncertain send | worker, then staff | reconcile by Sent-folder read; unknown goes to a staff item | staff decide resend or abandon (decision-maker) | built against the fake; **the live Sent reader is not built** (`9kg.49`) |
+| Uncertain send | worker, then staff | reconcile by Sent-folder read; unknown goes to a staff item | staff decide resend or abandon (decision-maker) | built against the fake, the read-only Sent reader and the mail-host allow-list included (`9kg.49`, `016` section 10.12a); the live proof is the mail canary |
 | Mailbox cursor in resync, recovery or blocked; SMTP transport blocked | worker | health anomaly codes | staff item; the owner for a transport block | built; live proof in the mail canary |
 | Hard bounce | staff | immediate block of every send | decision-maker recovery after the cause is addressed | built (`9kg.3`) |
 | Paused (staff or system) | staff | shown with reason; `aged_waits.pauses` (`9kg.51`, built; application pauses only, audit only until listed) | resume by the right role; system pauses need review | built; database guard open (`9kg.6`) |
@@ -303,6 +303,7 @@ screen shows no age; the stage, item and pause classes are counted but page only
 | Signed documents | custody directory (plaintext today) | the custody copy in every backup set; the provider's copy | yes | encryption and key destruction (`9kg.34`); the provider's copy under P4-D-15 |
 | Logs and receipts | host | the host archive | no | code-only by design (TEST-P6-13, 35) |
 | Backups | the dump and custody set | the host archive, the off-site leg (object-locked) | by policy | the erasure record replayed on restore (`9kg.25`); object-locked copies age out, never purge one person |
+| The effect journal (`9kg.33`): public references, opaque staff references, group names, codes, digests, counts and times; no address, name, body or username | the journal volume on the host, outside the backup | the host archive (the volume is the restore's evidence) | yes (append-only, hash-chained; the owner's repair journals itself) | retention and erasure treatment under POL-10 (`211.7.1`): the erasure record will share the file; options recorded there by the main session |
 | Selection-review material | none in the repository (`f1u.4`) | private location to approve | — | `f1u.4` |
 | Invitations (the email key, the issuer, the note, the recorded notice and invitation wording digests) | PostgreSQL | dumps; the host archive; the off-site leg | yes (trigger, `9kg.43`, `9kg.52`) | PROPOSED: anonymize the email key to a unique tombstone under the audited exception when `9kg.32` lands; issuer, times and digests kept; counsel decides (POL-10) |
 | First-generation agreement-on-file records (the email key, the agreement version labels, the recorder) | PostgreSQL | dumps; the host archive; the off-site leg | yes (trigger, `9kg.52`) | PROPOSED: anonymize the email key to a unique tombstone under the audited exception when `9kg.32` lands; the labels and the attestation kept as the reason a decline was never recorded; counsel decides (POL-10) |
@@ -321,10 +322,27 @@ screen shows no age; the stage, item and pause classes are counted but page only
 - **Acceptance scenario:** back up a synthetic subject; erase afterward; restore the older backup; replay; prove that
   no web or staff view, job, attachment, derivative or enabled integration can expose or reuse the erased data; a
   second replay is harmless; an interruption recovers.
-- **Effects after the backup point** (`9kg.33`): mail (Sent-folder read), envelopes (provider read by key),
-  credential changes and mailbox facts (provider read), closures and revocations, staff role changes, and model usage
-  (preserve possibly spent usage). Quarantined provider reconciliation with the smallest durable evidence; a manual
-  exceptional resolution; conditions for lifting the hold.
+- **Effects after the backup point** (`9kg.33`; built in PL batch item 4, recorded in `026` section 16): mail
+  (Sent-folder read), envelopes (provider read by key), mailbox facts (provider read), closures and revocations,
+  staff role changes, and model usage (preserve possibly spent usage), from a hash-chained effect journal outside
+  the backup's rollback domain (`workflow/journal.py`), the same file the erasure record will use. Quarantined provider
+  reads outside the post-restore transaction with per-effect staff items; the owner's manual exceptional resolution
+  (`catalyst_post_restore --resolve`); the lift refuses while evidence is missing, a provider is unreachable or an
+  effect item is open. Credentials are not readable at the host and are not reconciled: the review closes every open
+  setup and staff reissue.
+- **The journal's consistency model** (the PR #89 reviews). Three classes of effect: *journaled before commit*
+  (`prepare`, then `done` after commit: the restrictive effects, a closure, a revocation outcome, a pause, a
+  withdrawal, a staff role removal, where a prepare whose transaction then failed is replayed as done because a
+  restriction re-applied is safe); *journaled after commit* (`on_commit`, robust: resolutions, reply outcomes,
+  decisions on uncertain sends, approvals and confirmations, grants, model usage, where a crash between commit and
+  append can lose an entry but never invent one); *covered by a provider read* (mail, with `send_begun` written
+  after the database claim and before SMTP; envelopes; mailboxes). Three invariants: an entry at or below the
+  backup's recorded seq is in the snapshot or is reconciled; a lift implies a journal whose identity and head match
+  the receipt; an append failure is observable (a code-only log, a failure counter, a health signal, a readiness
+  refusal). Deferred, as beads the main session files: a database-assigned version per key for replay ordering;
+  off-host shipping of the journal with a head mirror and a lag alert (the journal's own RPO); rotation into chained
+  segments tied to backup retention; a test enumerating every effectful write path by class; an item per queued
+  send with no copy instead of the blanket `--outward-checked`.
 - **Custody** (`9kg.34`): approved storage and access, a reviewed library, a recoverable key strategy, and a proof
   that an old backup cannot recover a destroyed key. Disk encryption is not per-subject erasure.
 
@@ -472,6 +490,7 @@ readiness is separate from continued-use success; the defect queue (`9kg.31.9`) 
 | U10 | Whether custody document keys embed personal data; whether the host backup exclusions cover the secret files and the custody key material; free ports and the installed proxy modules | the preflight | `9kg.42` | `9kg.28`, `9kg.34` |
 | U11 | What the first-generation service's later release changed (an explicit confirmation step and a countersignature claim are reported) | a read of that release's tree (a separate narrow assignment) | the owner authorizes | compatibility facts only |
 | U12 | Whether the first-generation service's operator-run timers outside the host still run, and what each sends | the timer list and the estate automation inventory | the owner | `dy7.2` |
+| U13 | After a restore, an envelope or a mailbox created after the backup for an applicant who was also created after the backup: the restored tables hold no row to read against, so the post-restore provider reads cannot find it (`9kg.33`, `026` section 16) | the provider listing over the window by template, and the mail host's domain listing, compared with the restored population; an owner read at the drill | the owner, at each production restore | release of restored records (the lift's `--outward-checked` covers it by hand) |
 
 Missing evidence about an enabled critical step blocks that step's readiness claim; it does not block the repo-only
 work.

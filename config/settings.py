@@ -220,6 +220,10 @@ CATALYST_WORKER_RETRY_SECONDS = number("CATALYST_WORKER_RETRY_SECONDS", "60", mi
 EMAIL_TIMEOUT = number("CATALYST_EMAIL_TIMEOUT_SECONDS", "10")
 if EMAIL_TIMEOUT * 2 > CATALYST_WORKER_LEASE_SECONDS:
     raise ImproperlyConfigured("CATALYST_EMAIL_TIMEOUT_SECONDS must be at most half of CATALYST_WORKER_LEASE_SECONDS")
+# 9kg.33 (029 section 6.2): the effect journal, the one durable record outside the backup's rollback domain
+# (workflow.journal). An absolute directory outside the repository, shared by every process on the host; required
+# outside test and development (config.guards). Empty in the local environments means no durable effects.
+CATALYST_EFFECT_JOURNAL_DIR = os.environ.get("CATALYST_EFFECT_JOURNAL_DIR", "").strip()
 # The only action kinds the worker may execute: a fixed mapping in code, never read from the database.
 CATALYST_ACTION_HANDLERS = {
     "send_verification": "correspondence.verification.SendVerification",
@@ -415,9 +419,23 @@ CATALYST_MAIL_RECONCILE_CHECKS = number("CATALYST_MAIL_RECONCILE_CHECKS", "3")
 CATALYST_MAIL_RECONCILE_GRACE_SECONDS = number("CATALYST_MAIL_RECONCILE_GRACE_SECONDS", "300", minimum=0)
 if CATALYST_MAIL_SEND_DEADLINE_SECONDS * 2 > CATALYST_WORKER_LEASE_SECONDS:
     raise ImproperlyConfigured("CATALYST_MAIL_SEND_DEADLINE_SECONDS must be at most half of CATALYST_WORKER_LEASE_SECONDS")
-# Admissible reconciliation evidence (016 A5): none until a provider check verifies a source (8.3). A
-# dotted path to a class with `find(message_id)`; tests point it at a declared synthetic source.
+# Admissible reconciliation evidence (016 A5): a dotted path to a class with `find(message_id)` and `within(since)`.
+# 9kg.49: the production value is the read-only Sent-folder reader (correspondence.sent_reader.SentFolderSource),
+# allowed in every environment; any other source only in `test` (config.guards). Whether the provider's Sent
+# copies are made only on acceptance is the mail canary's finding (016 8.3), not this setting's.
 CATALYST_SEND_EVIDENCE_SOURCE = os.environ.get("CATALYST_SEND_EVIDENCE_SOURCE", "")
+CATALYST_MAIL_SENT_SCAN_LIMIT = number("CATALYST_MAIL_SENT_SCAN_LIMIT", "500")  # newest copies one read may fetch
+# 9kg.49: the exact production mail-host allow-list (lower-case host names; the one the production environment
+# may connect to, for the web and worker roles only). Required and non-empty in a live environment, refused in
+# the synthetic ones and in development, where only loopback (or the named test host) is ever allowed.
+CATALYST_MAIL_ALLOWED_HOSTS = [h.strip().lower() for h in os.environ.get("CATALYST_MAIL_ALLOWED_HOSTS", "").split(",") if h.strip()]
+# 9kg.49: SHA-256 digests (lower-case hex) of mailbox logins that may never be configured as this service's
+# mailbox: the first-generation service's own mailbox, so v2 can never become a second poller or reader of it.
+# Digests, not names: the repository is public and names nothing.
+CATALYST_MAIL_DENIED_USER_SHA256 = [d.strip().lower() for d in os.environ.get("CATALYST_MAIL_DENIED_USER_SHA256", "").split(",") if d.strip()]
+# 9kg.49 (security review): the positive pin of the one v2 mailbox login, a SHA-256 hex digest CATALYST_MAIL_USER must
+# hash to; required in a live environment, re-checked before any login. Private: never pasted into a PR or a doc.
+CATALYST_MAIL_USER_SHA256 = os.environ.get("CATALYST_MAIL_USER_SHA256", "").strip().lower()
 
 # P4 agreements (021; 4B.1). Synthetic only: the provider is a local fake Documenso in `test`. The URL, the pinned
 # address, the trust store and the API token are fixed in code and empty everywhere else, so nothing can reach a

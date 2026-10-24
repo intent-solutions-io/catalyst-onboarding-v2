@@ -47,6 +47,13 @@ class Command(BaseCommand):
 
     def handle(self, *args, exit_when_idle=False, only="", exclude="", **options):
         runtime.declare_process("worker")
+        if settings.CATALYST_PROCESS_ROLE != "fetcher" and settings.CATALYST_ENV not in ("test", "development"):
+            from workflow import journal
+
+            problem = journal.directory_problem(write=True)  # 9kg.33: a worker that cannot journal does not start
+            if problem:
+                raise CommandError(f"effect journal directory is {problem}: CATALYST_EFFECT_JOURNAL_DIR")
+            journal.ensure_genesis()  # every later backup anchors to this journal's identity
         connections.close_all()  # nothing opened before the declaration is reused unchecked
         stop = threading.Event()
         restore = {}
