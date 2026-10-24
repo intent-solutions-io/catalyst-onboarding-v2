@@ -16,6 +16,7 @@ GATE = ROOT / "scripts/require_green_ci.py"
 RELEASE = ROOT / ".github/workflows/release.yml"
 CI = ROOT / ".github/workflows/ci.yml"
 TARGETED = ROOT / ".github/workflows/targeted.yml"
+BROWSER = ROOT / ".github/workflows/browser.yml"
 SHA = "a" * 40
 RUNTIME = "Runtime checks (Python 3.14.8, PostgreSQL 16.15)"
 DOCS = "Markdown lint and doc index check"
@@ -99,6 +100,22 @@ def test_the_targeted_lane_is_dispatch_only_and_never_a_required_check():
     digests = re.compile(r"(?:python|postgres):[\w.-]+@sha256:[0-9a-f]{64}")
     assert sorted(set(digests.findall(text))) == sorted(set(digests.findall(CI.read_text())))
     assert len(set(digests.findall(text))) == 2
+
+
+def test_the_browser_check_is_dispatch_only_and_never_a_required_check():
+    """Bead catalyst-v2-9kg.68 (009 section 5.3): the phone-width browser check reports, it never gates. Its only
+    trigger is a dispatch without inputs, its job name is not one the gate reads, its actions are pinned by commit, and it
+    runs the local script, so its images are the digests in compose.yaml and compose.browser.yaml."""
+    text = BROWSER.read_text()
+    assert re.search(r"^on:\n  workflow_dispatch:\n\n", text, flags=re.M) and "pull_request" not in text and "push:" not in text
+    assert "${{" not in text
+    jobs = re.findall(r"^  [a-z_]+:\n    name: (.+)$", text, flags=re.M)
+    assert jobs and not set(jobs) & {RUNTIME, DOCS}
+    for use in re.findall(r"uses: (\S+)", text):
+        assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", use), use
+    assert re.findall(r"^        run: (.+)$", text, flags=re.M) == ["bash scripts/browser_check.sh"]
+    overlay = (ROOT / "compose.browser.yaml").read_text()
+    assert re.search(r"image: mcr\.microsoft\.com/playwright/python:v[\d.]+-noble@sha256:[0-9a-f]{64}\n", overlay)
 
 
 def release_steps():

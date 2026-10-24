@@ -1,0 +1,8 @@
+# The phone-width browser check's one dependency (bead catalyst-v2-9kg.68; tests/browser_phone_check.py, run by
+# scripts/browser_check.sh; 009 section 5.3), hash-locked like dev.in. It is installed into the test container beside
+# dev.txt, so it is compiled for Python 3.14 against dev.txt (typing-extensions resolves to dev.txt's pin, and pip
+# accepts the identical line from both files). The client must equal the browser server's version: the Playwright image
+# digest in compose.browser.yaml carries the same release, and tests/browser_phone_check.py refuses a mismatch. Compile with:
+#   uv pip compile --python-version 3.14 --python-platform x86_64-unknown-linux-gnu \
+#     --generate-hashes --no-header -c requirements/dev.txt requirements/browser.in -o requirements/browser.txt
+playwright==1.63.0
