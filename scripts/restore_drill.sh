@@ -96,7 +96,8 @@ check "an applicant after the backup is accepted by the source" test "$(apply 18
 # 9kg.33: an effect after the backup point, journaled outside the backup (the owner-run command, as in production).
 check "9kg.33 a staff account created after the backup is an effect the backup cannot know" test "$(a run --rm --no-deps -T \
   -e CATALYST_DRILL_STAFF_PASSWORD="synthetic-drill-$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 24)" \
-  migrate python manage.py add_readonly_staff after-backup-staff --password-env CATALYST_DRILL_STAFF_PASSWORD 2>/dev/null | tail -1)" = "created read-only staff account 'after-backup-staff'"
+  migrate python manage.py add_readonly_staff after-backup-staff --password-env CATALYST_DRILL_STAFF_PASSWORD \
+  --approval-ref "restore drill (synthetic)" 2>/dev/null | tail -1)" = "created read-only staff account 'after-backup-staff'"
 
 # The archive on the host: a copy of the set, private, read by the restore through a read-only mount.
 volume="${source_project}_catalyst-backups"

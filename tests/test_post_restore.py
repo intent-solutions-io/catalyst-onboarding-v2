@@ -662,8 +662,10 @@ def test_9kg_33_staff_access_removed_after_the_backup_is_removed_again_and_grant
     from django.contrib.auth import get_user_model
 
     monkeypatch.setenv("CATALYST_TEST_STAFF_PASSWORD", "synthetic-Restore-Pass-9kg33")  # gitleaks:allow
-    support.manage_as_owner("add_readonly_staff", "staff-after-backup", "--password-env", "CATALYST_TEST_STAFF_PASSWORD")
-    support.manage_as_owner("add_correspondence_staff", "staff-after-backup", "--role", "operator", "--existing")
+    support.manage_as_owner("add_readonly_staff", "staff-after-backup", "--password-env", "CATALYST_TEST_STAFF_PASSWORD",
+                            "--approval-ref", "synthetic D-23")
+    support.manage_as_owner("add_correspondence_staff", "staff-after-backup", "--role", "operator", "--existing",
+                            "--approval-ref", "synthetic D-23")  # the grant names its authorizing decision (9kg.30)
     ref = journal.staff_ref("staff-after-backup")
     changes = [(e.key, e.data["change"], e.data["groups"]) for e in entries() if e.kind == "staff_role_changed"]
     assert changes == [(ref, "created", []), (ref, "group_added", ["Read-only staff"]), (ref, "group_added", ["Correspondence operator"])]
@@ -671,10 +673,14 @@ def test_9kg_33_staff_access_removed_after_the_backup_is_removed_again_and_grant
     assert all("Pass" not in json.dumps(e.data) for e in entries())
     # "Restore" to a state before the account existed, with another account that was active and in a group at T.
     User = get_user_model()
-    owner = p2.committed.connect("owner", autocommit=True)  # the restored state: that account never existed
-    owner.execute("DELETE FROM accounts_user_groups WHERE user_id IN (SELECT id FROM accounts_user WHERE username = %s)",
-                  ["staff-after-backup"])
-    owner.execute("DELETE FROM accounts_user WHERE username = %s", ["staff-after-backup"])
+    # The restored state: that account never existed. Rows are put back as the restore's load does (the administrator,
+    # triggers off), since its grant records (9kg.30) are append-only and reference it.
+    with admin(connection.settings_dict["NAME"]) as load:
+        load.execute("SET session_replication_role = replica")
+        uid = load.execute("SELECT id FROM accounts_user WHERE username = %s", ["staff-after-backup"]).fetchone()[0]
+        for table in ("accounts_staffrolegrant", "accounts_user_groups"):
+            load.execute(f"DELETE FROM {table} WHERE user_id = %s", [uid])
+        load.execute("DELETE FROM accounts_user WHERE id = %s", [uid])
     kept = staff(p2, "staff-kept", "Read-only staff")
     journal.append("staff_role_changed", journal.staff_ref("staff-kept"),
                    {"change": "group_removed", "active": True, "groups": ["Read-only staff"], "phase": "prepare"})
