@@ -68,6 +68,8 @@ APPROVED_MIGRATIONS = {
     ("assessments", "0010_decision_inputs_and_human_only_code"),  # oc4.12: what a decision records, completed
     ("applications", "0007_notice_record_and_member_on_file"), ("applications", "0008_member_on_file_protection"),  # 9kg.52
     ("correspondence", "0018_intake_notice_templates"),  # 9kg.52: the data notice and invitation templates
+    # 9kg.32: the tombstone keys held unique, the erasure audit, and the erasure functions and trigger branches
+    ("applications", "0009_tombstone_keys_unique"), ("erasure", "0001_initial"), ("erasure", "0002_erasure_path"),
 }
 
 

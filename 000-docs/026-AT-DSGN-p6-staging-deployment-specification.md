@@ -1701,6 +1701,49 @@ personal-data scan and the pause-row guard (TEST-P6-35).**
   clean deploy keeps exactly one receipt at mode 0640), `tests/test_acceptance.py` (the register) and
   `tests/test_pause_guard.py` (the guard, through real connections as each role); the drill log above.
 
+**9kg.32, the authorized erasure path (`029` section 6.2.1; council `030` Q3, D-51; P6-D-13 option d's record).**
+
+- **What it is:** the `erasure` app. A registry that ships undecided and refuses, an erasure map of every column, one
+  security-definer erase function for the retention role, one audited branch in each guarded trigger, and a durable
+  intent-and-completion record in the effect journal. The design is in `029` section 6.2.1. This record holds what
+  the operations side needs.
+- **Backups:** `catalyst_backup` refuses in a live environment while the registry has an undecided value
+  (`config.backup.refuse_real_backup_while_undecided`): no real data enters a backup that no erasure could reach. The
+  synthetic and local environments are unaffected, so the restore and deploy drills run as before. The erasure audit
+  table is in the backup (the backup role reads it). The durable record is not: it lives in the journal volume,
+  which the restore must carry like the archive (as for `9kg.33`).
+- **Operator runbook (production, after POL-10):**
+  1. With the retention login, run `manage.py catalyst_erase --subject <public reference> --authority <code>
+     --reason <code>`. The `erasure_key` secret file must be mounted for that one process.
+  2. Keep the printed `journal_head` in the private operations record.
+  3. For each handoff listed, delete the provider's copy by hand. Then run `catalyst_erase --subject <ref>
+     --handoff <provider> --completed-on <date>`.
+  4. `catalyst_erasure_record --expect-head <head>` checks the record before any restore lifts its hold (`9kg.25`).
+  5. After an interruption, re-run step 1 with the same reference.
+- **Deviation from the PR #88 data-review note:** the note asked for the retention-role branch in both pause-guard
+  functions. `catalyst_pause_fixed` has it. `catalyst_pause_resume_guard`, the DELETE guard, does not: erasure
+  anonymizes a pause's reason and never deletes the pause, so a restriction is never lifted on the erasure path. A
+  branch in a DELETE-only guard would admit nothing the erasure needs and would only widen the exception. The test
+  shows that even with an audit row and the retention login, deleting a pause is refused at commit.
+- **Why the audit holds no hash:** the acceptance asks for the keyed-hash and free-text audit columns to change. The
+  new audit has codes only (a `CHECK` refuses free text) and no row digest. The keyed hash lives only in the journal,
+  under a key that is never in the database. For an erased subject, the older `RetentionAudit` rows' free-text reason
+  and unkeyed row digest are tombstoned too (class `audit_residue`). The 0017 reason-based retention branch on inbound
+  and outbound mail is left in place: the retention role holds no UPDATE on those tables, so only the erasure branch is
+  reachable.
+- **Chose** a generic branch injected after each function's first BEGIN (from its own `pg_get_functiondef`,
+  removed exactly on reverse) **over** copying fourteen function bodies into the migration. The bodies stay where
+  their migrations wrote them, and a reverse restores the previous definition byte for byte (tested). **Chose** an
+  erasure map generated into SQL **over** hand-written UPDATEs: the catalog test and the installed-function test keep
+  the map, the schema and the database in step.
+- **Not here:** replay after a restore (`9kg.25`), custody key destruction (`9kg.34`), wiring the erasure key into
+  the staging and production stacks (the command is owner-run; the secret mount belongs with `9kg.25`'s restore
+  service), and the journal's off-host copy.
+- **Evidence:** `tests/test_erasure.py` (17 tests, mapped under `P6_SUPPORTING`, group "9kg.32"), plus
+  `tests/test_db_roles.py` (`TRIGGER_COUNT` 47 and the reverse-and-reapply offsets), `tests/conftest.py` (the
+  expected triggers), `tests/test_database.py` (the approved migrations) and `tests/test_acceptance.py` (the named
+  constraints).
+
 ## 17. The aged-waits health part (9kg.51, 2026-10-23)
 
 `029` section 5.2 listed the waits with no bound once the first-generation owner notices retire: an application in

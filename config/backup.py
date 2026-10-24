@@ -104,6 +104,19 @@ def _copy_private(source: Path, target: Path) -> None:
         os.fsync(writer.fileno())
 
 
+def refuse_real_backup_while_undecided() -> None:
+    """9kg.32 (council 030 Q3, D-51): a backup in a live environment holds real personal data, which no erasure could
+    reach while POL-10's registry has an undecided value (erasure.registry); refuse it. The synthetic and local
+    environments are not live, so drills and tests back up as before."""
+    from django.conf import settings
+
+    from config.guards import LIVE_ENVIRONMENTS
+    from erasure import registry
+
+    if getattr(settings, "CATALYST_ENV", "") in LIVE_ENVIRONMENTS and registry.problems():
+        raise BackupError("the erasure registry has undecided values (POL-10): a backup of real data is refused")
+
+
 def backup(conn, out_dir: Path, storage_dir: Path, name: str, commit: str = "") -> dict:
     """Write one coherent set to out_dir/name and return its receipt. `conn` is a psycopg connection as the backup
     role, not yet in a transaction."""
@@ -111,6 +124,7 @@ def backup(conn, out_dir: Path, storage_dir: Path, name: str, commit: str = "") 
 
     if not NAME.fullmatch(name):
         raise BackupError("the set name may hold only letters, digits, dot, dash and underscore")
+    refuse_real_backup_while_undecided()
     if not out_dir.is_absolute() or not out_dir.is_dir():
         raise BackupError("the output directory must be an existing absolute directory")
     final, pending = out_dir / name, out_dir / f"{name}.pending"

@@ -43,7 +43,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-APPS = ("accounts", "agreements", "applications", "assessments", "correspondence", "provisioning", "workflow")
+APPS = ("accounts", "agreements", "applications", "assessments", "correspondence", "erasure", "provisioning", "workflow")
 DEPLOY_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{3,63}")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 
@@ -62,6 +62,7 @@ BASELINE: dict[str, str] = {
     "applications": "0003_protect_version_adoption", "assessments": "0009_fetcher_role_grants",
     "correspondence": "0016_welcome_kind", "provisioning": "0006_revocation_and_withdrawal_protection",
     "workflow": "0004_restore_hold_protection",
+    "erasure": "",  # 9kg.32: the app came after the guard, so every one of its migrations is scanned
 }
 # Later migrations that contracting() flags but a reviewer found safe for the previous image, with the reason.
 EXPAND_SAFE: dict[str, str] = {
@@ -69,6 +70,10 @@ EXPAND_SAFE: dict[str, str] = {
         "adds columns with database defaults and a CHECK constraint created NOT VALID: a previous image inserts decisions "
         "without the new columns (defaults fill them) and never a human-only row without a code it does not know, because "
         "its human-only rows are refused by the decision service's digest check first; nothing is removed or renamed"),
+    "applications.0009_tombstone_keys_unique": (
+        "adds three partial unique indexes on email keys that start with `erased:` (9kg.32): no key has that form until "
+        "an erasure writes one, and a previous image never writes one, so it cannot violate them; nothing is removed, "
+        "renamed or made stricter for any row a previous image writes"),
 }
 
 

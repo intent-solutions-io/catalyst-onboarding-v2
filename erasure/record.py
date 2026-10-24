@@ -1,0 +1,192 @@
+"""The durable erasure record (9kg.32; 029 section 6.2; 026 section 6 option d): the smallest record that lets a
+restore of an older backup find every later erasure, kept outside the backup's rollback domain.
+
+**Where.** In the effect journal (workflow.journal), the one hash-chained, fsynced, append-only file outside the
+database and outside the application backup set: a restore rolls the tables back, never this file. Three kinds:
+
+- `erasure_intent`, appended and fsynced *before* the database transaction: the subject's keyed hash, the key id, the
+  authority and reason codes, the classes the registry anonymizes and the provider handoffs owed;
+- `erasure_complete`, appended after the transaction committed: the outcome (`erased`, `already_erased`,
+  `nothing_to_erase`, or `refused_<code>` when the transaction refused after the intent) and the number of values
+  changed;
+- `erasure_handoff`: the owner's completion of a manual provider deletion (211.7.1, QA finding 12), with its date.
+
+Every entry's key is `erasure:<public reference>` (the application's `public_ref`, or an invitation's `public_id` for
+a person who never applied): a random identifier, never a numeric id, which recurs after a restore. Nothing else
+identifies the person: `subject` is HMAC-SHA-256 of the normalized email key under the erasure key, so the record is
+sensitive (it can confirm a guessed address to whoever holds the key) but minimal (no address, name, body or
+username, and no copy of anything erased). The journal's own content allow-list enforces that shape.
+
+**Idempotent on resume.** An intent with no later completion is open: the next run of the command reuses the
+intent's hash (the database may already hold a tombstone instead of the key) and finishes it. A transaction that
+committed before its completion was written is found as `already_erased` and completed; one that rolled back is
+simply run again. A run after a completion writes nothing.
+
+**Key custody.** `CATALYST_ERASURE_KEY`, at least 32 characters, distinct from the Django and link-signing keys: in
+production a file `erasure_key` in `CATALYST_SECRETS_DIR` (tmpfs), mounted only into the owner-run erasure command and
+the restore's replay (9kg.25), its source of truth in the operator's encrypted secret store, never in the database,
+the backup set, the journal, a receipt or a log. The record names the key by `key_id` (the first 16 hex of a SHA-256
+of the key) so a rotated key can be told apart; a rotation keeps the old key for as long as entries made with it must
+be matched (the oldest restorable backup). Losing the key does not lose an erasure: replay finds the subject by its
+public reference; the hash is the cross-check that the restored row is the same person.
+
+**Integrity, freshness and an emptied store.** The journal's hash chain and genesis identity make a broken or
+replaced file an error. After each erasure the command prints the journal head (`<identity>:<seq>:<hash>`); the
+owner keeps it out of band (the private operations record), and `catalyst_erasure_record --expect-head` refuses a
+journal that does not hold that head at that seq: an emptied or rolled-back store reads as `journal_mismatch`, never
+as "no erasures". It also reports open intents and owed handoffs.
+
+**Retention.** At least as long as the oldest restorable backup (registry row `erasure_record`): the journal is never
+rotated or truncated by code (`catalyst_journal_repair` only moves a torn tail aside and journals it), and a future
+rotation (029 section 6.2, deferred) must carry erasure entries forward until every backup older than them is gone.
+"""
+
+import hashlib
+import hmac
+import re
+from dataclasses import dataclass, field
+
+from django.conf import settings
+
+from workflow import journal
+
+HANDOFFS = ("documenso", "mail_sent", "mail_inbox", "mail_host_mailbox")
+SUBJECT_PREFIX = b"catalyst-erasure-subject\n"
+KEY_ID_PREFIX = b"catalyst-erasure-key-id\n"
+DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+HEAD = re.compile(r"([0-9a-f]{32}):(\d+):([0-9a-f]{64})")
+DONE = ("erased", "already_erased", "nothing_to_erase")
+
+
+class RecordError(Exception):
+    """A reason code: `key_missing`, `key_weak`, `key_reused`, `not_configured`, `unwritable`, `bad_head`, or a
+    journal code (`unreadable`, `chain_broken`, `torn_tail`, `malformed`, `journal_mismatch`)."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+def key() -> bytes:
+    value = getattr(settings, "CATALYST_ERASURE_KEY", "") or ""
+    if not value:
+        raise RecordError("key_missing")
+    if len(value) < 32:
+        raise RecordError("key_weak")
+    others = [settings.SECRET_KEY, getattr(settings, "CATALYST_VERIFICATION_KEY", ""),
+              *getattr(settings, "CATALYST_VERIFICATION_FALLBACK_KEYS", [])]
+    if value in [o for o in others if o]:
+        raise RecordError("key_reused")
+    return value.encode()
+
+
+def key_id(secret: bytes) -> str:
+    return hashlib.sha256(KEY_ID_PREFIX + secret).hexdigest()[:16]
+
+
+def subject_hash(email_key: str, secret: bytes) -> str:
+    return hmac.new(secret, SUBJECT_PREFIX + email_key.encode(), hashlib.sha256).hexdigest()
+
+
+def entry_key(subject_ref) -> str:
+    return f"erasure:{subject_ref}"
+
+
+def _append(kind: str, subject_ref, data: dict):
+    if not journal.configured():
+        raise RecordError("not_configured")
+    entry = journal.append(kind, entry_key(subject_ref), data)  # fsynced before it returns
+    if entry is None:
+        raise RecordError("unwritable")  # the failure is logged and counted by the journal
+    return entry
+
+
+def append_intent(subject_ref, subject: str, kid: str, authority: str, reason: str, classes, handoffs):
+    return _append("erasure_intent", subject_ref, {"subject": subject, "key_id": kid, "authority": authority,
+                                                   "reason": reason, "classes": list(classes),
+                                                   "handoffs": sorted(handoffs), "phase": "intent"})
+
+
+def append_complete(subject_ref, subject: str, kid: str, status: str, changed: int):
+    return _append("erasure_complete", subject_ref, {"subject": subject, "key_id": kid, "status": status,
+                                                     "changed": int(changed), "phase": "done"})
+
+
+def append_handoff(subject_ref, provider: str, completed_on: str):
+    if provider not in HANDOFFS or not DATE.fullmatch(completed_on or ""):
+        raise RecordError("malformed")
+    return _append("erasure_handoff", subject_ref, {"provider": provider, "completed_on": completed_on,
+                                                    "phase": "done"})
+
+
+@dataclass
+class Erasure:
+    """One subject's record, folded from its entries in order."""
+
+    ref: str
+    intent: object = None  # the last intent
+    complete: object = None  # the last completion after that intent
+    handoffs_owed: set = field(default_factory=set)
+    handoffs_done: dict = field(default_factory=dict)
+
+    @property
+    def open(self) -> bool:
+        return self.intent is not None and self.complete is None
+
+    @property
+    def erased(self) -> bool:
+        return self.complete is not None and self.complete.data.get("status") in DONE
+
+    @property
+    def outstanding(self) -> list:
+        return sorted(self.handoffs_owed - set(self.handoffs_done)) if self.erased else []
+
+
+def fold(entries) -> dict:
+    """{public reference: Erasure} over the erasure entries of a journal, in order. What the replay after a restore
+    (9kg.25) reads: every erased or open subject, with the intent's hash, key id and classes to re-apply."""
+    out = {}
+    for entry in entries:
+        if not entry.kind.startswith("erasure_"):
+            continue
+        ref = entry.key.partition(":")[2]
+        state = out.setdefault(ref, Erasure(ref))
+        if entry.kind == "erasure_intent":
+            state.intent, state.complete = entry, None
+            state.handoffs_owed = set(entry.data.get("handoffs") or [])
+        elif entry.kind == "erasure_complete" and state.intent is not None:
+            state.complete = entry
+        elif entry.kind == "erasure_handoff":
+            state.handoffs_done[entry.data["provider"]] = entry.data["completed_on"]
+    return out
+
+
+def head_string() -> str:
+    seq, digest, identity = journal.head()
+    return f"{identity}:{seq}:{digest}"
+
+
+def verify(expected_head: str) -> dict:
+    """Integrity (the chain), identity and freshness (the out-of-band head is in the journal at its seq), and the
+    record's state. `expected_head` is the head printed by the last erasure, or `none` when no erasure was ever made.
+    Raises RecordError; returns counts and the open references (public references, never an address)."""
+    if not journal.configured():
+        raise RecordError("not_configured")
+    try:
+        entries = journal.read()
+        if expected_head != "none":
+            found = HEAD.fullmatch(expected_head or "")
+            if found is None:
+                raise RecordError("bad_head")
+            journal.verify_anchor(entries, found.group(1), int(found.group(2)), found.group(3))
+    except journal.JournalError as exc:
+        raise RecordError(exc.code) from None
+    state = fold(entries)
+    if expected_head == "none" and state:
+        raise RecordError("journal_mismatch")  # erasures exist, so a head was printed and must be supplied
+    return {
+        "journal_head": f"{entries[0].data.get('id', '')}:{entries[-1].seq}:{entries[-1].hash}" if entries else "none",
+        "erased": sum(1 for s in state.values() if s.erased),
+        "open": sorted(ref for ref, s in state.items() if s.open),
+        "handoffs_outstanding": sum(len(s.outstanding) for s in state.values()),
+    }

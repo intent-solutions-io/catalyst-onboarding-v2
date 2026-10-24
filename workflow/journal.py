@@ -81,7 +81,11 @@ KINDS = {
     "send_begun": {"kind", "series", "attempt", "question", "n"},
     "staff_role_changed": {"change", "active", "groups", "phase"},
     "model_usage": {"requests"},
-    "erasure_intent": {"subject", "phase"}, "erasure_complete": {"subject", "phase"},  # 9kg.32 reserves these
+    # 9kg.32 (erasure.record): the durable erasure record. Keyed `erasure:<public reference>`; `subject` is the keyed
+    # hash of the email key and `key_id` names its key, never the key or the address.
+    "erasure_intent": {"subject", "key_id", "authority", "reason", "classes", "handoffs", "phase"},
+    "erasure_complete": {"subject", "key_id", "status", "changed", "phase"},
+    "erasure_handoff": {"provider", "completed_on", "phase"},
 }
 RESTRICTIVE = ("application_closed", "access_revocation", "automation_pause", "question_withdrawn", "staff_role_changed")
 

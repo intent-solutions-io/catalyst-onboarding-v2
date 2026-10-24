@@ -16,7 +16,7 @@ POSTGRESQL_ENGINE = "django.db.backends.postgresql"
 # The secrets Catalyst reads (6B.5, 026 section 5): one list, used by settings to read them and by the guards to refuse
 # them in the environment outside test and development.
 SECRET_ENV_NAMES = ("CATALYST_SECRET_KEY", "CATALYST_VERIFICATION_KEY", "CATALYST_VERIFICATION_FALLBACK_KEYS",
-                    "CATALYST_DB_PASSWORD", "CATALYST_MAIL_PASSWORD")
+                    "CATALYST_DB_PASSWORD", "CATALYST_MAIL_PASSWORD", "CATALYST_ERASURE_KEY")
 
 # Environments Catalyst may run in. `staging` (026 P6-D-2, D-49) is synthetic like `test`: the same fakes under the
 # same strict rules, never a real provider. Production settings are not authorized (a later P6 decision).

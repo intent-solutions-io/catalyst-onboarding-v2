@@ -76,6 +76,7 @@ INSTALLED_APPS = [
     "assessments",  # P3 (018; D-34)
     "agreements",  # P4 (021; D-37)
     "provisioning",  # P5 (023; D-47)
+    "erasure",  # 9kg.32 (029 section 6.2): the authorized erasure path
 ]
 MIDDLEWARE = [
     "config.redaction.PrivateConfirmationResponses",  # outermost: covers responses built outside the view
@@ -224,6 +225,10 @@ if EMAIL_TIMEOUT * 2 > CATALYST_WORKER_LEASE_SECONDS:
 # (workflow.journal). An absolute directory outside the repository, shared by every process on the host; required
 # outside test and development (config.guards). Empty in the local environments means no durable effects.
 CATALYST_EFFECT_JOURNAL_DIR = os.environ.get("CATALYST_EFFECT_JOURNAL_DIR", "").strip()
+# 9kg.32 (029 section 6.2): the key of the durable erasure record's keyed hashes (erasure.record states its custody).
+# Optional here: only the owner-run erasure command (and the post-restore replay, 9kg.25) needs it, and refuses
+# without it. A file in CATALYST_SECRETS_DIR outside test and development, never in the database or a backup set.
+CATALYST_ERASURE_KEY = secret("CATALYST_ERASURE_KEY", "")
 # The only action kinds the worker may execute: a fixed mapping in code, never read from the database.
 CATALYST_ACTION_HANDLERS = {
     "send_verification": "correspondence.verification.SendVerification",
