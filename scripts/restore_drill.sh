@@ -73,6 +73,8 @@ done
 : > "$work/secrets/verification_fallback_keys"
 # 9kg.34: the custody wrapping key, 64 hex characters (32 random bytes); only the custody leg's one-shot mounts it.
 head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$work/secrets/custody_wrapping_key"
+# 9kg.34: the erasure key, for the mac of each journaled key destruction (mounted only into the custody leg's one-shot).
+printf 'synthetic-erasure-%s' "$(head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48)" > "$work/secrets/erasure_key"
 chmod 0444 "$work/secrets"/*
 docker build -q --target staging --build-arg "CATALYST_COMMIT=$(git rev-parse HEAD)" -t "$CATALYST_IMAGE" . >/dev/null || exit 1
 as_root "$CATALYST_IMAGE" sh -c 'chown 10001:10001 /archive && chmod 0700 /archive'
@@ -226,7 +228,8 @@ cdrill() {  # cdrill <custody dir> <action> [arguments]: the custody drill comma
   # The project's own custody volume by its full name: a bare name given to `run -v` would make a global volume.
   e run --rm --no-deps -T -v "${custody_project}_catalyst-custody:/var/lib/catalyst/custody" -v "$keys_vol:/var/lib/catalyst/custody-keys" \
     -v "$mirror_vol:/var/lib/catalyst/custody-keys-mirror" -v "$archive:/archive:ro" \
-    -v "$work/secrets/custody_wrapping_key:/run/secrets/custody_wrapping_key:ro" migrate python manage.py \
+    -v "$work/secrets/custody_wrapping_key:/run/secrets/custody_wrapping_key:ro" \
+    -v "$work/secrets/erasure_key:/run/secrets/erasure_key:ro" migrate python manage.py \
     catalyst_custody_drill "$1" --storage-dir "$dir" --key-dir /var/lib/catalyst/custody-keys \
     --mirror-dir /var/lib/catalyst/custody-keys-mirror "${@:2}" 2>"$work/cdrill.err" | tail -1
 }

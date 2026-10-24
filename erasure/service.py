@@ -200,7 +200,7 @@ def _pending(refs) -> list:
     (an earlier erasure under `retain`, an interrupted destruction, a restored file). A reference absent but never
     journaled is pending too: it is journaled and verified, never assumed. A key store that cannot be read refuses."""
     try:
-        destroyed = keystore.journaled_destroyed()
+        destroyed = keystore.journaled_destroyed(verify=True)  # the erase process holds the erasure key
         return [ref for ref in refs if ref not in destroyed or any(keystore.present(ref))]
     except keystore.KeyStoreError as exc:
         raise Refused(f"custody_{exc.code}") from None

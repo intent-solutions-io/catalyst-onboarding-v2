@@ -93,7 +93,7 @@ KINDS = {
     # reference, never key material), with the erased subject's public reference. Appended before the key's files are
     # unlinked (the restrictive class): recovery never restores a key recorded here, and a destruction recorded but
     # interrupted is finished by the next erasure run or by recovery.
-    "custody_key_destroyed": {"subject", "phase"},
+    "custody_key_destroyed": {"subject", "phase", "mac"},  # mac: HMAC under the erasure key, as for erasure_*
     # 9kg.34 (review of PR #102, F2): an orphan the owner reaped: a never-used key (`kind: key`) or a sealed file no row
     # names (`kind: sealed_file`), keyed `custody_orphan:<reference>`.
     "custody_orphan_reaped": {"kind", "phase"},

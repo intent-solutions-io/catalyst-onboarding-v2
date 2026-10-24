@@ -295,7 +295,7 @@ def create() -> tuple[str, bytes, str]:
     return ref, data_key, wrapping_key_id(secret)
 
 
-def journaled_destroyed() -> set:
+def journaled_destroyed(verify: bool = False) -> set:
     """The references the journal records as destroyed. Unverified here (the web and worker processes never hold the
     erasure key): a forged entry can only make a key refuse, never make one readable. `journal_unavailable` when the
     journal cannot be read; an unconfigured journal (test and development only) records nothing."""
@@ -304,9 +304,10 @@ def journaled_destroyed() -> set:
     if not journal.configured():
         return set()
     try:
-        return destroyed_refs(journal.read())
+        entries = journal.read()
     except journal.JournalError:
         raise KeyStoreError("journal_unavailable") from None
+    return _verified_destroyed(entries) if verify else destroyed_refs(entries)
 
 
 def load(ref: str) -> bytes:
@@ -361,9 +362,50 @@ def present(ref: str) -> tuple[bool, bool]:
     return _read(primary, ref) is not None, _read(mirror, ref) is not None
 
 
-def destroyed_refs(entries) -> set:
-    """The key references the journal records as destroyed (or being destroyed): what recovery must never restore."""
-    return {e.key.partition(":")[2] for e in entries if e.kind == DESTROYED}
+def destroyed_refs(entries, secret: bytes | None = None, forged: list | None = None) -> set:
+    """The key references the journal records as destroyed (or being destroyed): what recovery must never restore.
+    With the erasure key, an entry whose `mac` does not verify is left out and its reference added to `forged`, as
+    `erasure.record.fold` does (review of PR #102, F6); without it (the web and worker processes, which never hold that
+    key) entries count unverified, which can only make a key refuse, never make one readable."""
+    import hmac
+
+    from erasure.record import entry_mac
+
+    out = set()
+    for entry in entries:
+        if entry.kind != DESTROYED:
+            continue
+        ref = entry.key.partition(":")[2]
+        if secret is not None and not hmac.compare_digest(str(entry.data.get("mac", "")),
+                                                          entry_mac(entry.kind, entry.key, entry.data, secret)):
+            if forged is not None:
+                forged.append(ref)
+            continue
+        out.add(ref)
+    return out
+
+
+def _erasure_secret() -> bytes | None:
+    """The erasure key when this process holds one (the erasure command, the owner-run custody commands, the restore),
+    else None. A key that is set but unusable refuses."""
+    from erasure import record
+
+    if not getattr(settings, "CATALYST_ERASURE_KEY", ""):
+        return None
+    try:
+        return record.key()
+    except record.RecordError as exc:
+        raise KeyStoreError(f"erasure_{exc.code}") from None
+
+
+def _verified_destroyed(entries) -> set:
+    """Destroyed references for an operation that removes files (sweep, recovery): verified under the erasure key when
+    this process holds it, and refused (`forged_entry`) if any entry does not verify."""
+    secret, forged = _erasure_secret(), []
+    refs = destroyed_refs(entries, secret, forged)
+    if forged:
+        raise KeyStoreError("forged_entry")
+    return refs
 
 
 def destroy(subject_ref: str, refs) -> int:
@@ -373,13 +415,19 @@ def destroy(subject_ref: str, refs) -> int:
     provisioned) and the journal, not the wrapping key."""
     from workflow import journal
 
+    from erasure.record import entry_mac
+
     primary, mirror = directories()
     if not journal.configured():
         raise KeyStoreError("journal_unavailable")
+    secret = _erasure_secret()
+    if secret is None:
+        raise KeyStoreError("erasure_key_missing")  # every destruction entry carries a mac under the erasure key
     removed = 0
     for ref in sorted(set(refs)):
         _name(ref)
-        if journal.append(DESTROYED, f"custody_key:{ref}", {"subject": str(subject_ref), "phase": "prepare"}) is None:
+        key, data = f"custody_key:{ref}", {"subject": str(subject_ref), "phase": "prepare"}
+        if journal.append(DESTROYED, key, {**data, "mac": entry_mac(DESTROYED, key, data, secret)}) is None:
             raise KeyStoreError("journal_unavailable")  # never unlink what the record does not hold
         removed += int(_unlink(mirror, ref))
         removed += int(_unlink(primary, ref))
@@ -399,7 +447,7 @@ def sweep() -> dict:
     if not configured():
         return {"status": "not_configured", "removed": 0}
     primary, mirror = directories()
-    destroyed = journaled_destroyed()
+    destroyed = journaled_destroyed(verify=True)
     in_primary, in_mirror = _listing(primary), _listing(mirror)
     removed = 0
     for ref in sorted((in_primary | in_mirror) & destroyed):
@@ -434,7 +482,7 @@ def recover(expected_head: str) -> dict:
             if found is None or int(found.group(2)) < 1:
                 raise KeyStoreError("bad_head")
             journal.verify_anchor(entries, found.group(1), int(found.group(2)), found.group(3))
-        destroyed = destroyed_refs(entries)
+        destroyed = _verified_destroyed(entries)
     except journal.JournalError as exc:
         raise KeyStoreError("journal_mismatch" if exc.code == "journal_mismatch" else "journal_unavailable") from None
     report = {"copied_to_primary": 0, "copied_to_mirror": 0, "destruction_finished": 0, "unrecoverable": 0}

@@ -133,7 +133,8 @@ def test_9kg_34_destroying_a_key_journals_it_first_and_leaves_the_document_unrea
     assert order == ["journal", "unlink", "unlink"]
     assert keystore.present(ref) == (False, False)
     entry = [e for e in journal.read() if e.kind == keystore.DESTROYED][-1]
-    assert entry.key == f"custody_key:{ref}" and entry.data == {"subject": str(app.public_ref), "phase": "prepare"}
+    assert entry.key == f"custody_key:{ref}" and {k: v for k, v in entry.data.items() if k != "mac"} == {
+        "subject": str(app.public_ref), "phase": "prepare"}
     with pytest.raises(services.Refused, match="document_erased"):
         services.retrieve_document(str(document.public_id), k.agreement_decider, "Counsel review copy")
     assert not StaffItem.objects.filter(reason_code=custody.CUSTODY_CORRUPTED).exists()  # not corruption
@@ -455,6 +456,7 @@ def test_9kg_34_the_backup_and_the_erasure_command_never_hold_the_wrapping_key_a
 @pytest.mark.django_db
 def test_9kg_34_the_drill_command_seeds_reads_destroys_and_checks_a_set_for_key_material(settings, tmp_path):
     settings.CATALYST_CUSTODY_WRAPPING_KEY = secrets.token_hex(32)
+    settings.CATALYST_ERASURE_KEY = KEY  # the destruction's mac
     settings.CATALYST_AGREEMENT_STORAGE_DIR = settings.CATALYST_CUSTODY_KEY_DIR = ""  # restored after the test
     settings.CATALYST_CUSTODY_KEY_MIRROR_DIR = ""
     dirs = ["--storage-dir", str(tmp_path / "custody"), "--key-dir", str(tmp_path / "keys"),
@@ -718,3 +720,32 @@ def test_9kg_34_recovery_needs_the_out_of_band_head_and_refuses_a_journal_that_l
         code, report = command("catalyst_custody_keys", "--recover", "--expect-head", wrong)
         assert code == 1 and report["refused"] == reason, wrong
     assert command("catalyst_custody_keys", "--recover", "--expect-head", head)[0] == 0
+
+
+# --- the review of PR #102, E: the destruction record carries a mac --------------------------------------------------
+
+@pytest.mark.django_db
+def test_9kg_34_a_destruction_entry_carries_a_mac_and_a_forged_one_is_reported_never_acted_on(custody, settings):
+    document = drill.synthetic_document(subject(), b"%PDF-1.7 synthetic")
+    keep = drill.synthetic_document(subject(email="other@example.test", name="Other Example"), b"%PDF-1.7 other")
+    keystore.destroy(str(document.application.public_ref), [document.envelope.key_ref])
+    entry = [e for e in journal.read() if e.kind == keystore.DESTROYED][-1]
+    secret = settings.CATALYST_ERASURE_KEY.encode()
+    assert entry.data["mac"] == record.entry_mac(entry.kind, entry.key, entry.data, secret)
+    # Someone who can write the journal but lacks the erasure key forges a destruction of another person's key.
+    ref = keep.envelope.key_ref
+    journal.append(keystore.DESTROYED, f"custody_key:{ref}", {"subject": str(uuid.uuid4()), "phase": "prepare",
+                                                             "mac": "f" * 64})
+    forged = []
+    assert keystore.destroyed_refs(journal.read(), secret, forged) == {document.envelope.key_ref} and forged == [ref]
+    with pytest.raises(keystore.KeyStoreError, match="forged_entry"):
+        keystore.sweep()  # it removes files, so it acts only on verified entries
+    assert keystore.present(ref) == (True, True)  # the forged entry removed nothing
+    with pytest.raises(keystore.KeyStoreError, match="forged_entry"):
+        keystore.recover(record.head_string())
+    # Read paths (web, worker: no erasure key) count it unverified, which can only refuse a key, never revive one.
+    with pytest.raises(keystore.KeyStoreError, match="key_destroyed"):
+        keystore.load(ref)
+    settings.CATALYST_ERASURE_KEY = ""
+    with pytest.raises(keystore.KeyStoreError, match="erasure_key_missing"):
+        keystore.destroy(str(keep.application.public_ref), [ref])  # no destruction without its mac

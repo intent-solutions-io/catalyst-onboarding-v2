@@ -31,6 +31,8 @@ def custody_keys(settings, tmp_path):
     settings.CATALYST_CUSTODY_WRAPPING_KEY = secrets.token_hex(32)
     settings.CATALYST_CUSTODY_KEY_DIR = str(tmp_path / "custody-keys")
     settings.CATALYST_CUSTODY_KEY_MIRROR_DIR = str(tmp_path / "custody-keys-mirror")
+    # The erasure key: each journaled key destruction carries a mac under it (9kg.34, review of PR #102, F6).
+    settings.CATALYST_ERASURE_KEY = "synthetic-erasure-key-for-tests-only-0123456789abcdef"  # gitleaks:allow (synthetic)
     from agreements import keystore
 
     keystore.provision()  # the explicit provisioning step: nothing else creates the key directories

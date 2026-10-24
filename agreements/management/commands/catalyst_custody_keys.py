@@ -164,7 +164,7 @@ def _migrate() -> dict:
         report["sealed"] += 1
         report["plaintext_removed" if storage.dispose_plaintext(document.storage_key) else "plaintext_already_gone"] += 1
     report["plaintext_cleanup_failed"] = 0
-    destroyed = keystore.journaled_destroyed()
+    destroyed = keystore.journaled_destroyed(verify=True)
     for envelope in CustodyEnvelope.objects.filter(migrated=True).select_related("document"):
         # A migration interrupted after its commit: the sealed copy is recorded; the plaintext goes now. Once the key is
         # journaled as destroyed the sealed copy can no longer be opened, and the plaintext goes without that check (a

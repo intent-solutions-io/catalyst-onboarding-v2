@@ -1674,6 +1674,7 @@ P6_SUPPORTING = {
         "test_custody_encryption::test_9kg_34_lingering_plaintext_of_a_destroyed_key_is_removed_and_one_failure_blocks_nothing",
         "test_custody_encryption::test_9kg_34_the_sweep_finishes_journaled_destructions_without_the_wrapping_key_and_fails_closed",
         "test_custody_encryption::test_9kg_34_recovery_needs_the_out_of_band_head_and_refuses_a_journal_that_lost_it",
+        "test_custody_encryption::test_9kg_34_a_destruction_entry_carries_a_mac_and_a_forged_one_is_reported_never_acted_on",
     ],
     "9kg.47 staff screens for the shell-only agreement states (021 section 20)": [
         "test_agreement_screens::test_an_unknown_create_is_decided_on_the_screen_and_refused_without_the_permission",
