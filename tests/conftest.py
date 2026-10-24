@@ -26,9 +26,12 @@ The container-level boundary is the explicit, synthetic environment the test ser
 (compose.yaml) and config.guards, which refuses provider credentials at start-up."""
 
 import ipaddress
+import json
 import os
 import re
+import shutil
 import socket
+import subprocess
 import threading
 import time
 import uuid
@@ -144,9 +147,7 @@ def case_status(names, outcomes):
 def pytest_sessionfinish(session, exitstatus):
     config = session.config
     outcomes = _acceptance["outcomes"]
-    groups = {**acceptance.CASES, **acceptance.SUPPORTING, **acceptance.P2_CASES, **acceptance.P3_CASES,
-              **acceptance.P3_SUPPORTING, **acceptance.P4_CASES, **acceptance.P4_SUPPORTING, **acceptance.P5_CASES,
-              **acceptance.P5_SUPPORTING, **acceptance.P6_CASES, **acceptance.P6_SUPPORTING}
+    groups = acceptance.groups()
     _acceptance["statuses"] = {case: case_status(names, outcomes) for case, names in groups.items()}
     mapped = {name for names in groups.values() for name in names}
     _acceptance["full"] = (
@@ -155,6 +156,38 @@ def pytest_sessionfinish(session, exitstatus):
     )
     if session.exitstatus == 0 and (_skipped or (_acceptance["full"] and set(_acceptance["statuses"].values()) != {"PASS"})):
         session.exitstatus = 1
+    # 9kg.44: the register is checked as data in a full run, and written for the go/no-go package.
+    _acceptance["register_problems"] = acceptance.check_register() if _acceptance["full"] else []
+    if _acceptance["full"] and _acceptance["register_problems"] and session.exitstatus == 0:
+        session.exitstatus = 1
+    if _acceptance["full"] and not _acceptance["register_problems"]:
+        write_register(_acceptance["statuses"])
+
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def run_commit() -> str:
+    """The commit this run tests: CI's, else git's, else unrecorded (the test image has no git)."""
+    if os.environ.get("GITHUB_SHA"):
+        return os.environ["GITHUB_SHA"]
+    if shutil.which("git"):
+        probe = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True)
+        if probe.returncode == 0:
+            return probe.stdout.strip()
+    return "unrecorded"
+
+
+def write_register(statuses) -> str:
+    """register.json (CATALYST_EVIDENCE_REGISTER, or the repository root): the rows, this run's commit and image
+    digest when known, each proof's record pointer and the summary, so the go/no-go package reads it."""
+    rows = acceptance.register(statuses)
+    path = os.environ.get("CATALYST_EVIDENCE_REGISTER") or os.path.join(ROOT, "register.json")
+    with open(path, "w", encoding="utf-8") as out:
+        json.dump({"gate": "GATE-STAGING", "commit": run_commit(), "image_digest": os.environ.get("CATALYST_IMAGE") or None,
+                   "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "rows": rows,
+                   "summary": acceptance.summarise(rows)}, out, indent=1, sort_keys=True)
+    return path
 
 
 def pytest_terminal_summary(terminalreporter):
@@ -166,23 +199,71 @@ def pytest_terminal_summary(terminalreporter):
     statuses = _acceptance["statuses"]
     if not any(s != "NOT RUN" for s in statuses.values()):
         return  # nothing mapped ran (a child probe or an unrelated file): no report
-    for title, gate, groups in (
-            ("first-slice acceptance (005 S1.7)", "GATE-S1", {**acceptance.CASES, **acceptance.SUPPORTING}),
-            ("P2 correspondence acceptance (016 section 7)", "GATE-P2", acceptance.P2_CASES),
-            ("P3 evidence and assessment acceptance (018 section 9)", "GATE-P3",
-             {**acceptance.P3_CASES, **acceptance.P3_SUPPORTING}),
-            ("P4 agreements acceptance (021 section 12)", "GATE-P4", {**acceptance.P4_CASES, **acceptance.P4_SUPPORTING}),
-            ("P5 provisioning acceptance (023 section 9)", "GATE-P5",
-             {**acceptance.P5_CASES, **acceptance.P5_SUPPORTING}),
-            ("P6 staging acceptance (026 section 11; live evidence in 026 section 16)", "GATE-STAGING",
-             {**acceptance.P6_CASES, **acceptance.P6_SUPPORTING})):
+    full = _acceptance["full"]
+    for title, gate, cases, supporting in acceptance.gates():
         terminalreporter.section(title)
-        part = {case: statuses[case] for case in groups}
-        for case, status in part.items():
-            terminalreporter.write_line(f"{case:<34} {status:<10} {len(groups[case])} mapped tests")
-        summary = ", ".join(f"{s} {list(part.values()).count(s)}" for s in ("PASS", "FAIL", "INCOMPLETE", "NOT RUN"))
-        scope = f"full run: {gate} requires every case PASS" if _acceptance["full"] else "selected subset: not gated"
-        terminalreporter.write_line(f"{summary} ({scope})", green=_acceptance["full"] and set(part.values()) == {"PASS"})
+        register = {}
+        if gate == "GATE-STAGING":
+            terminalreporter.write_line(f"run commit: {run_commit()}")
+            problems = _acceptance.get("register_problems") or ([] if full else acceptance.check_register())
+            for problem in problems:
+                terminalreporter.write_line(f"FAILED GATE: evidence register: {problem}", red=True)
+            if not problems:
+                register = {row["case"]: row for row in acceptance.register(statuses)}
+        for case in cases:
+            terminalreporter.write_line(f"{case:<34} {statuses[case]:<10} {len(cases[case])} mapped tests"
+                                        + ("   " + describe_evidence(register[case]) if case in register else ""))
+            if case in register:
+                terminalreporter.write_line(describe_proofs(register[case]))
+        # A live-only case is never a pytest result: it is listed, not counted with PASS (9kg.44).
+        for case, row in register.items():
+            if row["result"] == "LIVE ONLY":
+                terminalreporter.write_line(f"{case:<34} {'LIVE ONLY':<10} no pytest evidence   " + describe_evidence(row))
+                terminalreporter.write_line(describe_proofs(row))
+        for group in supporting:
+            terminalreporter.write_line(f"{group:<34} {statuses[group]:<10} {len(supporting[group])} mapped tests")
+        counts = {case: statuses[case] for case in cases}
+        summary = "numbered cases: " + ", ".join(f"{s} {list(counts.values()).count(s)}"
+                                                 for s in ("PASS", "FAIL", "INCOMPLETE", "NOT RUN"))
+        if supporting:
+            groups = [statuses[g] for g in supporting]
+            summary += "; supporting groups: " + ", ".join(f"{s} {groups.count(s)}" for s in ("PASS", "FAIL", "INCOMPLETE", "NOT RUN"))
+        if register:
+            summary += f"; live-only {len([r for r in register.values() if r['result'] == 'LIVE ONLY'])} (not a pytest result)"
+        scope = f"full run: {gate} requires every case PASS" if full else "selected subset: not gated"
+        all_pass = {statuses[g] for g in (*cases, *supporting)} == {"PASS"}
+        terminalreporter.write_line(f"{summary} ({scope})", green=full and all_pass)
+        if register:
+            for line in register_summary(acceptance.summarise(list(register.values()))):
+                terminalreporter.write_line(line)
+
+
+def describe_evidence(row: dict) -> str:
+    """One register row as the report prints it: proof types in order, the pytest kind, completeness with the
+    residual bead, and the approval boundary (9kg.44)."""
+    proofs = ",".join(p["type"] if p["type"] != "pytest" else f"pytest:{row['pytest']}" for p in row["proofs"])
+    completeness = f"partial->{row['partial']}" if row["partial"] else "full"
+    return f"[{proofs}; {completeness}; up to {row['boundary']}]"
+
+
+def describe_proofs(row: dict) -> str:
+    """The second, indented line: each proof as type@environment/revision, then the residual of a partial case."""
+    line = "    " + "; ".join(f"{p['type']}@{p['environment']}/{p['revision']}" for p in row["proofs"])
+    if row["partial"]:
+        line += f"; residual: {row['residual']}"
+    return line
+
+
+def register_summary(summary: dict) -> list[str]:
+    residual = ", ".join(f"{bead} ({', '.join(c.removeprefix('TEST-P6-') for c in cases)})"
+                         for bead, cases in sorted(summary["residual"].items()))
+    return [
+        f"evidence register: full {summary['full']} (proven by this run {summary['proven_this_run']}, of which shape-only "
+        f"are excluded: {len(summary['shape_only'])} shape-only, {len(summary['live_only'])} live-only recorded), "
+        f"partial {summary['partial']} (residual beads: {residual or 'none'})",
+        "shape-only pytest evidence (behaviour shown by a drill): "
+        + ", ".join(summary["shape_only"]) + "; live-only: " + ", ".join(summary["live_only"] or ["none"]),
+    ]
 
 
 # --- database roles and the privileged reset (D-21) -----------------------------------------------------
@@ -260,6 +341,9 @@ EXPECTED_TRIGGERS = {
     ("assessments_qualificationdecision", "catalyst_append_only"), ("assessments_qualificationdecision", "catalyst_no_truncate"),
     ("applications_application", "catalyst_decided_stage_needs_decision"),  # P3 3B.4
     ("workflow_automationpause", "catalyst_restore_hold"),  # 6B.7a
+    # 9kg.6: the pause row is cleared only by an audited resume; events carry the inserting transaction
+    ("workflow_automationpause", "catalyst_pause_resume_guard"), ("workflow_automationpause", "catalyst_pause_fixed"),
+    ("workflow_automationpause", "catalyst_no_truncate"), ("applications_applicationevent", "catalyst_event_txid"),
     ("otp_totp_totpdevice", "catalyst_otp_device_fixed"), ("otp_static_staticdevice", "catalyst_otp_device_fixed"),  # 6B.9
     # 9kg.24: the fetcher's writes, pinned
     ("workflow_pendingaction", "catalyst_fetcher_workflow_pendingaction_insert"),

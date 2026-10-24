@@ -62,6 +62,7 @@ APPROVED_MIGRATIONS = {
     ("assessments", "0009_fetcher_role_grants"),  # 9kg.24: the evidence fetcher's own narrower role
     ("accounts", "0006_request_throttle"),  # 9kg.29: the public-endpoint throttle buckets
     ("applications", "0004_invitation"), ("applications", "0005_invitation_protection"),  # 9kg.43: invitation-only intake
+    ("applications", "0006_event_txid"), ("workflow", "0005_pause_resume_guard"),  # 9kg.6: the pause-row guard
     # 9kg.30: the append-only staff role grant record and the P4 and P5 role groups (accounts.roles)
     ("accounts", "0007_staff_role_grants"), ("agreements", "0009_staff_groups"), ("provisioning", "0007_staff_groups"),
     ("assessments", "0010_decision_inputs_and_human_only_code"),  # oc4.12: what a decision records, completed

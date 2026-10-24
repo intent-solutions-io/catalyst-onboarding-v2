@@ -4,3 +4,5 @@
 2451eddd5c367f22a3d4e97bb8f7f0207be2419c:tests/test_provisioning.py:generic-api-key:517
 # PR #88 (batch item 5): the personal-data scan test plants a synthetic token-shaped string as a positive control.
 cfa31d7e83ff7afc165dd10aa41118beb34b597f:tests/test_personal_data_scan.py:generic-api-key:24
+# PR #88 squash merge (e2e0313) re-committed the same synthetic positive control of the personal-data scan test (9kg.40).
+e2e0313ded390447316fd4d71f49e8486d652646:tests/test_personal_data_scan.py:generic-api-key:25
