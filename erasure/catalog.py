@@ -165,6 +165,8 @@ TABLES = {
     "assessments_evidencesource": Table(staff="approved_by", other=(
         "id key version kind host port path_prefix redirect_hosts content_types max_bytes deadline_seconds required"
         " on_unavailable fixture_only definition_sha256 status approved_at created_at")),
+    "assessments_modeluseapproval": Table(staff="actor_ref", other=(  # oc4.9: owner configuration, no applicant data
+        "id purpose action provider model_id terms terms_sha256 approval_ref recorded_at")),
     "assessments_qualificationdecision": Table(
         selector=APP,
         subject={"human_only_reason": S("decisions"), "reason_text": S("decisions"), "rationale": S("decisions", NOTES)},

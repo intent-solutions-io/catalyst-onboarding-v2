@@ -115,6 +115,9 @@ class Request:
     nonce: str
     sha256: str
     missing: list = field(default_factory=list)
+    # oc4.9: the source fields this request actually carries (approval.FIELDS names), computed while it is built, so
+    # the checked run can refuse a field no approval names (`fields_not_approved`).
+    fields: frozenset = frozenset()
 
 
 def clean(text: str, one_line: bool = False) -> str:
@@ -201,7 +204,8 @@ def _spans(text: str) -> list:
 
 
 def _claim_texts(claims) -> list:
-    """(claim key, label, raw text, cap) for each applicant statement sent as a C block."""
+    """(claim key, label, raw text, cap, source fields) for each applicant statement sent as a C block. The source
+    fields are the approval.FIELDS names the text is made of (oc4.9)."""
     out = []
     claims = claims if isinstance(claims, dict) else {}
 
@@ -209,14 +213,15 @@ def _claim_texts(claims) -> list:
         return [r for r in claims.get(key) or [] if isinstance(r, dict)] if isinstance(claims.get(key), list) else []
     for i, work in enumerate(records("work"), start=1):
         if work.get("note"):
-            out.append((f"work:{i}", f"note on work sample {i}", str(work["note"]), 400))
+            out.append((f"work:{i}", f"note on work sample {i}", str(work["note"]), 400, ("claims.work[].note",)))
     for key, label in (("contribution", "what the applicant says they personally did"), ("experience", "experience"),
                        ("confidential_description", "private or confidential work (described)")):
         if claims.get(key):
-            out.append((key, label, str(claims[key]), CLAIM_CHARS))
+            out.append((key, label, str(claims[key]), CLAIM_CHARS, (f"claims.{key}",)))
     for i, credential in enumerate(records("credentials"), start=1):
         text = f"{credential.get('name') or ''}; issuer: {credential.get('issuer') or ''}"
-        out.append((f"credential:{i}", f"credential {i}", text, 400))
+        out.append((f"credential:{i}", f"credential {i}", text, 400,
+                    ("claims.credentials[].name", "claims.credentials[].issuer")))
     return out
 
 
@@ -262,7 +267,9 @@ def build_request(application, value: dict, pack) -> Request:
     nonce = secrets.token_hex(8)
     items, missing, total = {}, [], 0
     claim_blocks = []
-    for n, (key, label, raw, cap) in enumerate(_claim_texts(claims), start=1):
+    used = {"rubric.criteria[].definition"}  # oc4.9: every source field that goes into the prompt below
+    for n, (key, label, raw, cap, sources) in enumerate(_claim_texts(claims), start=1):
+        used.update(sources)
         cleaned = clean(raw, one_line=True)[:cap]
         markers = sorted({kind for kind, pattern in fetch._MARKERS if pattern.search(cleaned)})  # before the fence
         text = _fence(scrub(cleaned, names))
@@ -284,14 +291,18 @@ def build_request(application, value: dict, pack) -> Request:
         items[alias] = SentItem(alias, f"answer:{len(answer_blocks) + 1}", text, len(full) > cap, False, markers, _spans(text))
         asked = "; ".join(_fence(scrub(clean(q, one_line=True), names)) for q in question_texts)
         answer_blocks.append((alias, asked, ", ".join(sorted(set(outcomes))), text))
+        used.update(("confirmed_answers[].question_texts", "confirmed_answers[].outcomes",
+                     "confirmed_answers[].reply_own_text"))
     evidence = 0
     for entry in value["items"]:
         if entry["capture"] is None or entry["outcome"] == "not_found":
             missing.append(f"- {entry['claim']}: {entry['status']}{' (' + entry['outcome'] + ')' if entry['outcome'] else ''}")
+            used.add("missing_evidence[].claim_status")
             continue
         budget = min(ITEM_CHARS, TOTAL_CHARS - total)
         if evidence >= MAX_ITEMS or budget <= 0:
             missing.append(f"- {entry['claim']}: not sent (size limit)")
+            used.add("missing_evidence[].claim_status")
             continue
         capture = EvidenceCapture.objects.get(pk=entry["capture"])
         raw = clean(capture.derived_text)
@@ -304,6 +315,8 @@ def build_request(application, value: dict, pack) -> Request:
         alias = f"E{evidence}"
         items[alias] = SentItem(alias, entry["claim"], text, truncated, names_applicant,
                                 list(capture.injection_markers), _spans(text), entry["outcome"] or "found")
+        used.update(("evidence_captures[].derived_text", "evidence_captures[].names_applicant",
+                     "evidence_captures[].truncated", "evidence_captures[].outcome"))
     lines = [f"RUBRIC (version {pack.rubric_version}):"]
     lines += [f"- {c['id']}{' (required)' if c.get('required') else ''}: {c['definition']}" for c in pack.criteria]
     lines.append("\nAPPLICANT CLAIMS (unverified statements):")
@@ -329,4 +342,4 @@ def build_request(application, value: dict, pack) -> Request:
     prompt = "\n".join(lines)
     # The digest masks the per-run nonce, so the same inputs give the same request digest.
     digest = hashlib.sha256((pack.system + "\n\n" + prompt.replace(nonce, "NONCE")).encode()).hexdigest()
-    return Request(pack.system, prompt, pack.criteria, items, nonce, digest, missing)
+    return Request(pack.system, prompt, pack.criteria, items, nonce, digest, missing, frozenset(used))

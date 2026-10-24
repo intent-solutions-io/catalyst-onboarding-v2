@@ -386,6 +386,12 @@ CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION = number("CATALYST_ASSESSMENT_TOKENS_
 CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST = number("CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST", "16000")
 CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT = number("CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT", "8000")
 CATALYST_ASSESSMENT_CONCURRENT_RUNS = number("CATALYST_ASSESSMENT_CONCURRENT_RUNS", "2")
+# oc4.9 / oc4.10 item 7: the wall time of one model request, enforced by Catalyst around the call (agent.run_checked)
+# and passed to the provider client. One attempt (the call and the repair) must fit in half the worker lease
+# (config.guards.assessment_problems), so a lease is never reclaimed while an attempt is in flight.
+# Unset: a quarter of the lease, at most 60 s (018 section 6).
+CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS = number(
+    "CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS", str(min(60.0, CATALYST_WORKER_LEASE_SECONDS / 4)), cast=float, minimum=0.1)
 # Fail-closed: no run proceeds until the owner sets a daily budget (018 6).
 CATALYST_ASSESSMENT_DAILY_REQUESTS = number("CATALYST_ASSESSMENT_DAILY_REQUESTS", "0", minimum=0)
 # Clarification (018 section 6 and step 5): at most 3 assessment rounds per application, 3 proposals per round.
