@@ -1515,6 +1515,7 @@ P6_CASES = {
     ],
     "TEST-P6-37": [
         "test_image::test_6b5_the_build_context_excludes_tests_history_and_the_tracker",
+        "test_image::test_6b5_every_path_the_dockerfile_copies_is_in_the_build_context",
         "test_release::test_6b10_the_image_workflow_attests_only_main_and_pushes_nowhere",
     ],
     "TEST-P6-38": [
