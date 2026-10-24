@@ -240,6 +240,15 @@ done
 check "TEST-P6-30 the proxy refuses a port other than 443" test "$(via_proxy_settled example.com:22)" = "403 port_not_allowed"
 check "TEST-P6-30 the proxy refuses a single-label name (the database's)" test "$(via_proxy db:443)" = "400 bad_host"
 check "TEST-P6-30 the egress proxy mounts no secret" test -z "$(docker exec "$("${compose[@]}" ps -q egress)" ls /run/secrets 2>/dev/null)"
+# TEST-P6-28 (9kg.39): the proxy's deny list of production hosts. deploy/staging/egress-deny names a public stand-in
+# (one.one.one.one, 1.1.1.1 and 1.0.0.1), so the deny by name and by resolved address shows here; the tunnelled
+# public name above is the control (and proves the list loaded: without one, everything is refused).
+check "TEST-P6-28 the proxy refuses a production host by name" test "$(via_proxy one.one.one.one:443)" = "403 host_denied"
+check "TEST-P6-28 the proxy refuses a name under a production host" test "$(via_proxy www.one.one.one.one:443)" = "403 host_denied"
+for authority in 1.1.1.1.nip.io:443 1.0.0.1.nip.io:443; do
+  check "TEST-P6-28 the proxy refuses a name resolving to a production host's address ($authority)" test "$(via_proxy_settled "$authority")" = "403 address_denied"
+done
+check "TEST-P6-28 only the egress proxy holds the deny list" bash -c '! docker exec "$1" test -e /etc/catalyst/egress-deny && docker exec "$2" test -r /etc/catalyst/egress-deny' _ "$("${compose[@]}" ps -q fetcher)" "$("${compose[@]}" ps -q egress)"
 
 # TEST-P6-27: a dark deploy. An applicant goes through the real form and confirmation link; the evidence collection that
 # follows is held until the owner's activation command, and no action that reaches a provider exists in any other state.

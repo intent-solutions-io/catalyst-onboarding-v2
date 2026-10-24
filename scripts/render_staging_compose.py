@@ -19,7 +19,8 @@ The rules the definition encodes (each pinned by a test):
   (CATALYST_STAFF_PUBLISH, never all interfaces).
 - **The fetcher** runs only `fetch_evidence`, as the fetcher role. It shares `backend` (the database) with the other
   processes and an internal `fetch` network with the egress proxy alone, so no other process can reach the proxy; every fetch is a CONNECT tunnel through that proxy (assessments.egress), which refuses every
-  address outside global unicast. The proxy holds no secret and alone joins the outbound network.
+  address outside global unicast and every host on its deny list (`deploy/staging/egress-deny`, mounted into it
+  alone; 9kg.39). The proxy holds no secret and alone joins the outbound network.
 """
 
 import json
@@ -119,7 +120,11 @@ def definition() -> dict:
     # resolves names and refuses every address outside global unicast, as the fetcher's own classify does.
     # On the `fetch` network with the fetcher alone, never on `backend`: no other process can reach it (PR #76 review).
     egress = catalyst(["python", "-m", "assessments.egress"], "", [], networks=("fetch", "egress"))
-    egress["environment"] = {"CATALYST_ENV": "staging", "CATALYST_EGRESS_LISTEN": "0.0.0.0:3128"}
+    # 9kg.39: its deny list of production hosts, a secret-free file mounted read-only into this service alone. Staging
+    # carries synthetic names and a public stand-in; production mounts the operator-supplied list at the same path.
+    egress["environment"] = {"CATALYST_ENV": "staging", "CATALYST_EGRESS_LISTEN": "0.0.0.0:3128",
+                             "CATALYST_EGRESS_DENY_FILE": "/etc/catalyst/egress-deny"}
+    egress["volumes"] = ["./egress-deny:/etc/catalyst/egress-deny:ro"]
     del egress["secrets"]
     migrate = catalyst(["sh", "-c", "python manage.py migrate --noinput && python manage.py schedule_session_cleanup"
                        " && python manage.py schedule_verification_sweep"],
