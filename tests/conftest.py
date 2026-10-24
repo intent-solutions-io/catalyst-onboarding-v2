@@ -27,8 +27,11 @@ The container-level boundary is the explicit, synthetic environment the test ser
 
 The raising HTTP transport (oc4.9; 018 sections 5.5 and 21). A second autouse fixture makes the HTTP client library a
 model provider client would use (`httpx2`, which PydanticAI's provider clients are built on, and `httpx` where
-installed) raise on every request, loopback included, so no test can reach a model endpoint through it however a
-client is configured. Nothing in Catalyst uses these libraries for its own traffic."""
+installed) raise on every request, loopback included: both clients' `send` and both default transports are patched,
+so a client with the default transport or any transport class of these libraries cannot reach a model endpoint. It
+does not cover a client that brings a transport of its own outside these libraries, or another HTTP library;
+tests/test_live_safety.py fails if the dependencies gain one (openai, anthropic, requests, aiohttp, httpx) before this
+fixture covers it. Nothing in Catalyst uses these libraries for its own traffic."""
 
 import ipaddress
 import json
@@ -113,6 +116,8 @@ def raising_http_transport(monkeypatch):
             library = importlib.import_module(name)
         except ImportError:
             continue
+        monkeypatch.setattr(library.Client, "send", _refuse_http)
+        monkeypatch.setattr(library.AsyncClient, "send", _refuse_http_async)
         monkeypatch.setattr(library.HTTPTransport, "handle_request", _refuse_http)
         monkeypatch.setattr(library.AsyncHTTPTransport, "handle_async_request", _refuse_http_async)
 

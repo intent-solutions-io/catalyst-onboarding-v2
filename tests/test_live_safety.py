@@ -10,8 +10,10 @@ approval shows the approval check passing and the call still refusing.
 import asyncio
 import json
 import os
+import re
 import sys
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx2
@@ -526,3 +528,30 @@ def test_oc4_9_an_uncancellable_call_lets_the_lease_run_out_and_never_refreshes_
 def test_oc4_9_a_keeper_fence_before_its_block_renews_and_does_not_fail(a, monkeypatch, settings):
     queued(a, monkeypatch, settings, valid())
     keepers.LeaseKeeper(claim_run()).fence()  # no AttributeError before __enter__
+
+
+# --- review fix-ups: the raising transport's coverage ------------------------------------------------------------
+
+def test_oc4_9_a_client_with_its_own_transport_class_is_refused_too():
+    def handler(request):
+        raise AssertionError("the transport must never be reached")
+    with pytest.raises(ModelNetworkRefused):
+        httpx2.Client(transport=httpx2.MockTransport(handler)).get("https://api.example.test/v1/models")
+
+
+def test_oc4_9_no_unpatched_http_or_provider_library_enters_the_dependencies():
+    names = {re.match(r"^([A-Za-z0-9_.-]+)==", line).group(1).lower()
+             for line in Path(support.ROOT, "requirements", "base.txt").read_text().splitlines()
+             if re.match(r"^[A-Za-z0-9_.-]+==", line)}
+    assert names, "requirements/base.txt was not parsed"
+    found = names & {"openai", "anthropic", "requests", "aiohttp", "httpx"}
+    assert not found, f"{sorted(found)}: extend the raising transport in tests/conftest.py first, then this list"
+
+
+def test_oc4_9_only_the_agent_module_builds_a_pydantic_ai_agent():
+    pattern = re.compile(r"from pydantic_ai import [^\n]*\bAgent\b|pydantic_ai\.Agent\b|from pydantic_ai\.agent import")
+    root = Path(support.ROOT)
+    found = sorted(str(p.relative_to(root)) for p in root.rglob("*.py")
+                   if not {".venv", "venv", "node_modules", ".git"} & set(p.parts) and p.resolve() != Path(__file__).resolve()
+                   and pattern.search(p.read_text()))  # tests included: none builds an Agent of its own
+    assert found == ["assessments/agent.py"]

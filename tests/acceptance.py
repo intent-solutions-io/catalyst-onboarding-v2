@@ -1760,6 +1760,9 @@ P6_SUPPORTING = {
         "test_live_safety::test_oc4_9_streaming_is_refused",
         "test_live_safety::test_oc4_9_an_uncancellable_call_lets_the_lease_run_out_and_never_refreshes_liveness",
         "test_live_safety::test_oc4_9_a_keeper_fence_before_its_block_renews_and_does_not_fail",
+        "test_live_safety::test_oc4_9_a_client_with_its_own_transport_class_is_refused_too",
+        "test_live_safety::test_oc4_9_no_unpatched_http_or_provider_library_enters_the_dependencies",
+        "test_live_safety::test_oc4_9_only_the_agent_module_builds_a_pydantic_ai_agent",
     ],
     # oc4.10 (018 section 21): the reconciliation's real-use defects 4 to 7; items 1 to 3 are the oc4.12 tests above.
     "oc4.10 the real-use defects: a dead reservation holds no slot, a handler defect requeues the run, an ended run leaves nothing started, the lease-versus-timeout guard": [
