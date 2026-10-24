@@ -260,7 +260,8 @@ def test_9kg_43_the_dossier_the_health_report_and_the_release_receipt_show_the_m
     app = intake(client)
     code, report = health()
     assert code == 0 and report["intake"] == {"mode": "invitation", "client_identity": "direct", "live_invitations": 1, "anomalies": [],
-                                              "data_notice": {"status": "draft", "version": 1, "sha256": report["intake"]["data_notice"]["sha256"]}}
+                                              "data_notice": {"status": "draft", "version": 1, "synthetic": True,
+                                                                              "sha256": report["intake"]["data_notice"]["sha256"]}}
     assert len(report["intake"]["data_notice"]["sha256"]) == 64  # the version's digest, never the wording
     out = StringIO()
     call_command("catalyst_release", "receipt", stdout=out)

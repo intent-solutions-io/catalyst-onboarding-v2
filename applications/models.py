@@ -169,9 +169,10 @@ class Invitation(models.Model):
     issuance supersedes the live one. Consumed at confirmation by one conditional update (applications.invitations),
     never at acceptance, so an unconfirmed submission does not spend it. Identity, issuer, note and expiry are fixed by
     trigger; use, supersession and the consuming application are written once. The row is the audit record of the
-    issuance: who, when, until when, and which data notice the invitation mail carried (9kg.52: the version and
-    content digest of the `data_notice` template rendered into the mail; null and empty for a row issued before the
-    notice existed). Fixed by trigger like the rest of the issuance (migration 0008).
+    issuance: who, when, until when, and which wording the invitation mail carried (9kg.52: the version and content
+    digest of the `data_notice` template rendered into the mail, and the `invitation` template's own digest; null
+    and empty for a row issued before the notice existed). Fixed by trigger like the rest of the issuance (migration
+    0008).
     """
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
@@ -186,6 +187,7 @@ class Invitation(models.Model):
     updated_at = models.DateTimeField(db_default=Now())
     notice_template_version = models.PositiveIntegerField(null=True, blank=True)  # 9kg.52: the data notice in the mail
     notice_sha256 = models.CharField(max_length=64, blank=True, db_default="")
+    mail_template_sha256 = models.CharField(max_length=64, blank=True, db_default="")  # 9kg.52: the invitation wording
 
     class Meta:
         constraints = [
@@ -200,21 +202,23 @@ class Invitation(models.Model):
 
 
 class MemberAgreementOnFile(models.Model):
-    """An invited member whose first-generation agreement is on file (9kg.52; 030 Q4, D-51): "referenced, not
+    """An invited member whose first-generation agreements are on file (9kg.52; 030 Q4, D-51): "referenced, not
     re-signed". The owner records it by hand from the private roster through the owner-run `catalyst_member_on_file`
-    (the application role may not insert, migration 0008), naming the agreement version as a plain label and that
-    completion was verified; no legacy identifier and no document copy enters v2, and a member without a verified
-    completion gets no row (a new participant). Keyed on the email key like Invitation, so it exists before any
-    application does. The row is the audit record: everything is fixed by trigger, a correction supersedes the live
-    row (written once) and nothing is ever deleted. The staff dossier shows it as a visible state.
+    (the application role may not insert, migration 0008): which agreement types it covers, each with the version as
+    an owner-typed plain label (`covers`: {"nda": "...", "user_agreement": "..."}), and that completion was verified
+    off-system. No legacy identifier and no document copy enters v2; a member without a verified completion gets no
+    row (a new participant). Keyed on the email key like Invitation; recorded only for an address v2 already knows
+    (an invitation or an application). The row is the audit record: everything is fixed by trigger, a correction
+    supersedes the live row (written once), nothing is ever deleted. The agreement path reads it (agreements.completion:
+    a covered type is "referenced", never issued and never a verified instance); the dossier, the agreements screen
+    and the decision form show it; the decision service refuses a decline for it (030 Q8).
     """
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     email_key = models.CharField(max_length=320)
-    agreement_version = models.CharField(max_length=100)  # a plain label the owner types; never an identifier or a copy
+    covers = models.JSONField()  # {agreement type key: owner-typed version label}; never an identifier or a copy
     completion_verified = models.BooleanField()  # always true: the constraint is the rule, the command is the gate
-    recorded_by = models.CharField(max_length=200)
-    note = models.CharField(max_length=500, blank=True, default="")
+    recorded_by = models.CharField(max_length=60)
     recorded_at = models.DateTimeField(db_default=Now())
     superseded_at = models.DateTimeField(null=True, blank=True)
 
@@ -223,7 +227,7 @@ class MemberAgreementOnFile(models.Model):
             models.UniqueConstraint(fields=["email_key"], condition=Q(superseded_at__isnull=True),
                                     name="member_on_file_one_live_per_email_key"),
             models.CheckConstraint(condition=Q(completion_verified=True), name="member_on_file_completion_verified"),
-            models.CheckConstraint(condition=~Q(agreement_version=""), name="member_on_file_has_agreement_version"),
+            models.CheckConstraint(condition=~Q(covers={}), name="member_on_file_covers_something"),
             models.CheckConstraint(condition=~Q(recorded_by=""), name="member_on_file_has_recorder"),
         ]
 

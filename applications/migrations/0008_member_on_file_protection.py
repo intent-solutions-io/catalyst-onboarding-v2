@@ -20,10 +20,9 @@ FUNCTION = "catalyst_member_on_file_fixed"
 BODY = """
     BEGIN
       IF TG_OP = 'DELETE'
-         OR (NEW.id, NEW.public_id, NEW.email_key, NEW.agreement_version, NEW.completion_verified, NEW.recorded_by,
-             NEW.note, NEW.recorded_at)
-            IS DISTINCT FROM (OLD.id, OLD.public_id, OLD.email_key, OLD.agreement_version, OLD.completion_verified,
-                              OLD.recorded_by, OLD.note, OLD.recorded_at)
+         OR (NEW.id, NEW.public_id, NEW.email_key, NEW.covers, NEW.completion_verified, NEW.recorded_by, NEW.recorded_at)
+            IS DISTINCT FROM (OLD.id, OLD.public_id, OLD.email_key, OLD.covers, OLD.completion_verified, OLD.recorded_by,
+                              OLD.recorded_at)
          OR (OLD.superseded_at IS NOT NULL AND NEW.superseded_at IS DISTINCT FROM OLD.superseded_at) THEN
         RAISE EXCEPTION 'member on file: % refused (the record is fixed; supersession is written once)', TG_OP
           USING ERRCODE = 'insufficient_privilege';
@@ -49,9 +48,9 @@ INVITATION_BODY = """
     BEGIN
       IF TG_OP = 'DELETE'
          OR (NEW.id, NEW.public_id, NEW.email_key, NEW.issued_by, NEW.note, NEW.issued_at, NEW.expires_at,
-             NEW.notice_template_version, NEW.notice_sha256)
+             NEW.notice_template_version, NEW.notice_sha256, NEW.mail_template_sha256)
             IS DISTINCT FROM (OLD.id, OLD.public_id, OLD.email_key, OLD.issued_by, OLD.note, OLD.issued_at, OLD.expires_at,
-                              OLD.notice_template_version, OLD.notice_sha256)
+                              OLD.notice_template_version, OLD.notice_sha256, OLD.mail_template_sha256)
          OR (OLD.used_at IS NOT NULL AND NEW.used_at IS DISTINCT FROM OLD.used_at)
          OR (OLD.superseded_at IS NOT NULL AND NEW.superseded_at IS DISTINCT FROM OLD.superseded_at)
          OR (OLD.application_id IS NOT NULL AND NEW.application_id IS DISTINCT FROM OLD.application_id) THEN

@@ -11,7 +11,10 @@ invitation row, in the command's output, and in the health report).
 
 Unapproved wording: a local or synthetic environment (config.guards.DRAFT_WORDING_ENVIRONMENTS) renders the newest
 draft with a visible draft marker so the page and the mail can be exercised before approval; a live environment
-refuses (`Unavailable`), so the page is withheld and no invitation is issued until the owner approves.
+refuses (`Unavailable`), so the page is withheld and no invitation is issued until the owner approves. A live
+environment also refuses an approved version still marked synthetic (`<key>_synthetic`: a placeholder approved for a
+drill never reaches a real person) and a withdrawn one (`<key>_retired`, from the source). Real wording arrives as a
+new draft version by a correspondence data migration, as every template version does, and the owner approves it.
 
 The templates belong to the correspondence app and are reached only through the fixed path in
 `CATALYST_NOTICE_SOURCE` (003 ADR-01: this app never imports a later app; the same seam pattern as
@@ -39,11 +42,13 @@ class Unavailable(Exception):
 
 @dataclass(frozen=True)
 class Rendered:
-    """What the source returns for an approved version: rendered, with the version's number and content digest."""
+    """What the source returns for an approved version: rendered, with the version's number, content digest and
+    whether its wording is still a synthetic placeholder."""
     version: int
     sha256: str
     subject: str
     text: str
+    synthetic: bool = True
 
 
 @dataclass(frozen=True)
@@ -84,19 +89,33 @@ def status(key: str = DATA_NOTICE) -> dict:
     return _source("status")(key)
 
 
+def servable(state: dict, environment: str) -> bool:
+    """Whether wording in this state may be shown to a person here: approved and real, or any version where a
+    draft may be shown (it is then marked). The health report's `data_notice_unapproved` is "not servable"."""
+    if guards.draft_wording_allowed(environment):
+        return state["status"] != "missing"
+    return state["status"] == "approved" and not state["synthetic"]
+
+
 def wording(key: str, values: dict | None = None) -> Wording:
     values = values or {}
+    drafts_allowed = guards.draft_wording_allowed(settings.CATALYST_ENV)
     rendered = _source("approved")(key, values)
     if rendered is not None:
+        if rendered.synthetic and not drafts_allowed:
+            raise Unavailable(f"{key}_synthetic")
         return Wording(key, rendered.version, rendered.sha256, rendered.subject, rendered.text, approved=True)
-    if not guards.draft_wording_allowed(settings.CATALYST_ENV):
+    if not drafts_allowed:
         raise Unavailable(f"{key}_not_approved")
     draft = _source("draft")(key)
     if draft is None:
         raise Unavailable(f"{key}_missing")
     if set(values) != set(draft.variables):
         raise Unavailable(f"{key}_values_do_not_match_allow_list")
-    text = Template(draft.body_text).substitute(values)  # the standard library; values are not re-expanded
+    try:
+        text = Template(draft.body_text).substitute(values)  # the standard library; values are not re-expanded
+    except (KeyError, ValueError):  # a stray or unknown `$`: a refusal, never an error page
+        raise Unavailable(f"{key}_invalid_placeholder") from None
     return Wording(key, draft.version, draft.sha256, draft.subject, text, approved=False)
 
 

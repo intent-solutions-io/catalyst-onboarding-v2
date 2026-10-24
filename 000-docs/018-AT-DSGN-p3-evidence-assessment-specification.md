@@ -1167,6 +1167,12 @@ section 5 rules (missing or private evidence is never evidence of low ability; e
 offered and recorded). Comparability at the internal launch means the same criteria and the same form for everyone;
 a fixed core question set per criterion is a later owner decision.
 
+**No v2 decline for an existing member** (`030` Q8, `9kg.52`). While the address has a live first-generation
+agreement-on-file record (`applications.MemberAgreementOnFile`, recorded by the owner, `029` section 17.2), the
+decision service refuses a decline under the application lock (`decline_refused_member_on_file`) and the decision
+form does not offer one, with a line saying why; hold, or withdraw through the withdrawal path, instead. Admit and
+hold are unchanged. Like the other human-only rules, it binds the form and the service alike.
+
 **Open owner decisions (policy, not implemented):** (1) whether `not_shown` should need observed contrary evidence
 rather than absence; (2) whether a decline should need at least one `not_shown` criterion at moderate or strong
 evidence strength; (3) a fixed core question set per criterion; (4) `oc4.8`'s value (`CATALYST_CAPPED_EXIT`).

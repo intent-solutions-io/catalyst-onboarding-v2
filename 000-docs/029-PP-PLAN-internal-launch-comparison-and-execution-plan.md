@@ -304,6 +304,8 @@ screen shows no age; the stage, item and pause classes are counted but page only
 | Logs and receipts | host | the host archive | no | code-only by design (TEST-P6-13, 35) |
 | Backups | the dump and custody set | the host archive, the off-site leg (object-locked) | by policy | the erasure record replayed on restore (`9kg.25`); object-locked copies age out, never purge one person |
 | Selection-review material | none in the repository (`f1u.4`) | private location to approve | — | `f1u.4` |
+| Invitations (the email key, the issuer, the note, the recorded notice and invitation wording digests) | PostgreSQL | dumps; the host archive; the off-site leg | yes (trigger, `9kg.43`, `9kg.52`) | PROPOSED: anonymize the email key to a unique tombstone under the audited exception when `9kg.32` lands; issuer, times and digests kept; counsel decides (POL-10) |
+| First-generation agreement-on-file records (the email key, the agreement version labels, the recorder) | PostgreSQL | dumps; the host archive; the off-site leg | yes (trigger, `9kg.52`) | PROPOSED: anonymize the email key to a unique tombstone under the audited exception when `9kg.32` lands; the labels and the attestation kept as the reason a decline was never recorded; counsel decides (POL-10) |
 
 ### 6.2 The erasure design (proposed; `9kg.32`, `9kg.25`, `9kg.33`)
 
@@ -796,41 +798,55 @@ account, owner-run as the migration owner), the append-only record `accounts.Sta
 
 ### 17.2 The data notice, the member-on-file record and the decline refusal (`9kg.52`)
 
-Built 2026-10-23 from the council record `030` (Q8: a plain data notice is not deferred; Q4: existing members are
-referenced, not re-signed); repo-only, synthetic data, nothing deployed. The decline refusal for a member on file and
-the decision policy identifier `none: internal cohort, D-M` wait for the decision form of PR #87 and are not here.
+**Built:** the one-paragraph data notice of `030` Q8 as the message template `data_notice` and the invitation mail as
+`invitation` (correspondence migration 0018), `applications.notices` with the template source
+`correspondence.notices` behind `CATALYST_NOTICE_SOURCE`, the notice on the request-access page in invitation mode,
+`catalyst_invite` printing the mail (JSON or `--format text`) and recording the notice's version and digest and the
+invitation wording's digest on the row (applications 0007, fixed by trigger in 0008); the record
+`applications.MemberAgreementOnFile` and `manage.py catalyst_member_on_file` (`030` Q4); the agreement path's
+"referenced" state (`agreements.completion.referenced`); the decline refusal (`018` section 20). Tests:
+`tests/test_intake_notice.py`.
 
-- **One template, two surfaces** (`applications.notices`; correspondence migration 0018): the notice is the message
-  template `data_notice` and the invitation mail the template `invitation`, whose one variable is the notice. Both
-  are seeded as unapproved placeholders (status draft, synthetic) and approved by the owner on the template screen
-  like every other template (211.7.7, D-29); the wording is a template the owner approves, never a constant in code,
-  and a test proves the placeholder phrase appears in the seed migration alone. The request-access page in
-  invitation mode renders the newest approved version with its version and content digest in the markup; the open
-  intake is the S1 page unchanged. The templates are read and rendered by `correspondence.notices`, reached only through the
-  `CATALYST_NOTICE_SOURCE` seam (`003` ADR-01: `applications` never imports `correspondence`).
-- **Unapproved wording**: in `development`, `test` and `staging` (`config.guards.DRAFT_WORDING_ENVIRONMENTS`, listed
-  by name) the newest draft renders with a visible draft marker so the page and the mail can be exercised before
-  approval; anywhere else the page is withheld with the one 503 try-again page, no invitation is issued, the log
-  carries a reason code and the health report names `data_notice_unapproved`. The health report and the release
-  path see the notice's state (approved, draft or missing, with version and digest), never its wording.
-- **The invitation mail**: v2 contacts nobody on an invitation (section 5.1), so `catalyst_invite` renders the mail
-  before any write and prints it for the owner to send by hand, with the notice's version and digest; the invitation
-  row records them (two columns fixed by the 0005 trigger, replaced in 0008). A live environment refuses to issue
-  while either wording is unapproved.
-- **Agreement on file, first-generation** (`applications.members`, `applications.MemberAgreementOnFile`, `manage.py
-  catalyst_member_on_file`): keyed on the email key like the invitation, so it exists before any application does;
-  only the owner-run command inserts (the application role has SELECT for the dossier and nothing else); the row is
-  the audit record (the agreement version as a plain label, that completion was verified, who recorded it, when),
-  fixed by trigger, a correction supersedes the live row, nothing is deleted or truncated. `--completion-verified` is
-  required (a member without a verified completion is a new participant: nothing recorded), and a value that reads
-  as a link, a path, a long identifier or a pasted record is refused, so no legacy identifier and no document copy
-  enter v2. The dossier shows the state per applicant as one line.
-- **Evidence**: `tests/test_intake_notice.py`, mapped as a P6 design rule in `tests/acceptance.py`; the migration
-  round trip and the role, trigger and constraint inventories updated (`tests/test_db_roles.py`,
-  `tests/test_database.py`, `tests/test_acceptance.py`); the health assertion in `tests/test_invitation.py`.
-- **Not done here**: the real wording (the owner approves it with the templates, 211.7.7; counsel's POL-10 answer
-  may change the erasure sentence); the decline refusal and the policy identifier (after PR #87); the private
-  roster itself stays outside the repository.
+- **Default built on:** the council's Q8 content list (what is collected, who sees it, that no model reads it and no
+  link is fetched, how to withdraw and how to request erasure) and its Q4 answer ("referenced, not re-signed", recorded
+  by hand from the private roster, no legacy identifier, no document copy). The wording is the owner's to approve with
+  the templates (`211.7.7`); the seeded placeholder holds the content list with bracketed slots where counsel must
+  state the recipients, the withdrawal route and the erasure route. **The erasure sentence depends on POL-10 and on
+  the treatment of the two rows added to section 6.1**; it cannot be approved before them.
+- **One template, two surfaces, never a constant.** The page and the mail render the same approved version. In
+  `development`, `test` and `staging` (`config.guards.DRAFT_WORDING_ENVIRONMENTS`, listed by name) an unapproved
+  version renders with a visible draft marker; anywhere else the page is withheld (503, a sampled reason-code log
+  line), no invitation is issued, and the health report names `data_notice_unapproved`. The same holds for an approved
+  version still marked synthetic, for a withdrawn one (the newest approved-or-retired version is retired: nothing
+  older is served instead) and for a broken placeholder.
+- **The member-on-file record.** The owner names which agreement types are covered (`--nda`, `--user-agreement`),
+  each with its version as a plain label, and `--completion-verified`; the address must already be known to v2 (an
+  invitation or an application). Labels and the recorder match an allowlist (letters, digits, spaces and `.,()+-`; no
+  `@`; no run of 20 characters without a space). The same coverage again is a no-op; different coverage needs
+  `--correct` and supersedes the live row, and the dossier names what it was corrected from. The application role
+  only reads it; every column is fixed by trigger; nothing is deleted. The dossier says the completion was verified
+  by the owner off-system (attested, not read from the provider).
+- **Referenced, not re-signed.** A covered required type with no live instance is "referenced": the automated start
+  does not issue a covered NDA (it starts the sequence at the advance), `completion.next_step` and `prerequisites`
+  treat it as satisfied by the reference (the prerequisite digest binds the record, so a correction changes it), the
+  provider read before provisioning covers only issued types, and the agreements screen shows "first-generation
+  agreement on file, version X, referenced; counsel confirms coverage before launch" with no issue action and no
+  details form. It is never a verified instance, so the signing, custody and countersignature paths are untouched. An
+  uncovered type is still issued, with one exception the database decides: the D-15 backstop (agreements 0002 and
+  0006) refuses any User Agreement without a verified NDA instance, so a member whose record covers the NDA but not
+  the User Agreement gets nothing issued and an owner item (`agreement_reference_needs_decision`) instead. **Owner
+  decision needed:** record the User Agreement as on file too, or decide a change to D-15 that accepts the
+  reference. Recommended (recorded on the legal-posture bead, 2026-10-24): the first, so a member on file has both
+  agreements covered and D-15 stays as it is. The owner's activation still requires an approved NDA template, which
+  the cohort needs for new participants anyway.
+- **Counsel's confirmation of coverage** (the compromise of D-D, `030` Q4) is the owner's go/no-go item for the
+  internal launch (section 11): v2 records the reference, it does not decide that the first-generation agreement
+  covers v2's use. Until counsel confirms, the reference is the owner's attestation only.
+- **No v2 decline for an existing member** (`030` Q8): the decision service refuses a decline while a live record
+  exists (`decline_refused_member_on_file`) and the decision form does not offer it; hold, or withdraw through the
+  withdrawal path, instead.
+- **Not done here:** the real wording and counsel's answers; the erasure treatment of the two section 6.1 rows
+  (`9kg.32`); the private roster, which stays outside the repository.
 
 ## Appendix A. Reconciliation of the 2026-10-22 audit findings
 

@@ -181,13 +181,12 @@ def intake_health() -> dict:
     from applications.invitations import LIVE
     from applications.models import Invitation
 
-    # 9kg.52: the data notice's state (approved, draft or missing, with the version and digest; never the wording).
-    # Unapproved in invitation mode where no draft may be shown is an anomaly: the page is withheld and no invitation
-    # can be issued until the owner approves. Where a draft may be shown (config.guards) the page works, marked.
-    from config import guards
+    # 9kg.52: the data notice's state (approved, draft, retired or missing, with the version, digest and synthetic
+    # flag; never the wording). In invitation mode, wording that may not be served here (unapproved, retired, or an
+    # approved synthetic placeholder outside the draft environments) is an anomaly: the page is withheld and no
+    # invitation can be issued until the owner approves real wording. Where a draft may be shown the page works, marked.
     notice = notices.status(notices.DATA_NOTICE)
-    withheld = (settings.CATALYST_INTAKE_MODE == "invitation" and notice["status"] != "approved"
-                and not guards.draft_wording_allowed(settings.CATALYST_ENV))
+    withheld = settings.CATALYST_INTAKE_MODE == "invitation" and not notices.servable(notice, settings.CATALYST_ENV)
     anomalies = ["data_notice_unapproved"] if withheld else []
     return {"mode": settings.CATALYST_INTAKE_MODE, "client_identity": settings.CATALYST_CLIENT_IDENTITY,
             "live_invitations": Invitation.objects.filter(LIVE).count(), "data_notice": notice, "anomalies": anomalies}

@@ -23,6 +23,7 @@ served, a POST is refused (fail open for reading, closed for issuance).
 """
 
 import logging
+import time
 import uuid
 
 from django.conf import settings
@@ -52,12 +53,28 @@ def _data_notice():
     return notices.data_notice()
 
 
+WITHHELD_LOG_SECONDS = 300
+_withheld_logged = {}  # reason code -> monotonic time of the last WARNING, per process
+
+
+def _log_withheld(reason: str) -> None:
+    """A withheld page logs its reason code at WARNING at most once per reason per WITHHELD_LOG_SECONDS in a process
+    (every GET would otherwise warn); the rest go at DEBUG. The health report carries the standing anomaly."""
+    now = time.monotonic()
+    last = _withheld_logged.get(reason)
+    if last is None or now - last >= WITHHELD_LOG_SECONDS:
+        _withheld_logged[reason] = now
+        logger.warning("intake page withheld: %s", reason)
+    else:
+        logger.debug("intake page withheld: %s", reason)
+
+
 @require_http_methods(["GET", "HEAD", "POST"])
 def request_access(request):
     try:
         notice = _data_notice()
     except notices.Unavailable as refused:
-        logger.warning("intake page withheld: %s", refused)
+        _log_withheld(str(refused))
         return render(request, TRY_AGAIN, status=503)
     if request.method == "POST":
         try:

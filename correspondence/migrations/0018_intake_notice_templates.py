@@ -13,11 +13,11 @@ NOTICE_SUBJECT = "How your request is handled"
 NOTICE_BODY = (
     "PLACEHOLDER WORDING, NOT YET APPROVED. What we collect: the name and email address you enter, the optional "
     "description of your work and credentials, any links you choose to give, and the record of your confirmation, "
-    "your replies and the decision on your request. Who sees it: the named staff who handle requests, and nobody "
-    "else; it is never shared or sold. No automated model reads your request and no link you give is fetched: a "
-    "person reads it and a person makes every decision. You can withdraw your request at any time, and you can ask "
-    "that your personal data be erased, by replying to any message from us; we confirm in writing what was done and "
-    "keep only the minimal record that the law or an agreement you signed requires.\n"
+    "your replies and the decision on your request. Who sees it: the named staff who handle requests "
+    "[counsel to state any other recipient or processor]. No automated model reads your request and no link you give "
+    "is fetched: a person reads it and a person makes every decision. How to withdraw: [counsel to state the "
+    "withdrawal route]. How to request erasure: [counsel to state the erasure route, what is kept and why, and how "
+    "the result is confirmed].\n"
 )
 INVITATION_SUBJECT = "An invitation to request access"
 INVITATION_BODY = (
