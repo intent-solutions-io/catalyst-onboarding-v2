@@ -77,6 +77,18 @@ jobs:
       - name: Test suite (PostgreSQL)
         run: /tmp/venv/bin/python -m pytest -v
 
+      # 9kg.64: the evidence register a full run writes (026 section 11.1), kept for the go/no-go package whatever the
+      # result; a run whose register was refused writes none, so the warning, not a stale file, says so.
+      - name: Keep the evidence register (register.json)
+        if: ${{ always() }}
+        continue-on-error: true  # an artifact-service failure must never fail the required check (PR #95 review)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: evidence-register
+          path: register.json
+          if-no-files-found: warn
+          retention-days: 30
+
   docs:
     name: Markdown lint and doc index check
     needs: runtime
