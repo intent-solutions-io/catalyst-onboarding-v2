@@ -1468,6 +1468,7 @@ P6_CASES = {
         "test_egress::test_9kg39_a_list_in_which_no_name_resolves_refuses_everything_and_start_up_counts_them",
         "test_egress::test_9kg39_a_broken_deny_list_is_transient_for_the_fetcher_logged_at_start_and_unhealthy",
         "test_egress::test_9kg39_a_name_of_hex_labels_is_never_a_name_and_never_a_deny_entry",
+        "test_egress::test_9kg39_egress_refusal_codes_stay_staff_only",
     ],
     "TEST-P6-29": [
         "test_post_restore::test_6b7b_links_from_before_the_restore_stop_working_the_negative_control",

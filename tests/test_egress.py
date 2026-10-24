@@ -473,3 +473,32 @@ def test_9kg39_a_name_of_hex_labels_is_never_a_name_and_never_a_deny_entry(tmp_p
     assert egress.is_name("0xdeadbeefcafe-x.example.test") and egress.is_name("x0.example.test")
     (tmp_path / "deny").write_text("prod-a.example.test\n0x7f.0x0.0x0.0x1\n")
     assert egress.load_deny(str(tmp_path / "deny")) == ()  # malformed: refuse everything
+
+
+EGRESS_CODES = ("host_denied", "address_denied", "peer_denied", "deny_list_unavailable", "deny_list_unresolved",
+                "deny_list_resolves_nothing", "address_not_allowed", "peer_not_allowed", "ip_literal_refused",
+                "port_not_allowed", "bad_host")
+
+
+def test_9kg39_egress_refusal_codes_stay_staff_only(ev, settings, proxy, dns):
+    """A proxy refusal ends the item with its code on the staff dossier, never in what the model sees (so never in
+    a clarification question it proposes), in a mail or on an applicant-facing page."""
+    from django.core import mail
+
+    from assessments import pack, snapshot
+
+    dns["prod-a.example.test"] = ["127.0.0.1"]  # the fixture's own address is a production address here
+    settings.CATALYST_EVIDENCE_PROXY = f"127.0.0.1:{proxy(fixture_policy(ev.site.port))}"
+    source(ev)
+    ev.site.page("/w", "<p>never reached</p>")
+    app = collect(ev, work_url_1=url(ev, "/w"))
+    [item] = items(app)
+    assert (item.status, item.reason_code) == ("refused", "address_denied") and not ev.site.requests
+    loaded = pack.load()
+    value = snapshot.manifest(app, loaded)
+    sent = snapshot.build_request(app, value, loaded)  # the clarification path starts from this request
+    outward = [sent.system, sent.prompt, repr(sent.items), *sent.missing]
+    outward += [f"{m.subject}\n{m.body}" for m in mail.outbox]
+    assert not [code for code in EGRESS_CODES for text in outward if code in text]
+    templates = [path for path in ROOT.glob("*/templates/**/*.html") if "/staff/" not in str(path)]
+    assert templates and not [str(p) for p in templates if "reason_code" in p.read_text()]  # only staff pages show it
