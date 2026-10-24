@@ -1542,3 +1542,16 @@ expires prompts nothing: the applicant holds no working link and staff are not t
   changes the accepted GATE-S1 histories and counts; the sweep leaves the S1 path exactly as accepted.
 
 Tests: `tests/test_hold_and_resend.py` (`9kg.66` in `tests/acceptance.py`).
+
+### 10.18 Plain labels on the resolution buttons (9kg.67, 2026-10-24)
+
+The walkthrough (`029` appendix B, GAP 5) found the staff item page's buttons showing internal codes such as
+`address_usable_again`. Each resolution code and the acknowledgement now has a plain-English label
+(`processing.RESOLUTION_LABELS`), and so does each send decision (`staff_actions.DECISION_LABELS`). The label is the
+button text only: the code stays the submitted value, the allow-list key in `resolve_exception`, the resolution
+record and the audit trail, so nothing a service checks or records changes. Chose labels in code beside the
+allow-lists over labels in the template because the allow-list and its words then change together, and a test
+fails when a new code has no label. Tests: `tests/test_staff_screens.py` (`9kg.67` in `tests/acceptance.py`): every
+code has a label that is not itself a code; on the item page no button text equals a raw code and each code is the
+value of a form whose button shows its label; the earlier tests that matched button text now match the submitted
+values.

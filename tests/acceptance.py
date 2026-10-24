@@ -1592,6 +1592,11 @@ P6_SUPPORTING = {
         "test_hold_and_resend::test_9kg_66_an_acknowledged_item_is_never_reopened_for_the_same_challenge",
         "test_hold_and_resend::test_9kg_66_the_sweep_is_scheduled_at_deployment_and_its_absence_is_a_health_anomaly",
     ],
+    "9kg.67 every staff resolution and decision button shows a plain label and submits its code (016 section 10.18)": [
+        "test_staff_screens::test_9kg_67_every_resolution_and_decision_button_shows_a_plain_label_and_submits_its_code",
+        "test_staff_screens::test_p2_42_identity_resolution_needs_the_decision_maker_through_the_screen",
+        "test_staff_screens::test_p2_42_the_item_page_shows_the_evidence_and_offers_only_lawful_decisions",
+    ],
     "oc4.12 the human-only assessment path completed for a launch with model advice disabled (018 section 20)": [
         "test_human_only::test_the_decision_service_and_screen_never_import_the_model_layer",
         "test_human_only::test_a_run_refused_under_the_suspension_is_labelled_so_and_leaves_assessing_through_the_decision_form",

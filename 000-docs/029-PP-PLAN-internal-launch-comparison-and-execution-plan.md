@@ -1025,7 +1025,8 @@ staff item page states each reason in plain words, and the dossier shares the sa
 4. *Duplicate envelopes have no screen action.* Already `9kg.53`.
 5. *Resolution buttons show codes.* For example `address_usable_again` and `mark_spoof` are shown as codes, not
    plain labels; the reason is now in plain words. Suggest: a small bead giving each resolution code a plain label,
-   with the tests that match on the codes updated.
+   with the tests that match on the codes updated. *(Fixed by `9kg.67`: each resolution, acknowledgement and decision button shows a
+   plain label and still submits its code; `016` section 10.18.)*
 6. *No rendered phone check.* No browser tooling is installed. Suggest: a bead to add one Playwright check of the
    public pages at phone width before outside applicants (`9kg.31.10`). Accepting this as deferred for the internal
    cohort is the owner's decision.

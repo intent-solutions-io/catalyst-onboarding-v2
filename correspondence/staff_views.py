@@ -83,6 +83,11 @@ def act(request, target: str, service, success):
     return redirect(target)
 
 
+def labelled(codes, labels) -> list[tuple[str, str]]:
+    """9kg.67: (code, plain label) pairs; the code is the submitted value, the label the button text."""
+    return [(code, labels[code]) for code in codes]
+
+
 def resolutions_for(user, item) -> list[str]:
     if item.reason_code in processing.RESOLUTIONS:
         return [code for code, perm in processing.RESOLUTIONS[item.reason_code].items() if can(user, perm)]
@@ -145,9 +150,10 @@ def item_detail(request, public_id):
     decide = is_open and item.reason_code in DECIDABLE and item.approved_message_id and can(request.user, "decide_uncertain_send")
     sent = item.approved_message
     return render(request, "correspondence/staff/item.html", {
-        "item": item, "codes": resolutions_for(request.user, item) if is_open else [], "message": message,
-        "cursor": cursor, "decide": decide,
-        "decisions": DECISIONS_BY_REASON.get(item.reason_code, staff_actions.DECISIONS),
+        "item": item, "message": message, "cursor": cursor, "decide": decide,
+        "codes": labelled(resolutions_for(request.user, item) if is_open else [], processing.RESOLUTION_LABELS),
+        "decisions": labelled(DECISIONS_BY_REASON.get(item.reason_code, staff_actions.DECISIONS),
+                              staff_actions.DECISION_LABELS),
         "restart": is_open and cursor is not None and cursor.state == MailboxCursor.State.BLOCKED
         and can(request.user, "restart_collector"),
         "sent": sent,

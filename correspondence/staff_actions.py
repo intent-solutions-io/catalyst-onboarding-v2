@@ -66,6 +66,9 @@ from .verification import EXPIRED_ITEM
 Disposition = ApprovedMessage.Disposition
 Status = PendingAction.Status
 DECISIONS = ("abandon", "authorize_resend", "revise")
+# 9kg.67: the words on each decision button; the code stays the submitted value and the recorded decision.
+DECISION_LABELS = {"abandon": "Abandon further attempts", "authorize_resend": "Authorize a resend",
+                   "revise": "Revise from the current template"}
 CLOSED = (Disposition.ACCEPTED_BY_SERVER, Disposition.ACCEPTED_BY_EVIDENCE, Disposition.SUPERSEDED,
           Disposition.OPERATOR_ABANDONED)
 

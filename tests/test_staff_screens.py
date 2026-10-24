@@ -114,7 +114,7 @@ def test_p2_42_identity_resolution_needs_the_decision_maker_through_the_screen(m
     collect()
     item = StaffItem.objects.get(reason_code="unmatched")
     page = client(mailbox.operator).get(url("item", item.public_id)).content.decode()
-    assert ">dismiss<" in page and ">associate<" not in page  # buttons only for resolutions the viewer holds
+    assert 'value="dismiss"' in page and 'value="associate"' not in page  # buttons only for resolutions the viewer holds
     data = {"code": "associate", "target": str(mailbox.app.public_ref)}
     assert client(mailbox.operator).post(url("resolve", item.public_id), data).status_code == 403
     client(mailbox.decider).post(url("resolve", item.public_id), data)
@@ -214,7 +214,7 @@ def test_p2_42_the_item_page_shows_the_evidence_and_offers_only_lawful_decisions
     rejected = StaffItem.objects.create(reason_code="send_rejected_permanent", dedupe_key=str(sent.send_ref),
                                         application=mailbox.app, approved_message=sent)
     page = client(mailbox.decider).get(url("item", rejected.public_id)).content.decode()
-    assert ">abandon<" in page and ">revise<" in page and ">authorize_resend<" not in page
+    assert 'value="abandon"' in page and 'value="revise"' in page and 'value="authorize_resend"' not in page
     refused = client(mailbox.decider).post(url("send_decision", rejected.public_id), {"decision": "authorize_resend"},
                                            follow=True)
     assert "Refused: decision_not_offered_for_this_reason" in refused.content.decode()
@@ -386,3 +386,43 @@ def test_the_dossier_link_and_the_application_screen_use_the_same_permissions():
     from correspondence import staff_views
 
     assert set(CORRESPONDENCE_SCREEN_PERMISSIONS) == set(staff_views.APPLICATION)  # the link never drifts from the gate
+
+
+# --- 9kg.67 (029 appendix B, GAP 5): plain labels on the resolution and decision buttons ---------------------------
+
+def test_9kg_67_every_resolution_and_decision_button_shows_a_plain_label_and_submits_its_code(mailbox):
+    """Every resolution code, the acknowledgement and every send decision has a label; on the item page, for a viewer
+    who holds every resolution permission, no button text equals a raw code and each code is still the submitted
+    value of a form whose button shows its label."""
+    import html
+    import re
+
+    from correspondence import processing
+    from correspondence.models import ApprovedMessage
+
+    codes = {code for table in processing.RESOLUTIONS.values() for code in table} | {"acknowledge"}
+    assert set(processing.RESOLUTION_LABELS) == codes
+    assert set(staff_actions.DECISION_LABELS) == set(staff_actions.DECISIONS)
+    raw = codes | set(staff_actions.DECISIONS)
+    for code, label in {**processing.RESOLUTION_LABELS, **staff_actions.DECISION_LABELS}.items():
+        assert label.strip().lower() not in raw and label != code, code
+    sent_question(mailbox)
+    sent = ApprovedMessage.objects.get(kind="question")
+    viewer = staff(mailbox, "every-resolution", "Correspondence decision-maker")
+    reasons = [*processing.RESOLUTIONS, "processing_error", "send_outcome_unknown"]
+    shown = set()
+    for n, reason in enumerate(reasons):
+        item = StaffItem.objects.create(reason_code=reason, dedupe_key=f"labels-{n}", application=mailbox.app,
+                                        approved_message=sent if reason == "send_outcome_unknown" else None)
+        page = client(viewer).get(url("item", item.public_id)).content.decode()
+        buttons = [html.unescape(text).strip() for text in re.findall(r"<button>(.*?)</button>", page, re.S)]
+        assert buttons, reason
+        assert not [text for text in buttons if text.lower() in raw], (reason, buttons)
+        for form in re.findall(r"<form .*?</form>", page, re.S):
+            value = re.search(r'name="(?:code|decision)" value="([^"]+)"', form)
+            if value is None:
+                continue
+            labels = {**processing.RESOLUTION_LABELS, **staff_actions.DECISION_LABELS}
+            assert f"<button>{html.escape(labels[value.group(1)])}</button>" in form, (reason, value.group(1))
+            shown.add(value.group(1))
+    assert shown == raw  # every code was offered on some page, so every label was rendered and checked
