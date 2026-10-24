@@ -292,6 +292,9 @@ class QualificationDecision(models.Model):
         ]
 
 
+APPROVAL_REF_PATTERN = r"^[a-z0-9_.:-]{3,64}$"
+
+
 class ModelUseApproval(models.Model):
     """oc4.9: the owner's recorded approval of live model use for one purpose (the assessment, or the reply
     interpreter; both share the checked-run path and the daily budget). Written only by the owner-run
@@ -323,5 +326,6 @@ class ModelUseApproval(models.Model):
         constraints = [
             models.CheckConstraint(condition=Q(purpose__in=["assessment", "interpretation"]), name="model_use_purpose_valid"),
             models.CheckConstraint(condition=Q(action__in=["approve", "revoke"]), name="model_use_action_valid"),
-            models.CheckConstraint(condition=~Q(approval_ref=""), name="model_use_has_approval_ref"),
+            # A decision code, never free text: lowercase letters, digits and _ . : - (3 to 64 characters).
+            models.CheckConstraint(condition=Q(approval_ref__regex=APPROVAL_REF_PATTERN), name="model_use_approval_ref_is_a_code"),
         ]

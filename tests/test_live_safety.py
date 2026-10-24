@@ -46,7 +46,7 @@ LIVE = "minimax:MiniMax-M3"  # a live value: refused at start-up by the guard; s
 
 
 def approve(purpose="assessment", *flags, expect=0, provider="minimax", model_id="MiniMax-M3",
-            ref="synthetic oc4.9 approval"):
+            ref="synthetic:oc4.9:approval"):
     """The owner-run command, as the owner runs it: a separate process connected as the migration owner, with this
     process's budgets and timeout, so the terms it records are the ones this process computes."""
     env = {name: str(getattr(django_settings, name)) for name in approval.BUDGETS}
@@ -260,7 +260,7 @@ def test_oc4_9_no_live_request_without_a_recorded_approval_and_any_changed_term_
     finally:
         approval.FIELDS["assessment"] = original
     assert refused_with(use) == "model_not_authorized"
-    approve("assessment", "--revoke", ref="synthetic oc4.9 revocation")
+    approve("assessment", "--revoke", ref="synthetic:oc4.9:revocation")
     assert refused_with(use) == "model_use_not_approved"
 
 
@@ -294,7 +294,13 @@ def test_oc4_9_the_approval_is_written_only_by_the_owner_command_and_is_append_o
     assert "--provider" in approve("assessment", provider="Not A Provider", expect=1)
     approve("assessment")
     record = ModelUseApproval.objects.get()
-    assert record.approval_ref == "synthetic oc4.9 approval" and record.actor_ref.startswith("owner_command")
+    assert record.approval_ref == "synthetic:oc4.9:approval" and record.actor_ref.startswith("owner_command")
+    # The reference is a decision code, never free text: the command and the database both refuse one.
+    assert "decision code" in approve("assessment", ref="Owner said yes on the phone", expect=1)
+    owner = privileged_reset.connect("owner", autocommit=True)
+    with pytest.raises(errors.CheckViolation):
+        owner.execute("INSERT INTO assessments_modeluseapproval (purpose, action, provider, model_id, terms, terms_sha256,"
+                      " approval_ref, actor_ref) VALUES ('assessment', 'revoke', '', '', '{}', '', 'Not a code', 'x')")
     for role in ("app", "owner"):
         conn = privileged_reset.connect(role, autocommit=True)
         for statement in ("UPDATE assessments_modeluseapproval SET model_id = 'x' WHERE id = %s",
@@ -367,6 +373,9 @@ def test_oc4_10_5_a_handler_defect_returns_the_run_to_queued_for_its_retry(a, mo
     assert ledger.run_one({"run_assessment": runs.RunAssessment()})
     run.refresh_from_db()
     assert run.status == "succeeded" and seen["calls"] == 2
+    # Both attempts stay counted at their reservation: the abandoned one is never refunded.
+    assert sum(AssessmentInvocation.objects.filter(run=run).values_list("reserved_requests", flat=True)) == \
+        2 * runs.REQUESTS_PER_ATTEMPT
 
 
 def test_oc4_10_6_a_run_that_ends_early_leaves_no_invocation_started(a, monkeypatch, settings):
@@ -475,7 +484,7 @@ def test_oc4_9_the_approval_is_rechecked_before_the_repair(privileged_reset, mon
     terms = approval.terms(use, "minimax", "MiniMax-M3")
     owner = privileged_reset.connect("owner", autocommit=True)
     insert = ("INSERT INTO assessments_modeluseapproval (purpose, action, provider, model_id, terms, terms_sha256,"
-              " approval_ref, actor_ref) VALUES ('assessment', %s, %s, %s, %s, %s, 'synthetic oc4.9', 'owner_command')")
+              " approval_ref, actor_ref) VALUES ('assessment', %s, %s, %s, %s, %s, 'synthetic:oc4.9', 'owner_command')")
     owner.execute(insert, ["approve", "minimax", "MiniMax-M3", json.dumps(terms), approval.digest(terms)])
     calls = []
     revoke = lambda: owner.execute(insert, ["revoke", "", "", "{}", ""])  # noqa: E731  (the owner revokes mid-attempt)

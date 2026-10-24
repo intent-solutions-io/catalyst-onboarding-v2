@@ -281,7 +281,7 @@ def assessment_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return problems + attempt_lease_problems(settings)
 
 
-ASSESSMENT_REQUESTS_PER_ATTEMPT = 2  # the call and the one repair (assessments.agent.REPAIRS + 1)
+ASSESSMENT_REQUESTS_PER_ATTEMPT = 2  # the call and the one repair: 1 + assessments.approval.REPAIR_LIMIT
 
 
 def attempt_lease_problems(settings) -> list[str]:

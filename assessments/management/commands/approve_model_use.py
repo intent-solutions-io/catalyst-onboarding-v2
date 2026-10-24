@@ -17,13 +17,21 @@ start-up guard refuses any live value of `CATALYST_ASSESSMENT_MODEL`. Exit 0 don
 """
 
 import json
+import re
 
 from django.core.management.base import BaseCommand, CommandError
 
 from accounts import grants
 from assessments import approval
 from assessments import pack as packs
-from assessments.models import ModelUseApproval
+from assessments.models import APPROVAL_REF_PATTERN, ModelUseApproval
+
+
+def approval_code(value) -> str:
+    ref = grants.require_approval(value)
+    if not re.fullmatch(APPROVAL_REF_PATTERN, ref):
+        raise CommandError("--approval-ref must be a decision code: 3 to 64 of a-z, 0-9, _ . : -")
+    return ref
 
 
 class Command(BaseCommand):
@@ -41,7 +49,7 @@ class Command(BaseCommand):
         if revoke and show:
             raise CommandError("--revoke and --show cannot be combined")
         if revoke:
-            ref = grants.require_approval(approval_ref)
+            ref = approval_code(approval_ref)
             record = ModelUseApproval.objects.create(
                 purpose=purpose, action=ModelUseApproval.Action.REVOKE, provider="", model_id="", terms={},
                 terms_sha256="", approval_ref=ref, actor_ref=grants.actor())
@@ -60,7 +68,7 @@ class Command(BaseCommand):
         self.stdout.write(f"terms digest {digest}")
         if show:
             return
-        ref = grants.require_approval(approval_ref)
+        ref = approval_code(approval_ref)
         record = ModelUseApproval.objects.create(
             purpose=purpose, action=ModelUseApproval.Action.APPROVE, provider=named[0], model_id=named[1], terms=terms,
             terms_sha256=digest, approval_ref=ref, actor_ref=grants.actor())
