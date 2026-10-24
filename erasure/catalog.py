@@ -519,7 +519,7 @@ BEGIN
   END IF;
   IF p_subject IS NULL OR p_authority IS NULL OR p_authority !~ '^[a-z0-9_.:-]{{3,64}}$'
      OR p_reason IS NULL OR p_reason !~ '^[a-z0-9_.:-]{{3,64}}$' OR p_classes IS NULL
-     OR pg_catalog.cardinality(p_classes) = 0 OR NOT (p_classes <@ ARRAY[{known}]::text[]) THEN
+     OR pg_catalog.cardinality(p_classes) = 0 OR NOT (p_classes <@ ARRAY[{known}{CUSTODY_BEGIN}, 'custody_keys_destroyed'{CUSTODY_END}]::text[]) THEN
     RAISE EXCEPTION 'erasure: malformed request' USING ERRCODE = 'CE006';
   END IF;
   SELECT a.email_key INTO v_key FROM public.applications_application a WHERE a.public_ref = p_subject;
@@ -621,6 +621,9 @@ END $fn$"""
 # so 0003's reverse reinstalls the function exactly as 0002 installed it (and 0002 installs it without the part): a
 # rollback of agreements 0010 never leaves a function that reads a dropped table.
 CUSTODY_BEGIN, CUSTODY_END = "/*catalyst-custody{*/", "/*}catalyst-custody*/"
+# Data review of PR #102, K4: a class the command adds to the call (never anonymized, no column) so the erasure audit row
+# written on a first erasure under `destroy_key` says the subject's custody keys are destroyed outside the database.
+CUSTODY_AUDIT_CLASS = "custody_keys_destroyed"
 CUSTODY_PATTERN = re.compile(re.escape(CUSTODY_BEGIN) + r".*?" + re.escape(CUSTODY_END), re.DOTALL)
 
 

@@ -598,6 +598,16 @@ key):
 - a subject with a document still in the clear is refused before any record;
 - an interrupted destruction is finished by the next run or by recovery.
 
+**The declared record of a key destruction** (data review of PR #102, K4). The effect journal is the record:
+each destruction is a `custody_key_destroyed` entry with its mac, and the completion carries `custody:
+keys_destroyed` with the number of references verified gone. The database audit row is not the record of this step:
+
+- on a first erasure under `destroy_key` it lists the class `custody_keys_destroyed` beside the anonymized classes;
+- on a later erasure of an already-tombstoned subject (the keys destroyed after an earlier erasure under `retain`) the
+  function changes no row, its audit row rolls back, and the journal alone records the destruction.
+
+No new table is added for it.
+
 **What `9kg.25` (replay) needs from custody:** nothing to replay. A destroyed key is outside the rollback domain, so a
 restored row already points at a sealed file nobody can open. The hook: the journal's `custody_key_destroyed` entries
 name every destroyed key, if replay ever needs to report them.

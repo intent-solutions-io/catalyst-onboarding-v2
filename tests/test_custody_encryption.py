@@ -830,3 +830,23 @@ def test_9kg_34_a_document_left_in_the_clear_past_the_dry_run_is_refused_after_t
     outcome = erase(privileged_reset, app.public_ref)
     assert outcome.resumed and outcome.keys_destroyed == 2 and outcome.retained == []
     assert record.list_open()["open"] == []
+
+
+# --- the data review of PR #102, K4: the audit row names the key destruction -----------------------------------------
+
+def test_9kg_34_the_first_erasure_under_destroy_key_names_the_key_destruction_in_its_audit_row(
+        privileged_reset, decided, custody, monkeypatch):
+    from tests.test_erasure import audits
+
+    kept = subject(email="other@example.test", name="Other Example")
+    drill.synthetic_document(kept, b"%PDF-1.7 synthetic other")
+    erase(privileged_reset, kept.public_ref)  # under retain: no mention
+    assert catalog.CUSTODY_AUDIT_CLASS not in audits(privileged_reset, kept.public_ref)[0][4]
+    monkeypatch.setattr(registry, "REGISTRY", DESTROYING)
+    app = subject()
+    drill.synthetic_document(app, b"%PDF-1.7 synthetic")
+    erase(privileged_reset, app.public_ref)
+    classes = audits(privileged_reset, app.public_ref)[0][4]
+    assert classes == [*registry.anonymized_classes(DESTROYING), catalog.CUSTODY_AUDIT_CLASS]
+    intent = [e for e in erasure_entries() if e.kind == "erasure_intent" and e.key == f"erasure:{app.public_ref}"][0]
+    assert catalog.CUSTODY_AUDIT_CLASS not in intent.data["classes"]  # the replay's classes stay the registry's

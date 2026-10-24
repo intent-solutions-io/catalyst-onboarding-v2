@@ -161,7 +161,10 @@ def erase(conn, subject_ref: str, authority: str, reason: str, rows=None) -> Out
         except record.RecordError as exc:
             raise Refused(f"record_{exc.code}") from None
     try:
-        result = _call(conn, subject_ref, authority, reason, classes, commit=True)
+        # K4: on a first erasure under destroy_key, the audit row also names the key destruction (a call class with no
+        # column; the journal's intent keeps the registry's classes, which the replay uses).
+        call_classes = classes + ([catalog.CUSTODY_AUDIT_CLASS] if destroy and (resumed or dry.get("custody_keys")) else [])
+        result = _call(conn, subject_ref, authority, reason, call_classes, commit=True)
     except Refused as refusal:
         _complete(subject_ref, subject, kid, f"refused_{refusal.code}", 0, secret)
         raise
