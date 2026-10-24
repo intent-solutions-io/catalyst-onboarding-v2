@@ -1462,6 +1462,7 @@ P6_CASES = {
         "test_egress::test_9kg39_ip_literals_in_any_form_are_refused",
         "test_egress::test_9kg39_link_local_metadata_private_and_tailnet_answers_are_refused_in_every_form",
         "test_egress::test_9kg39_only_the_egress_policy_reads_the_deny_list",
+        "test_egress::test_9kg39_the_remembered_addresses_are_bounded_per_name_and_never_latch_the_proxy_shut",
     ],
     "TEST-P6-29": [
         "test_post_restore::test_6b7b_links_from_before_the_restore_stop_working_the_negative_control",

@@ -380,3 +380,25 @@ def test_9kg39_only_the_egress_policy_reads_the_deny_list():
     holders = [name for name, svc in compose["services"].items() if "CATALYST_EGRESS_DENY_FILE" in svc.get("environment", {})]
     assert holders == ["egress"]
     assert "./egress-deny:/etc/catalyst/egress-deny:ro" in compose["services"]["egress"]["volumes"]
+
+
+# --- security review of PR #101 ------------------------------------------------------------------------------------
+
+def test_9kg39_the_remembered_addresses_are_bounded_per_name_and_never_latch_the_proxy_shut(tmp_path, dns):
+    names = [f"prod-{n}.example.test" for n in range(256)]
+    (tmp_path / "deny").write_text("\n".join(names) + "\n")
+    assert len(egress.load_deny(str(tmp_path / "deny"))) == 256  # at the limit: loaded
+    (tmp_path / "more").write_text("\n".join([*names, "one-too-many.example.test"]) + "\n")
+    assert egress.load_deny(str(tmp_path / "more")) == ()  # past it: malformed, so everything is refused
+    policy = egress.Policy(TEST_ENV)
+    for n in range(200):  # production keeps moving: far more addresses than are remembered
+        dns["prod-a.example.test"] = [f"198.51.100.{n % 250}", f"2001:db8::{n:x}"]
+        denied = policy.denied_addresses()  # never a refusal, however many addresses went before
+        assert {f"198.51.100.{n % 250}", egress.canonical(f"2001:db8::{n:x}")} <= denied  # the fresh answer is always in
+    assert len(policy.remembered["prod-a.example.test"]) == egress.DENY_ADDRESSES_PER_NAME
+    dns["prod-a.example.test"] = [f"203.0.113.{n}" for n in range(80)]  # an answer larger than the cap is kept whole
+    assert {f"203.0.113.{n}" for n in range(80)} <= policy.denied_addresses()
+    assert len(policy.remembered["prod-a.example.test"]) == 80
+    dns["prod-a.example.test"] = ["192.0.2.1"]  # the oldest addresses go first, the newest stay
+    remembered = (policy.denied_addresses(), policy.remembered["prod-a.example.test"])[1]
+    assert remembered[-1] == "192.0.2.1" and "203.0.113.79" in remembered and "203.0.113.0" not in remembered

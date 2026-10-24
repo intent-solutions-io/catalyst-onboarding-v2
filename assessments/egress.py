@@ -16,12 +16,13 @@ goes through here as an HTTP CONNECT tunnel, so the deny is absolute and lives i
    (`CATALYST_EGRESS_DENY_FILE`) lists logical host names; each denies itself and every name under it. A name is
    refused before any lookup; every address the target resolves to, and then the connected peer, is refused when it
    is an address a denied name resolves to. The denied names are resolved afresh at both checks, and every address
-   they have ever resolved to stays denied for the life of the process, so a DNS change toward or away from a
-   production address between the check and the connection cannot open a way through. A missing, unreadable, empty
+   they resolved to before stays denied (up to 64 per name, the oldest evicted first, the fresh answer always kept),
+   so a DNS change toward or away from a production address between the check and the connection cannot open a
+   way through. A missing, unreadable, empty
    or malformed file refuses every request. Only this policy reads the file: the fetcher, the Documenso and mail
    adapters never do. Each fetch and each redirect hop is its own CONNECT, so every hop passes every check here.
 
-Deny file format (one entry per line; `#` starts a comment; blank lines ignored; ASCII; at most 64 KiB):
+Deny file format (one entry per line; `#` starts a comment; blank lines ignored; ASCII; at most 64 KiB and 256 names):
 
     # production hosts of this estate (synthetic names here; the real list is supplied at deploy time)
     prod-a.example.test
@@ -48,7 +49,7 @@ logger = logging.getLogger("assessments.egress")
 NAME = re.compile(r"(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]*[a-z][a-z0-9-]*")
 HEAD_LIMIT, HEAD_SECONDS, CONNECT_SECONDS, IDLE_SECONDS, TUNNEL_SECONDS = 4096, 10, 10, 30, 120
 SYNTHETIC = ("test", "staging")
-DENY_FILE_LIMIT, DENY_SEEN_LIMIT = 65536, 4096
+DENY_FILE_LIMIT, DENY_NAMES_LIMIT, DENY_ADDRESSES_PER_NAME = 65536, 256, 64
 NO_SUCH_NAME = {socket.EAI_NONAME, getattr(socket, "EAI_NODATA", -5)}
 
 
@@ -73,24 +74,33 @@ class Policy:
             ports.add(int(fixture_port))
         self.ports = frozenset(ports)
         self.deny = load_deny(environ.get("CATALYST_EGRESS_DENY_FILE", ""))
-        self.denied_seen: set = set()
+        self.remembered: dict = {}  # name -> its addresses, oldest first, at most DENY_ADDRESSES_PER_NAME
         self.lock = threading.Lock()
 
     def name_denied(self, host: str) -> bool:
         return any(host == name or host.endswith("." + name) for name in self.deny or ())
 
     def denied_addresses(self) -> frozenset:
-        """Every address a denied name resolves to now, together with every one it has resolved to before. A name
-        that does not exist denies nothing; a lookup that fails or runs out of time refuses (502, so retried)."""
+        """Every address a denied name resolves to now, together with the ones it resolved to before (at most
+        DENY_ADDRESSES_PER_NAME per name). A name that does not exist denies nothing; a lookup that fails or runs out
+        of time refuses (502, so retried)."""
         answers = resolve_names(self.deny)
         if any(addresses is None for addresses in answers.values()):
             raise Refusal(502, "deny_list_unresolved")
-        fresh = {canonical(ip) for addresses in answers.values() for ip in addresses} - {""}
         with self.lock:
-            if len(self.denied_seen | fresh) > DENY_SEEN_LIMIT:
-                raise Refusal(502, "deny_list_unresolved")
-            self.denied_seen |= fresh
-            return frozenset(self.denied_seen)
+            for name, addresses in answers.items():
+                self.remember(name, addresses)
+            return frozenset(ip for kept in self.remembered.values() for ip in kept)
+
+    def remember(self, name: str, addresses) -> None:
+        """Keep a name's fresh answer in full and as many earlier addresses as fit, evicting the oldest address that
+        is not in the fresh answer; never a global limit that could latch the proxy shut."""
+        fresh = list(dict.fromkeys(a for a in (canonical(ip) for ip in addresses) if a))
+        kept = [a for a in self.remembered.get(name, []) if a not in fresh] + fresh
+        older = len(kept) - len(fresh)
+        if len(kept) > DENY_ADDRESSES_PER_NAME:
+            kept = kept[min(older, len(kept) - DENY_ADDRESSES_PER_NAME):]
+        self.remembered[name] = kept
 
     def target(self, head: bytes):
         """(host, port, addresses, extra) for a CONNECT request head, or a Refusal."""
@@ -143,7 +153,8 @@ def load_deny(path: str) -> tuple:
         if not NAME.fullmatch(entry):
             return ()
         names.append(entry)
-    return tuple(dict.fromkeys(names))
+    names = tuple(dict.fromkeys(names))
+    return names if len(names) <= DENY_NAMES_LIMIT else ()  # more names than that is malformed
 
 
 def canonical(ip: str) -> str:
