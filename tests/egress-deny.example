@@ -1,0 +1,5 @@
+# The egress deny list (assessments/egress.py; 9kg.39; TEST-P6-28). Synthetic names only: the real list of the estate's
+# production hosts is an operator-supplied file at deploy time and never enters this repository.
+# One dotted DNS name per line; each denies itself and every name under it. '#' starts a comment.
+prod-a.example.test
+prod-b.example.test  # resolves to nothing in the tests: a name that does not exist denies no address

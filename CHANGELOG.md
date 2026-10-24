@@ -167,6 +167,14 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   dispatch-only workflow "Targeted runtime checks" runs a named selection; neither is a required check, and the full
   run stays the merge and release-candidate gate. The runtime suite was profiled again against the 2026-10-18 baseline,
   with sharding, a docs-only skip and promotion of the lane recorded as proposals P12 to P14 (`009` sections 5.3, 5.4, 7)
+- The egress deny list (bead `9kg.39`, TEST-P6-28; `026` section 16, `018` section 3.3): the fetcher's egress proxy
+  refuses the estate's own production hosts by name (and every name under one) before any lookup, by every address
+  those names resolve to, and at the connected peer, re-resolving the names at each check and keeping every address
+  they ever had, so redirects and DNS changes cannot reach them; the list is an operator-supplied, secret-free file
+  of logical host names read by the proxy alone, and a missing, empty or wholly unresolvable one refuses everything
+  as a transient refusal with a start-up code and a failing healthcheck. The repository and
+  staging carry synthetic names only (`tests/egress-deny.example`, `deploy/staging/egress-deny`, mounted into the
+  proxy alone); the real list is a host-preparation item of `9kg.28`
 
 ### Changed
 

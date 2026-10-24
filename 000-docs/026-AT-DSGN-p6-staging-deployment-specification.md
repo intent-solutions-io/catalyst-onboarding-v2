@@ -156,7 +156,10 @@ record (P6-D-8).
   secret. Its only internal destination is the database (one address and port); every outbound fetch goes through a
   dedicated egress proxy, so the deny can be absolute: loopback, the private ranges, link-local, the shared tailnet
   range (100.64.0.0/10), cloud metadata addresses and the container bridge gateway, in addition to the application's
-  own SSRF guard (`018`). The fetcher connects with a narrower database role than the app role (only the evidence
+  own SSRF guard (`018`). The proxy also denies the estate's own production hosts, by name and by every address
+  those names resolve to, from an operator-supplied, secret-free list of logical host names (`9kg.39`, section 16);
+  without that list it refuses everything (a transient refusal, an unhealthy container). The list is read at start,
+  so a change needs a restart (mount its directory, not the file). The fetcher connects with a narrower database role than the app role (only the evidence
   tables), proposed under P6-D-14. The worker reaches only its approved providers. A pilot-gate test proves the fetcher reaches
   none of the denied ranges.
 - **The guards:** the pilot needs a narrow, file-based secret path for the worker and an amendment to the guards
@@ -395,7 +398,7 @@ as GATE-S1 to GATE-P5, in 6C.
 | TEST-P6-25 | Rollback rehearsal: image N+1 to N against an expanded schema, and the restore path. |
 | TEST-P6-26 | The cutover rehearsal on the staging proxy: switch and rollback, the LMS default byte-identical, R2 paths kept. |
 | TEST-P6-27 | A dark deploy makes zero provider calls with every activation held. |
-| TEST-P6-28 | Staging has no route to production hosts or real providers, and holds no production secret. |
+| TEST-P6-28 | Staging has no route to production hosts or real providers, and holds no production secret; the fetcher's egress proxy refuses the estate's production hosts by name, by resolved address, on redirect and after a DNS change (`9kg.39`). |
 | TEST-P6-29 | After a restore, every token and session issued before it is refused, a token consumed after the restore point stays refused, erasures are replayed, and revocations reconciled, before the worker starts. |
 | TEST-P6-30 | The fetcher reaches only the database and the egress proxy; through the proxy it reaches none of the denied ranges (loopback, private, link-local, the tailnet range, metadata, the bridge gateway); it holds no provider secret. |
 | TEST-P6-31 | The deploy force-command refuses an image digest without this repository's attestation, and no fork or pull-request run can reach the deploy credential. |
@@ -1947,6 +1950,93 @@ option c; council `030` Q3 and Q4, D-51 provisional; the storage location and ac
   - `tests/conftest.py`: the expected triggers.
   - `tests/test_database.py`: the approved migrations.
   - `tests/test_acceptance.py`: the named constraint.
+
+**9kg.39, the egress proxy's deny list of the estate's production hosts (TEST-P6-28; split from `9kg.27`;
+2026-10-24).**
+
+- **Built.** `assessments/egress.py` loads a deny list from the file named by `CATALYST_EGRESS_DENY_FILE`, read by
+  the proxy alone (the fetcher, the Documenso and mail adapters never read it, and only the `egress` service has the
+  variable).
+  - Format: ASCII, at most 64 KiB and 256 names, one dotted DNS name per line, `#` comments and blank lines
+    ignored. Each entry denies itself and every name under it. An address, a single label, a name with an all-hex
+    label (`0x7f.0x0.0x0.0x1`) or any other entry makes the file malformed.
+  - A missing, unreadable, oversized, empty or malformed file refuses every request with a 503
+    (`deny_list_unavailable`), which the fetcher treats as transient and retries; the code is logged once at start,
+    and the egress service's healthcheck (`python -m assessments.egress --check`) fails while the list does not load.
+  - A denied name is refused before any lookup (`host_denied`).
+  - Every address the target resolves to is refused when it is an address of a denied name (`address_denied`), and
+    so is the connected peer (`peer_denied`). The denied names are resolved afresh at both checks, in one lookup
+    pass (one thread) under one deadline. Each name keeps its fresh answer in full and up to 64 addresses in all, the
+    oldest address not in the fresh answer evicted first, so a DNS change toward a production address between the
+    check and the connection is caught at the peer, and one away from it does not at once reopen the old address.
+    There is no global limit that could latch the proxy shut.
+  - Addresses compare in one form: the zone dropped and IPv4-mapped IPv6 unwrapped.
+  - A denied name that does not exist denies nothing. One whose lookup fails or times out keeps its last good
+    answer (logged as `deny_lookup_stale`); only a name that has never resolved refuses, as transient (502,
+    `deny_list_unresolved`). A list in which no name resolves to anything refuses everything (503,
+    `deny_list_resolves_nothing`), and at start the proxy logs `deny_names_unresolved=N`, a count, never a name.
+  - Each fetch and each redirect hop is its own CONNECT, so every hop passes every check. The outcomes are codes
+    only; the file's content is never logged.
+- **The real list.** The repository holds synthetic names only (`tests/egress-deny.example`,
+  `deploy/staging/egress-deny`). The estate's real production host names are an operator-supplied file, mounted
+  read-only into the egress service at deploy time; that is a host-preparation item of `9kg.28`. The evidence
+  register keeps TEST-P6-28 partial on `9kg.39`, whose boundary is enabling fetching, so the real list blocks
+  exactly that (PR #101 security review).
+- **Staging.** `deploy/staging/egress-deny` holds the synthetic names and one public stand-in for a production host
+  (`one.one.one.one`, not a host of this estate), bind-mounted read-only at `/etc/catalyst/egress-deny` into the
+  `egress` service alone, the way production mounts the real list.
+- **Evidence.**
+  - `tests/test_egress.py`: 25 new tests (17, then 8 from the security review), mapped under TEST-P6-28, cover:
+    - the name, and a name under it, refused before any lookup;
+    - a resolved production address in IPv4, IPv6 and both IPv4-mapped spellings;
+    - a DNS change between requests and between the check and the connection (the peer), and the union kept
+      across a move;
+    - an unresolvable deny name, and missing, empty, comment-only, malformed, non-ASCII and oversized files;
+    - a redirect to a production name and to a name resolving to its address, with a positive control fetch to a
+      `.test` fixture through the proxy;
+    - link-local, metadata, private and tailnet answers in IPv4, IPv6 and mapped forms;
+    - numeric encodings (decimal, octal, hex, short) and IP literals;
+    - schemes other than https and ports other than 443;
+    - that only the proxy reads the list.
+  - The production addresses in the tests are documentation addresses, which the test admits as public so that only
+    the deny list refuses them, as it must for a real production host.
+  - `scripts/staging_check.sh`: five TEST-P6-28 checks, run once on the dev box on 2026-10-24 (132 PASS, 1 FAIL).
+    All five new checks and every TEST-P6-30 check passed: the stand-in refused by name, a name under it refused,
+    `1.1.1.1.nip.io` and `1.0.0.1.nip.io` refused by resolved address, and the file present in the proxy and absent
+    from the fetcher. The tunnelled public name is the control and shows the list loaded.
+  - The one FAIL was outside this change: "TEST-P6-27 no other registered action exists outside the held state".
+    Since PR #97 (`9kg.66`), migrate schedules the verification-expiry sweep, whose kind was not in that check's
+    allow-list.
+- **Scope extension (decided by the coordinator, its own commit): the TEST-P6-27 check admits the sweep.** The
+  dark-deploy check counts every registered action outside the held state except an allow-list. It now also admits
+  `verification_expiry_sweep`, and only as itself: its one system subject, in the states `queued`, `running` or `done`
+  (a pass that ran and queued its successor). A failed or uncertain sweep, or any other new kind, still fails the
+  check, and the control now also requires the sweep's kind to be registered. No test pinned the allow-list, so
+  none changed. Re-run once on the dev box, 2026-10-24: `scripts/staging_check.sh` **133 of 133 PASS, exit 0**,
+  every TEST-P6-27, 28 and 30 check included. That run's image was built from the working tree with the extension
+  not yet committed, so the drill revision in the evidence register is left unchanged.
+- **Security review of PR #101 (2026-10-24), one commit per finding:** the per-name address bound without a latch;
+  the last good answer and one lookup pass; the visible all-unresolved list; the broken list as a transient 503
+  with a start-up code and a healthcheck; all-hex labels refused; a test that egress refusal codes stay staff-only
+  (never in the model request the clarification path starts from, a mail or a non-staff template); the register's
+  blocker edge to enabling fetching (above); and the staging by-address checks reported NOT RUN, never FAIL, when
+  the proxy cannot reach public DNS. `scripts/staging_check.sh` after the review, on the dev box, 2026-10-24: at
+  `078d481`, 132 PASS, 0 FAIL, 1 NOT RUN (one by-address case on a single transient lookup failure, the next one
+  passing), after which the DNS probe retries like the other proxy checks; at `6ea22c5` (committed, clean tree),
+  **133 of 133 PASS, exit 0**, with the egress healthcheck passing `compose up --wait` and every TEST-P6-27, 28 and
+  30 check green.
+- **Stated limits.**
+  - The proxy trusts its resolver: a resolver that answered the deny names falsely would hide their addresses, so
+    network isolation and the host allow-list stay the controls that hold against that.
+  - A `peer_denied` connection has completed its TCP handshake with the denied host before the proxy refuses it;
+    no byte is sent through it and it is closed at once.
+  - The file is read once, at start: a change to the list needs a restart. A bind-mounted file replaced on the host
+    (a new inode, as most editors and `mv` produce) leaves the running container on the old content, so mount the
+    directory rather than the file, or restart the egress service after every change.
+  - The "only the proxy reads the list" test scans a fixed list of application packages (`APP_PACKAGES` in
+    `tests/test_egress.py`); a new package must be added there.
+  - The staging stand-in and `nip.io` are outside dependencies of the staging check, like the existing TEST-P6-30
+    cases; without public DNS the by-address cases print NOT RUN.
 
 ## 17. The aged-waits health part (9kg.51, 2026-10-23)
 
