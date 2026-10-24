@@ -96,7 +96,8 @@ def install(apps, schema_editor):
                               "FOR EACH ROW EXECUTE FUNCTION public.catalyst_erasable_append_only()")
     for name in catalog.GUARDED_FUNCTIONS:  # CREATE OR REPLACE keeps the owner, the attributes and the grants
         schema_editor.execute(catalog.with_branch(_definition(schema_editor, name), retention), params=None)
-    schema_editor.execute(catalog.erase_sql(retention, existing), params=None)
+    # Without the custody part (erasure 0003 adds it): byte for byte the function this migration installed before 9kg.34.
+    schema_editor.execute(catalog.without_custody(catalog.erase_sql(retention, existing)), params=None)
     schema_editor.execute("REVOKE ALL ON FUNCTION public.catalyst_erase(uuid, text, text, text[]) FROM PUBLIC")
     role = schema_editor.quote_name(settings.CATALYST_DB_ROLES["retention"])
     schema_editor.execute(f"GRANT EXECUTE ON FUNCTION public.catalyst_erase(uuid, text, text, text[]) TO {role}")

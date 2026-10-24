@@ -19,7 +19,8 @@ def test_6b5_the_base_image_is_the_digest_the_tests_run_on():
 
 def test_6b5_dependencies_are_hash_locked_and_the_process_is_not_root():
     text = dockerfile()
-    assert "pip install --require-hashes --no-deps -r requirements/base.txt" in text
+    # 9kg.34 (review of PR #102): wheels only, so no dependency's build step runs in the image
+    assert "pip install --require-hashes --no-deps --only-binary=:all: -r requirements/base.txt" in text
     assert re.search(r"^USER catalyst$", text, flags=re.M) and "--uid 10001" in text
     assert "chmod -R a-w /app" in text  # the application files are read-only at run time
 

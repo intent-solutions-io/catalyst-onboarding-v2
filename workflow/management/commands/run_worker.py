@@ -54,6 +54,10 @@ class Command(BaseCommand):
             if problem:
                 raise CommandError(f"effect journal directory is {problem}: CATALYST_EFFECT_JOURNAL_DIR")
             journal.ensure_genesis()  # every later backup anchors to this journal's identity
+        if settings.CATALYST_PROCESS_ROLE != "fetcher":
+            from config.apps import sweep_custody_keys
+
+            sweep_custody_keys()  # 9kg.34: journaled custody-key destructions are finished before any work
         connections.close_all()  # nothing opened before the declaration is reused unchecked
         stop = threading.Event()
         restore = {}

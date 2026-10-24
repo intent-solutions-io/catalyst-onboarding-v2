@@ -350,4 +350,22 @@ check "TEST-P6-15 a superuser with the right password is refused at the login fo
 check "TEST-P6-15 the refusal names the superuser rule" grep -q "cannot sign in to the staff site" "$work/login.html"
 check "TEST-P6-15 the refused superuser has no staff session" test "$(staff_index)" = 302
 
+# 9kg.34 (review of PR #102, H): no service holds the custody key volumes or the custody wrapping key until 9kg.28 wires
+# them, and then only web and worker may. Two readings: the configuration of every service (the operator profiles
+# included), and the mounts of every running container.
+custody_free_config() {  # no service of the rendered stack names a custody key volume or the wrapping key's secret
+  "${compose[@]}" --profile provision --profile ops config --format json | python3 -c '
+import json, sys
+services = json.load(sys.stdin)["services"]
+bad = [name for name, svc in services.items()
+       if "custody-keys" in json.dumps(svc.get("volumes", [])) or "custody_wrapping_key" in json.dumps(svc.get("secrets", []))]
+sys.exit(1 if bad else 0)'
+}
+check "9kg.34 no service mounts a custody key volume or the custody wrapping key (until 9kg.28 wires web and worker)" custody_free_config
+for service in web worker fetcher egress proxy db; do
+  id="$("${compose[@]}" ps -q "$service")"
+  check "9kg.34 $service: no custody key mount and no custody_wrapping_key in its mounts" bash -c \
+    "! docker inspect --format '{{range .Mounts}}{{.Source}} {{.Destination}}{{println}}{{end}}' '$id' | grep -qE 'custody-keys|custody_wrapping_key'"
+done
+
 exit "$fail"

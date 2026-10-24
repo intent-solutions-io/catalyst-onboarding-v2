@@ -86,8 +86,17 @@ KINDS = {
     # `mac` is HMAC-SHA-256 under the erasure key over the kind, the key and the rest of the data, so an entry cannot be
     # forged or altered without the key (PR #99 security review).
     "erasure_intent": {"subject", "key_id", "authority", "reason", "classes", "handoffs", "retained", "phase", "mac"},
-    "erasure_complete": {"subject", "key_id", "status", "changed", "phase", "mac"},
+    "erasure_complete": {"subject", "key_id", "status", "changed", "custody", "keys_destroyed", "key_files_removed",
+                         "phase", "mac"},
     "erasure_handoff": {"provider", "completed_on", "phase", "mac"},
+    # 9kg.34 (agreements.keystore): one custody data key destroyed, keyed `custody_key:<key reference>` (a random
+    # reference, never key material), with the erased subject's public reference. Appended before the key's files are
+    # unlinked (the restrictive class): recovery never restores a key recorded here, and a destruction recorded but
+    # interrupted is finished by the next erasure run or by recovery.
+    "custody_key_destroyed": {"subject", "phase", "mac"},  # mac: HMAC under the erasure key, as for erasure_*
+    # 9kg.34 (review of PR #102, F2): an orphan the owner reaped: a never-used key (`kind: key`) or a sealed file no row
+    # names (`kind: sealed_file`), keyed `custody_orphan:<reference>`.
+    "custody_orphan_reaped": {"kind", "phase"},
 }
 RESTRICTIVE = ("application_closed", "access_revocation", "automation_pause", "question_withdrawn", "staff_role_changed")
 

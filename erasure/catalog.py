@@ -116,6 +116,8 @@ TABLES = {
     "agreements_storeddocument": Table(other=(  # the PDF itself is in custody: registry row signed_documents (9kg.34)
         "id public_id envelope_id item_id version storage_key sha256 size stored_at application_id instance_id"
         " observation_id")),
+    "agreements_custodyenvelope": Table(other=(  # 9kg.34: random references, digests and sizes; no key material
+        "id storage_key scheme key_ref wrapping_key_id cipher_sha256 cipher_size migrated sealed_at document_id")),
     # --- applications --------------------------------------------------------------------------------------------
     "applications_application": Table(
         selector="id = ANY(v_apps)",
@@ -485,7 +487,9 @@ def erase_sql(retention_literal: str, existing: dict) -> str:
     tombstones. A subject with nothing left to change returns `nothing_to_erase` without writing anything (the audit
     row is rolled back with its sub-block), so a second erasure is harmless; a subject whose key is already a tombstone
     is scoped by its own references, so a class added later still reaches it. It also reports the provider handoffs
-    owed and what it retains (`custody_documents` until 9kg.34)."""
+    owed, what it retains (`custody_documents` when the subject has stored documents) and, for 9kg.34, the key
+    references of the subject's sealed custody documents (`custody_keys`) and the number still in the clear
+    (`custody_plaintext`), so the command can destroy those keys outside the database (agreements.keystore)."""
     terminal = ", ".join(_lit(s) for s in TERMINAL_STAGES)
     open_statuses = ", ".join(_lit(s) for s in OPEN_ACTION_STATUSES)
     final = ", ".join(_lit(s) for s in FINAL_REVOCATION_STATES)
@@ -506,14 +510,16 @@ DECLARE
   v_tables jsonb := '{{}}'::jsonb;
   v_handoffs text[] := ARRAY[]::text[];
   v_retained text[] := ARRAY[]::text[];
-  v_tombstoned boolean;
+{CUSTODY_BEGIN}  v_custody_keys text[] := ARRAY[]::text[];
+  v_custody_plaintext bigint := 0;
+{CUSTODY_END}  v_tombstoned boolean;
 BEGIN
   IF NOT pg_catalog.pg_has_role(session_user, {retention_literal}, 'MEMBER') THEN
     RAISE EXCEPTION 'erasure: refused for this login' USING ERRCODE = 'CE007';
   END IF;
   IF p_subject IS NULL OR p_authority IS NULL OR p_authority !~ '^[a-z0-9_.:-]{{3,64}}$'
      OR p_reason IS NULL OR p_reason !~ '^[a-z0-9_.:-]{{3,64}}$' OR p_classes IS NULL
-     OR pg_catalog.cardinality(p_classes) = 0 OR NOT (p_classes <@ ARRAY[{known}]::text[]) THEN
+     OR pg_catalog.cardinality(p_classes) = 0 OR NOT (p_classes <@ ARRAY[{known}{CUSTODY_BEGIN}, 'custody_keys_destroyed'{CUSTODY_END}]::text[]) THEN
     RAISE EXCEPTION 'erasure: malformed request' USING ERRCODE = 'CE006';
   END IF;
   SELECT a.email_key INTO v_key FROM public.applications_application a WHERE a.public_ref = p_subject;
@@ -580,7 +586,16 @@ BEGIN
   IF EXISTS (SELECT 1 FROM public.agreements_storeddocument d WHERE d.application_id = ANY(v_apps)) THEN
     v_retained := v_retained || 'custody_documents'::text;
   END IF;
-  BEGIN
+{CUSTODY_BEGIN}  -- 9kg.34: the key references of the subject's sealed documents, so the command destroys the keys outside the
+  -- database under `destroy_key`; reachable for a tombstoned subject too (erasure 0003; its reverse strips this block).
+  -- One statement, one snapshot: the sealed documents' keys and the documents still in the clear can never disagree
+  -- about a document a concurrent migration seals in between (data review of PR #102, K2).
+  SELECT coalesce(pg_catalog.array_agg(e.key_ref ORDER BY e.id) FILTER (WHERE e.id IS NOT NULL), ARRAY[]::text[]),
+         pg_catalog.count(*) FILTER (WHERE e.id IS NULL)
+    INTO v_custody_keys, v_custody_plaintext
+    FROM public.agreements_storeddocument d LEFT JOIN public.agreements_custodyenvelope e ON e.document_id = d.id
+    WHERE d.application_id = ANY(v_apps);
+{CUSTODY_END}  BEGIN
     INSERT INTO public.erasure_erasureaudit (subject_ref, authority, reason_code, classes)
       VALUES (p_subject, p_authority, p_reason, pg_catalog.to_jsonb(p_classes));
 {updates}
@@ -590,12 +605,32 @@ BEGIN
   EXCEPTION WHEN SQLSTATE 'CE001' THEN
     RETURN pg_catalog.jsonb_build_object('status', 'nothing_to_erase', 'changed', 0, 'tables', '{{}}'::jsonb,
                                          'handoffs', pg_catalog.to_jsonb(v_handoffs),
-                                         'retained', pg_catalog.to_jsonb(v_retained));
+                                         'retained', pg_catalog.to_jsonb(v_retained){CUSTODY_BEGIN},
+                                         'custody_keys', pg_catalog.to_jsonb(v_custody_keys),
+                                         'custody_plaintext', v_custody_plaintext{CUSTODY_END});
   END;
   RETURN pg_catalog.jsonb_build_object('status', 'erased', 'changed', v_total, 'tables', v_tables,
                                        'handoffs', pg_catalog.to_jsonb(v_handoffs),
-                                       'retained', pg_catalog.to_jsonb(v_retained));
+                                       'retained', pg_catalog.to_jsonb(v_retained){CUSTODY_BEGIN},
+                                       'custody_keys', pg_catalog.to_jsonb(v_custody_keys),
+                                       'custody_plaintext', v_custody_plaintext{CUSTODY_END});
 END $fn$"""
+
+
+# 9kg.34 (erasure 0003; data review of PR #102, K1): the custody part of catalyst_erase, between these inline markers,
+# so 0003's reverse reinstalls the function exactly as 0002 installed it (and 0002 installs it without the part): a
+# rollback of agreements 0010 never leaves a function that reads a dropped table.
+CUSTODY_BEGIN, CUSTODY_END = "/*catalyst-custody{*/", "/*}catalyst-custody*/"
+# Data review of PR #102, K4: a class the command adds to the call (never anonymized, no column) so the erasure audit row
+# written on a first erasure under `destroy_key` says the subject's custody keys are destroyed outside the database.
+CUSTODY_AUDIT_CLASS = "custody_keys_destroyed"
+CUSTODY_PATTERN = re.compile(re.escape(CUSTODY_BEGIN) + r".*?" + re.escape(CUSTODY_END), re.DOTALL)
+
+
+def without_custody(definition: str) -> str:
+    """The erase function's SQL without its marked custody part (what erasure 0002 installs and 0003's reverse
+    restores)."""
+    return CUSTODY_PATTERN.sub("", definition)
 
 
 AUDIT_TXID_SQL = """CREATE OR REPLACE FUNCTION public.catalyst_erasure_audit_txid() RETURNS trigger

@@ -142,6 +142,22 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   closed-application exception, the decision-maker may withhold the notice with a recorded reason, the notice's one
   variable is the display name (no reason, rationale or model output), and `send_decline` actions held by earlier
   releases are cancelled, never released
+- Custody encrypted at rest (bead `9kg.34`; `029` section 6.2.2, `026` section 16): every custody document is sealed
+  with AES-256-GCM (the reviewed `cryptography` 50.0.2, hash-locked) under its own data key, wrapped under one wrapping
+  key; the wrapped keys live in a key directory and its live mirror outside the database, the custody directory and
+  every backup set, so once a key is destroyed its document, restored from any older backup, cannot be opened without a surviving copy of the wrapped key and the wrapping key. A
+  `CustodyEnvelope` row (agreements migration 0010) records the sealed file's digest; the recorded hash stays the
+  plaintext's. The registry's `signed_documents` row takes `destroy_key`, which the erasure command carries out
+  through erasure migration 0003's key references, journaling each destruction; `catalyst_custody_keys` reports on,
+  migrates (plaintext sealed, then removed) and recovers the keys without ever restoring a destroyed one; start-up
+  guards cover the wrapping key and the key directories; the restore drill gains a custody leg. The location, access
+  rule and key recovery stay the owner's (`211.7.9`), shipped undecided and refused in a live environment; the claim
+  covers v2's custody copy only (the provider's copy is under P4-D-15 until POL-10). Hardened after the PR #102
+  security, release-operations and data reviews: the key store fails closed (provisioning markers, `key_lost` apart
+  from `key_destroyed`, verified destruction), unrecorded keys and sealed files are discarded or reaped, lingering
+  plaintext blocks an erasure, journaled destructions are swept at the lift and at start-up and carry a mac, recovery
+  needs the out-of-band head, the associated data binds the recorded hash, erasure 0003 reverses cleanly, and the drill
+  shows both outcomes
 - Hardening (internal-launch batch item 6): the database freezes inbound message provenance and the identity
   columns of outbound attempts and reply links for every role, with the audited retention path left open for
   erasure (correspondence migration 0017, `016` section 10.14)

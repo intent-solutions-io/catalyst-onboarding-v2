@@ -12,7 +12,7 @@ import pytest
 from django.test import Client
 from django.urls import reverse
 
-from agreements import completion, custody, services, storage
+from agreements import completion, custody, keystore, services, storage
 from agreements.models import AgreementDetailsVersion, AgreementInstance, DocumentAccess, StoredDocument
 from applications.models import Application
 from correspondence.models import StaffItem
@@ -23,11 +23,27 @@ from tests.test_outbound import staff
 from workflow.models import PendingAction
 
 
+def custody_keys(settings, tmp_path):
+    """9kg.34: a synthetic wrapping key (random per test) and a provisioned key directory and mirror outside the
+    custody directory."""
+    import secrets
+
+    settings.CATALYST_CUSTODY_WRAPPING_KEY = secrets.token_hex(32)
+    settings.CATALYST_CUSTODY_KEY_DIR = str(tmp_path / "custody-keys")
+    settings.CATALYST_CUSTODY_KEY_MIRROR_DIR = str(tmp_path / "custody-keys-mirror")
+    # The erasure key: each journaled key destruction carries a mac under it (9kg.34, review of PR #102, F6).
+    settings.CATALYST_ERASURE_KEY = "synthetic-erasure-key-for-tests-only-0123456789abcdef"  # gitleaks:allow (synthetic)
+    from agreements import keystore
+
+    keystore.provision()  # the explicit provisioning step: nothing else creates the key directories
+
+
 @pytest.fixture
 def k(h, settings, tmp_path):
     """`h` plus isolated custody storage outside the repository, and the 4B.3 roles granted to named synthetic
     people: a reader, an operator and the decision-maker."""
     settings.CATALYST_AGREEMENT_STORAGE_DIR = str(tmp_path / "custody")
+    custody_keys(settings, tmp_path)  # 9kg.34: custody is sealed at rest; nothing is stored without keys
     for perm in ("retrieve_agreement_document", "operate_agreements", "confirm_required_details",
                  "resolve_agreement_integrity"):
         grant(h, h.agreement_decider, perm)
@@ -63,7 +79,12 @@ def test_p4_04_19_the_default_gate_journey_ends_in_exactly_one_held_hand_off(k, 
     document = StoredDocument.objects.get(instance=nda_instance)
     path = k.storage / document.storage_key
     assert path.is_file() and oct(path.stat().st_mode & 0o777) == "0o600"
-    assert storage.sha256(path.read_bytes()) == document.sha256 and document.envelope_id == nda_instance.envelope_id
+    # 9kg.34: the file is sealed at rest; its envelope names the sealed bytes, and opening them gives the plaintext
+    # whose hash is the one recorded.
+    envelope = document.envelope
+    assert path.read_bytes().startswith(keystore.MAGIC) and storage.sha256(path.read_bytes()) == envelope.cipher_sha256
+    assert storage.sha256(storage.read(document.storage_key, document.sha256, document.size, envelope)) == document.sha256
+    assert document.envelope_id == nda_instance.envelope_id
     assert not str(path).startswith(str(Path(__file__).resolve().parent.parent))  # outside the repository
     events = list(app.events.order_by("id").values_list("kind", flat=True))
     assert events.index("agreement_custody_verified") < max(i for i, e in enumerate(events) if e == "agreement_instance_created")
@@ -351,6 +372,10 @@ def test_review_a_changed_envelope_during_custody_fails_custody_and_stores_nothi
     run_worker()
     assert not StoredDocument.objects.exists()
     assert AgreementInstance.objects.get(pk=instance.pk).custody_status in ("failed_retry_pending", "failed_needs_staff")
+    # 9kg.34 (review of PR #102, F2): what was written for the changed envelope is discarded, keys and sealed files.
+    from django.conf import settings as live
+    assert not list(k.storage.glob("*.pdf"))
+    assert not [p for d in (live.CATALYST_CUSTODY_KEY_DIR, live.CATALYST_CUSTODY_KEY_MIRROR_DIR) for p in Path(d).glob("*.key")]
 
 
 def test_review_downloads_run_outside_any_transaction_and_reads_open_the_file_once(k, monkeypatch):
@@ -370,7 +395,7 @@ def test_review_downloads_run_outside_any_transaction_and_reads_open_the_file_on
     opens = []
     real_open = os.open
     monkeypatch.setattr(storage.os, "open", lambda path, *a, **kw: opens.append(path) or real_open(path, *a, **kw))
-    data = storage.read(document.storage_key, document.sha256, document.size)
+    data = storage.read(document.storage_key, document.sha256, document.size, document.envelope)
     assert opens.count(document.storage_key) == 1 and storage.sha256(data) == document.sha256
 
 

@@ -6,10 +6,11 @@ database and outside the application backup set: a restore rolls the tables back
 
 - `erasure_intent`, appended and fsynced *before* the database transaction: the subject's keyed hash, the key id, the
   authority and reason codes, the classes the registry anonymizes, the provider handoffs owed and what is retained
-  rather than erased (`custody_documents` until 9kg.34);
-- `erasure_complete`, appended after the transaction committed: the outcome (`erased`, `already_erased`,
-  `nothing_to_erase`, or `refused_<code>` when the transaction refused after the intent) and the number of values
-  changed;
+  rather than erased (`custody_documents` while the registry's `signed_documents` row says `retain`);
+- `erasure_complete`, appended after the transaction committed and, under `destroy_key`, after every custody key of
+  the subject was destroyed (9kg.34; each destruction is its own `custody_key_destroyed` entry, written before the
+  key's files are unlinked): the outcome (`erased`, `already_erased`, `nothing_to_erase`, or `refused_<code>` when the
+  transaction refused after the intent), the number of values changed and the number of key files removed;
 - `erasure_handoff`: the owner's completion of a manual provider deletion (211.7.1, QA finding 12), with its date.
 
 Every entry's key is `erasure:<public reference>` (the application's `public_ref`, or an invitation's `public_id` for
@@ -60,7 +61,7 @@ from django.utils import timezone
 from workflow import journal
 
 HANDOFFS = ("documenso", "mail_sent", "mail_inbox", "mail_host_mailbox", "model_provider")
-RETAINED = ("custody_documents",)  # closed by 9kg.34 (custody key destruction)
+RETAINED = ("custody_documents",)  # reported while signed_documents is `retain`; `destroy_key` removes it (9kg.34)
 SUBJECT_PREFIX = b"catalyst-erasure-subject\n"
 KEY_ID_PREFIX = b"catalyst-erasure-key-id\n"
 MAC_PREFIX = b"catalyst-erasure-entry\n"
@@ -125,9 +126,12 @@ def append_intent(subject_ref, subject: str, kid: str, authority: str, reason: s
                                                    "phase": "intent"}, secret)
 
 
-def append_complete(subject_ref, subject: str, kid: str, status: str, changed: int, secret):
-    return _append("erasure_complete", subject_ref, {"subject": subject, "key_id": kid, "status": status,
-                                                     "changed": int(changed), "phase": "done"}, secret)
+def append_complete(subject_ref, subject: str, kid: str, status: str, changed: int, secret, keys_destroyed: int = 0,
+                    key_files_removed: int = 0, custody_destroyed: bool = False):
+    data = {"subject": subject, "key_id": kid, "status": status, "changed": int(changed), "phase": "done"}
+    if custody_destroyed:  # 9kg.34: every custody key of the subject verified gone; other completions keep their shape
+        data.update(custody="keys_destroyed", keys_destroyed=int(keys_destroyed), key_files_removed=int(key_files_removed))
+    return _append("erasure_complete", subject_ref, data, secret)
 
 
 def completion_date(text: str) -> str:
@@ -199,6 +203,8 @@ def fold(entries, secret: bytes | None, forged: list | None = None) -> dict:
             state.retained = set(entry.data.get("retained") or [])
         elif entry.kind == "erasure_complete" and state.intent is not None:
             state.complete = entry
+            if entry.data.get("custody") == "keys_destroyed":  # 9kg.34: retained until every key is verified gone
+                state.retained.discard("custody_documents")
         elif entry.kind == "erasure_handoff":
             state.handoffs_done[entry.data["provider"]] = entry.data["completed_on"]
     return out

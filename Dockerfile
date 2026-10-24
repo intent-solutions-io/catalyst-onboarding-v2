@@ -9,7 +9,7 @@ RUN groupadd --system --gid 10001 catalyst \
     && useradd --system --uid 10001 --gid catalyst --no-create-home --shell /usr/sbin/nologin catalyst
 WORKDIR /app
 COPY requirements/base.txt requirements/base.txt
-RUN pip install --require-hashes --no-deps -r requirements/base.txt
+RUN pip install --require-hashes --no-deps --only-binary=:all: -r requirements/base.txt
 COPY manage.py ./
 COPY accounts/ accounts/
 COPY agreements/ agreements/

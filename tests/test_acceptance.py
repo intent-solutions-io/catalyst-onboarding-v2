@@ -306,6 +306,7 @@ DATABASE_CONSTRAINTS = {
     "details_one_per_version", "details_status_valid", "details_confirmed_has_actor",
     "application_tombstone_key_unique", "invitation_tombstone_key_unique", "member_on_file_tombstone_key_unique",  # 9kg.32
     "erasure_audit_authority_is_a_code", "erasure_audit_reason_is_a_code",
+    "custody_envelope_scheme_known", "custody_envelope_cipher_sha256_hex", "custody_envelope_key_ref_hex",  # 9kg.34
 }
 
 
