@@ -223,7 +223,8 @@ keys_vol="$custody_project-keys" mirror_vol="$custody_project-keys-mirror"
 e() { CATALYST_PUBLIC_PORT=21443 CATALYST_STAFF_PORT=21444 docker compose --project-name "$custody_project" -f deploy/staging/compose.yaml "$@"; }
 cdrill() {  # cdrill <custody dir> <action> [arguments]: the custody drill command in the owner's one-shot container
   local dir="$1"; shift
-  e run --rm --no-deps -T -v catalyst-custody:/var/lib/catalyst/custody -v "$keys_vol:/var/lib/catalyst/custody-keys" \
+  # The project's own custody volume by its full name: a bare name given to `run -v` would make a global volume.
+  e run --rm --no-deps -T -v "${custody_project}_catalyst-custody:/var/lib/catalyst/custody" -v "$keys_vol:/var/lib/catalyst/custody-keys" \
     -v "$mirror_vol:/var/lib/catalyst/custody-keys-mirror" -v "$archive:/archive:ro" \
     -v "$work/secrets/custody_wrapping_key:/run/secrets/custody_wrapping_key:ro" migrate python manage.py \
     catalyst_custody_drill "$1" --storage-dir "$dir" --key-dir /var/lib/catalyst/custody-keys \
@@ -236,6 +237,7 @@ fresh_custody_db() {
   e run --rm --no-deps -T migrate python manage.py migrate --noinput >/dev/null 2>&1
 }
 fresh_custody_db
+e --profile ops create backup >/dev/null 2>&1 && e --profile ops rm -f backup >/dev/null 2>&1  # compose makes its volumes
 docker run --rm --user 0 -v "$keys_vol:/k" -v "$mirror_vol:/m" "$CATALYST_IMAGE" sh -c 'chown 10001:10001 /k /m && chmod 0700 /k /m'
 seeded="$(cdrill /var/lib/catalyst/custody seed)"
 document="$(field "$seeded" document)" marker="$(field "$seeded" marker)"
@@ -246,11 +248,12 @@ check "9kg.34 control: before destruction it opens and its plaintext hash matche
 custody_receipt="$(e --profile ops run --rm backup 2>/dev/null | tail -1)"
 custody_set="$(field "$custody_receipt" name)"
 check "9kg.34 the backup wrote a set holding the sealed custody file" test -n "$custody_set"
+[ -n "$custody_set" ] || { echo "  backup said: $custody_receipt"; custody_set=missing; }
 docker run --rm --user 0 -v "${custody_project}_catalyst-backups:/sets:ro" -v "$archive:/archive" "$CATALYST_IMAGE" \
   sh -c "cp -a /sets/$custody_set /archive/custody-$custody_set && chown -R 10001:10001 /archive"
 absent="$(cdrill /var/lib/catalyst/custody absent --set "/archive/custody-$custody_set" --marker "$marker")"
 check "9kg.34 the set holds no key material (no key file, no wrapped key, no data key, no wrapping key)" \
-  test "$(field "$absent" key_material_found):$(field "$absent" key_files_in_set)" = "0:0"
+  test "$(field "$absent" key_material_found):$(field "$absent" key_files_in_set):$([ "$(field "$absent" files)" -ge 3 ] 2>/dev/null && echo read)" = "0:0:read"
 check "9kg.34 ... and no plaintext (the document's marker is in no file of the set)" test "$(field "$absent" plaintext_marker_found)" = 0
 check "9kg.34 the key is destroyed after the backup (journaled, then unlinked from the mirror and the key directory)" \
   test "$(field "$(cdrill /var/lib/catalyst/custody destroy --document "$document")" destroyed)" = 2
