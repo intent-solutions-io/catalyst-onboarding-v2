@@ -19,7 +19,8 @@ interpreter share:
   of exactly this use whenever the model setting is anything but "none" or "test"; with no live branch, an approved
   use still ends `model_not_authorized`;
 - **the approved fields bound to what is sent:** the request builders report the source fields they used, and a
-  field outside `approval.FIELDS` refuses (`fields_not_approved`);
+  field outside `approval.FIELDS` (and, live, outside the recorded approval's terms) refuses (`fields_not_approved`);
+- **the approval re-checked on every request** (a live model): the repair and any later caller included;
 - **a lease fence before each request, the repair included:** every request goes through `_Guarded`, which first
   renews the claim's lease through the active `workflow.keeper.LeaseKeeper` (a heartbeat thread also renews it while
   a call outlives a third of the lease); a lost lease raises `ledger.LeaseLost` and no further request is made;
@@ -33,6 +34,7 @@ import asyncio
 from dataclasses import dataclass
 
 from django.conf import settings
+from django.db import connections
 from pydantic_ai import Agent, ModelRetry, UsageLimits
 from pydantic_ai import models as _models
 from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
@@ -105,18 +107,47 @@ def build_model(use: "approval.Use | None" = None):
 
 
 class _Guarded(WrapperModel):
-    """Every request, the repair included: the lease fence first (in a worker thread, since the ORM may not run on the
-    event loop), then the model call bounded by the request timeout (oc4.9)."""
+    """Every request, the repair included (oc4.9): the approval re-check (a live model only) and the lease fence first,
+    each in a worker thread (the ORM may not run on the event loop) and each bounded by the request timeout, then the
+    model call bounded by the same timeout, then a worker-alive beat from the calling side. A fence that cannot
+    confirm the lease in time counts as a lost lease; an approval re-check that cannot finish in time refuses. Streaming
+    is refused: nothing here uses it, and it would bypass the bound on the response."""
 
-    def __init__(self, wrapped, fence, timeout: float):
+    def __init__(self, wrapped, *, fence, check, after, timeout: float):
         super().__init__(wrapped)
-        self.fence, self.timeout = fence, timeout
+        self.fence, self.check, self.after, self.timeout = fence, check, after, timeout
 
     async def request(self, messages, model_settings, model_request_parameters):
+        if self.check is not None:
+            try:
+                await asyncio.wait_for(asyncio.to_thread(self.check), timeout=self.timeout)
+            except TimeoutError:
+                raise approval.NotApproved("approval_check_timeout") from None
         if self.fence is not None:
-            await asyncio.to_thread(self.fence)
-        return await asyncio.wait_for(self.wrapped.request(messages, model_settings, model_request_parameters),
-                                      timeout=self.timeout)
+            try:
+                await asyncio.wait_for(asyncio.to_thread(self.fence), timeout=self.timeout)
+            except TimeoutError:
+                raise ledger.LeaseLost from None
+        response = await asyncio.wait_for(self.wrapped.request(messages, model_settings, model_request_parameters),
+                                          timeout=self.timeout)
+        if self.after is not None:
+            self.after()
+        return response
+
+    def request_stream(self, *args, **kwargs):
+        raise ModelUnavailable("streaming_not_allowed")
+
+
+def _recheck(use, fields):
+    """Per request, for a live model: the approval still stands for this use, and names every field being sent."""
+    def check():
+        try:
+            record = approval.require(use)
+            if not set(fields) <= set((record.terms or {}).get("fields") or ()):
+                raise approval.NotApproved("fields_not_approved")
+        finally:
+            connections.close_all()  # always a worker thread: close the connection it opened
+    return check
 
 
 def _usage(result):
@@ -140,13 +171,21 @@ def run_checked(system: str, prompt: str, output_type, check, use: "approval.Use
 
     `fields` is the set of source fields the request builder actually used (`snapshot.Request.fields`,
     `interpret.build_prompt`); with a `use`, the call is refused (`fields_not_approved`) unless every one is in the
-    approved field list for the purpose."""
+    approved field list for the purpose, and, for a live model, in the recorded approval's terms on every request. A
+    model other than a test model is refused without an active lease keeper (`no_lease_fence`)."""
     if use is not None and (fields is None or not set(fields) <= set(approval.FIELDS.get(use.purpose, ()))):
         raise ModelUnavailable("fields_not_approved")
     model = build_model(use)
     keeper = keepers.current()
+    live = not isinstance(model, (TestModel, FunctionModel))
+    if live and keeper is None:
+        raise ModelUnavailable("no_lease_fence")  # never skipped silently: a live call always runs fenced
+    if live and use is None:
+        raise ModelUnavailable("model_use_not_approved")
     timeout = float(settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS)
-    guarded = _Guarded(model, keeper.fence if keeper is not None else None, timeout)
+    guarded = _Guarded(model, fence=keeper.fence if keeper is not None else None,
+                       check=_recheck(use, fields or frozenset()) if live else None,
+                       after=None, timeout=timeout)
     agent = Agent(guarded, output_type=output_type, system_prompt=system, retries=approval.REPAIR_LIMIT)
 
     last = []
@@ -167,6 +206,8 @@ def run_checked(system: str, prompt: str, output_type, check, use: "approval.Use
         result = agent.run_sync(prompt, usage_limits=limits, model_settings={**MODEL_SETTINGS, "timeout": timeout})
     except ledger.LeaseLost:
         raise
+    except approval.NotApproved as exc:
+        raise ModelUnavailable(str(exc)) from None
     except UsageLimitExceeded:
         raise BudgetStop("usage_limit_exceeded") from None
     except UnexpectedModelBehavior as exc:

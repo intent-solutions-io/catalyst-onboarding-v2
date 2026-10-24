@@ -1754,6 +1754,10 @@ P6_SUPPORTING = {
         "test_live_safety::test_oc4_9_the_approval_is_written_only_by_the_owner_command_and_is_append_only",
         "test_live_safety::test_oc4_9_a_field_the_builder_adds_is_refused_before_any_reservation",
         "test_live_safety::test_oc4_9_a_fully_populated_record_emits_exactly_the_approved_fields",
+        "test_live_safety::test_oc4_9_a_model_other_than_a_test_model_is_refused_without_a_lease_fence",
+        "test_live_safety::test_oc4_9_the_approval_is_rechecked_before_the_repair",
+        "test_live_safety::test_oc4_9_a_fence_that_cannot_confirm_in_time_is_a_lost_lease",
+        "test_live_safety::test_oc4_9_streaming_is_refused",
     ],
     # oc4.10 (018 section 21): the reconciliation's real-use defects 4 to 7; items 1 to 3 are the oc4.12 tests above.
     "oc4.10 the real-use defects: a dead reservation holds no slot, a handler defect requeues the run, an ended run leaves nothing started, the lease-versus-timeout guard": [

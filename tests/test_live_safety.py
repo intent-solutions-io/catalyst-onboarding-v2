@@ -8,6 +8,7 @@ approval shows the approval check passing and the call still refusing.
 """
 
 import asyncio
+import json
 import os
 import sys
 import time
@@ -18,8 +19,11 @@ import pytest
 from django.conf import settings as django_settings
 from django.db import connection, transaction
 from psycopg import errors
+from pydantic import BaseModel
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.models.test import TestModel
+from pydantic_ai.models.wrapper import WrapperModel
 
 from applications.models import Stage
 from applications.stages import transition
@@ -414,3 +418,81 @@ def test_oc4_9_a_fully_populated_record_emits_exactly_the_approved_fields(a, mon
     prompt, fields = interpret.build_prompt({"Q1": SimpleNamespace(text="Which part did you write?")},
                                             "I wrote the synthetic tokenizer.", snapshot._names(app), "n0nce")
     assert fields == set(approval.FIELDS["interpretation"]) and "tokenizer" in prompt
+
+
+# --- review fix-ups: the fence is mandatory for a live model; the approval is checked on every request -----------
+
+class Out(BaseModel):
+    x: int
+
+
+def tool_model(calls, during=None):
+    def respond(messages, info: AgentInfo):
+        calls.append(1)
+        if during is not None:
+            during()
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {"x": len(calls)})])
+    return FunctionModel(respond)
+
+
+class StubKeeper:
+    def __init__(self, delay=0.0):
+        self.delay, self.fences, self.beats = delay, 0, 0
+
+    def fence(self):
+        self.fences += 1
+        time.sleep(self.delay)
+
+    def beat(self):
+        self.beats += 1
+
+
+@pytest.fixture
+def stub_keeper():
+    keeper = StubKeeper()
+    token = keepers._current.set(keeper)
+    yield keeper
+    keepers._current.reset(token)
+
+
+def test_oc4_9_a_model_other_than_a_test_model_is_refused_without_a_lease_fence(monkeypatch, settings):
+    calls = []
+    monkeypatch.setattr(agent, "build_model", lambda use=None: WrapperModel(tool_model(calls)))  # stands in for live
+    assert keepers.current() is None
+    with pytest.raises(agent.ModelUnavailable, match="^no_lease_fence$"):
+        agent.run_checked("system", "prompt", Out, lambda output: [])
+    assert calls == []
+
+
+def test_oc4_9_the_approval_is_rechecked_before_the_repair(privileged_reset, monkeypatch, settings, stub_keeper):
+    settings.CATALYST_ASSESSMENT_MODEL = LIVE
+    use = approval.Use.current("assessment")
+    terms = approval.terms(use, "minimax", "MiniMax-M3")
+    owner = privileged_reset.connect("owner", autocommit=True)
+    insert = ("INSERT INTO assessments_modeluseapproval (purpose, action, provider, model_id, terms, terms_sha256,"
+              " approval_ref, actor_ref) VALUES ('assessment', %s, %s, %s, %s, %s, 'synthetic oc4.9', 'owner_command')")
+    owner.execute(insert, ["approve", "minimax", "MiniMax-M3", json.dumps(terms), approval.digest(terms)])
+    calls = []
+    revoke = lambda: owner.execute(insert, ["revoke", "", "", "{}", ""])  # noqa: E731  (the owner revokes mid-attempt)
+    monkeypatch.setattr(agent, "build_model", lambda use=None: WrapperModel(tool_model(calls, during=revoke)))
+    with pytest.raises(agent.ModelUnavailable, match="^model_use_not_approved$"):
+        agent.run_checked("system", "prompt", Out, lambda output: ["again"], use, fields=frozenset())
+    assert calls == [1] and stub_keeper.fences == 1  # the first request was approved; the repair was never sent
+
+
+def test_oc4_9_a_fence_that_cannot_confirm_in_time_is_a_lost_lease(monkeypatch, settings, stub_keeper):
+    settings.CATALYST_ASSESSMENT_MODEL = "test"
+    settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS = 0.3
+    stub_keeper.delay = 2.0  # the database does not answer the renewal in time
+    calls = []
+    monkeypatch.setattr(agent, "TEST_MODEL", tool_model(calls))
+    started = time.monotonic()
+    with pytest.raises(ledger.LeaseLost):
+        agent.run_checked("system", "prompt", Out, lambda output: [])
+    assert calls == [] and time.monotonic() - started < 1.5
+
+
+def test_oc4_9_streaming_is_refused():
+    guarded = agent._Guarded(TestModel(), fence=None, check=None, after=None, timeout=1.0)
+    with pytest.raises(agent.ModelUnavailable, match="^streaming_not_allowed$"):
+        guarded.request_stream([], None, None)
