@@ -18,7 +18,7 @@ Rows that are not database classes:
 
 - `signed_documents`: v2's custody copy of the signed PDFs. `retain` keeps them; `destroy_key` (9kg.34) destroys
   each of the subject's per-document keys (agreements.keystore), in the key directory and its mirror, so the sealed
-  files in custody and in every backup, old or new, can no longer be opened. The rows and sealed files stay; nothing
+  files in custody and in every backup, old or new, cannot be opened without a surviving copy of the wrapped key and the wrapping key. The rows and sealed files stay; nothing
   in the database changes. The provider's copy is not reached (`provider_copies`, P4-D-15 until POL-10).
 - `provider_copies`: the Documenso copy, the mail host's Sent and inbox folders and a provisioned mailbox. Deleting
   them is a manual handoff owned by the owner (211.7.1, QA finding 12); the only supported treatment is

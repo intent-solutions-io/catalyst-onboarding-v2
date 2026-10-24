@@ -413,6 +413,10 @@ def test_9kg_34_the_start_up_guards_check_the_wrapping_key_the_key_directories_a
             ({"SECRET_KEY": key}, "worker", "differ from every other key"),
             ({"CATALYST_ERASURE_KEY": key}, "worker", "differ from every other key"),
             ({"CATALYST_VERIFICATION_FALLBACK_KEYS": [key]}, "worker", "differ from every other key"),
+            ({"DATABASES": {"default": {"PASSWORD": key}}}, "worker", "differ from every other key"),
+            ({"CATALYST_MAIL_PASSWORD": key}, "worker", "differ from every other key"),
+            ({"CATALYST_AGREEMENT_WEBHOOK_SECRETS": ["other", key]}, "worker", "differ from every other key"),
+            ({"CATALYST_CUSTODY_WRAPPING_KEY": "a" * 64}, "worker", "one character repeated"),
             ({"CATALYST_PROCESS_ROLE": "fetcher"}, "worker", "fetcher"),
             ({"CATALYST_PROCESS_ROLE": "reconcile"}, "reconcile", "reconcile"),
             ({"CATALYST_CUSTODY_KEY_DIR": "relative/keys"}, "worker", "absolute"),
@@ -901,3 +905,17 @@ def test_9kg_34_no_staging_service_holds_the_custody_key_volumes_or_the_wrapping
     assert "custody_wrapping_key" not in render.SECRET_FILES
     script = (root / "scripts" / "staging_check.sh").read_text()
     assert "custody_free_config" in script and "for service in web worker fetcher egress proxy db" in script
+
+
+
+def test_9kg_34_a_short_write_of_a_wrapped_key_is_completed_not_taken_for_the_whole(custody, settings, monkeypatch):
+    real_write = os.write
+
+    def short(fd, data):  # the kernel may write less than asked
+        return real_write(fd, bytes(data[:7]))
+    monkeypatch.setattr(keystore.os, "write", short)
+    ref, data_key, _ = keystore.create()
+    monkeypatch.setattr(keystore.os, "write", real_write)
+    assert keystore.load(ref) == data_key  # every byte of both copies landed
+    assert (Path(settings.CATALYST_CUSTODY_KEY_DIR) / f"{ref}.key").read_bytes() == \
+        (Path(settings.CATALYST_CUSTODY_KEY_MIRROR_DIR) / f"{ref}.key").read_bytes()

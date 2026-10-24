@@ -346,8 +346,8 @@ screen shows its age (`9kg.41`); the stage, item and pause classes are counted b
   send with no copy instead of the blanket `--outward-checked`.
 - **Custody** (`9kg.34`, built 2026-10-24; section 6.2.2 and `026` section 16): every custody document is sealed
   with AES-256-GCM from a reviewed library under its own data key, wrapped under one wrapping key; the wrapped keys
-  live in a key directory and its live mirror, outside the database, the custody directory and every backup set, so a
-  restore can never bring a destroyed key back. Recovery: the escrow holds the wrapping key only, and destruction
+  live in a key directory and its live mirror, outside the database, the custody directory and every backup set; once
+  a key is destroyed its document, in custody or in any backup, cannot be opened without a surviving copy of the wrapped key and the wrapping key. Recovery: the escrow holds the wrapping key only, and destruction
   reaches the mirror first. The approved storage location and access rule remain the owner's (`211.7.9`) and are
   configuration that refuses in a live environment while undecided. Disk encryption is not per-subject erasure.
 
@@ -576,7 +576,10 @@ names the document's own file; the database checks the digest and the key refere
 - the guards refuse a key directory inside or around the custody directory, the journal or the repository;
 - the backup refuses to hold the wrapping key or to overlap a key directory.
 
-A restore of an older backup therefore brings back rows and sealed files, never a key.
+A restore of an older backup therefore brings back rows and sealed files, never a key; a destroyed subject's
+document then cannot be opened without a surviving copy of the wrapped key and the wrapping key. The key directories carry provisioning markers and fail closed when missing; `keystore.sweep()`
+finishes every journaled destruction at the restore lift and at the web and worker start-up. The backup's overlap check
+and the role isolation below are configured, not enforced, until `9kg.28` wires the host (`026` section 16).
 
 **Who holds the wrapping key** (`custody_wrapping_key`, a secret file of 64 hex characters, distinct from every other
 key):
@@ -588,7 +591,7 @@ key):
 
 **Recovery that cannot defeat destruction.**
 
-- The escrow holds the wrapping key only; it can never recover a destroyed data key.
+- The escrow holds the wrapping key only; recovering it alone does not recover a destroyed data key.
 - The mirror is a live copy that destruction reaches first, never a point-in-time one.
 - `catalyst_custody_keys --recover` (the named holder) re-aligns the two from the copy that survives, never restoring a
   key the journal records as destroyed, and finishes any half-done destruction.
@@ -600,6 +603,10 @@ key):
   (`custody_key_destroyed`) before its files are unlinked, mirror first;
 - the completion counts `keys_destroyed`, and `custody_documents` leaves `retained`;
 - a subject with a document still in the clear is refused before any record;
+- the committed call's own count of documents in the clear is checked again on every run, the resumed one included
+  (`custody_plaintext_unmigrated_after_commit`, intent left open), and a lingering migrated plaintext or a missing key
+  directory refuses before any record;
+- `keys_destroyed` counts references verified gone from both directories, `key_files_removed` the files;
 - an interrupted destruction is finished by the next run or by recovery.
 
 **The declared record of a key destruction** (data review of PR #102, K4). The effect journal is the record:
@@ -613,7 +620,7 @@ keys_destroyed` with the number of references verified gone. The database audit 
 No new table is added for it.
 
 **What `9kg.25` (replay) needs from custody:** nothing to replay. A destroyed key is outside the rollback domain, so a
-restored row already points at a sealed file nobody can open. The hook: the journal's `custody_key_destroyed` entries
+restored row already points at a sealed file that cannot be opened without a surviving copy of the wrapped key and the wrapping key. The hook: the journal's `custody_key_destroyed` entries
 name every destroyed key, if replay ever needs to report them.
 
 **Migration.** `catalyst_custody_keys --migrate --confirm` seals each document stored in the clear before this change,
@@ -627,6 +634,16 @@ live environment refuses custody while any is open:
 - the recovery holder and time bound (proposed: the owner, within 24 hours);
 - the escrow location (proposed: the estate's encrypted secret store);
 - the provider copy's treatment, with POL-10.
+
+**Limits.** A surviving copy of a wrapped key plus the wrapping key opens a destroyed document. Such a copy can
+survive as:
+
+- a stray archive or snapshot of a key directory;
+- unlinked blocks not yet reused (on SSDs and copy-on-write filesystems no overwrite reliably scrubs them);
+- a key in swap or a core dump.
+
+The only way to retire such remnants is to rotate the wrapping key, then destroy the old one everywhere, the escrow
+included. Rotation is a follow-up. The recovery runbook and the deploy order are in `026` section 16.
 
 **Scope.** The claim covers v2's custody copy only; the provider's copy is under P4-D-15 until POL-10, and every
 custody command and the erasure output say so.

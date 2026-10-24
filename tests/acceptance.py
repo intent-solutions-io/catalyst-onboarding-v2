@@ -1706,6 +1706,7 @@ P6_SUPPORTING = {
         "test_custody_encryption::test_9kg_34_the_first_erasure_under_destroy_key_names_the_key_destruction_in_its_audit_row",
         "test_custody_encryption::test_9kg_34_envelope_rules_one_per_document_hex_formats_and_unmigrated_means_the_documents_own_file",
         "test_custody_encryption::test_9kg_34_no_staging_service_holds_the_custody_key_volumes_or_the_wrapping_key_until_9kg_28",
+        "test_custody_encryption::test_9kg_34_a_short_write_of_a_wrapped_key_is_completed_not_taken_for_the_whole",
     ],
     "9kg.47 staff screens for the shell-only agreement states (021 section 20)": [
         "test_agreement_screens::test_an_unknown_create_is_decided_on_the_screen_and_refused_without_the_permission",

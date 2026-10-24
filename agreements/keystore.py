@@ -1,12 +1,13 @@
 """Custody keys (9kg.34; 026 section 6 option c; council record 030 Q3 and Q4, D-51): per-document data keys, wrapped
 under one wrapping key, kept outside the application backup's rollback domain, recoverable while they must be and
-destroyable so that no backup, old or new, can yield a destroyed document again.
+destroyable so that a destroyed document's sealed copy, in custody or in any backup, cannot be opened without a surviving copy of the wrapped key and the wrapping key.
 
 **The cryptography** is the reviewed `cryptography` library's AES-256-GCM (`AESGCM`), nothing bespoke:
 
 - each stored document gets its own random 256-bit data key and a random 96-bit nonce; the sealed file is
-  `MAGIC || nonce || AES-256-GCM(data key, nonce, plaintext, aad)`, the associated data binding it to its own file
-  name and key reference, so a file moved to another name or paired with another key does not open;
+  `MAGIC || nonce || AES-256-GCM(data key, nonce, plaintext, aad)`, the associated data binding it to the scheme, its
+  own file name, its key reference and the recorded plaintext hash, so a file moved to another name, paired with
+  another key or claimed by another row does not open;
 - each data key is wrapped the same way under the wrapping key, with its reference as associated data, and the
   wrapped form is the only form ever written to disk.
 
@@ -17,15 +18,18 @@ user. That directory is outside the backup set by construction (the backup copie
 by the custody key pattern) and by rule (config.guards refuses a key directory inside the custody directory, the
 journal or the repository, and config.backup refuses an output directory that overlaps a key directory). It is the
 same separation 9kg.32 uses for the erasure journal and its head. A restore therefore brings back the database rows
-and the sealed files of its time, never a key: a key destroyed after that backup stays destroyed, and the sealed file
-in the old set cannot be opened (tests/test_custody_encryption.py proves it through a real backup and restore).
+and the sealed files of its time, never a key: once a key is destroyed, the sealed file in an older set cannot be opened without a surviving copy of the wrapped key and the wrapping key
+(tests/test_custody_encryption.py shows it through a real backup and restore). The directories must exist and carry
+the provisioning marker (`catalyst_custody_keys --provision`); nothing creates them on the fly, so an unmounted volume
+fails closed instead of reading as an empty store. `sweep` finishes every journaled destruction at the restore lift and
+at the web and worker start-up.
 
 **Recovery, without defeating destruction.** Two safeguards, either of which alone keeps an erased document erased:
 
 1. *The escrow holds the wrapping key only.* Its recovery copy lives in the operator's encrypted secret store (the
    estate's SOPS pattern), with the named holder of `agreements.custody_policy` (`recovery_holder`). A wrapping key
    unwraps a data key only if the wrapped data key still exists somewhere; the escrow never holds a data key, so
-   recovering the wrapping key can never recover a destroyed document.
+   recovering the wrapping key alone does not recover a destroyed document.
 2. *The mirror is a live copy, never a point-in-time one, and destruction reaches it first.* Every wrapped data key is
    written to the key directory and to `CATALYST_CUSTODY_KEY_MIRROR_DIR` (a second location the owner names, ideally
    another device) before the document is sealed, and destroyed in the mirror before the primary. `recover` copies
@@ -46,9 +50,18 @@ fsyncs both directories. It needs the key directories but not the wrapping key: 
 what custody stores) and the owner-run custody commands. The fetcher, the post-restore step, the backup and the
 erasure command never do (config.guards, config.backup, the erasure command).
 
-Limits, stated: unlinking a file does not scrub the storage blocks beneath it (the filesystem reuses them); the
-wrapping key's escrow is the operator's process, not this code; rotating the wrapping key (rewrapping every data key)
-is not built yet and is a follow-up; disk encryption on the host is separate and is not what makes erasure work.
+Limits, stated (review of PR #102, F5, F9, F10):
+
+- A destroyed document stays readable to anyone holding a surviving copy of its wrapped key *and* the wrapping key: a
+  stray archive or snapshot of a key directory, an unlinked file's blocks not yet reused, a copy-on-write or SSD
+  remnant, or a wrapped key in swap or a core dump. Unlinking does not scrub storage blocks; on SSDs and copy-on-write
+  filesystems no overwrite reliably does. The only way to retire such remnants is to rotate the wrapping key (rewrap
+  every live data key under a new one) and then destroy the old wrapping key everywhere, the escrow included.
+  Rotation is not built yet (a follow-up).
+- The processes that hold the wrapping key or a data key should run without swap and with core dumps disabled; that
+  is host configuration (9kg.28), not this code.
+- The wrapping key's escrow is the operator's process, not this code.
+- Disk encryption on the host is separate and is not what makes erasure work.
 """
 
 import base64
@@ -188,7 +201,12 @@ def _write(path: Path, ref: str, blob: bytes) -> None:
         except OSError:
             raise KeyStoreError("key_store_unavailable") from None
         try:
-            os.write(fd, blob)
+            view = memoryview(blob)
+            while view:  # a short write is completed, never taken for the whole key (review of PR #102)
+                written = os.write(fd, view)
+                if written <= 0:
+                    raise OSError("short write")
+                view = view[written:]
             os.fsync(fd)
         except OSError:
             raise KeyStoreError("key_store_unavailable") from None

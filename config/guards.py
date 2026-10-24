@@ -547,9 +547,16 @@ def custody_key_problems(settings, kind: str) -> list[str]:
     if secret:
         if not re.fullmatch(r"[0-9a-f]{64}", secret):
             problems.append("CATALYST_CUSTODY_WRAPPING_KEY must be 64 lower-case hex characters (32 random bytes)")
+        elif len(set(secret)) == 1:
+            problems.append("CATALYST_CUSTODY_WRAPPING_KEY is one character repeated, not a random key")
+        databases = getattr(settings, "DATABASES", {}) or {}
         others = [getattr(settings, "SECRET_KEY", ""), getattr(settings, "CATALYST_VERIFICATION_KEY", "") or "",
                   *(getattr(settings, "CATALYST_VERIFICATION_FALLBACK_KEYS", []) or []),
-                  getattr(settings, "CATALYST_ERASURE_KEY", "") or ""]
+                  getattr(settings, "CATALYST_ERASURE_KEY", "") or "",
+                  # review of PR #102: the passwords and webhook secrets this process holds, where it holds them
+                  *(str((db or {}).get("PASSWORD", "") or "") for db in databases.values()),
+                  getattr(settings, "CATALYST_MAIL_PASSWORD", "") or "",
+                  *(getattr(settings, "CATALYST_AGREEMENT_WEBHOOK_SECRETS", []) or [])]
         if secret in [o for o in others if o]:
             problems.append("CATALYST_CUSTODY_WRAPPING_KEY must differ from every other key")
         role = getattr(settings, "CATALYST_PROCESS_ROLE", "") or ""
