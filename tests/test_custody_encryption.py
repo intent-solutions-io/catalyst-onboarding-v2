@@ -299,7 +299,8 @@ def test_9kg_34_the_erasure_destroys_the_subjects_custody_keys_under_destroy_key
     app = subject()
     documents = [drill.synthetic_document(app, b"%PDF-1.7 synthetic one"),
                  drill.synthetic_document(app, b"%PDF-1.7 synthetic two")]
-    other = drill.synthetic_document(subject(email="hal@example.test", name="Hal Example"), b"%PDF-1.7 synthetic hal")
+    other = drill.synthetic_document(subject(email="other@example.test", name="Other Example"),
+                                 b"%PDF-1.7 synthetic other")
     refs = [d.envelope.key_ref for d in documents]
     outcome = erase(privileged_reset, app.public_ref)
     assert outcome.status == "erased" and outcome.retained == [] and outcome.keys_destroyed == 4
