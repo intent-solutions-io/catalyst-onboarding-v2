@@ -227,6 +227,7 @@ CATALYST_EFFECT_JOURNAL_DIR = os.environ.get("CATALYST_EFFECT_JOURNAL_DIR", "").
 # The only action kinds the worker may execute: a fixed mapping in code, never read from the database.
 CATALYST_ACTION_HANDLERS = {
     "send_verification": "correspondence.verification.SendVerification",
+    "verification_expiry_sweep": "correspondence.verification.SweepExpiredVerification",  # 9kg.66: expired only links
     "send_message": "correspondence.outbound.SendMessage",  # 016 A3 (P2 2B.1)
     "reconcile_send": "correspondence.outbound.ReconcileSend",  # 016 A5
     "collect": "correspondence.inbound.Collect",  # 016 B (P2 2B.2)
@@ -494,6 +495,8 @@ CATALYST_STAFF_SESSION_MAX_SECONDS = 8 * 3600  # absolute lifetime from login, h
 CATALYST_STAFF_LOGIN_FAILURE_LIMIT = 5
 CATALYST_STAFF_LOGIN_LOCK_SECONDS = 15 * 60
 CATALYST_SESSION_CLEANUP_SECONDS = 3600  # the clear_sessions action's interval
+# 9kg.66: the verification expiry sweep's interval (correspondence.verification); how late an expired-link item opens.
+CATALYST_VERIFICATION_SWEEP_SECONDS = 900
 AUTHENTICATION_BACKENDS = ["accounts.staff_access.ThrottledModelBackend"]
 OTP_TOTP_ISSUER = "Catalyst " + CATALYST_ENV
 CSRF_COOKIE_HTTPONLY = True  # every form carries its token in the page; no script reads the cookie

@@ -182,6 +182,10 @@ P3_HINTS = {
     "adoption_changed": ("evidence", "Acknowledging here only records that it was seen."),
     "claims_missing": ("correspondence", "A new submission with claims is needed: ask the applicant with a staff message,"
                        " then acknowledge once it arrives."),
+    # 9kg.66: the resend is on the application's correspondence screen, and it resolves this item.
+    "verification_expired": ("correspondence", "Resend the verification message from the application's correspondence"
+                             " screen; the resend resolves this item. Acknowledge only when no resend is needed (the"
+                             " applicant confirmed through a new submission, or the application closed)."),
 }
 
 

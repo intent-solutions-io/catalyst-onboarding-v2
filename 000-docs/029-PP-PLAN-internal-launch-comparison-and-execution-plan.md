@@ -237,7 +237,7 @@ three exist in v2 but stay disabled at launch by default (mailbox provisioning, 
 
 | Wait state | Who owes | Bound or escalation | Staff recovery without a shell | Status |
 |---|---|---|---|---|
-| Verification sent, unconfirmed | applicant | challenge lifetime (POL-02 value open); expiry prompts nothing today | staff resend on the correspondence screen, bounded (`9kg.50`, built in PR #87) | built; no age bound (the lifetime is the bound) |
+| Verification sent, unconfirmed | applicant | challenge lifetime (POL-02 value open); at expiry of the only link, a `verification_expired` staff item opens once (`9kg.66`, `016` section 10.17) | staff resend on the correspondence screen, bounded (`9kg.50`, built in PR #87); the resend resolves the expiry item | built; no age bound (the lifetime is the bound) |
 | Question sent, awaiting reply | applicant | reminder cadence and maximum (POL-06 synthetic values), then `escalate_unanswered` to staff; after escalation, the staff item's age (`9kg.51`) | staff item | built; the post-escalation bound is `9kg.51` |
 | Reply awaiting staff processing | staff | `aged_waits.replies_awaiting_processing` (`9kg.51`, built in PR #87; pages by default) | staff item | built |
 | Reply unmatched, unverified, sender-mismatched, or on a closed application | staff | `aged_waits.open_staff_items` (`9kg.51`, built; audit only until the owner lists it) | staff exception item (the unmatched rule for a misdirected first-generation reply is `dy7.2`) | built |
@@ -938,7 +938,7 @@ larger than a small fix, recorded with a bead suggestion and not changed here.
 | # | State | Screen (URL name) | Who acts | What the screen shows | Exit | Outcome and evidence |
 |---|---|---|---|---|---|---|
 | 1 | Verification sent, unconfirmed | public `applications:confirm`; staff `correspondence_staff:application` | applicant; staff for a resend | the answers and a Confirm button; on the staff page, the resends used and a warning when a usable link is out | confirm; staff resend (`resend_verification`) | FIXED: a double-submitted resend sent two messages. The form now names the resend it offers, and a repeat is refused as `resend_already_recorded` (`test_walk_a_double_submitted_verification_resend_sends_one_message`). Confirm twice: OK (`test_confirmation::test_s1_08_confirming_records_contact_control_once`). The challenge lifetime stays the only bound (section 5.2). |
-| 2 | Verification link expired or superseded | public `applications:confirm` | applicant | 410, "This link is not valid" | a new submission or a staff resend | OK (`test_confirmation::test_s1_09_an_expired_challenge_is_refused_by_the_database_clock`). GAP: an expiry prompts nothing (see GAP 1). |
+| 2 | Verification link expired or superseded | public `applications:confirm` | applicant | 410, "This link is not valid" | a new submission or a staff resend | OK (`test_confirmation::test_s1_09_an_expired_challenge_is_refused_by_the_database_clock`). GAP 1, fixed by `9kg.66`: the expiry of the only link opens a `verification_expired` staff item, resolved by the resend. |
 | 3 | Question sent, awaiting reply; unanswered after the last reminder | `correspondence_staff:queue`, `correspondence_staff:item` | applicant; then staff | the `escalate_unanswered` item, now with "What happened" in plain words | acknowledge (after acting) | FIXED: plain-language reason (`test_walk_an_unanswered_question_escalates_to_a_staff_item_with_plain_words`). |
 | 4 | Reply awaiting staff processing | `correspondence_staff:reply` | staff (confirm outcomes) | the escaped derivative and one outcome per question, none preselected | confirm the outcomes, or close without one | OK (`test_staff_screens::test_p2_42_reply_confirmation_shows_the_derivative_escaped_and_checks_its_digest`). |
 | 5 | Reply unmatched, unverified, from another sender, or for a closed application | `correspondence_staff:item` | staff; the decision-maker for identity | the message facts and only the lawful resolutions for the viewer | associate, dismiss, mark as spoofed, acknowledge | OK (`test_staff_screens::test_p2_42_identity_resolution_needs_the_decision_maker_through_the_screen`, `::test_p2_42_the_item_page_shows_the_evidence_and_offers_only_lawful_decisions`). |
@@ -1017,7 +1017,8 @@ staff item page states each reason in plain words, and the dossier shares the sa
 
 1. *Verification expiry prompts nothing.* An expired link waits for the applicant to submit again, or for staff to
    notice. Suggest: a bead to open a staff item when an unverified application's only link expires (POL-02 sets
-   the lifetime).
+   the lifetime). *(Fixed by `9kg.66`: a recurring sweep opens one `verification_expired` item per expired only link,
+   which the staff resend resolves; `016` section 10.17.)*
 2. *(Fixed in this PR: a suspended or capped assessment item now closes only through the human-only decision; rows
    10 and 11.)*
 3. *No decline notice.* Already `oc4.11`, a release gate (section 7).

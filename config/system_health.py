@@ -111,6 +111,18 @@ def session_health() -> dict:
     return {"cleanup_scheduled": scheduled, "anomalies": ["session_cleanup_unscheduled"] if required and not scheduled else []}
 
 
+def verification_health() -> dict:
+    """9kg.66: outside the local environments the recurring verification expiry sweep must be scheduled, or an
+    expired only link would again prompt nothing (correspondence.verification)."""
+    from correspondence.verification import EXPIRY_SWEEP
+
+    scheduled = PendingAction.objects.filter(kind=EXPIRY_SWEEP, status__in=(PendingAction.Status.QUEUED,
+                                                                            PendingAction.Status.RUNNING)).exists()
+    required = settings.CATALYST_ENV not in settings.LOCAL_ENVIRONMENTS
+    return {"expiry_sweep_scheduled": scheduled,
+            "anomalies": ["verification_sweep_unscheduled"] if required and not scheduled else []}
+
+
 def journal_health() -> dict:
     """9kg.33 (PR #89 review): the effect journal is readable and chained, its directory private and writable, and
     no append has failed; a torn tail names the owner's repair."""
@@ -219,5 +231,6 @@ def report() -> dict:
     return {"worker": worker_health(), "queue": queue_health(), "agreements": agreement_health(),
             "provisioning": provisioning_health(), "bounces": bounce_health(), "sends": send_health(),
             "collector": collector_health(), "replies": reply_health(), "reminders": reminder_health(),
-            "mail": mail_behaviour_health(), "sessions": session_health(), "journal": journal_health(),
+            "mail": mail_behaviour_health(), "sessions": session_health(), "verification": verification_health(),
+            "journal": journal_health(),
             "aged_waits": aged_waits_health(), "decision": decision_health(), "intake": intake_health()}

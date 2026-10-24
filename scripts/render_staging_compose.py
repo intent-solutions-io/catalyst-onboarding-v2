@@ -121,7 +121,8 @@ def definition() -> dict:
     egress = catalyst(["python", "-m", "assessments.egress"], "", [], networks=("fetch", "egress"))
     egress["environment"] = {"CATALYST_ENV": "staging", "CATALYST_EGRESS_LISTEN": "0.0.0.0:3128"}
     del egress["secrets"]
-    migrate = catalyst(["sh", "-c", "python manage.py migrate --noinput && python manage.py schedule_session_cleanup"],
+    migrate = catalyst(["sh", "-c", "python manage.py migrate --noinput && python manage.py schedule_session_cleanup"
+                       " && python manage.py schedule_verification_sweep"],
                        "catalyst_owner", [*keys, mount("owner_password", "db_password")], volumes=[EFFECTS],
                        depends={"db": {"condition": "service_healthy"}})
     migrate["restart"] = "no"

@@ -79,7 +79,10 @@ ACKNOWLEDGE_ONLY = {"processing_error", "message_id_conflict", "mailbox_uidvalid
                     # P3 3B.1: acknowledged after staff act (a new submission with claims, or a re-fetch on /staff/p3/)
                     "claims_missing", "adoption_changed", "evidence_collection_failed",
                     # P3 3B.2: acknowledged by staff; also resolved by the system when a later run succeeds or staff rerun
-                    "assessment_failed", "assessment_input_changed", "assessment_pack_refused"}
+                    "assessment_failed", "assessment_input_changed", "assessment_pack_refused",
+                    # 9kg.66: the staff resend resolves it; acknowledged only once no resend is needed (the applicant
+                    # confirmed through a new submission, or the application closed)
+                    "verification_expired"}
 # 9kg.41 (owner decision on the PR #93 review): a suspended or capped snapshot closes only through the human-only
 # decision on the decision screen (which resolves it) or a later successful run, never by an acknowledgement that would
 # leave the case looking as if a run were coming.

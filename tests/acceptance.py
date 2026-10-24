@@ -1586,6 +1586,12 @@ P6_SUPPORTING = {
         "test_hold_and_resend::test_a_resend_is_refused_while_a_hard_bounce_is_open",
         "test_hold_and_resend::test_the_dossier_flags_a_case_awaiting_decision_or_on_hold_and_links_the_decision_screen",
     ],
+    "9kg.66 the expiry of an unverified application's only link opens one staff item the resend resolves (016 section 10.17)": [
+        "test_hold_and_resend::test_9kg_66_an_expired_only_link_opens_one_staff_item_that_the_staff_resend_resolves",
+        "test_hold_and_resend::test_9kg_66_no_item_once_the_applicant_confirmed_a_newer_link_is_out_or_the_case_closed",
+        "test_hold_and_resend::test_9kg_66_an_acknowledged_item_is_never_reopened_for_the_same_challenge",
+        "test_hold_and_resend::test_9kg_66_the_sweep_is_scheduled_at_deployment_and_its_absence_is_a_health_anomaly",
+    ],
     "oc4.12 the human-only assessment path completed for a launch with model advice disabled (018 section 20)": [
         "test_human_only::test_the_decision_service_and_screen_never_import_the_model_layer",
         "test_human_only::test_a_run_refused_under_the_suspension_is_labelled_so_and_leaves_assessing_through_the_decision_form",
