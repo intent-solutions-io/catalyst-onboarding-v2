@@ -14,6 +14,12 @@ of any staff setup step.
   `StaffRoleGrant` record naming the approval the owner cites; a no-op (already held, not held) writes nothing.
 
 Exit 0 done, 1 refused. `--list` prints the matrix and exits.
+
+`--audit` (9kg.56) is read-only: it lists every group membership and direct permission with no matching latest grant
+record (`unrecorded`: added outside the commands, for example by raw SQL with the owner credential, or still held after
+a recorded revocation), and every latest grant whose membership or permission is gone (`recorded_not_held`). Exit 0
+when the record and the database agree, 1 when any difference exists. `catalyst_health` carries the counts
+(`staff_roles`).
 """
 
 from django.conf import settings
@@ -40,8 +46,21 @@ class Command(BaseCommand):
         parser.add_argument("--revoke", action="store_true", help="remove the role instead of granting it")
         parser.add_argument("--approval-ref", help="the decision that authorizes this grant or revocation")
         parser.add_argument("--list", action="store_true", dest="list_roles", help="print the role matrix and exit")
+        parser.add_argument("--audit", action="store_true",
+                            help="read-only: list memberships and permissions that do not match the latest grant record")
 
-    def handle(self, username=None, role=None, revoke=False, approval_ref=None, list_roles=False, **options):
+    def handle(self, username=None, role=None, revoke=False, approval_ref=None, list_roles=False, audit=False, **options):
+        if audit:
+            found = grants.differences()
+            for d in found:
+                self.stdout.write(f"{d.problem}: {d.kind} {d.target!r} for {d.username!r}")
+            if found:
+                raise CommandError(f"{len(found)} difference(s) between the grant record and the database; review each: "
+                                   "unrecorded access is removed and recorded with --revoke, then granted again with its "
+                                   "approval if authorized; a recorded grant not held is granted again (recorded), and "
+                                   "then revoked if it should end")
+            self.stdout.write("every membership and direct permission matches its latest grant record")
+            return
         if list_roles:
             for slug, spec in ROLES.items():
                 kind = "group " + repr(spec.group) if slug in GROUP_ROLES else "direct grant"

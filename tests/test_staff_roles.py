@@ -210,3 +210,47 @@ def test_every_group_membership_has_a_latest_grant_row(p2):
     for user_id, group_name in memberships:
         latest = StaffRoleGrant.objects.filter(user_id=user_id, kind="group", target=group_name).order_by("-id").first()
         assert latest is not None and latest.action == "grant" and latest.approval_ref.startswith("synthetic"), (user_id, group_name)
+
+
+def test_9kg_56_the_audit_reports_access_planted_by_raw_owner_sql_and_health_carries_the_counts(p2):
+    """`grant_staff_role --audit` is read-only: a membership and a direct permission planted with the owner credential
+    by raw SQL, and a recorded grant removed the same way, are each listed and make it exit non-zero; access granted
+    by the command is not; the health report carries the counts and never a name; recording through the command
+    clears each."""
+    import json
+
+    from tests.test_system_health import health
+
+    assert "matches its latest grant record" in owner_command("--audit")  # a clean database
+    granted = staff(p2, "granted-by-command")
+    grant(p2, granted.username, "correspondence-operator")
+    assert "matches its latest grant record" in owner_command("--audit")
+    planted = staff(p2, "planted-by-sql", "Correspondence decision-maker")  # raw owner SQL INSERT, no grant record
+    owner = p2.committed.connect("owner", autocommit=True)
+    owner.execute("INSERT INTO accounts_user_user_permissions (user_id, permission_id) SELECT %s, id FROM auth_permission"
+                  " WHERE codename = 'approve_provisioning'", [planted.pk])
+    rows_before = StaffRoleGrant.objects.count()
+    out = owner_command("--audit", expect=1)
+    assert "unrecorded: group 'Correspondence decision-maker' for 'planted-by-sql'" in out
+    assert "unrecorded: permission 'provisioning.approve_provisioning' for 'planted-by-sql'" in out
+    assert "granted-by-command" not in out and "2 difference(s)" in out
+    assert StaffRoleGrant.objects.count() == rows_before  # read-only
+    code, report = health()
+    assert code == 1 and "staff_roles.role_access_unrecorded" in report["anomalies"]
+    assert report["staff_roles"] == {"unrecorded": 2, "recorded_not_held": 0, "anomalies": ["role_access_unrecorded"]}
+    assert "planted-by-sql" not in json.dumps(report) and "Correspondence decision-maker" not in json.dumps(report)
+    # A recorded grant removed by raw SQL is the other difference.
+    owner.execute("DELETE FROM accounts_user_groups WHERE user_id = %s", [granted.pk])
+    out = owner_command("--audit", expect=1)
+    assert "recorded_not_held: group 'Correspondence operator' for 'granted-by-command'" in out
+    assert health()[1]["staff_roles"]["anomalies"] == ["role_access_unrecorded", "role_grant_not_held"]
+    # Recording through the command clears each: revoke the planted access (recorded), re-grant the removed one.
+    grant(p2, planted.username, "correspondence-decision-maker", "--revoke")
+    grant(p2, planted.username, "provisioning-approver", "--revoke")
+    grant(p2, granted.username, "correspondence-operator")
+    assert "matches its latest grant record" in owner_command("--audit")
+    assert health()[1]["staff_roles"] == {"unrecorded": 0, "recorded_not_held": 0, "anomalies": []}
+    # Access re-added by raw SQL after a recorded revocation is unrecorded again: the latest record is the revocation.
+    owner.execute("INSERT INTO accounts_user_groups (user_id, group_id) SELECT %s, id FROM auth_group WHERE name = %s",
+                  [planted.pk, "Correspondence decision-maker"])
+    assert "unrecorded: group 'Correspondence decision-maker' for 'planted-by-sql'" in owner_command("--audit", expect=1)

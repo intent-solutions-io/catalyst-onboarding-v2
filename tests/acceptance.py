@@ -1581,6 +1581,9 @@ P6_SUPPORTING = {
         "test_staff_roles::test_no_runbook_or_design_step_grants_with_raw_sql_or_a_shell",
         "test_staff_roles::test_every_group_membership_has_a_latest_grant_row",
     ],
+    "9kg.56 the read-only grant-ledger audit reconciles memberships and direct permissions with the grant record (029 section 17.1)": [
+        "test_staff_roles::test_9kg_56_the_audit_reports_access_planted_by_raw_owner_sql_and_health_carries_the_counts",
+    ],
     "9kg.50 the hold exit through the decision service and the staff verification resend (018 section 19, 016 section 10.14)": [
         "test_hold_and_resend::test_an_on_hold_case_comes_back_to_a_decision_through_the_service",
         "test_hold_and_resend::test_an_on_hold_case_comes_back_through_the_decision_form_and_a_refused_user_sees_403",

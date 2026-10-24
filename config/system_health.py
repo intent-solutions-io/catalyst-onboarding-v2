@@ -111,6 +111,18 @@ def session_health() -> dict:
     return {"cleanup_scheduled": scheduled, "anomalies": ["session_cleanup_unscheduled"] if required and not scheduled else []}
 
 
+def staff_role_health() -> dict:
+    """9kg.56: memberships and direct permissions that do not match the latest grant record (accounts.grants), counted;
+    `grant_staff_role --audit` lists them for the owner. Counts only: no account or group name is in the report."""
+    from accounts import grants
+
+    found = grants.differences()
+    unrecorded = sum(1 for d in found if d.problem == grants.UNRECORDED)
+    not_held = len(found) - unrecorded
+    anomalies = [name for name, count in (("role_access_unrecorded", unrecorded), ("role_grant_not_held", not_held)) if count]
+    return {"unrecorded": unrecorded, "recorded_not_held": not_held, "anomalies": anomalies}
+
+
 def verification_health() -> dict:
     """9kg.66: outside the local environments the recurring verification expiry sweep must be scheduled, or an
     expired only link would again prompt nothing (correspondence.verification)."""
@@ -243,6 +255,7 @@ def report() -> dict:
     return {"worker": worker_health(), "queue": queue_health(), "agreements": agreement_health(),
             "provisioning": provisioning_health(), "bounces": bounce_health(), "sends": send_health(),
             "collector": collector_health(), "replies": reply_health(), "reminders": reminder_health(),
-            "mail": mail_behaviour_health(), "sessions": session_health(), "verification": verification_health(),
+            "mail": mail_behaviour_health(), "sessions": session_health(), "staff_roles": staff_role_health(),
+            "verification": verification_health(),
             "journal": journal_health(),
             "aged_waits": aged_waits_health(), "decision": decision_health(), "intake": intake_health()}

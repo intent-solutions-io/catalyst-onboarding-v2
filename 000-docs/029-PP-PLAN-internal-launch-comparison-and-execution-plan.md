@@ -815,6 +815,19 @@ account, owner-run as the migration owner), the append-only record `accounts.Sta
 - **Superusers** hold no role (refused by the command, as on the staff site). **No raw SQL** in any filed step: a test
   scans `000-docs` for grant statements and for instructions to open a shell session.
 - **Reviewer:** `catalyst-django-operator` (the roster in `008`); the owner approves the role names.
+- **The ledger audit (`9kg.56`, 2026-10-24).** The owner credential can still change memberships and permissions
+  without a record, so `manage.py grant_staff_role --audit` reconciles the two, read-only (`accounts.grants.differences`):
+  every group membership and direct permission whose latest record for that account, kind and target is missing or a
+  revocation is `unrecorded`; every latest `grant` record whose membership or permission is gone is
+  `recorded_not_held`. It lists each with the account and the group or permission and exits 1 when any exists, 0 when
+  the record and the database agree. `catalyst_health` carries the counts in the part `staff_roles` (anomalies
+  `role_access_unrecorded`, `role_grant_not_held`; counts only, no name). **Remedy, through the command only:**
+  unrecorded access is removed with `--revoke` (which records it), then granted again with its approval if it is
+  authorized; a recorded grant not held is granted again (recorded), then revoked if it should end. A superuser flag
+  is outside the record and not reconciled here (the command refuses superusers). After a restore, a revocation
+  replayed from the effect journal (`9kg.33`) removes access whose revocation record the restore lost, so the audit
+  then shows `recorded_not_held` until the owner records the revocation again. Tests: `tests/test_staff_roles.py`
+  (`9kg.56`).
 
 ### 17.2 The data notice, the member-on-file record and the decline refusal (`9kg.52`)
 
