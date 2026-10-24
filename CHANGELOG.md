@@ -167,6 +167,14 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   request, a live model needs the fence (`no_lease_fence`), streaming is refused, the keeper is bounded and never
   writes the worker-alive file, the test transport patches the clients' `send`, and the approval reference is a code.
   No live model branch exists
+- The egress deny list (bead `9kg.39`, TEST-P6-28; `026` section 16, `018` section 3.3): the fetcher's egress proxy
+  refuses the estate's own production hosts by name (and every name under one) before any lookup, by every address
+  those names resolve to, and at the connected peer, re-resolving the names at each check and keeping every address
+  they ever had, so redirects and DNS changes cannot reach them; the list is an operator-supplied, secret-free file
+  of logical host names read by the proxy alone, and a missing, empty or wholly unresolvable one refuses everything
+  as a transient refusal with a start-up code and a failing healthcheck. The repository and
+  staging carry synthetic names only (`tests/egress-deny.example`, `deploy/staging/egress-deny`, mounted into the
+  proxy alone); the real list is a host-preparation item of `9kg.28`
 
 ### Changed
 

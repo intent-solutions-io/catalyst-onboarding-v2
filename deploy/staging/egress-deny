@@ -1,0 +1,8 @@
+# The staging egress deny list (assessments/egress.py; 9kg.39; TEST-P6-28), bind-mounted read-only into the egress
+# proxy alone. Never the estate's real production hosts: those are an operator-supplied file at deploy time.
+# One dotted DNS name per line; each denies itself and every name under it. '#' starts a comment.
+prod-a.example.test
+prod-b.example.test
+# A public stand-in for a production host, so scripts/staging_check.sh can show the deny by name and by resolved
+# address on the live stack (it resolves to 1.1.1.1 and 1.0.0.1; it is not a host of this estate).
+one.one.one.one

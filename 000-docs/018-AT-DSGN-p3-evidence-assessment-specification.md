@@ -159,6 +159,11 @@ only re-fetched as a new capture.
    Synthetic fixtures are admitted only through a source marked `fixture_only` for one exact host and port,
    which the guard refuses outside `test`; the fixture path runs the same `classify` code. Real fetching
    stays unreachable until GATE-PILOT; production also needs a network egress allow-list (P6).
+   Behind the fetcher, the P6 egress proxy (`assessments/egress.py`, `026` sections 5 and 16) also refuses the
+   estate's own production hosts: a deny list of logical host names, read from an operator-supplied,
+   secret-free file by the proxy alone, is checked before resolution, against every resolved address and
+   against the connected peer, on every request and so on every redirect hop; a missing or empty list refuses
+   every fetch (`9kg.39`, TEST-P6-28).
 8. **Nothing in the public web request** fetches, previews or dereferences an applicant URL; staff screens
    show applicant URLs as text.
 9. **Logging:** host and reason code only; never the path, query, headers or body.

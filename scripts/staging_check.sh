@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Bring the generated staging stack up on this host with synthetic secrets, check what the running containers expose,
 # and remove everything again (026 sections 4 and 5; 6B.5b; TEST-P6-04 and 11). Dev box only: it publishes on
-# loopback addresses and uses throwaway values. Prints PASS or FAIL per check; exits non-zero on any FAIL.
+# loopback addresses and uses throwaway values. Prints PASS, FAIL or NOT RUN per check; exits non-zero on any FAIL.
 #
 #   scripts/staging_check.sh            # build, up, check, tear down
 #   KEEP=1 scripts/staging_check.sh     # leave the stack running for 6B.11 work (tear down later with `down -v`)
@@ -240,6 +240,28 @@ done
 check "TEST-P6-30 the proxy refuses a port other than 443" test "$(via_proxy_settled example.com:22)" = "403 port_not_allowed"
 check "TEST-P6-30 the proxy refuses a single-label name (the database's)" test "$(via_proxy db:443)" = "400 bad_host"
 check "TEST-P6-30 the egress proxy mounts no secret" test -z "$(docker exec "$("${compose[@]}" ps -q egress)" ls /run/secrets 2>/dev/null)"
+# TEST-P6-28 (9kg.39): the proxy's deny list of production hosts. deploy/staging/egress-deny names a public stand-in
+# (one.one.one.one, 1.1.1.1 and 1.0.0.1), so the deny by name and by resolved address shows here; the tunnelled
+# public name above is the control (and proves the list loaded: without one, everything is refused).
+check "TEST-P6-28 the proxy refuses a production host by name" test "$(via_proxy one.one.one.one:443)" = "403 host_denied"
+check "TEST-P6-28 the proxy refuses a name under a production host" test "$(via_proxy www.one.one.one.one:443)" = "403 host_denied"
+# The by-address cases need public DNS from the proxy; without it they are NOT RUN, never a FAIL (PR #101 review).
+public_dns() {  # a transient lookup failure is retried, at most 3 times, as via_proxy_settled does
+  for _ in 1 2 3; do
+    docker exec "$("${compose[@]}" ps -q egress)" python -c "import socket;socket.getaddrinfo('1.1.1.1.nip.io',443);socket.getaddrinfo('one.one.one.one',443)" >/dev/null 2>&1 && return 0
+    sleep 2
+  done
+  return 1
+}
+for authority in 1.1.1.1.nip.io:443 1.0.0.1.nip.io:443; do
+  name="TEST-P6-28 the proxy refuses a name resolving to a production host's address ($authority)"
+  if public_dns; then
+    check "$name" test "$(via_proxy_settled "$authority")" = "403 address_denied"
+  else
+    echo "NOT RUN $name (public DNS unreachable from the egress proxy)"
+  fi
+done
+check "TEST-P6-28 only the egress proxy holds the deny list" bash -c '! docker exec "$1" test -e /etc/catalyst/egress-deny && docker exec "$2" test -r /etc/catalyst/egress-deny' _ "$("${compose[@]}" ps -q fetcher)" "$("${compose[@]}" ps -q egress)"
 
 # TEST-P6-27: a dark deploy. An applicant goes through the real form and confirmation link; the evidence collection that
 # follows is held until the owner's activation command, and no action that reaches a provider exists in any other state.
@@ -273,14 +295,20 @@ check "TEST-P6-27 the applicant confirms (200, and the confirmed page's own sent
   "[ \"\$(tail -1 <<<\"\$1\")\" = 200 ] && grep -q 'Your email address is confirmed' <<<\"\$1\"" _ "$answer"
 sleep 3  # the worker loop has had its turn: anything not held would have started
 # Every registered kind is counted except an explicit allow-list (the verification mail to the file sink, the session
-# clean-up), so a provider-reaching kind added later is covered without editing this check.
+# clean-up), so a provider-reaching kind added later is covered without editing this check. The verification-expiry
+# sweep (9kg.66, scheduled by migrate since PR #97) reaches no provider and is allowed only as itself: its one system
+# subject, queued, running or done (a pass that ran and queued its successor); a failed or uncertain sweep still counts.
 dark="$(owner_run migrate python manage.py shell -c "
 from django.conf import settings
 from workflow.models import PendingAction as P
+from correspondence.verification import EXPIRY_SWEEP, EXPIRY_SWEEP_SUBJECT
 allowed = {'send_verification', 'clear_sessions'}
 registry = set(settings.CATALYST_ACTION_HANDLERS)
-print(int(allowed <= registry), P.objects.filter(kind='start_evidence_collection', status='held').count(),
-      P.objects.filter(kind__in=registry - allowed).exclude(status='held').count())" | tail -1 || true)"
+sweep = P.objects.filter(kind=EXPIRY_SWEEP, subject_type=EXPIRY_SWEEP_SUBJECT[0], subject_id=EXPIRY_SWEEP_SUBJECT[1],
+                         status__in=('queued', 'running', 'done'))
+print(int(allowed <= registry and EXPIRY_SWEEP in registry),
+      P.objects.filter(kind='start_evidence_collection', status='held').count(),
+      P.objects.filter(kind__in=registry - allowed).exclude(status='held').exclude(pk__in=sweep).count())" | tail -1 || true)"
 read -r allow_ok held_count others <<<"$dark"
 check "TEST-P6-27 control: the allow-list names registered kinds" test "${allow_ok:-}" = 1
 check "TEST-P6-27 the evidence collection is held until activation" test "${held_count:-}" = 1
