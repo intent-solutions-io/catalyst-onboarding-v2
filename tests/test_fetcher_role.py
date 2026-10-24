@@ -8,7 +8,6 @@ import os
 from io import StringIO
 
 import pytest
-from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connections

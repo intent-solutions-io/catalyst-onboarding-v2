@@ -246,7 +246,7 @@ def test_9kg_51_each_aged_wait_raises_its_code_and_clears_when_resolved(k, monke
         "awaiting_decision", "on_hold", "assessing"]
     with transaction.atomic():
         item = open_item("processing_error", "aged-waits-probe", application=waiting)
-    pause = AutomationPause.objects.create(subject_type="application", subject_id=held.public_ref, reason="synthetic", actor_ref="t")
+    AutomationPause.objects.create(subject_type="application", subject_id=held.public_ref, reason="synthetic", actor_ref="t")
     reply = InboundMessage.objects.create(mailbox_ref="applicants", application=waiting, derived_text="A reply.",
                                           derived_text_sha256="0" * 64, classification="human", trust_decision="trusted",
                                           status="awaiting_processing", from_matches_verified_address=True)

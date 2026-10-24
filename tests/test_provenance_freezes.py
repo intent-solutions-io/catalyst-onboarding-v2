@@ -276,11 +276,14 @@ def test_9kg5_the_freeze_functions_are_owned_fixed_and_not_executable_by_the_app
 def test_9kg5_the_freeze_migration_reverses_and_reapplies_and_keeps_the_rows(connect):
     message, attempt = inbound(), outbound(application())
     owner = connect("owner", autocommit=True)
-    triggers = lambda: owner.execute(
-        "SELECT count(*) FROM pg_trigger WHERE tgname IN ('catalyst_inbound_provenance_frozen',"
-        " 'catalyst_outbound_identity_frozen', 'catalyst_reply_link_identity_frozen') OR (tgname = 'catalyst_no_truncate'"
-        " AND tgrelid IN ('correspondence_inboundmessage'::regclass, 'correspondence_outboundmessage'::regclass,"
-        " 'correspondence_questionreplylink'::regclass))").fetchone()[0]
+
+    def triggers():
+        return owner.execute(
+            "SELECT count(*) FROM pg_trigger WHERE tgname IN ('catalyst_inbound_provenance_frozen',"
+            " 'catalyst_outbound_identity_frozen', 'catalyst_reply_link_identity_frozen') OR (tgname = 'catalyst_no_truncate'"
+            " AND tgrelid IN ('correspondence_inboundmessage'::regclass, 'correspondence_outboundmessage'::regclass,"
+            " 'correspondence_questionreplylink'::regclass))").fetchone()[0]
+
     assert triggers() == 6
     manage_as_owner("migrate", "correspondence", "0016", "--verbosity", "0")
     assert triggers() == 0

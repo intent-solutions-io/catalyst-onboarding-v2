@@ -301,7 +301,7 @@ def test_p3_06_18_a_transient_failure_retries_then_is_unavailable_never_a_negati
 def test_p3_17_captures_are_immutable_and_hold_no_raw_bytes(ev):
     source(ev)
     ev.site.page("/w", "<script>evil()</script><p>Visible <span hidden>hidden text</span>work.</p><!-- comment -->")
-    app = collect(ev, work_url_1=url(ev, "/w"))
+    collect(ev, work_url_1=url(ev, "/w"))
     capture = EvidenceCapture.objects.get()
     assert capture.derived_text == "Visible work." and capture.derivation_version == 1 and capture.is_derivative
     assert capture.response_sha256 != capture.derived_sha256 and capture.cannot_prove.startswith("A work page")

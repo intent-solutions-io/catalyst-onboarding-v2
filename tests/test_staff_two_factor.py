@@ -249,9 +249,6 @@ def test_6b9_two_factor_is_required_outside_the_local_environments():
 
 
 def test_6b9_a_superuser_account_gets_no_staff_session_where_two_factor_is_required(required):
-    from django_otp import login as otp_login
-    from django.test import RequestFactory
-
     staff(required, "super-staff", superuser=True)
     enrol("super-staff")
     client = Client()

@@ -1,0 +1,84 @@
+name: Targeted runtime checks
+
+# Bead catalyst-v2-9kg.45 (009 section 5.3, "Targeted iteration lane"). A developer-dispatched run of a named selection
+# of the runtime suite on an isolated hosted runner, for fast feedback while iterating on a branch. It is never a
+# required check and never a merge or release input: its job name is not one the merge guard or
+# scripts/require_green_ci.py reads, and a selected run is reported, not gated (tests/acceptance.py gates full runs
+# only). The pull request's own CI run stays the complete suite. Same images, roles and settings as ci.yml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      selection:
+        description: "pytest selection: test files, node ids, -k or -m expressions (quotes allowed). For a branch, print one with: git diff --name-only origin/main... | xargs python3 scripts/select_tests.py"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  targeted:
+    name: Targeted runtime checks (dispatched selection; never a required check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    # Same digest-pinned images as ci.yml and compose.yaml (ADR-17, D-18).
+    container:
+      image: python:3.14.8-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
+    services:
+      postgres:
+        image: postgres:16.15@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
+        env:
+          POSTGRES_DB: catalyst
+          POSTGRES_USER: catalyst_admin
+          POSTGRES_PASSWORD: synthetic-ci-admin-only
+        options: >-
+          --health-cmd "pg_isready -U catalyst_admin -d catalyst"
+          --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      CATALYST_ENV: test
+      CATALYST_SECRET_KEY: synthetic-ci-only
+      CATALYST_DB_NAME: catalyst
+      CATALYST_DB_USER: catalyst_owner
+      CATALYST_DB_PASSWORD: synthetic-ci-owner-only
+      CATALYST_DB_HOST: postgres
+      CATALYST_DB_PORT: "5432"
+      CATALYST_CHALLENGE_LIFETIME_SECONDS: "3600"  # synthetic; POL-02 open
+      CATALYST_PUBLIC_BASE_URL: "http://catalyst.example.test"  # synthetic; never contacted
+      CATALYST_VERIFICATION_KEY: synthetic-ci-verification-key-only
+      CATALYST_DB_OWNER_PASSWORD: synthetic-ci-owner-only
+      # The bootstrap administrator's login is set on the provisioning step only (6hl.10). The probe pair below is
+      # read by test code alone, for the superuser-refusal probes and the tests that must act as the administrator.
+      CATALYST_TEST_SUPERUSER_PROBE_USER: catalyst_admin
+      CATALYST_TEST_SUPERUSER_PROBE_PASSWORD: synthetic-ci-admin-only
+      CATALYST_DB_APP_PASSWORD: synthetic-ci-app-only
+      CATALYST_DB_RETENTION_PASSWORD: synthetic-ci-retention-only
+      CATALYST_DB_BACKUP_PASSWORD: synthetic-ci-backup-only
+      CATALYST_DB_FETCHER_PASSWORD: synthetic-ci-fetcher-only
+      # The dispatcher's text reaches pytest only through this variable, split by xargs (quotes honoured), never through
+      # a shell script body or eval (the release workflow's rule, PR #41 review). It is checked before anything else runs.
+      PYTEST_SELECTION: ${{ inputs.selection }}
+    steps:
+      - name: Validate the selection input
+        shell: bash
+        run: |
+          allowed='^[]A-Za-z0-9_./:@=()[ "'"'"'-]+$'
+          [[ "$PYTEST_SELECTION" =~ $allowed ]] \
+            || { echo "::error::selection may contain only paths, node ids, pytest options and quoted expressions"; exit 1; }
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install hash-locked dependencies
+        run: |
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install --quiet --disable-pip-version-check --require-hashes --no-deps -r requirements/dev.txt
+
+      - name: Provision the database roles (ADR-14); the only step that holds the administrator login (6hl.10)
+        env:
+          CATALYST_DB_ADMIN_USER: catalyst_admin
+          CATALYST_DB_ADMIN_PASSWORD: synthetic-ci-admin-only
+        run: /tmp/venv/bin/python scripts/provision_db_roles.py
+
+      - name: Selected tests (reported, not gated; slowest 25 listed)
+        run: printf '%s' "$PYTEST_SELECTION" | xargs /tmp/venv/bin/python -m pytest -v --durations=25

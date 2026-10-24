@@ -1,0 +1,7 @@
+# The CI docs job's Python lint and dependency-audit tools (the step "Python lint and dependency audit" in
+# .github/workflows/ci.yml), hash-locked like docs.in so that step has no unpinned install. The step runs on the hosted
+# runner's system Python (3.12), not the 3.14 container. Compile with:
+#   uv pip compile --python-version 3.12 --python-platform x86_64-unknown-linux-gnu \
+#     --generate-hashes --no-header requirements/lint.in -o requirements/lint.txt
+ruff==0.16.2
+pip-audit==2.10.1

@@ -149,7 +149,8 @@ class CreateMailbox(_Action):
         try:
             found = host.read(domain, local)
         except adapter.AdapterError as exc:  # no create was sent: say so, and try again later
-            self._retry_or_staff(claim, request, f"absent_read_{exc.code}", write=lambda: self._not_sent(request, attempt, exc.code))
+            code = exc.code  # bound here: `exc` is unbound once the except clause ends, but the write callback is not
+            self._retry_or_staff(claim, request, f"absent_read_{code}", write=lambda: self._not_sent(request, attempt, code))
             return
         if found is not None:  # present before our create: someone else's mailbox, never adopted (023 11.3)
             ledger.finish(claim, self, status=Status.DONE, error="present_before_create",

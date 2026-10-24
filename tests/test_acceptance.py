@@ -27,7 +27,7 @@ from django.db import connection
 from django.test import Client
 from django.urls import reverse
 
-from applications.models import Application, ContactChallenge, SubmissionVersion
+from applications.models import Application, ContactChallenge
 from config import runtime
 from correspondence import verification
 from tests import acceptance, support
