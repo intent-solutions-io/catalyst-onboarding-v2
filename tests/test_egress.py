@@ -272,11 +272,41 @@ def test_9kg39_an_address_a_production_name_once_resolved_to_stays_denied(dns):
     assert {PROD_V4, "198.51.100.8"} <= policy.denied_addresses()
 
 
-def test_9kg39_a_deny_name_that_cannot_be_resolved_refuses_as_transient(proxy, monkeypatch, dns):
+def test_9kg39_a_deny_name_that_has_never_resolved_refuses_as_transient(proxy, monkeypatch, dns):
     public(monkeypatch, "93.184.215.14")
     monkeypatch.setattr(egress, "resolve", lambda host, port: ["93.184.215.14"])
-    dns["prod-a.example.test"] = None  # a lookup failure or timeout: the deny set is unknown, so nothing passes
+    dns["prod-a.example.test"] = None  # a lookup failure or timeout with no earlier answer: unknown, so nothing passes
     assert refusal(connect(proxy(egress.Policy(TEST_ENV)), "innocent.example.test:443")) == ("502", "deny_list_unresolved")
+
+
+def test_9kg39_a_failed_lookup_keeps_the_last_good_answer(proxy, monkeypatch, dns, caplog):
+    public(monkeypatch, PROD_V4, "93.184.215.14")
+    target = {"innocent.example.test": ["93.184.215.14"], "moved.example.test": [PROD_V4]}
+    monkeypatch.setattr(egress, "resolve", lambda host, port: target[host])
+    policy = egress.Policy(TEST_ENV)
+    assert PROD_V4 in policy.denied_addresses()  # one good answer
+    dns["prod-a.example.test"] = None  # then SERVFAIL, EAI_AGAIN or a timeout
+    port = proxy(policy)
+    with caplog.at_level("INFO", logger="assessments.egress"):
+        assert refusal(connect(port, "moved.example.test:443")) == ("403", "address_denied")  # still denied
+    assert "egress deny_lookup_stale" in caplog.text and "prod-a" not in caplog.text  # a code, never the name
+
+
+def test_9kg39_one_lookup_pass_uses_one_thread_and_a_slow_name_is_a_failure(monkeypatch):
+    seen, started = [], threading.Event()
+
+    def getaddrinfo(name, port, *args):
+        seen.append((name, threading.get_ident()))
+        if name == "slow.example.test":
+            started.set()
+            threading.Event().wait(3)  # past the deadline below
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (PROD_V4, port))]
+    monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
+    monkeypatch.setattr(egress, "CONNECT_SECONDS", 1)
+    answers = REAL_RESOLVE_NAMES(("prod-a.example.test", "prod-b.example.test", "slow.example.test", "late.example.test"))
+    assert answers == {"prod-a.example.test": [PROD_V4], "prod-b.example.test": [PROD_V4], "slow.example.test": None,
+                       "late.example.test": None}
+    assert started.is_set() and len({ident for _, ident in seen}) == 1  # one thread for the whole pass
 
 
 def test_9kg39_denied_names_resolve_together_and_a_missing_name_denies_nothing(monkeypatch):

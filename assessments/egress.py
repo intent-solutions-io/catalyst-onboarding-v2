@@ -82,14 +82,19 @@ class Policy:
 
     def denied_addresses(self) -> frozenset:
         """Every address a denied name resolves to now, together with the ones it resolved to before (at most
-        DENY_ADDRESSES_PER_NAME per name). A name that does not exist denies nothing; a lookup that fails or runs out
-        of time refuses (502, so retried)."""
+        DENY_ADDRESSES_PER_NAME per name). A name that does not exist denies nothing. A lookup that fails or runs out
+        of time (SERVFAIL, EAI_AGAIN, the deadline) keeps that name's last good answer; only a name that has never
+        resolved refuses (502, so retried). Each fallback is logged as one outcome code, never a name."""
         answers = resolve_names(self.deny)
-        if any(addresses is None for addresses in answers.values()):
-            raise Refusal(502, "deny_list_unresolved")
         with self.lock:
+            failed = [name for name, addresses in answers.items() if addresses is None]
+            if any(name not in self.remembered for name in failed):
+                raise Refusal(502, "deny_list_unresolved")
             for name, addresses in answers.items():
-                self.remember(name, addresses)
+                if addresses is not None:
+                    self.remember(name, addresses)
+            if failed:
+                logger.info("egress deny_lookup_stale")
             return frozenset(ip for kept in self.remembered.values() for ip in kept)
 
     def remember(self, name: str, addresses) -> None:
@@ -171,23 +176,22 @@ def canonical(ip: str) -> str:
 
 def resolve_names(names) -> dict:
     """name -> its addresses ([] for a name that does not exist), or None for a lookup that failed or ran out of time.
-    The lookups run together under one deadline, each in a daemon thread (`getaddrinfo` has no timeout)."""
+    One lookup pass: a single daemon thread resolves the names in turn under one deadline (`getaddrinfo` has no
+    timeout), so a request costs one thread whatever the list's length; a name not reached in time is a failure."""
     box = {}
 
-    def lookup(name):
-        try:
-            box[name] = [info[4][0] for info in socket.getaddrinfo(name, 443, 0, socket.SOCK_STREAM)]
-        except socket.gaierror as exc:
-            box[name] = [] if exc.errno in NO_SUCH_NAME else None
-        except (OSError, UnicodeError):
-            box[name] = None
+    def lookup_all():
+        for name in names:
+            try:
+                box[name] = [info[4][0] for info in socket.getaddrinfo(name, 443, 0, socket.SOCK_STREAM)]
+            except socket.gaierror as exc:
+                box[name] = [] if exc.errno in NO_SUCH_NAME else None
+            except (OSError, UnicodeError):
+                box[name] = None
 
-    workers = [threading.Thread(target=lookup, args=(name,), daemon=True) for name in names]
-    for worker in workers:
-        worker.start()
-    deadline = time.monotonic() + CONNECT_SECONDS
-    for worker in workers:
-        worker.join(max(0.0, deadline - time.monotonic()))
+    worker = threading.Thread(target=lookup_all, daemon=True)
+    worker.start()
+    worker.join(CONNECT_SECONDS)
     return {name: box.get(name) for name in names}
 
 

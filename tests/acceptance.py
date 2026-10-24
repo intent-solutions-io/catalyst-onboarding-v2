@@ -1452,7 +1452,7 @@ P6_CASES = {
         "test_egress::test_9kg39_a_name_resolving_to_a_production_address_is_refused",
         "test_egress::test_9kg39_a_dns_change_toward_a_production_address_is_refused_between_requests_and_at_the_peer",
         "test_egress::test_9kg39_an_address_a_production_name_once_resolved_to_stays_denied",
-        "test_egress::test_9kg39_a_deny_name_that_cannot_be_resolved_refuses_as_transient",
+        "test_egress::test_9kg39_a_deny_name_that_has_never_resolved_refuses_as_transient",
         "test_egress::test_9kg39_denied_names_resolve_together_and_a_missing_name_denies_nothing",
         "test_egress::test_9kg39_addresses_compare_in_one_canonical_form",
         "test_egress::test_9kg39_a_redirect_to_a_production_host_or_its_address_is_refused_and_a_test_fixture_still_fetches",
@@ -1463,6 +1463,8 @@ P6_CASES = {
         "test_egress::test_9kg39_link_local_metadata_private_and_tailnet_answers_are_refused_in_every_form",
         "test_egress::test_9kg39_only_the_egress_policy_reads_the_deny_list",
         "test_egress::test_9kg39_the_remembered_addresses_are_bounded_per_name_and_never_latch_the_proxy_shut",
+        "test_egress::test_9kg39_a_failed_lookup_keeps_the_last_good_answer",
+        "test_egress::test_9kg39_one_lookup_pass_uses_one_thread_and_a_slow_name_is_a_failure",
     ],
     "TEST-P6-29": [
         "test_post_restore::test_6b7b_links_from_before_the_restore_stop_working_the_negative_control",
