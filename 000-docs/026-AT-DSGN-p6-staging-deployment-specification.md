@@ -1906,7 +1906,11 @@ revised after the PR #99 data, security and release-operations reviews).**
   with a start-up code and a healthcheck; all-hex labels refused; a test that egress refusal codes stay staff-only
   (never in the model request the clarification path starts from, a mail or a non-staff template); the register's
   blocker edge to enabling fetching (above); and the staging by-address checks reported NOT RUN, never FAIL, when
-  the proxy cannot reach public DNS.
+  the proxy cannot reach public DNS. `scripts/staging_check.sh` after the review, on the dev box, 2026-10-24: at
+  `078d481`, 132 PASS, 0 FAIL, 1 NOT RUN (one by-address case on a single transient lookup failure, the next one
+  passing), after which the DNS probe retries like the other proxy checks; at `6ea22c5` (committed, clean tree),
+  **133 of 133 PASS, exit 0**, with the egress healthcheck passing `compose up --wait` and every TEST-P6-27, 28 and
+  30 check green.
 - **Stated limits.**
   - The proxy trusts its resolver: a resolver that answered the deny names falsely would hide their addresses, so
     network isolation and the host allow-list stay the controls that hold against that.
