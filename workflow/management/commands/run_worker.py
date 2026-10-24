@@ -37,7 +37,7 @@ def select(registry: dict, only: str, exclude: str) -> dict:
 
 
 class Command(BaseCommand):
-    help = "Run the pending-action worker (local mail sink only in this slice)."
+    help = "Run the pending-action worker: claim and run queued actions until stopped (or idle, with --exit-when-idle)."
 
     def add_arguments(self, parser):
         parser.add_argument("--exit-when-idle", action="store_true", help="stop when no action is claimable")

@@ -688,7 +688,9 @@ def test_every_p6_test_is_mapped():
                 "test_fetcher_role", "test_staging_compose", "test_release", "test_secret_rotation", "test_egress",
                 "test_staging_alerts", "test_cutover",
                 # PR #87 (029 section 13.3 batch item 3): every test of the four new files is a named design rule
-                "test_staff_roles", "test_hold_and_resend", "test_human_only", "test_agreement_screens")
+                "test_staff_roles", "test_hold_and_resend", "test_human_only", "test_agreement_screens",
+                # 9kg.41: the walkthrough file
+                "test_screen_walkthrough")
     found = set()
     for path in sorted((ROOT / "tests").glob("test_*.py")):
         pattern = r"^(?:async )?def (test_\w+)" if path.stem in p6_files else r"^(?:async )?def (test_(?:6b|9kg|p6|oc4)\w*)"

@@ -3,7 +3,7 @@
 <h1>Agreements: <bdi>{{ application.display_name|visible }}</bdi></h1>
 <p>Stage: {{ application.stage }}. <strong>Next:</strong> {{ next_action }} (owner: {{ owner }}).</p>
 {% if error %}<p class="refused" role="alert">{{ error }}</p>{% endif %}
-{% if handoff %}<p>Provisioning hand-off: {{ handoff.status }} (held for P5; nothing runs it).</p>{% endif %}
+{% if handoff %}<p>Provisioning hand-off: {{ handoff.status }} (held until the owner releases it with activate_provisioning; nothing else runs it).</p>{% endif %}
 
 {% for ref in referenced %}
 <section aria-labelledby="ref-{{ ref.type.key }}">
@@ -18,6 +18,7 @@
 <tr><th scope="row">Issue</th><td>{{ row.issue }}</td></tr>
 <tr><th scope="row">Signing</th><td>{{ row.signing }}</td></tr>
 <tr><th scope="row">Custody</th><td>{{ row.custody }}</td></tr>
+<tr><th scope="row">Last status change</th><td>{{ row.instance.updated_at|date:"c" }} ({{ row.instance.updated_at|timesince }} ago)</td></tr>
 {% if row.instance.replaced_at %}<tr><th scope="row">Eligibility</th><td>replaced by a new generation ({{ row.instance.replacement_reason }})</td></tr>{% endif %}
 {% if row.hold %}<tr><th scope="row">Integrity</th><td class="refused">held: the provider's view no longer matches what was verified</td></tr>{% endif %}
 </table>
@@ -95,7 +96,7 @@
 {% if may.confirm_required_details %}
 <form method="post" action="{% url 'agreements_staff:act' application.public_ref %}">{% csrf_token %}
 <input type="hidden" name="action" value="record_details"><input type="hidden" name="type" value="{{ d.type.key }}">
-{% for f in d.fields %}<label>{{ f }} <input name="field-{{ f }}" maxlength="200" required></label>{% endfor %}
+{% for f, value in d.posted %}<label>{{ f }} <input name="field-{{ f }}" maxlength="200" required autocomplete="off" value="{{ value }}"></label>{% endfor %}
 <button>Record as a draft</button></form>
 {% if d.draft %}<form method="post" action="{% url 'agreements_staff:act' application.public_ref %}">{% csrf_token %}
 <input type="hidden" name="action" value="confirm_details"><input type="hidden" name="details" value="{{ d.draft.public_id }}">

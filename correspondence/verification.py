@@ -1,5 +1,5 @@
 """The "send verification" handler (005 S1.2 Send, S1.4; D-20, D-24): queued intake work becomes one
-verification invitation in the local mail sink and one recorded outcome.
+verification invitation sent through the configured mail backend and one recorded outcome.
 
 Order of work for one claim:
 1. Eligibility check, one short transaction, locking the application then the challenge (intake's order):
@@ -8,8 +8,8 @@ Order of work for one claim:
    is unused, not superseded and unexpired by the database clock; and the application is open with contact
    not yet verified. The recipient is the challenge's address at issue. The transaction then commits, so
    no row lock is held while sending.
-2. Send through Django's mail backend (a local sink outside production; config.guards). A backend error or
-   a send count other than one is a failed attempt, never a success.
+2. Send through Django's mail backend (a local sink in every allowed environment; production is not one yet;
+   config.guards). A backend error or a send count other than one is a failed attempt, never a success.
 3. Result through `ledger.finish`: completion, the OutboundMessage for this attempt and the history event
    in one transaction fenced by the lease token.
 
