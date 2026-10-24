@@ -7,8 +7,10 @@ key directories in each test's own temporary directory. Every key, document and 
 """
 
 import json
+import os
 import secrets
 import shutil
+import sys
 import uuid
 from io import StringIO
 from pathlib import Path
@@ -758,3 +760,44 @@ def test_9kg_34_a_destruction_entry_carries_a_mac_and_a_forged_one_is_reported_n
     settings.CATALYST_ERASURE_KEY = ""
     with pytest.raises(keystore.KeyStoreError, match="erasure_key_missing"):
         keystore.destroy(str(keep.application.public_ref), [ref])  # no destruction without its mac
+
+
+# --- the data review of PR #102, K1: erasure 0003 reverses cleanly ---------------------------------------------------
+
+def test_9kg_34_erasure_0003_reverses_to_exactly_the_function_0002_installs(privileged_reset):
+    """A database migrated only to erasure 0002 (and its dependencies) and this database after `migrate erasure 0002`
+    hold the same erase function, byte for byte, and it reads no custody table; the reapply restores the custody part."""
+    from psycopg import sql as psql
+
+    from tests.support import manage_as_owner, run
+
+    query = ("SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
+             " WHERE n.nspname = 'public' AND p.proname = 'catalyst_erase'")
+    owner = privileged_reset.connect("owner", autocommit=True)
+    with_custody = owner.execute(query).fetchone()[0]
+    assert "agreements_custodyenvelope" in with_custody and catalog.CUSTODY_BEGIN in with_custody
+    fresh = f"catalyst_erasure_{uuid.uuid4().hex[:10]}"
+    from django.conf import settings as live
+
+    roles = live.CATALYST_DB_ROLES
+    with admin("postgres") as conn:
+        conn.execute(psql.SQL("CREATE DATABASE {} OWNER {}").format(psql.Identifier(fresh), psql.Identifier(roles["owner"])))
+    try:
+        env = {"CATALYST_DB_NAME": fresh, "CATALYST_DB_USER": roles["owner"],
+               "CATALYST_DB_PASSWORD": os.environ["CATALYST_DB_OWNER_PASSWORD"]}
+        result = run([sys.executable, "manage.py", "migrate", "erasure", "0002", "--verbosity", "0"],
+                     timeout=300, **env)
+        assert result.returncode == 0, result.stderr
+        with admin(fresh) as conn:
+            before_0003 = conn.execute(query).fetchone()[0]
+    finally:
+        with admin("postgres") as conn:
+            conn.execute(psql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(psql.Identifier(fresh)))
+    manage_as_owner("migrate", "erasure", "0002", "--verbosity", "0")
+    try:
+        reversed_ = owner.execute(query).fetchone()[0]
+        assert reversed_ == before_0003 == catalog.without_custody(with_custody)
+        assert "agreements_custodyenvelope" not in reversed_ and catalog.CUSTODY_BEGIN not in reversed_
+    finally:
+        manage_as_owner("migrate", "--verbosity", "0")
+    assert owner.execute(query).fetchone()[0] == with_custody
