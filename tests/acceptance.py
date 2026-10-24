@@ -1705,6 +1705,7 @@ P6_SUPPORTING = {
         "test_custody_encryption::test_9kg_34_a_document_left_in_the_clear_past_the_dry_run_is_refused_after_the_commit_and_the_rerun_finishes",
         "test_custody_encryption::test_9kg_34_the_first_erasure_under_destroy_key_names_the_key_destruction_in_its_audit_row",
         "test_custody_encryption::test_9kg_34_envelope_rules_one_per_document_hex_formats_and_unmigrated_means_the_documents_own_file",
+        "test_custody_encryption::test_9kg_34_no_staging_service_holds_the_custody_key_volumes_or_the_wrapping_key_until_9kg_28",
     ],
     "9kg.47 staff screens for the shell-only agreement states (021 section 20)": [
         "test_agreement_screens::test_an_unknown_create_is_decided_on_the_screen_and_refused_without_the_permission",
@@ -1924,7 +1925,10 @@ P6_EVIDENCE = {
     "TEST-P6-18": {"partial": "9kg.27", "residual": "live, once staging has inbound mail (the pilot)"},
     "TEST-P6-19": {"proofs": ["pytest", ALERT_DRILL], "partial": "9kg.27", "residual": "the uncertain send and custody states live"},
     "TEST-P6-20": {"proofs": ["pytest", ALERT_DRILL]},
-    "TEST-P6-21": {"proofs": ["pytest", RESTORE_DRILL], "partial": "9kg.28", "residual": "the failed run's alert from the scheduled job"},
+    "TEST-P6-21": {"proofs": ["pytest", RESTORE_DRILL], "partial": "9kg.28",
+                   "residual": ("the failed run's alert from the scheduled job; the custody key directories shown absent"
+                                " from every backup set of the live chain, the off-site object-locked copy included"
+                                " (9kg.34; the repository drill cannot reach that leg)")},
     "TEST-P6-22": {"proofs": ["pytest", RESTORE_DRILL], "note": "times measured; the owner sets the RPO and RTO targets"},
     "TEST-P6-23": {"proofs": ["pytest", RESTORE_DRILL]},
     "TEST-P6-24": {"proofs": [DEPLOY_DRILL, "pytest"], "pytest": "shape",
