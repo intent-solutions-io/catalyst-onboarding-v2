@@ -303,7 +303,7 @@ def read(key: str, expected_sha256: str, size: int, envelope=None) -> bytes:
         return _read_verified(key, expected_sha256, size)
     sealed = _read_verified(envelope.storage_key, envelope.cipher_sha256, envelope.cipher_size)
     try:
-        data = keystore.open_sealed(sealed, envelope.storage_key, envelope.key_ref)
+        data = keystore.open_sealed(sealed, envelope.storage_key, envelope.key_ref, expected_sha256)
     except keystore.KeyStoreError as exc:
         if exc.code == "key_destroyed":
             raise StorageError(DESTROYED) from None

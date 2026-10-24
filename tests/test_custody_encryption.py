@@ -87,9 +87,17 @@ def test_9kg_34_a_signed_document_is_sealed_at_rest_under_its_own_key_and_retrie
     first, second = documents
     sealed = (k.storage / first.storage_key).read_bytes()
     with pytest.raises(keystore.KeyStoreError, match="sealed_file_invalid"):
-        keystore.open_sealed(sealed, first.storage_key, second.envelope.key_ref)
+        keystore.open_sealed(sealed, first.storage_key, second.envelope.key_ref, first.sha256)
     with pytest.raises(keystore.KeyStoreError, match="sealed_file_invalid"):
-        keystore.open_sealed(sealed, second.storage_key, first.envelope.key_ref)
+        keystore.open_sealed(sealed, second.storage_key, first.envelope.key_ref, first.sha256)
+    # Review of PR #102, F7: the scheme and the recorded plaintext hash are bound too, so a row that records another
+    # hash never opens the file, and the refusal is the document's (corruption), not an outage.
+    assert keystore.open_sealed(sealed, first.storage_key, first.envelope.key_ref, first.sha256)[:4] == b"%PDF"
+    with pytest.raises(keystore.KeyStoreError, match="sealed_file_invalid"):
+        keystore.open_sealed(sealed, first.storage_key, first.envelope.key_ref, "0" * 64)
+    with pytest.raises(storage.StorageError, match="stored_file_mismatch"):
+        storage.read(first.storage_key, "0" * 64, first.size, first.envelope)
+    assert keystore.SCHEME.encode() in keystore.document_aad(first.storage_key, first.envelope.key_ref, first.sha256)
 
 
 def test_9kg_34_nothing_new_is_stored_in_the_clear_and_a_live_environment_stores_nothing_while_the_decision_is_open(
@@ -206,7 +214,8 @@ def test_9kg_34_key_recovery_rebuilds_a_lost_directory_from_its_copy_and_never_b
     assert code == 0 and report["copied_to_primary"] == 2 and report["destruction_finished"] == 1
     assert report["scope"] == custody_policy.SCOPE
     for (ref, _, blob), name, n in zip(sealed[1:], names[1:], (1, 2)):
-        assert keystore.open_sealed(blob, name, ref) == f"%PDF-1.7 synthetic {n}".encode()
+        text = f"%PDF-1.7 synthetic {n}".encode()
+        assert keystore.open_sealed(blob, name, ref, storage.sha256(text)) == text
     assert keystore.present(refs[0]) == (False, False)  # never restored, and the stale copy is gone
     with pytest.raises(keystore.KeyStoreError, match="key_destroyed"):
         keystore.load(refs[0])
@@ -229,7 +238,7 @@ def test_9kg_34_key_recovery_rebuilds_a_lost_directory_from_its_copy_and_never_b
     assert keystore.recover(record.head_string())["unrecoverable"] == 1  # wrapped under another key: reported, never copied
     settings.CATALYST_CUSTODY_WRAPPING_KEY = escrow
     assert keystore.recover(record.head_string())["copied_to_mirror"] == 1 and keystore.present(refs[1]) == (True, True)
-    assert keystore.open_sealed(sealed[1][2], names[1], refs[1]) == b"%PDF-1.7 synthetic 1"
+    assert keystore.open_sealed(sealed[1][2], names[1], refs[1], storage.sha256(b"%PDF-1.7 synthetic 1")) == b"%PDF-1.7 synthetic 1"
     # Recovery needs the journal: without it, it cannot know what was destroyed, so it refuses.
     head = record.head_string()
     settings.CATALYST_EFFECT_JOURNAL_DIR = ""

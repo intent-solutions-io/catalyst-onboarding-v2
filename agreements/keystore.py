@@ -325,25 +325,29 @@ def load(ref: str) -> bytes:
     return _unwrap(secret, ref, blob)
 
 
-def document_aad(storage_key: str, ref: str) -> bytes:
-    return DOCUMENT_AAD + f"{storage_key}\n{ref}".encode()
+def document_aad(storage_key: str, ref: str, plaintext_sha256: str) -> bytes:
+    """The associated data of a sealed document: the scheme, its file name, its key reference and the plaintext's
+    recorded SHA-256 (review of PR #102, F7), so a sealed file opens only for the row that records it."""
+    return DOCUMENT_AAD + f"{SCHEME}\n{storage_key}\n{ref}\n{plaintext_sha256}".encode()
 
 
 def seal(plaintext: bytes, storage_key: str) -> tuple[str, str, bytes]:
     """Seal one document under a new data key. Returns (reference, wrapping key id, sealed bytes)."""
     ref, data_key, wrapped_by = create()
     nonce = os.urandom(NONCE)
-    return ref, wrapped_by, MAGIC + nonce + AESGCM(data_key).encrypt(nonce, plaintext, document_aad(storage_key, ref))
+    aad = document_aad(storage_key, ref, hashlib.sha256(plaintext).hexdigest())
+    return ref, wrapped_by, MAGIC + nonce + AESGCM(data_key).encrypt(nonce, plaintext, aad)
 
 
-def open_sealed(sealed: bytes, storage_key: str, ref: str) -> bytes:
-    """The plaintext of a sealed file; `sealed_file_invalid` when the bytes do not open under their own key and name."""
+def open_sealed(sealed: bytes, storage_key: str, ref: str, plaintext_sha256: str) -> bytes:
+    """The plaintext of a sealed file; `sealed_file_invalid` when the bytes do not open under their own key, name and
+    recorded plaintext hash."""
     if not sealed.startswith(MAGIC) or len(sealed) < len(MAGIC) + NONCE + 16:
         raise KeyStoreError("sealed_file_invalid")
     data_key = load(ref)
     nonce = sealed[len(MAGIC):len(MAGIC) + NONCE]
     try:
-        return AESGCM(data_key).decrypt(nonce, sealed[len(MAGIC) + NONCE:], document_aad(storage_key, ref))
+        return AESGCM(data_key).decrypt(nonce, sealed[len(MAGIC) + NONCE:], document_aad(storage_key, ref, plaintext_sha256))
     except InvalidTag:
         raise KeyStoreError("sealed_file_invalid") from None
 
