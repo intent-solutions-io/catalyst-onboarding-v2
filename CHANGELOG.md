@@ -156,6 +156,13 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   dispatch-only workflow "Targeted runtime checks" runs a named selection; neither is a required check, and the full
   run stays the merge and release-candidate gate. The runtime suite was profiled again against the 2026-10-18 baseline,
   with sharding, a docs-only skip and promotion of the lane recorded as proposals P12 to P14 (`009` sections 5.3, 5.4, 7)
+- The live-call protections, built and tested before any live model call (bead `oc4.9`; `018` section 21): a lease
+  fence before each model request and before the repair, a heartbeat that keeps the lease of a call longer than the
+  lease (`workflow.keeper`), a request timeout Catalyst enforces around the call, the guard that one attempt fits in
+  half the worker lease, a raising HTTP transport in tests, and the pre-call approval check: no live request without
+  the owner's recorded approval (`approve_model_use`, append-only, assessments migration 0011) naming the provider,
+  model id, field list, pack, rubric and schema versions, budgets, timeout and repair limit, for the assessment and the
+  reply interpreter alike; any changed term or a run frozen under another pack refuses. No live model branch exists
 
 ### Changed
 
@@ -166,6 +173,10 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 
 ### Fixed
 
+- The P3 real-use defects 4 to 7 (bead `oc4.10`; `018` section 21): a dead reserved run (for example on a paused
+  application) no longer holds a global concurrency slot; a handler defect with attempts left returns the run to queued
+  for its retry; a run that ends leaves no invocation `started`; the lease-versus-timeout guard (item 7) is the `oc4.9`
+  guard. Items 1 to 3 were fixed by `oc4.12`
 - The release workflow refuses to tag, push or publish unless every required CI check succeeded on the
   release commit (#18)
 - Two LOW findings of the 2026-10-22 audit (bead `9kg.48`): `pyproject.toml` declares the tagged version 0.1.0 (it said

@@ -315,7 +315,7 @@ is superseded by the actual module).
 |---|---|---|
 | Framework | PydanticAI agent per contract; no tools | per ADR-04 |
 | Test model | `TestModel` and scripted `FunctionModel`; real requests disabled for all tests | see 5.6 |
-| Live model | MiniMax through an OpenAI-compatible client with an explicit base URL. Refused in every environment until authorized, by three layers: `models.ALLOW_MODEL_REQUESTS = False` set in the app's `ready()` for every environment; a provider factory that has no live branch reachable without an authorization setting refused by a new start-up guard; and an HTTP transport in tests that raises on any request. Agent instrumentation that exports prompts is forbidden. As built in 3B.2 (see 14): the flag is set when `assessments/agent.py` is imported, not in `ready()`, and the raising transport is deferred to live enablement | see 5.6, 14 |
+| Live model | MiniMax through an OpenAI-compatible client with an explicit base URL. Refused in every environment until authorized, by three layers: `models.ALLOW_MODEL_REQUESTS = False` set in the app's `ready()` for every environment; a provider factory that has no live branch reachable without an authorization setting refused by a new start-up guard; and an HTTP transport in tests that raises on any request. Agent instrumentation that exports prompts is forbidden. As built in 3B.2 (see 14): the flag is set when `assessments/agent.py` is imported, not in `ready()`, and the raising transport is deferred to live enablement; built with the other live-call protections and the pre-call approval check in `oc4.9` (section 21) | see 5.6, 14, 21 |
 | Output mode | PydanticAI tool output as the candidate (MiniMax documents function tools), prompted output as the fallback, never native JSON-schema output (undocumented); our strict validation always; the authorized synthetic probe decides | F-2, F-11, F-12 |
 | Pins | one PydanticAI version, one model identifier, recorded on every run | owner decision P3-D-8 |
 
@@ -1078,7 +1078,8 @@ Released by the owner ("release 3C"). Verification only; no feature was added.
 5. Whether a tampered prompt pack should still allow a human-only decision.
 6. Whether `reason_code` becomes a controlled list.
 7. How the alternative route reaches the applicant (today: appended to the question text).
-8. When to turn on reply interpretation (activation setting 0) and authorize live use (after `catalyst-v2-oc4.9`).
+8. When to turn on reply interpretation (activation setting 0) and authorize live use (after `catalyst-v2-oc4.9`, built
+   in section 21; live use also needs a recorded `approve_model_use` approval).
 9. The daily request budget, which is 0 until the owner sets it: no run happens outside tests until then.
 10. Claims are citable by default (C aliases, capped at `partly_supported`; section 14); a different POL-04 choice
     means a new prompt pack.
@@ -1182,3 +1183,66 @@ evidence strength; (3) a fixed core question set per criterion; (4) `oc4.8`'s va
 model call (a tripwire in `tests/test_human_only.py` fails any test on this path that builds or calls a model, and a
 static check keeps `decisions.py` and `staff_views.py` free of the model layer). Tests: `tests/test_human_only.py`;
 the hold exit of section 19 is the same form.
+
+## 21. Live-call protections and the reconciliation defects (oc4.9, oc4.10, 2026-10-24)
+
+Built together on one branch, because both change the run path and share the lease-versus-timeout guard. No live
+request is made anywhere: the model is a scripted test model, requests to non-test models stay disabled, and no live
+branch exists in `agent.build_model`. These protections make a later live branch safe; they do not authorize one.
+
+**The live-call protections (`oc4.9`; the items section 14 deferred).** All sit in the one checked-run path
+(`agent.run_checked`) that the assessment and the reply interpreter share:
+
+| Protection | As built | Test (`tests/test_live_safety.py`) |
+|---|---|---|
+| Lease fence before each request and before the repair | every request goes through a wrapper model that first renews the claim's lease (`workflow.keeper.LeaseKeeper.fence`, in a worker thread because the ORM may not run on the event loop); a lost lease raises `LeaseLost`, no further request is made and nothing is recorded; the invocation stays counted and the next claim abandons it | two requests, two fences; a lease lost during the call leaves the repair unrequested |
+| One attempt fits in half the lease | `config.guards.attempt_lease_problems`: 2 x `CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS` at most half of `CATALYST_WORKER_LEASE_SECONDS`, refused at start-up; the timeout defaults to a quarter of the lease, at most 60 s | the guard, and a 2 s lease still starting |
+| Heartbeat for calls longer than the lease | the run's call (and the interpreter's, in `correspondence.processing`) runs inside a `LeaseKeeper` whose daemon thread renews the lease every third of the lease on its own connection; a renewal that fails marks the lease lost | a 2.5 s call under a 1 s lease is never reclaimable |
+| Provider-side timeout, enforced | each request is bounded by the timeout around the model call (`asyncio.wait_for`) and the same value goes to the provider client as `timeout`; a timeout is a provider error (retried within the attempt bound, then `failed`), never an adverse result | a hanging model ends `TimeoutError` within the bound |
+| Raising HTTP transport in tests | an autouse fixture makes `httpx2` (the library PydanticAI's provider clients use) and `httpx`, where installed, raise on every request, loopback included | a request through PydanticAI's own client raises |
+| Pre-call approval | below | below |
+
+**The pre-call approval check.** No live request without the owner's recorded approval of exactly that request.
+The approval is a `ModelUseApproval` row (assessments migration 0011): written only by the owner-run
+`approve_model_use` command as the migration owner role, read-only for the application role, append-only for every
+role, with no web path, and naming the approval the owner cites and who ran the command. The command computes and
+prints the **terms**: the provider and model id, the exact field list that may leave Catalyst (`approval.FIELDS`, per
+purpose), the prompt pack and its digest, the rubric and output schema versions, every budget, the request timeout
+and the repair limit, and stores them with their digest. `approval.require` recomputes the terms for the call at hand
+before any reservation (the run's and the interpreter's pre-call) and again in the checked run, and refuses:
+`model_use_not_approved` (no record, or a revocation), `model_use_approval_stale` (any term changed, or the run was
+frozen under another pack: a stale snapshot), `model_not_authorized` (the setting names no provider and model id).
+The assessment and the interpreter need separate approvals (purpose `assessment` or `interpretation`); both share
+the daily budget, which is one of the terms. Chose a database row written by an owner command over a code-fixed
+setting, because the approval must be audited and refusable per term without a release, and over an admin screen,
+because no web path may create one (D-23). An approval is necessary, never sufficient: the start-up guard still
+refuses any live value of `CATALYST_ASSESSMENT_MODEL`.
+
+**The reconciliation defects (`oc4.10`, D-40 reconciliation of 2026-10-18).**
+
+| Item | Disposition | Test |
+|---|---|---|
+| 1 policy labels decisions while the synthetic rubric is relied on | fixed by `oc4.12` (section 20): the policy-to-pack binding guard and `policy_not_bound_to_pack` | `test_human_only` (policy guard) |
+| 2 the policy is not in the decision digest | fixed by `oc4.12`: the digest binds the policy reference | `test_human_only` (digest) |
+| 3 a human-only decision records no pack or rubric under a policy | fixed by `oc4.12`: pack, digest and rubric in their own columns | `test_human_only` (digest) |
+| 4 a dead reserved run holds a global concurrency slot | fixed: only a reserved run whose action still holds an unexpired lease counts (`runs.in_flight`); the heartbeat keeps a live call's lease. No staff item is opened: once the slot is free nothing is stuck but the paused application, which staff paused and resume, and the next claim abandons the dead invocation (counted) | dead run frees the slot; a live one still holds it |
+| 5 a handler defect leaves the run reserved during backoff | fixed: `record("action_failed")` with attempts left returns the run to queued and abandons the attempt's invocation (counted), like a provider error | the run is queued between attempts |
+| 6 invocations stay started on early exits | fixed: any run that ends abandons its still-started invocations (`_finish_run`) | a reclaim that exits on a stage change |
+| 7 no guard ties the lease to the model timeout | fixed by the `oc4.9` half-lease guard (built once) | the guard |
+
+**Owner decisions (not decided here; current behaviour kept, conservative where the code chooses):**
+
+1. **Capped or deferred on daily budget exhaustion.** Unchanged: a run that meets the daily budget ends `capped` with
+   a staff item, and the human-only exit applies while `CATALYST_CAPPED_EXIT` is `human_only` (`oc4.8`). Deferring
+   (requeue until tomorrow) is not built.
+2. **Whether a pack change forces reassessment.** Unchanged: a succeeded run stays valid for its snapshot under the
+   pack it was frozen with; a new pack does not invalidate it. Conservative where a policy is set: a decision whose
+   pack is not the policy's bound pack is refused (`policy_not_bound_to_pack`), and a live call under a pack other than
+   the approved one is refused (`model_use_approval_stale`).
+3. **What activating SP-L2-1 must require.** Unchanged: the start-up guard refuses a policy that is unbound, bound to
+   an unusable pack or bound to a synthetic rubric; the `f1u.6` evidence (and through it `oc4.7` and `oc4.9`) is the
+   recorded prerequisite. Whether activation also needs a recorded model-use approval for the bound pack is the
+   owner's.
+
+**Not built, by design:** the live provider client and model branch, an owner screen for approvals, and any change
+to the daily budget's default of 0.
