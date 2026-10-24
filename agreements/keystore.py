@@ -347,6 +347,15 @@ def open_sealed(sealed: bytes, storage_key: str, ref: str) -> bytes:
         raise KeyStoreError("sealed_file_invalid") from None
 
 
+def discard(ref: str) -> None:
+    """Remove a key that was never used (its sealed file was never recorded): not an erasure, so nothing is journaled.
+    Mirror first, as for a destruction."""
+    primary, mirror = directories()
+    _name(ref)
+    _unlink(mirror, ref)
+    _unlink(primary, ref)
+
+
 def present(ref: str) -> tuple[bool, bool]:
     primary, mirror = directories()
     return _read(primary, ref) is not None, _read(mirror, ref) is not None

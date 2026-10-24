@@ -162,9 +162,38 @@ def _seal(data: bytes, key: str) -> Sealed:
     except keystore.KeyStoreError as exc:
         raise StorageError("custody_keys_not_configured" if exc.code in ("keys_not_configured", "wrapping_key_missing")
                            else "custody_key_unavailable") from None
-    _write_new(key, sealed)
+    try:
+        _write_new(key, sealed)
+    except BaseException:
+        _discard_key(ref)  # no sealed file was recorded: the new key goes with it (review of PR #102, F2)
+        raise
     return Sealed(storage_key=key, key_ref=ref, wrapping_key_id=wrapped_by, cipher_sha256=sha256(sealed),
                   cipher_size=len(sealed))
+
+
+def _discard_key(ref: str) -> None:
+    try:
+        keystore.discard(ref)
+    except keystore.KeyStoreError:
+        pass  # the store is unavailable: the key stays an orphan, which `--status` reports and `--reap-orphans` removes
+
+
+def discard(sealed) -> None:
+    """Undo a sealed write that will not be recorded: its never-used key and its file (a write, a migration or a custody
+    run that failed or found the work decided meanwhile; review of PR #102, F2). Best effort: what cannot be removed
+    now is an orphan that `catalyst_custody_keys --status` reports and `--reap-orphans` removes."""
+    _discard_key(sealed.key_ref)
+    try:
+        directory = _open_dir()
+    except StorageError:
+        return
+    try:
+        os.unlink(_key(sealed.storage_key), dir_fd=directory)
+        os.fsync(directory)
+    except (OSError, StorageError):
+        pass
+    finally:
+        os.close(directory)
 
 
 def write(data: bytes) -> tuple[str, str, Sealed]:
@@ -177,8 +206,12 @@ def write(data: bytes) -> tuple[str, str, Sealed]:
     digest = sha256(data)
     os.close(_open_dir())  # the directory first: no key is made for a write that cannot land
     envelope = _seal(data, key)
-    if read(key, digest, len(data), envelope) != data:
-        raise StorageError("storage_verify_failed")
+    try:
+        if read(key, digest, len(data), envelope) != data:
+            raise StorageError("storage_verify_failed")
+    except BaseException:
+        discard(envelope)
+        raise
     return key, digest, envelope
 
 
@@ -192,8 +225,12 @@ def seal_existing(key: str, expected_sha256: str, size: int) -> Sealed:
         raise StorageError("stored_file_mismatch")  # sealed bytes where plaintext was recorded: never sealed twice
     new_key = f"{uuid.uuid4().hex}.pdf"
     envelope = _seal(data, new_key)
-    if read(key, expected_sha256, size, envelope) != data:
-        raise StorageError("storage_verify_failed")
+    try:
+        if read(key, expected_sha256, size, envelope) != data:
+            raise StorageError("storage_verify_failed")
+    except BaseException:
+        discard(envelope)
+        raise
     return envelope
 
 
@@ -212,6 +249,11 @@ def dispose_plaintext(key: str) -> bool:
         return removed
     finally:
         os.close(directory)
+
+
+def discard_file(key: str) -> bool:
+    """Remove one custody file by its key (an orphan the owner reaps). True when a file was removed."""
+    return dispose_plaintext(key)
 
 
 def exists(key: str) -> bool:

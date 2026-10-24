@@ -547,3 +547,85 @@ def test_9kg_34_a_restored_key_file_for_a_destroyed_reference_is_still_refused(c
         keystore.load(ref)
     with pytest.raises(storage.StorageError, match="custody_key_destroyed"):
         storage.read(document.storage_key, document.sha256, document.size, document.envelope)
+
+
+# --- the review of PR #102, B: no orphan key or sealed file -----------------------------------------------------------
+
+def _keys_and_sealed(settings, custody_dir):
+    keys = sorted(p.name for d in (settings.CATALYST_CUSTODY_KEY_DIR, settings.CATALYST_CUSTODY_KEY_MIRROR_DIR)
+                  for p in Path(d).glob("*.key"))  # one entry per file: a key's copy in each directory
+    sealed = sorted(p.name for p in Path(custody_dir).glob("*.pdf") if p.read_bytes().startswith(keystore.MAGIC))
+    return keys, sealed
+
+
+def test_9kg_34_an_interrupted_write_leaves_no_key_and_no_sealed_file(custody, settings, monkeypatch):
+    real_write, real_read = storage._write_new, storage.read
+
+    def fail_write(key, data):
+        raise storage.StorageError("storage_write_failed")
+    monkeypatch.setattr(storage, "_write_new", fail_write)
+    with pytest.raises(storage.StorageError, match="storage_write_failed"):
+        storage.write(b"%PDF-1.7 synthetic")
+    assert _keys_and_sealed(settings, custody) == ([], [])
+    monkeypatch.setattr(storage, "_write_new", real_write)
+
+    def fail_verify(*args):
+        raise storage.StorageError("stored_file_mismatch")
+    monkeypatch.setattr(storage, "read", fail_verify)
+    with pytest.raises(storage.StorageError, match="stored_file_mismatch"):
+        storage.write(b"%PDF-1.7 synthetic")
+    assert _keys_and_sealed(settings, custody) == ([], [])
+    monkeypatch.setattr(storage, "read", real_read)
+    storage.write(b"%PDF-1.7 synthetic")
+    assert [len(x) for x in _keys_and_sealed(settings, custody)] == [2, 1]
+
+
+@pytest.mark.django_db
+def test_9kg_34_an_interrupted_or_concurrent_migration_leaves_no_orphan(custody, settings, monkeypatch):
+    app = subject()
+    first = drill.synthetic_document(app, b"%PDF-1.7 synthetic one", sealed=False)
+    real_create = CustodyEnvelope.objects.create
+
+    def crash(**kwargs):
+        raise RuntimeError("interrupted before the envelope was recorded")
+    monkeypatch.setattr(CustodyEnvelope.objects, "create", crash)
+    with pytest.raises(RuntimeError):
+        call_command("catalyst_custody_keys", "--migrate", "--confirm", stdout=StringIO())
+    assert _keys_and_sealed(settings, custody) == ([], [])  # discarded, and the plaintext is intact
+    assert (custody / first.storage_key).read_bytes() == b"%PDF-1.7 synthetic one"
+    monkeypatch.setattr(CustodyEnvelope.objects, "create", real_create)
+    # Another run seals the same document between our seal and our record: ours is discarded, nothing crashes.
+    real_seal = storage.seal_existing
+
+    def sealed_meanwhile(key, sha, size):
+        theirs = real_seal(key, sha, size)
+        real_create(document=StoredDocument.objects.get(storage_key=key), migrated=True, **theirs.fields())
+        return real_seal(key, sha, size)
+    monkeypatch.setattr(storage, "seal_existing", sealed_meanwhile)
+    code, report = command("catalyst_custody_keys", "--migrate", "--confirm")
+    assert code == 0 and report["already_sealed"] == 1 and report["sealed"] == 0
+    monkeypatch.setattr(storage, "seal_existing", real_seal)
+    code, report = command("catalyst_custody_keys", "--status")
+    assert report["orphan_keys"] == 0 and report["orphan_sealed_files"] == 0
+    assert [len(x) for x in _keys_and_sealed(settings, custody)] == [2, 1]  # exactly the recorded pair
+
+
+@pytest.mark.django_db
+def test_9kg_34_reap_lists_then_removes_planted_orphans_and_status_is_unhealthy_until_then(custody, settings):
+    drill.synthetic_document(subject(), b"%PDF-1.7 synthetic")  # a recorded pair, never touched
+    orphan_key, _, _ = keystore.create()
+    planted = storage._seal(b"%PDF-1.7 synthetic orphan", f"{uuid.uuid4().hex}.pdf")  # a crash before the record
+    code, report = command("catalyst_custody_keys", "--status")
+    assert code == 1 and (report["orphan_keys"], report["orphan_sealed_files"]) == (2, 1)  # the planted pair's key too
+    code, report = command("catalyst_custody_keys", "--reap-orphans", "--min-age-seconds", "0")
+    assert code == 0 and (report["orphan_keys"], report["orphan_sealed_files"], report["removed_keys"]) == (2, 1, 0)
+    assert keystore.present(orphan_key) == (True, True)  # a dry run removes nothing
+    code, report = command("catalyst_custody_keys", "--reap-orphans")  # too young: a write in progress is left alone
+    assert report["orphan_keys"] == 0
+    code, report = command("catalyst_custody_keys", "--reap-orphans", "--confirm", "--min-age-seconds", "0")
+    assert (report["removed_keys"], report["removed_files"]) == (2, 1)
+    assert keystore.present(orphan_key) == (False, False) and not (custody / planted.storage_key).exists()
+    reaped = [e for e in journal.read() if e.kind == "custody_orphan_reaped"]
+    assert sorted(e.data["kind"] for e in reaped) == ["key", "key", "sealed_file"]
+    code, report = command("catalyst_custody_keys", "--status")
+    assert code == 0 and report["healthy"] and report["sealed"] == 1

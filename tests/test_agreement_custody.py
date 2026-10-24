@@ -370,6 +370,10 @@ def test_review_a_changed_envelope_during_custody_fails_custody_and_stores_nothi
     run_worker()
     assert not StoredDocument.objects.exists()
     assert AgreementInstance.objects.get(pk=instance.pk).custody_status in ("failed_retry_pending", "failed_needs_staff")
+    # 9kg.34 (review of PR #102, F2): what was written for the changed envelope is discarded, keys and sealed files.
+    from django.conf import settings as live
+    assert not list(k.storage.glob("*.pdf"))
+    assert not [p for d in (live.CATALYST_CUSTODY_KEY_DIR, live.CATALYST_CUSTODY_KEY_MIRROR_DIR) for p in Path(d).glob("*.key")]
 
 
 def test_review_downloads_run_outside_any_transaction_and_reads_open_the_file_once(k, monkeypatch):

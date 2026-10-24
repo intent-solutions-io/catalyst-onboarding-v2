@@ -17,8 +17,10 @@ Failures:
 - A provider or storage failure retries within the attempt bound (custody `failed_retry_pending`), then becomes
   `failed_needs_staff` with a staff item.
 - Signing stays verified; nothing is re-signed, reissued or advanced.
-- An interruption between the file write and the record leaves an unreferenced file that is never served (only
-  recorded keys are read); the retry writes a new key. The unique (instance, item) record prevents a second
+- A failure or a decision made meanwhile discards what was written (the new keys and sealed files, 9kg.34). An
+  interruption between the file write and the record (a crash) leaves an unreferenced pair that is never served (only
+  recorded keys are read); `catalyst_custody_keys --status` reports it and `--reap-orphans` removes it; the retry
+  writes a new key. The unique (instance, item) record prevents a second
   authoritative copy.
 
 Custody only reads from the provider, so, like reconciliation (D-44), it is not held by an automation pause.
@@ -96,6 +98,7 @@ class StoreAgreement:
                 or instance.custody_status not in ("pending", "failed_retry_pending")):
             ledger.finish(claim, self, status=Status.DONE, error="nothing_to_store")
             return
+        stored = []
         try:
             env = provider.read(instance.envelope_id)
             data = facts(instance, env.status, env.recipients, identity=read_identity(instance, env))
@@ -104,7 +107,6 @@ class StoreAgreement:
                 return
             if not env.items or len(env.items) > settings.CATALYST_AGREEMENT_MAX_ITEMS:
                 raise provider.ProviderError("items_unexpected", sent=True, status=200)
-            stored = []
             for item in env.items:  # outside any transaction
                 pdf = provider.download(item)
                 key, digest, sealed = storage.write(pdf)
@@ -116,6 +118,8 @@ class StoreAgreement:
                     or not again["all_required_signed"]):  # recipients included (QA review)
                 raise provider.ProviderError("envelope_changed_during_download", sent=True, status=200)
         except (provider.ProviderError, storage.StorageError) as exc:
+            for *_, sealed in stored:  # nothing will be recorded: no orphan key or sealed file (review of PR #102, F2)
+                storage.discard(sealed)
             code = exc.code if isinstance(exc, provider.ProviderError) else str(exc)
             if claim.final:
                 ledger.finish(claim, self, status=Status.FAILED, error=code, write=lambda: self._staff(claim, code))
@@ -144,7 +148,9 @@ class StoreAgreement:
         instance = AgreementInstance.objects.select_related("application").get(pk=instance_id)
         if instance.signing_status != "signing_complete_verified" or instance.replaced_at or instance.custody_status not in (
                 "pending", "failed_retry_pending"):
-            return  # decided meanwhile: the written files stay unreferenced and are never served
+            for *_, sealed in stored:  # decided meanwhile: nothing is recorded, so nothing is kept (PR #102, F2)
+                storage.discard(sealed)
+            return
         observation = observe(instance, ProviderObservation.Source.READ, data)
         try:
             with transaction.atomic():
@@ -155,6 +161,8 @@ class StoreAgreement:
                     CustodyEnvelope.objects.create(document=document, **sealed.fields())
         except IntegrityError:
             # A record for this item already exists (insert-only). Never a silent "pending": staff decide.
+            for *_, sealed in stored:
+                storage.discard(sealed)
             AgreementInstance.objects.filter(pk=instance.pk).update(custody_status="failed_needs_staff", updated_at=Now())
             open_item(CUSTODY_FAILED, f"custody:{instance.public_id}", application=instance.application,
                       pending_action_id=claim.id)
