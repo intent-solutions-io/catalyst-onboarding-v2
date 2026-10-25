@@ -1884,9 +1884,12 @@ hardened after the PR #102 security, release-operations and data reviews).**
     `9kg.28` wires the volumes and the secret on the host, both are configuration. `scripts/staging_check.sh` checks
     that no staging service (backup, restore, fetcher, db and proxy included) mounts a key volume or the wrapping
     key, and it passed on the dev box (below).
-  - A restore brings back rows and sealed files, never a key. `keystore.sweep()` finishes every journaled destruction
-    (directories and journal only, no wrapping key) at the restore lift and at the web and worker start-up, so a
-    restored or copied key file never outlives its destruction.
+  - A restore brings back rows and sealed files, never a key. `keystore.sweep(require_key=True)` finishes every
+    journaled destruction at the restore lift (directories, journal and the erasure key; no wrapping key), so a
+    restored or copied key file never outlives its destruction, and the lift refuses without the erasure key. At the
+    web and worker start-up, which never hold the erasure key, the sweep only checks the directories and the journal
+    (fail closed) and removes nothing: an unverified entry may be forged (CodeRabbit on PR #102), and `load` refuses
+    a journaled reference meanwhile.
   - Like the custody directory, both settings are fixed in code and empty outside `test` and `staging` until the
     owner's custody decision.
 - **The wrapping key.** `custody_wrapping_key` in `CATALYST_SECRETS_DIR`: 64 lower-case hex characters (32 random
@@ -1908,8 +1911,9 @@ hardened after the PR #102 security, release-operations and data reviews).**
   `catalyst_custody_keys --recover --expect-head <head>` copies between the two only keys the journal does not record
   as destroyed, and finishes any destruction left half done. It refuses a journal that does not hold the head kept
   out of band (PR #99), because an emptied or rolled-back journal would forget destructions.
-  - Each `custody_key_destroyed` entry carries a mac under the erasure key. Sweep, recovery and the erasure act only
-    on verified entries when they hold that key, and refuse a forged one.
+  - Each `custody_key_destroyed` entry carries a mac under the erasure key. Sweep, recovery and the erasure remove
+    files only on verified entries, refuse a forged one, and remove nothing without that key (recovery and the lift
+    refuse `erasure_key_missing`).
   - Neither key directory may be in any versioned backup. That is an operator provisioning rule for the `9kg.28` host
     list: an archive of either would be a point-in-time copy that destruction cannot reach.
   - The named holder, the time bound and the escrow location are rows of `agreements/custody_policy.py`. They ship
@@ -1942,7 +1946,8 @@ hardened after the PR #102 security, release-operations and data reviews).**
     - a key directory is missing.
 
     The committed call's own count is checked again on every run, the resumed one included
-    (`custody_plaintext_unmigrated_after_commit`, intent left open).
+    (`custody_plaintext_unmigrated_after_commit`, intent left open). A resumed run, which has no dry run, also checks
+    both key directories before its committed call (`custody_key_store_unavailable`, nothing committed).
   - The command destroys each key after the database transaction and before the completion. Each destruction is
     journaled with its mac before its files are unlinked, mirror first, and verified gone from both directories.
   - The completion records `custody: keys_destroyed`, `keys_destroyed` (references) and `key_files_removed` (files).
@@ -1955,7 +1960,9 @@ hardened after the PR #102 security, release-operations and data reviews).**
 - **Documents stored before this change, and the deploy order.** `catalyst_custody_keys --migrate --confirm` (one run
   at a time) reads each plaintext document (verified against its recorded hash), seals it under a new name and key,
   verifies it, commits its envelope and removes the plaintext. A lingering plaintext whose key is already destroyed
-  goes without reopening the sealed copy, and one failure never blocks the rest. The order on a host:
+  goes without reopening the sealed copy, and one failure never blocks the rest: a document that cannot be sealed
+  (missing, unsafe or changed) is counted in `seal_failed`, later documents still seal, and the run fails at the end.
+  The order on a host:
   1. Apply the migrations (agreements 0010, erasure 0003).
   2. Mount the key volumes and the wrapping key's secret (`9kg.28`), and run `--provision` once.
   3. Deploy the image.

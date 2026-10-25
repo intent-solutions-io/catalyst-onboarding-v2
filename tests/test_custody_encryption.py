@@ -393,6 +393,48 @@ def test_9kg_34_an_interrupted_destruction_is_finished_by_recovery_or_the_next_r
     assert outcome.resumed and outcome.status == "already_erased" and record.list_open()["open"] == []
 
 
+def test_9kg_34_a_resumed_erasure_refuses_an_unavailable_key_store_before_the_committed_call(
+        privileged_reset, decided, custody, settings, monkeypatch):
+    monkeypatch.setattr(registry, "REGISTRY", DESTROYING)
+    app = subject()
+    ref = drill.synthetic_document(app, b"%PDF-1.7 synthetic").envelope.key_ref
+    real_unlink, real_call, commits = keystore._unlink, service._call, []
+
+    def unlink(path, key_ref):
+        raise keystore.KeyStoreError("key_store_unavailable")
+    monkeypatch.setattr(keystore, "_unlink", unlink)
+    with pytest.raises(service.Refused, match="custody_key_store_unavailable_after_commit"):
+        erase(privileged_reset, app.public_ref)  # the intent stays open
+    monkeypatch.setattr(keystore, "_unlink", real_unlink)
+
+    def counting(conn, *args, commit):
+        commits.append(commit)
+        return real_call(conn, *args, commit=commit)
+    monkeypatch.setattr(service, "_call", counting)
+    marker = Path(settings.CATALYST_CUSTODY_KEY_MIRROR_DIR) / keystore.MARKER
+    saved = marker.read_bytes()
+    marker.unlink()  # the mirror volume is not mounted when the run resumes
+    with pytest.raises(service.Refused, match="^custody_key_store_unavailable$"):
+        erase(privileged_reset, app.public_ref)
+    assert True not in commits and record.list_open()["open"] == [str(app.public_ref)]
+    marker.write_bytes(saved)
+    marker.chmod(0o600)
+    outcome = erase(privileged_reset, app.public_ref)
+    assert outcome.resumed and keystore.present(ref) == (False, False) and record.list_open()["open"] == []
+
+
+@pytest.mark.django_db
+def test_9kg_34_one_document_that_cannot_be_sealed_never_stops_the_rest_of_the_migration(custody):
+    app = subject()
+    broken, later = (drill.synthetic_document(app, f"%PDF-1.7 synthetic {n}".encode(), sealed=False)
+                     for n in ("broken", "later"))
+    (custody / broken.storage_key).write_bytes(b"%PDF-1.7 changed")  # no longer matches its recorded hash
+    code, report = command("catalyst_custody_keys", "--migrate", "--confirm")
+    assert code == 1 and report["seal_failed"] == 1 and report["sealed"] == 1
+    assert CustodyEnvelope.objects.get(document=later).migrated and not (custody / later.storage_key).exists()
+    assert (custody / broken.storage_key).exists()  # kept and reported, never sealed as something else
+
+
 # --- the start-up guards and who may hold the wrapping key ---------------------------------------------------------
 
 def test_9kg_34_the_start_up_guards_check_the_wrapping_key_the_key_directories_and_who_may_hold_the_key(
@@ -712,15 +754,22 @@ def test_9kg_34_the_sweep_finishes_journaled_destructions_without_the_wrapping_k
         (Path(directory) / f"{ref}.key").write_bytes(blob)
         (Path(directory) / f"{ref}.key").chmod(0o600)
     settings.CATALYST_CUSTODY_WRAPPING_KEY = ""  # the restore lift and the start-up sweep never hold it
-    assert keystore.sweep() == {"status": "swept", "removed": 2}
+    erasure_key, settings.CATALYST_ERASURE_KEY = settings.CATALYST_ERASURE_KEY, ""  # web and worker never hold this one
+    assert keystore.sweep() == {"status": "checked", "removed": 0}  # nothing verified, so nothing removed
+    assert keystore.present(ref) == (True, True)
+    with pytest.raises(keystore.KeyStoreError, match="erasure_key_missing"):
+        keystore.sweep(require_key=True)  # the lift's form: it removes, so it needs the key
+    settings.CATALYST_ERASURE_KEY = erasure_key  # the lift holds it
+    assert keystore.sweep(require_key=True) == {"status": "swept", "removed": 2}
     assert keystore.present(ref) == (False, False) and keystore.sweep()["removed"] == 0
     (Path(settings.CATALYST_CUSTODY_KEY_MIRROR_DIR) / keystore.MARKER).unlink()
+    settings.CATALYST_ERASURE_KEY = ""
     with pytest.raises(ImproperlyConfigured, match="custody key sweep failed .key_store_unavailable."):
         sweep_custody_keys()  # web and worker refuse to start rather than run with an unchecked store
     settings.CATALYST_CUSTODY_KEY_DIR = settings.CATALYST_CUSTODY_KEY_MIRROR_DIR = ""
     assert keystore.sweep() == {"status": "not_configured", "removed": 0}
     root = Path(__file__).resolve().parent.parent  # where it runs: the lift, the worker's start, the web's start
-    assert "keystore.sweep()" in (root / "config/post_restore.py").read_text()
+    assert "keystore.sweep(require_key=True)" in (root / "config/post_restore.py").read_text()
     assert "sweep_custody_keys()" in (root / "workflow/management/commands/run_worker.py").read_text()
     assert 'process_kind() == "web"' in (root / "config/apps.py").read_text()
 
@@ -766,6 +815,10 @@ def test_9kg_34_a_destruction_entry_carries_a_mac_and_a_forged_one_is_reported_n
     with pytest.raises(keystore.KeyStoreError, match="key_destroyed"):
         keystore.load(ref)
     settings.CATALYST_ERASURE_KEY = ""
+    assert keystore.sweep() == {"status": "checked", "removed": 0}  # without the key, the forged entry removes nothing
+    assert keystore.present(ref) == (True, True)
+    with pytest.raises(keystore.KeyStoreError, match="erasure_key_missing"):
+        keystore.recover(record.head_string())  # nor does recovery act on it unverified
     with pytest.raises(keystore.KeyStoreError, match="erasure_key_missing"):
         keystore.destroy(str(keep.application.public_ref), [ref])  # no destruction without its mac
 

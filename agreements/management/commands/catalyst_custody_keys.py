@@ -85,7 +85,7 @@ class Command(BaseCommand):
                 if not confirm:
                     self.refuse("confirm_required")
                 report = migrate_plaintext()
-                self.emit(report, not report["plaintext_cleanup_failed"])
+                self.emit(report, not (report["plaintext_cleanup_failed"] or report["seal_failed"]))
             elif reap_orphans:
                 self.emit(reap(confirm, max(0, min_age_seconds)), True)
             else:
@@ -148,9 +148,13 @@ def migrate_plaintext() -> dict:
 
 
 def _migrate() -> dict:
-    report = {"sealed": 0, "plaintext_removed": 0, "plaintext_already_gone": 0, "already_sealed": 0}
+    report = {"sealed": 0, "plaintext_removed": 0, "plaintext_already_gone": 0, "already_sealed": 0, "seal_failed": 0}
     for document in StoredDocument.objects.filter(envelope__isnull=True).order_by("id"):
-        sealed = storage.seal_existing(document.storage_key, document.sha256, document.size)
+        try:  # a missing, unsafe or changed plaintext is counted and the run fails at the end; later documents still seal
+            sealed = storage.seal_existing(document.storage_key, document.sha256, document.size)
+        except storage.StorageError:
+            report["seal_failed"] += 1
+            continue
         try:
             with transaction.atomic():
                 CustodyEnvelope.objects.create(document=document, migrated=True, **sealed.fields())

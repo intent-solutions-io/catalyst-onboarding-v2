@@ -421,9 +421,13 @@ def _erasure_secret() -> bytes | None:
 
 
 def _verified_destroyed(entries) -> set:
-    """Destroyed references for an operation that removes files (sweep, recovery): verified under the erasure key when
-    this process holds it, and refused (`forged_entry`) if any entry does not verify."""
+    """Destroyed references for an operation that removes files (sweep, recovery): verified under the erasure key, and
+    refused (`forged_entry`) if any entry does not verify. Refused (`erasure_key_missing`) without that key: anyone who
+    can write the journal could otherwise append an entry that removes another person's key for good (CodeRabbit on
+    PR #102)."""
     secret, forged = _erasure_secret(), []
+    if secret is None:
+        raise KeyStoreError("erasure_key_missing")
     refs = destroyed_refs(entries, secret, forged)
     if forged:
         raise KeyStoreError("forged_entry")
@@ -459,16 +463,24 @@ def destroy(subject_ref: str, refs) -> int:
     return removed
 
 
-def sweep() -> dict:
+def sweep(require_key: bool = False) -> dict:
     """Finish every destruction the journal records (review of PR #102, F4): any key file of a journaled-destroyed
     reference, in either directory, is removed (mirror first) and the removal verified. Needs only the directories and
-    the journal, never the wrapping key, so it runs where that key is absent: the restore lift and the start of the web
-    and worker processes. A restored or copied key file therefore never outlives its journaled destruction. Not
-    configured: nothing to do. A missing directory, marker or journal refuses (`key_store_unavailable`,
-    `journal_unavailable`): fail closed."""
+    the journal, never the wrapping key. It removes files only on entries verified under the erasure key: the restore lift
+    holds that key and passes `require_key` (`erasure_key_missing` without it), so a restored or copied key file never
+    outlives its journaled destruction. The web and worker processes never hold it: at their start the sweep only checks
+    (`checked`) and removes nothing, since an unverified entry may be forged; `load` refuses a journaled reference anyway.
+    Not configured: nothing to do. A missing directory, marker or journal refuses (`key_store_unavailable`,
+    `journal_unavailable`): fail closed, with or without the key."""
     if not configured():
         return {"status": "not_configured", "removed": 0}
     primary, mirror = directories()
+    if _erasure_secret() is None:
+        if require_key:
+            raise KeyStoreError("erasure_key_missing")
+        journaled_destroyed()  # an unreadable journal still refuses
+        _listing(primary), _listing(mirror)  # and so does a missing directory or marker
+        return {"status": "checked", "removed": 0}
     destroyed = journaled_destroyed(verify=True)
     in_primary, in_mirror = _listing(primary), _listing(mirror)
     removed = 0

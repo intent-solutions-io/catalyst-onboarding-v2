@@ -155,8 +155,9 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   covers v2's custody copy only (the provider's copy is under P4-D-15 until POL-10). Hardened after the PR #102
   security, release-operations and data reviews: the key store fails closed (provisioning markers, `key_lost` apart
   from `key_destroyed`, verified destruction), unrecorded keys and sealed files are discarded or reaped, lingering
-  plaintext blocks an erasure, journaled destructions are swept at the lift and at start-up and carry a mac, recovery
-  needs the out-of-band head, the associated data binds the recorded hash, erasure 0003 reverses cleanly, and the drill
+  plaintext blocks an erasure, journaled destructions carry a mac and are swept only under the erasure key (at the
+  lift; start-up only checks), recovery needs the out-of-band head and the erasure key, a resumed erasure checks the key
+  store before it commits, one document that cannot be sealed never stops the migration, the associated data binds the recorded hash, erasure 0003 reverses cleanly, and the drill
   shows both outcomes
 - Hardening (internal-launch batch item 6): the database freezes inbound message provenance and the identity
   columns of outbound attempts and reply links for every role, with the audited retention path left open for

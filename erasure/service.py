@@ -137,6 +137,7 @@ def erase(conn, subject_ref: str, authority: str, reason: str, rows=None) -> Out
             raise Refused("record_key_mismatch")
         if destroy:
             _refuse_lingering_plaintext(conn, None, subject_ref=subject_ref)
+            _refuse_unavailable_key_store()  # a resumed run has no dry run: checked before the committed call
     elif email_key is None:
         raise Refused("unknown_subject")
     else:
@@ -210,6 +211,15 @@ def _pending(refs) -> list:
     try:
         destroyed = keystore.journaled_destroyed(verify=True)  # the erase process holds the erasure key
         return [ref for ref in refs if ref not in destroyed or any(keystore.present(ref))]
+    except keystore.KeyStoreError as exc:
+        raise Refused(f"custody_{exc.code}") from None
+
+
+def _refuse_unavailable_key_store() -> None:
+    """A missing or unmarked key directory refuses before the committed call (CodeRabbit on PR #102), as the first run's
+    dry run does, so a resumed run never commits and then stops short of the keys."""
+    try:
+        keystore.listing()
     except keystore.KeyStoreError as exc:
         raise Refused(f"custody_{exc.code}") from None
 

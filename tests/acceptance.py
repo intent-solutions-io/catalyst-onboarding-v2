@@ -1699,6 +1699,8 @@ P6_SUPPORTING = {
         "test_custody_encryption::test_9kg_34_the_erasure_refuses_while_a_migrated_documents_plaintext_lingers",
         "test_custody_encryption::test_9kg_34_lingering_plaintext_of_a_destroyed_key_is_removed_and_one_failure_blocks_nothing",
         "test_custody_encryption::test_9kg_34_the_sweep_finishes_journaled_destructions_without_the_wrapping_key_and_fails_closed",
+        "test_custody_encryption::test_9kg_34_a_resumed_erasure_refuses_an_unavailable_key_store_before_the_committed_call",
+        "test_custody_encryption::test_9kg_34_one_document_that_cannot_be_sealed_never_stops_the_rest_of_the_migration",
         "test_custody_encryption::test_9kg_34_recovery_needs_the_out_of_band_head_and_refuses_a_journal_that_lost_it",
         "test_custody_encryption::test_9kg_34_a_destruction_entry_carries_a_mac_and_a_forged_one_is_reported_never_acted_on",
         "test_custody_encryption::test_9kg_34_erasure_0003_reverses_to_exactly_the_function_0002_installs",

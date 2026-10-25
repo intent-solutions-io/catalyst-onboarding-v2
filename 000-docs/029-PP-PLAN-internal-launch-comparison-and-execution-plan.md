@@ -530,7 +530,8 @@ Class names are append-only: a renamed class would orphan recorded intents.
 - the keys outside the backup's rollback domain.
 
 Under `retain` the custody PDFs stay, and the erasure says so (`retained: ["custody_documents"]`); under
-`destroy_key` they stay sealed and unreadable, and the erasure counts `keys_destroyed`.
+`destroy_key` they stay sealed, and the erasure counts `keys_destroyed`. They are unreadable unless a copy of the wrapped
+key survives with the wrapping key: an archived key directory, unlinked blocks, swap or a core dump (the limits below).
 
 **Owner decisions recorded, not built.**
 
@@ -593,8 +594,10 @@ key):
 
 - The escrow holds the wrapping key only; recovering it alone does not recover a destroyed data key.
 - The mirror is a live copy that destruction reaches first, never a point-in-time one.
-- `catalyst_custody_keys --recover` (the named holder) re-aligns the two from the copy that survives, never restoring a
-  key the journal records as destroyed, and finishes any half-done destruction.
+- `catalyst_custody_keys --recover --expect-head <head>` (the named holder, holding the erasure key) re-aligns the two
+  from the copy that survives, never restoring a key the journal records as destroyed, and finishes any half-done
+  destruction. It refuses unless the journal holds the head kept out of band (PR #99) and every destruction entry's
+  mac verifies under the erasure key.
 - Neither key directory may be in a versioned backup (an operator rule for the `9kg.28` host list).
 
 **The erasure step.** Under `destroy_key`:
