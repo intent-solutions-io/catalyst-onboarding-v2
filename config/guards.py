@@ -16,7 +16,8 @@ POSTGRESQL_ENGINE = "django.db.backends.postgresql"
 # The secrets Catalyst reads (6B.5, 026 section 5): one list, used by settings to read them and by the guards to refuse
 # them in the environment outside test and development.
 SECRET_ENV_NAMES = ("CATALYST_SECRET_KEY", "CATALYST_VERIFICATION_KEY", "CATALYST_VERIFICATION_FALLBACK_KEYS",
-                    "CATALYST_DB_PASSWORD", "CATALYST_MAIL_PASSWORD", "CATALYST_ERASURE_KEY")
+                    "CATALYST_DB_PASSWORD", "CATALYST_MAIL_PASSWORD", "CATALYST_ERASURE_KEY",
+                    "CATALYST_CUSTODY_WRAPPING_KEY")
 
 # Environments Catalyst may run in. `staging` (026 P6-D-2, D-49) is synthetic like `test`: the same fakes under the
 # same strict rules, never a real provider. Production settings are not authorized (a later P6 decision).
@@ -329,7 +330,7 @@ def decision_problems(settings, environ: Mapping[str, str]) -> list[str]:
 AGREEMENT_TEST_ONLY = ("CATALYST_AGREEMENT_PROVIDER_URL", "CATALYST_AGREEMENT_PROVIDER_ADDRESS",
                        "CATALYST_AGREEMENT_PROVIDER_CA_FILE", "CATALYST_AGREEMENT_PROVIDER_TOKEN",
                        "CATALYST_AGREEMENT_WEBHOOK_SECRETS", "CATALYST_AGREEMENT_STORAGE_DIR",
-                       "CATALYST_AGREEMENT_REQUIRED_DETAILS")
+                       "CATALYST_AGREEMENT_REQUIRED_DETAILS", "CATALYST_CUSTODY_KEY_DIR", "CATALYST_CUSTODY_KEY_MIRROR_DIR")
 
 
 def agreement_problems(settings, environ: Mapping[str, str]) -> list[str]:
@@ -534,6 +535,81 @@ def erasure_key_problems(settings, kind: str) -> list[str]:
     return []
 
 
+# 9kg.34: the process roles that may never hold the custody wrapping key (the fetcher reaches applicant-supplied
+# addresses; the post-restore step reads the restored tables and the Sent folder only). The backup and erasure commands
+# refuse it themselves (config.backup, erasure's command).
+CUSTODY_KEY_DENIED_ROLES = ("fetcher", "reconcile")
+
+
+def _inside(path, other) -> bool:
+    return path == other or other in path.parents
+
+
+def custody_key_problems(settings, kind: str) -> list[str]:
+    """9kg.34 (026 section 6 option c; 030 Q4, D-51): the custody wrapping key and the key directories.
+
+    - The wrapping key, when set: 64 lower-case hex characters (32 random bytes), distinct from the Django secret key,
+      the link-signing keys and the erasure key, and never given to the fetcher or the post-restore step. Outside test
+      and development it comes only from its secret file (secret_problems refuses it in the environment).
+    - The key directory and its mirror: absolute, distinct, neither inside the other, outside the repository, and
+      neither inside nor around the custody directory or the effect journal, so no backup of either carries a key.
+    - Custody storage needs both directories (nothing new is stored in the clear).
+    - A live environment refuses any custody configuration while the owner's custody decision has an undecided row
+      (agreements.custody_policy, 211.7.9), as the erasure registry does for POL-10."""
+    from pathlib import Path
+
+    problems = []
+    secret = str(getattr(settings, "CATALYST_CUSTODY_WRAPPING_KEY", "") or "")
+    if secret:
+        if not re.fullmatch(r"[0-9a-f]{64}", secret):
+            problems.append("CATALYST_CUSTODY_WRAPPING_KEY must be 64 lower-case hex characters (32 random bytes)")
+        elif len(set(secret)) == 1:
+            problems.append("CATALYST_CUSTODY_WRAPPING_KEY is one character repeated, not a random key")
+        databases = getattr(settings, "DATABASES", {}) or {}
+        others = [getattr(settings, "SECRET_KEY", ""), getattr(settings, "CATALYST_VERIFICATION_KEY", "") or "",
+                  *(getattr(settings, "CATALYST_VERIFICATION_FALLBACK_KEYS", []) or []),
+                  getattr(settings, "CATALYST_ERASURE_KEY", "") or "",
+                  # review of PR #102: the passwords and webhook secrets this process holds, where it holds them
+                  *(str((db or {}).get("PASSWORD", "") or "") for db in databases.values()),
+                  getattr(settings, "CATALYST_MAIL_PASSWORD", "") or "",
+                  *(getattr(settings, "CATALYST_AGREEMENT_WEBHOOK_SECRETS", []) or [])]
+        if secret in [o for o in others if o]:
+            problems.append("CATALYST_CUSTODY_WRAPPING_KEY must differ from every other key")
+        role = getattr(settings, "CATALYST_PROCESS_ROLE", "") or ""
+        if role in CUSTODY_KEY_DENIED_ROLES or kind == "reconcile":
+            problems.append(f"CATALYST_CUSTODY_WRAPPING_KEY may not be given to the {role or kind} process (9kg.34)")
+    primary = str(getattr(settings, "CATALYST_CUSTODY_KEY_DIR", "") or "")
+    mirror = str(getattr(settings, "CATALYST_CUSTODY_KEY_MIRROR_DIR", "") or "")
+    storage = str(getattr(settings, "CATALYST_AGREEMENT_STORAGE_DIR", "") or "")
+    journal_dir = str(getattr(settings, "CATALYST_EFFECT_JOURNAL_DIR", "") or "")
+    if storage and not (primary and mirror):
+        problems.append("CATALYST_AGREEMENT_STORAGE_DIR needs CATALYST_CUSTODY_KEY_DIR and CATALYST_CUSTODY_KEY_MIRROR_DIR"
+                        " (custody is encrypted at rest, 9kg.34)")
+    dirs = [d for d in (primary, mirror) if d]
+    if dirs:
+        repository = Path(__file__).resolve().parent.parent
+        if any(not Path(d).is_absolute() for d in dirs):
+            problems.append("the custody key directories must be absolute paths")
+        else:
+            resolved = [Path(d).resolve() for d in dirs]
+            if any(_inside(r, repository) for r in resolved):
+                problems.append("the custody key directories must be outside the repository")
+            if len(resolved) == 2 and (_inside(resolved[0], resolved[1]) or _inside(resolved[1], resolved[0])):
+                problems.append("CATALYST_CUSTODY_KEY_DIR and CATALYST_CUSTODY_KEY_MIRROR_DIR must be separate directories")
+            for name, other in (("CATALYST_AGREEMENT_STORAGE_DIR", storage), ("CATALYST_EFFECT_JOURNAL_DIR", journal_dir)):
+                if other and Path(other).is_absolute():
+                    target = Path(other).resolve()
+                    if any(_inside(r, target) or _inside(target, r) for r in resolved):
+                        problems.append(f"the custody key directories may not be inside or around {name} (it is backed up or carried)")
+    if getattr(settings, "CATALYST_ENV", "") in LIVE_ENVIRONMENTS and (storage or dirs or secret):
+        from agreements import custody_policy
+
+        if custody_policy.problems():
+            problems.append("custody is configured in a live environment while the owner's custody decision is open"
+                            " (agreements.custody_policy, 211.7.9)")
+    return problems
+
+
 INTAKE_FIXED = ("CATALYST_INTAKE_MODE", "CATALYST_CLIENT_IDENTITY")
 INTAKE_MODES = ("invitation", "open")
 CLIENT_IDENTITY_SOURCES = ("proxy", "direct")
@@ -572,6 +648,7 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + journal_problems(settings)
         + process_role_problems(settings, _process_kind())
         + erasure_key_problems(settings, _process_kind())
+        + custody_key_problems(settings, _process_kind())
         + intake_problems(settings, environ)
     )
 

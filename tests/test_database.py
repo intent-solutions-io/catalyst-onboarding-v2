@@ -72,6 +72,7 @@ APPROVED_MIGRATIONS = {
     # 9kg.32: the tombstone keys held unique, the erasure audit, and the erasure functions and trigger branches
     ("applications", "0009_tombstone_keys_unique"), ("erasure", "0001_initial"), ("erasure", "0002_erasure_path"),
     ("correspondence", "0019_decline_notice"),  # oc4.11: the decline kind and template; held send_decline cancelled
+    ("agreements", "0010_custody_envelope"), ("erasure", "0003_custody_keys"),  # 9kg.34: custody sealed at rest
 }
 
 

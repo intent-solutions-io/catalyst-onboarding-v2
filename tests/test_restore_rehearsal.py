@@ -23,6 +23,7 @@ from django.conf import settings
 from django.db import connection
 from psycopg import sql
 
+from config.backup import AT_REST_DOCUMENTS
 from tests import support
 from tests.conftest import EXPECTED_TRIGGERS, protection_state
 from tests.test_agreement_custody import (  # noqa: F401  (fixture chain and helpers)
@@ -75,7 +76,7 @@ def backup(source_db, storage, target, during=None):
                 manifest["tables"][table] = {"rows": data.count(b"\n"), "sha256": digest(data)}
                 if n == 0 and during is not None:
                     during()
-            for key, sha, size in conn.execute("SELECT storage_key, sha256, size FROM agreements_storeddocument ORDER BY id"):
+            for key, sha, size in conn.execute(AT_REST_DOCUMENTS):  # 9kg.34: the sealed files as they are at rest
                 shutil.copy2(storage / key, target / "custody" / key)
                 manifest["documents"].append({"key": key, "sha256": sha, "size": size})
             manifest["revision"] = sorted(conn.execute("SELECT app, name FROM django_migrations").fetchall())

@@ -536,16 +536,17 @@ def retrieve_document(document_ref: str, user, reason: str):
     the permission, or a reference that does not exist, gets the same `Refused("not_available")` and leaves a
     `denied` record naming only the reference asked for; a non-staff or anonymous caller gets the same answer and is
     logged, not recorded, so outsiders cannot grow the append-only table (security review). The bytes are read once,
-    verified against the recorded size and SHA-256, and exactly those bytes are returned. Wrong bytes refuse, are
-    recorded, open a staff item and mark custody failed; storage being unavailable refuses without blaming the
-    document."""
+    verified against the recorded size and SHA-256, and exactly those bytes are returned (a sealed document is opened
+    under its own key first, 9kg.34). Wrong bytes refuse, are recorded, open a staff item and mark custody failed;
+    storage or the key store being unavailable refuses without blaming the document; a destroyed key (an erasure)
+    refuses as `document_erased`."""
     import logging
 
     from django.db import connection
 
     from . import storage
     from .custody import CUSTODY_CORRUPTED
-    from .models import DocumentAccess, StoredDocument
+    from .models import CustodyEnvelope, DocumentAccess, StoredDocument
 
     if connection.in_atomic_block:
         raise RuntimeError("retrieve_document must run outside a transaction, so the audit commits before release")
@@ -569,9 +570,12 @@ def retrieve_document(document_ref: str, user, reason: str):
     with transaction.atomic():  # committed before any byte is read for release
         DocumentAccess.objects.create(document=document, requested_ref=ref, actor_ref=actor, reason=note,
                                       outcome=DocumentAccess.Outcome.GRANTED)
+    envelope = CustodyEnvelope.objects.filter(document=document).first()  # 9kg.34: sealed at rest
     try:
-        data = storage.read(document.storage_key, document.sha256, document.size)
+        data = storage.read(document.storage_key, document.sha256, document.size, envelope)
     except storage.StorageError as exc:
+        if str(exc) == storage.DESTROYED:
+            raise Refused("document_erased") from None  # the key was destroyed by an erasure: nothing to release
         if str(exc) not in storage.INTEGRITY:
             raise Refused("storage_unavailable") from None  # the environment, not the document
         with transaction.atomic():

@@ -1,7 +1,9 @@
 """Verify a restored database against a restored custody directory (`024` proposal 1; bead 9kg.7).
 
 Read-only. For every `StoredDocument` row it checks that the file named by its key exists in `--storage-dir`, is a
-regular file owned by this user with mode 0600, and has the recorded size and SHA-256. Files in the directory that
+regular file owned by this user with mode 0600, and has the recorded size and SHA-256. 9kg.34: a sealed document is
+checked as it is at rest, against its `CustodyEnvelope` (the sealed file, its digest and size); no key is needed or
+read, so this check never says whether a document can still be opened (a destroyed key is the point of an erasure). Files in the directory that
 no row references are reported as orphans and never deleted (deleting them is a retention act, POL-10). Prints
 counts and keys only, never document bytes. With `--manifest`, the restored rows must also equal the backup
 manifest's documents, so an empty or truncated table cannot pass. Orphans are reported but do not fail the check.
@@ -18,9 +20,10 @@ import stat
 from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import connection
 
-from agreements.models import StoredDocument
 from agreements.storage import KEY
+from config.backup import AT_REST_DOCUMENTS
 
 
 class Command(BaseCommand):
@@ -36,12 +39,15 @@ class Command(BaseCommand):
             raise CommandError("storage directory must be an existing absolute directory")
         report = {"documents": 0, "verified": 0, "missing": [], "unsafe": [], "mismatch": [], "orphans": []}
         referenced = set()
-        for document in StoredDocument.objects.order_by("id").only("storage_key", "sha256", "size"):
+        with connection.cursor() as cursor:
+            cursor.execute(AT_REST_DOCUMENTS)
+            documents = [(key, sha, size) for key, sha, size in cursor.fetchall()]
+        for key, sha, size in documents:
             report["documents"] += 1
-            referenced.add(document.storage_key)
-            problem = self._check(root, document)
+            referenced.add(key)
+            problem = self._check(root, key, sha, size)
             if problem:
-                report[problem].append(document.storage_key)
+                report[problem].append(key)
             else:
                 report["verified"] += 1
         for entry in sorted(os.listdir(root)):
@@ -50,7 +56,7 @@ class Command(BaseCommand):
         ok = report["verified"] == report["documents"]
         if manifest:
             expected = {(d["key"], d["sha256"], d["size"]) for d in json.loads(Path(manifest).read_text())["documents"]}
-            restored = set(StoredDocument.objects.values_list("storage_key", "sha256", "size"))
+            restored = set(documents)
             report["manifest_match"] = expected == restored  # an empty or truncated table cannot pass
             ok = ok and report["manifest_match"]
         self.stdout.write(json.dumps({"ok": ok, **report}, sort_keys=True))
@@ -58,11 +64,11 @@ class Command(BaseCommand):
             raise SystemExit(1)
 
     @staticmethod
-    def _check(root: Path, document) -> str:
-        if not KEY.fullmatch(document.storage_key or ""):
+    def _check(root: Path, key: str, sha: str, size_expected: int) -> str:
+        if not KEY.fullmatch(key or ""):
             return "unsafe"
         try:
-            fd = os.open(root / document.storage_key, os.O_RDONLY | os.O_NOFOLLOW)
+            fd = os.open(root / key, os.O_RDONLY | os.O_NOFOLLOW)
         except FileNotFoundError:
             return "missing"
         except OSError:
@@ -77,6 +83,6 @@ class Command(BaseCommand):
                 size += len(chunk)
         finally:
             os.close(fd)
-        if size != document.size or digest.hexdigest() != document.sha256:
+        if size != size_expected or digest.hexdigest() != sha:
             return "mismatch"
         return ""

@@ -152,7 +152,7 @@ def test_9kg_32_the_registry_ships_undecided_and_refuses_the_erasure_and_a_real_
         mp.setattr(registry, "REPLAY_BUILT", True)
         assert registry.problems(DECIDED) == []
         assert registry.problems({**DECIDED, "signed_documents": {"treatment": "anonymize", "retention": "p1y"}}) == [
-            "signed_documents.treatment:unsupported"]  # only `retain` until 9kg.34 destroys keys
+            "signed_documents.treatment:unsupported"]  # `retain` or `destroy_key` (9kg.34), never `anonymize`
         for stranded in registry.KEY_SELECTED_CLASSES:  # their rows are found only by the real key
             assert registry.problems({**DECIDED, stranded: {"treatment": "retain", "retention": "p1y"}}) == [
                 "application_identity:retains_key_selected_classes"], stranded

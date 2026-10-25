@@ -11,3 +11,8 @@ gunicorn==23.0.0
 # 6B.9 (026 section 8, P6-D-3): staff two-factor. django-otp alone (TOTP and recovery codes, depending only on Django)
 # rather than django-two-factor-auth (phone, QR and form-wizard dependencies); 1.7.5's one change was read before pinning.
 django-otp==1.7.5
+# 9kg.34 (026 section 6 option c; 030 Q3 and Q4, D-51): custody encryption at rest. The reviewed `cryptography` library
+# (pyca), its AES-256-GCM primitive only: no bespoke cryptography and no KMS. 50.0.2 was released 2026-09-30.
+cryptography==50.0.2
+# Its build-free C binding's parser, pinned below the newest release (3.12, 2026-10-22) to one at least two weeks old.
+pycparser==3.11

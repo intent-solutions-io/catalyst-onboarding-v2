@@ -359,5 +359,11 @@ def run(lift: bool, outward_checked: bool = False, no_closures_after_backup: boo
                                    + ", ".join(items))
         if not (outward_checked and no_closures_after_backup):
             raise PostRestoreError("lifting needs --outward-checked and --no-closures-after-backup (see the review report)")
+        from agreements import keystore
+
+        try:  # 9kg.34: a restore never revives a destroyed custody key; finished before the hold lifts (needs the erasure key)
+            keystore.sweep(require_key=True)
+        except keystore.KeyStoreError as exc:
+            raise PostRestoreError(f"the custody key sweep failed ({exc.code}); the hold stays") from None
         hold.delete()
         return {"hold": "lifted"}
