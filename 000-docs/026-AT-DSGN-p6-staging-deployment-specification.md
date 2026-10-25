@@ -1992,7 +1992,11 @@ hardened after the PR #102 security, release-operations and data reviews).**
      - the destroyed one is refused with `custody_key_destroyed`;
      - the journal names its key with a verified mac.
   5. The volume list is the same before and after the leg.
-- **The drill on the dev box, 2026-10-24:** DRILL2_TALLY
+- **The drill on the dev box, 2026-10-25** (`scripts/restore_drill.sh` at `6e29c2f`, the branch after the merge from
+  `main`): **59 PASS, 0 FAIL, 1 NOT RUN** (the off-site leg, below). The custody leg's 16 cases all passed, the positive
+  and negative controls included, and the leg left no volume behind. Measured: backup 4 s; recovery from an empty host
+  to serving 93 s; restore, post-restore and start alone 46 s. The earlier run of 54 PASS at `4d8f7b9` came before the
+  custody leg was rewritten in review G and is superseded.
 - **The staging check on the dev box, 2026-10-24** (`scripts/staging_check.sh` at `8ee1d10`): **140 PASS, 0 FAIL, 0 NOT
   RUN**. The seven 9kg.34 cases are among them: no service's configuration (the operator profiles included) names a
   key volume or the wrapping key, and none of web, worker, fetcher, egress, proxy and db mounts one.
