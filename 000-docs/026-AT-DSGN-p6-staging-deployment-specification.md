@@ -2002,7 +2002,7 @@ hardened after the PR #102 security, release-operations and data reviews).**
 - **Owner decisions left open (`211.7.9`):** the custody location, the access rule (D-51 proposes decision-makers
   only), the recovery holder and time bound, the escrow location, and the provider copy's treatment with POL-10.
 - **Evidence.**
-  - `tests/test_custody_encryption.py`: N_TESTS tests, mapped under `P6_SUPPORTING` in group "9kg.34". They cover:
+  - `tests/test_custody_encryption.py`: 32 tests, mapped under `P6_SUPPORTING` in group "9kg.34". They cover:
     - encrypt and retrieve;
     - destroy-key;
     - the restore of an older backup through the real backup and restore commands;
@@ -2020,7 +2020,7 @@ hardened after the PR #102 security, release-operations and data reviews).**
     - the drill's shape.
   - `tests/test_agreement_custody.py`: the custody fixture provisions keys, the stored file is sealed, and a changed
     envelope leaves no key or file.
-  - `tests/test_db_roles.py`: `TRIGGER_COUNT` 49.
+  - `tests/test_db_roles.py`: `TRIGGER_COUNT` 51 (49 before main's oc4.9 approvals were merged in).
   - `tests/conftest.py`: the expected triggers.
   - `tests/test_database.py`: the approved migrations.
   - `tests/test_acceptance.py`: the named constraints.

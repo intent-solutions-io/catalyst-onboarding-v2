@@ -66,6 +66,7 @@ APPROVED_MIGRATIONS = {
     # 9kg.30: the append-only staff role grant record and the P4 and P5 role groups (accounts.roles)
     ("accounts", "0007_staff_role_grants"), ("agreements", "0009_staff_groups"), ("provisioning", "0007_staff_groups"),
     ("assessments", "0010_decision_inputs_and_human_only_code"),  # oc4.12: what a decision records, completed
+    ("assessments", "0011_model_use_approval"),  # oc4.9: the owner's recorded approval of live model use
     ("applications", "0007_notice_record_and_member_on_file"), ("applications", "0008_member_on_file_protection"),  # 9kg.52
     ("correspondence", "0018_intake_notice_templates"),  # 9kg.52: the data notice and invitation templates
     # 9kg.32: the tombstone keys held unique, the erasure audit, and the erasure functions and trigger branches

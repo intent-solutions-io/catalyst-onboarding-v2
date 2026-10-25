@@ -12,6 +12,13 @@
   3. a fenced record transaction: the result once; on success the stage moves `assessing → awaiting_decision`
      whatever the output says (staff own the next step); otherwise a staff item and no stage change.
   A recorded invocation is never refunded. A result whose lease was lost is discarded with its transaction.
+
+oc4.9: the call runs inside a `workflow.keeper.LeaseKeeper` (a heartbeat while the call outlives a third of the lease,
+and a fence before each request and before the repair: a lost lease makes no further request), and the pre-call
+check passes the run's own frozen versions to `agent.build_model`, so a live value needs the owner's recorded
+approval of exactly this use. oc4.10 items 4 to 6: only a run whose action still holds a live lease takes a
+concurrency slot; a handler defect returns the run to queued for its retry; a run that ends leaves no invocation
+`started`.
 """
 
 import logging
@@ -19,17 +26,18 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import connection, transaction
-from django.db.models import Sum
-from django.db.models.functions import Coalesce, Now
+from django.db.models import CharField, Exists, OuterRef, Sum
+from django.db.models.functions import Cast, Coalesce, Now
 
 from applications.models import Application, ApplicationEvent, Stage
 from applications.stages import StageConflict, transition
 from correspondence.models import StaffItem
 from correspondence.staff_items import open_item, resolve_item
 from workflow import ledger
+from workflow.keeper import LeaseKeeper
 from workflow.models import AutomationPause, PendingAction
 
-from . import agent, clarification, pack as packs, snapshot
+from . import agent, approval, clarification, pack as packs, snapshot
 from .models import AssessmentInvocation, AssessmentRun
 from .schema import SCHEMA_VERSION, flags
 
@@ -37,7 +45,7 @@ logger = logging.getLogger(__name__)
 Status = PendingAction.Status
 Run = AssessmentRun.Status
 KIND = "run_assessment"
-REQUESTS_PER_ATTEMPT = 2
+REQUESTS_PER_ATTEMPT = approval.REQUESTS_PER_ATTEMPT  # the call and the one repair
 _GLOBAL_LOCK = 0x43415441  # pg advisory lock for the global counters (concurrency, daily budget)
 
 
@@ -89,6 +97,9 @@ def enqueue_assessment(application, trigger: str, why: list | None = None, round
 def _finish_run(run, status, **fields):
     AssessmentRun.objects.filter(pk=run.pk, status__in=(Run.QUEUED, Run.RESERVED)).update(
         status=status, finished_at=Now(), **fields)
+    # oc4.10 item 6: an invocation still `started` when its run ends (an early exit after a crashed attempt, or this
+    # attempt's own on a refusal) is abandoned: still counted at its reservation, never left looking in flight.
+    AssessmentInvocation.objects.filter(run=run, status="started").update(status="abandoned", finished_at=Now())
 
 
 # `assessment_suspended` (oc4.12): the run was refused because model advice is disabled (the launch-wide suspension,
@@ -108,6 +119,18 @@ def settle_items(application, code: str, actor_ref: str, actor_type=None) -> int
                StaffItem.objects.filter(application=application, status=StaffItem.Status.OPEN, reason_code__in=ITEM_CODES))
 
 
+def in_flight(exclude=None):
+    """oc4.10 item 4: the runs that hold a global concurrency slot: reserved, with their action still running under a
+    lease that has not expired (the heartbeat keeps a long call's lease alive, oc4.9). A dead reserved run (its worker
+    died; for example on a paused application, which the claim skips) holds no slot: its call is not in flight, and a
+    later claim abandons its invocation (counted) before any further call. No staff item is opened for it: nothing is
+    stuck but the paused application itself, which staff paused and resume."""
+    live = PendingAction.objects.filter(kind=KIND, status=Status.RUNNING, lease_expires_at__gt=Now(),
+                                        input_ref=Cast(OuterRef("public_id"), CharField()))
+    runs = AssessmentRun.objects.filter(status=Run.RESERVED).filter(Exists(live))
+    return runs.exclude(pk=exclude.pk) if exclude is not None else runs
+
+
 class RunAssessment:
     kind = KIND
     automated = True
@@ -125,9 +148,15 @@ class RunAssessment:
         if kind == "action_attempts_exhausted" or (kind == "action_failed" and data.get("final")):
             run = AssessmentRun.objects.filter(public_id=claim.input_ref).first()
             if run is not None:
-                AssessmentInvocation.objects.filter(run=run, status="started").update(status="abandoned", finished_at=Now())
-                _finish_run(run, Run.ABANDONED, error_code="handler_error")
+                _finish_run(run, Run.ABANDONED, error_code="handler_error")  # abandons its started invocations too
                 _staff(application, "assessment_failed", run)
+        elif kind == "action_failed":
+            # oc4.10 item 5: a handler defect with attempts left. Like a provider error, the run waits out the backoff
+            # as queued, holding no concurrency slot; the attempt's invocation is abandoned (counted, never refunded).
+            run = AssessmentRun.objects.filter(public_id=claim.input_ref).first()
+            if run is not None:
+                AssessmentInvocation.objects.filter(run=run, status="started").update(status="abandoned", finished_at=Now())
+                AssessmentRun.objects.filter(pk=run.pk, status=Run.RESERVED).update(status=Run.QUEUED)
 
     # --- the three phases ---------------------------------------------------------------------------------
 
@@ -145,7 +174,13 @@ class RunAssessment:
             logger.warning("action %s (%s): lease lost before the call; nothing called", claim.id, claim.kind)
             return
         try:
-            outcome = agent.assess(request)  # outside any transaction
+            with LeaseKeeper(claim):  # oc4.9: a heartbeat, and a fence before each request and before the repair
+                outcome = agent.assess(request, approval.Use.for_run(run))  # outside any transaction
+        except ledger.LeaseLost:
+            # Another claim owns the action now: nothing more is requested or recorded here. The invocation stays
+            # counted; the next claim abandons it before any further call.
+            logger.warning("action %s (%s): lease lost during the attempt; no further request", claim.id, claim.kind)
+            return
         except agent.ModelUnavailable as exc:
             self._end(claim, run, Run.REFUSED, str(exc), staff="assessment_failed")
         except agent.InvalidOutput as exc:
@@ -176,7 +211,7 @@ class RunAssessment:
                     lambda: _finish_run(run, Run.REFUSED, error_code="stage_changed"), None), None, None
         try:  # before the pause check (oc4.12): a paused application under the suspension ends refused at once, so the
             # human-only path is open to staff instead of a requeued run that blocks it; nothing is reserved either way
-            agent.build_model()
+            agent.build_model(approval.Use.for_run(run))  # oc4.9: a live value needs the approval of this run's versions
         except agent.ModelUnavailable as exc:
             reason = str(exc)
             item = "assessment_suspended" if settings.CATALYST_ASSESSMENT_MODEL == "none" else "assessment_failed"
@@ -212,6 +247,10 @@ class RunAssessment:
             return (Status.DONE, "answer_changed", False, lambda: (
                 _finish_run(run, Run.REFUSED, error_code="answer_changed"),
                 _staff(application, "assessment_input_changed", run)), None), None, None
+        if not request.fields <= set(approval.FIELDS["assessment"]):  # oc4.9: refused before anything is reserved
+            return (Status.DONE, "fields_not_approved", False, lambda: (
+                _finish_run(run, Run.REFUSED, error_code="fields_not_approved"),
+                _staff(application, "assessment_failed", run)), None), None, None
         AssessmentInvocation.objects.create(
             run=run, application=application, snapshot_sha256=run.snapshot_sha256, attempt=claim.attempt,
             reserved_requests=REQUESTS_PER_ATTEMPT, reserved_tokens=agent.attempt_tokens())
@@ -241,7 +280,7 @@ class RunAssessment:
         today = daily_requests_used()  # assessments and reply interpretations share the daily budget (3B.3)
         if today + REQUESTS_PER_ATTEMPT > settings.CATALYST_ASSESSMENT_DAILY_REQUESTS:
             return "daily_request_budget"  # defaults to 0: nothing runs until the owner sets a value
-        if AssessmentRun.objects.filter(status=Run.RESERVED).exclude(pk=run.pk).count() >= settings.CATALYST_ASSESSMENT_CONCURRENT_RUNS:
+        if in_flight(exclude=run).count() >= settings.CATALYST_ASSESSMENT_CONCURRENT_RUNS:
             return "concurrency"
         return ""
 
