@@ -342,8 +342,19 @@ screen shows its age (`9kg.41`); the stage, item and pause classes are counted b
   the receipt; an append failure is observable (a code-only log, a failure counter, a health signal, a readiness
   refusal). Deferred, as beads the main session files: a database-assigned version per key for replay ordering;
   off-host shipping of the journal with a head mirror and a lag alert (the journal's own RPO); rotation into chained
-  segments tied to backup retention; a test enumerating every effectful write path by class; an item per queued
-  send with no copy instead of the blanket `--outward-checked`.
+  segments tied to backup retention; an item per queued send with no copy instead of the blanket
+  `--outward-checked`.
+- **The effect registry** (`9kg.62`, built 2026-10-26): `workflow/effects.py` names every function that performs an
+  effect a restore cannot undo, with its class: journaled before, journaled after, provider read, covered by the
+  post-restore review (credentials, which the host cannot read back, and the revocation's host calls), or a marker
+  about the journal itself. `tests/test_effect_registry.py` finds the effects in the source (journal writes, SMTP,
+  Documenso and MXroute writes, IMAP appends, model runs, through any import spelling) and fails on an unregistered or
+  stale function, a class that does not match the calls, a journal kind with no writer, a restrictive kind never
+  prepared, or a provider client write method the scanner does not know. Writing it showed that the revocation's
+  password rotation and forwarder removal happen before the transaction that prepares `access_revocation`, so the
+  journal does not cover them; the post-restore review's revocation round does (`config/post_restore.py`, step 4).
+  What the test cannot find is a database write that should be journaled and is not; that judgement is the effect
+  list above.
 - **Custody** (`9kg.34`, built 2026-10-24; section 6.2.2 and `026` section 16): every custody document is sealed
   with AES-256-GCM from a reviewed library under its own data key, wrapped under one wrapping key; the wrapped keys
   live in a key directory and its live mirror, outside the database, the custody directory and every backup set; once
