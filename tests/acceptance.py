@@ -1674,6 +1674,10 @@ P6_SUPPORTING = {
         "test_erasure::test_9kg_32_a_key_that_starts_like_a_tombstone_but_has_an_at_sign_is_a_real_key",
         "test_erasure::test_9kg_32_an_already_tombstoned_subject_still_runs_the_classes_scoped_by_its_references",
     ],
+    "9kg.72 a person invited who never applied is named to the erasure by reference, never by address (029 section 6.2)": [
+        "test_erasure_lookup::test_9kg_72_an_invited_person_who_never_applied_is_named_by_reference_and_erased",
+        "test_erasure_lookup::test_9kg_72_the_lookup_lists_applications_too_and_refuses_in_web_and_worker",
+    ],
     "9kg.25 the erasure record replayed after a restore before the review and the lift (029 section 6.2.1)": [
         "test_erasure::test_9kg_25_a_restore_hold_cannot_lift_while_the_journal_holds_an_unreplayed_erasure",
         "test_erasure_replay::test_9kg_25_only_the_retention_role_runs_the_replay_function_and_only_under_the_restore_hold",

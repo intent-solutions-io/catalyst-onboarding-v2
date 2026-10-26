@@ -177,6 +177,9 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   decided registry is enough for a live backup. The restore drill runs a real erasure after the backup, then the
   restore, the refusals, the replay, its control, a second replay, the review and a later backup
   (`catalyst_erasure_drill`, synthetic only)
+- Naming a person to the erasure (bead `9kg.72`): `catalyst_invite` prints the invitation's public reference, and the
+  owner-run, read-only `catalyst_erasure_subjects <address>` prints the application and invitation references held for
+  an address (never the address), so a person invited who never applied can be erased
 - Hardening (internal-launch batch item 6): the database freezes inbound message provenance and the identity
   columns of outbound attempts and reply links for every role, with the audited retention path left open for
   erasure (correspondence migration 0017, `016` section 10.14)

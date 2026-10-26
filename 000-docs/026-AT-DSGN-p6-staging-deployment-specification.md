@@ -1793,6 +1793,11 @@ revised after the PR #99 data, security and release-operations reviews).**
   6. `catalyst_erasure_record --expect-head <head>` checks the record. `--list-open` lists unfinished erasures with no
      head.
   7. After an interruption, re-run step 1 with the same reference.
+- **Naming the person (`9kg.72`, 2026-10-26).** `catalyst_erasure_subjects <address>`, owner-run and read-only,
+  prints the application and invitation references held for the address the request came from, never the address;
+  `catalyst_invite` prints each invitation's reference. A person invited who never applied is erased by the
+  invitation's reference. A first-generation member record with no application or invitation has no reference the
+  erase function resolves; it is erased with the person's application or invitation, when one exists.
 - **Process rule (a stated limit).** The retention login can call `catalyst_erase` directly, which would skip the
   durable record. The rule is that it is called only through the command, on the erase service; the replay is the one
   other caller.
