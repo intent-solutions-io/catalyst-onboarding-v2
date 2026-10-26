@@ -2221,9 +2221,10 @@ hardened after the PR #102 security, release-operations and data reviews).**
 - **Reviews of PR #103 (data, security), fixed in the same PR:** the subject-hash match, the mismatch refusal, the
   class union, the plaintext check and the mailbox exclusion (data); the hold's INSERT guard, the marker bound to the
   hold's time and the key kept out of the review (security). Erasure 0004 now depends on workflow 0006.
-- **The drill on the dev box, 2026-10-26** (`scripts/restore_drill.sh` at `923ac37`): **76 PASS, 0 FAIL, 1 NOT RUN**
-  (the off-site, object-locked leg, as before). All 17 new 9kg.25 cases passed, the controls included. Measured:
-  backup 5 s; recovery from an empty host to serving 97 s; restore, post-restore and start alone 52 s.
+- **The drill on the dev box, 2026-10-26** (`scripts/restore_drill.sh` at `c5dcb17`, after the review fixes; the
+  reviews now run without the erasure key): **76 PASS, 0 FAIL, 1 NOT RUN** (the off-site, object-locked leg, as
+  before). All 17 new 9kg.25 cases passed, the controls included. Measured: backup 4 s; recovery from an empty host to
+  serving 109 s; restore, post-restore and start alone 58 s. The same tally at `923ac37`, before the review fixes.
 
   The run before it, at `8b80642`, had 74 PASS and 1 FAIL. That FAIL expected the fourth stack's lift to release,
   which it cannot without Documenso evidence; the check was corrected to what the stack can show (step 7 above).
