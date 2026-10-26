@@ -47,6 +47,9 @@ class Command(BaseCommand):
 
     def handle(self, *args, exit_when_idle=False, only="", exclude="", **options):
         runtime.declare_process("worker")
+        # 9kg.69 (review of PR #104, F3): the start-up guards ran before this process declared itself a worker.
+        if getattr(settings, "CATALYST_CUSTODY_NEXT_WRAPPING_KEY", ""):
+            raise CommandError("CATALYST_CUSTODY_NEXT_WRAPPING_KEY is held only by the owner-run rotation")
         if settings.CATALYST_PROCESS_ROLE != "fetcher" and settings.CATALYST_ENV not in ("test", "development"):
             from workflow import journal
 
