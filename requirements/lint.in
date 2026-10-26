@@ -3,5 +3,5 @@
 # runner's system Python (3.12), not the 3.14 container. Compile with:
 #   uv pip compile --python-version 3.12 --python-platform x86_64-unknown-linux-gnu \
 #     --generate-hashes --no-header requirements/lint.in -o requirements/lint.txt
-ruff==0.16.2
+ruff==0.17.2
 pip-audit==2.10.1
