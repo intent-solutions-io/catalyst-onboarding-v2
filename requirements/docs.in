@@ -3,4 +3,4 @@
 # 3.14 container. Compile with:
 #   uv pip compile --python-version 3.12 --python-platform x86_64-unknown-linux-gnu \
 #     --generate-hashes --no-header requirements/docs.in -o requirements/docs.txt
-pyyaml==6.0.2
+pyyaml==6.0.3
