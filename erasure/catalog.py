@@ -333,7 +333,10 @@ def branch(retention_literal: str) -> str:
 # Refusals the erase function raises, by SQLSTATE (class CE, Catalyst erasure), mapped to codes by erasure.service.
 REFUSALS = {"CE001": "nothing_to_erase", "CE002": "unknown_subject", "CE003": "subject_open",
             "CE004": "subject_has_open_work", "CE005": "revocation_not_final", "CE006": "malformed_request",
-            "CE007": "not_the_retention_role"}
+            "CE007": "not_the_retention_role", "CE008": "no_restore_hold"}
+# config.backup.RESTORE_HOLD, the row a restore writes (tests pin that the two agree): the replay variant of the erase
+# function (9kg.25) runs only while it is present, so it can never skip the refusals on a database in service.
+RESTORE_HOLD_ROW = ("system", "00000000-0000-0000-0000-00000000aaaa")
 
 
 def subject_columns(table=None):
@@ -481,7 +484,7 @@ def _tally(table: str) -> str:
             f"      END IF;")
 
 
-def erase_sql(retention_literal: str, existing: dict) -> str:
+def erase_sql(retention_literal: str, existing: dict, replay: bool = False) -> str:
     """public.catalyst_erase(p_subject uuid, p_authority text, p_reason text, p_classes text[]) RETURNS jsonb: the one
     erasure function, SECURITY DEFINER (it runs as the owner while the session stays the retention login), EXECUTE for
     the retention role only. One transaction: it locks the subject's applications, refuses unless every one is terminal
@@ -491,7 +494,15 @@ def erase_sql(retention_literal: str, existing: dict) -> str:
     is scoped by its own references, so a class added later still reaches it. It also reports the provider handoffs
     owed, what it retains (`custody_documents` when the subject has stored documents) and, for 9kg.34, the key
     references of the subject's sealed custody documents (`custody_keys`) and the number still in the clear
-    (`custody_plaintext`), so the command can destroy those keys outside the database (agreements.keystore)."""
+    (`custody_plaintext`), so the command can destroy those keys outside the database (agreements.keystore).
+
+    `replay=True` generates public.catalyst_erase_replay (9kg.25, erasure 0004): the same function under its own name,
+    without the three refusals for an open application, work in flight and an access revocation that is not final,
+    and refusing instead unless the restore hold is present (CE008). Its optional `p_key` names a real email key the
+    replay matched by the recorded subject hash on a row outside any application or invitation (a first-generation
+    member record): used only when `p_subject` is unknown, it scopes the key-selected classes. It re-applies, to a restored older backup, an erasure that passed those refusals when it ran: the restored rows are as
+    they were before the person was closed out, so the refusals would keep the restore held for good. The post-restore
+    review settles what they guarded (config.post_restore.settle_erased) before anything runs."""
     terminal = ", ".join(_lit(s) for s in TERMINAL_STAGES)
     open_statuses = ", ".join(_lit(s) for s in OPEN_ACTION_STATUSES)
     final = ", ".join(_lit(s) for s in FINAL_REVOCATION_STATES)
@@ -500,8 +511,33 @@ def erase_sql(retention_literal: str, existing: dict) -> str:
     for cls, table, statement in update_statements(existing):
         blocks.append(f"    IF {_lit(cls)} = ANY(p_classes) THEN\n      {statement};\n{_tally(table)}\n    END IF;")
     updates = "\n".join(blocks)
-    return f"""CREATE OR REPLACE FUNCTION public.catalyst_erase(p_subject uuid, p_authority text, p_reason text,
-                                                 p_classes text[])
+    held = f"""  IF NOT EXISTS (SELECT 1 FROM public.workflow_automationpause h WHERE h.subject_type = {_lit(RESTORE_HOLD_ROW[0])}
+                 AND h.subject_id = {_lit(RESTORE_HOLD_ROW[1])}::uuid) THEN
+    RAISE EXCEPTION 'erasure: replay runs only on a database under the restore hold' USING ERRCODE = 'CE008';
+  END IF;
+"""
+    gates = "" if replay else f"""  IF EXISTS (SELECT 1 FROM public.applications_application a WHERE a.id = ANY(v_apps) AND a.stage NOT IN ({terminal})) THEN
+    RAISE EXCEPTION 'erasure: the subject has an open application' USING ERRCODE = 'CE003';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.workflow_pendingaction p WHERE p.subject_type = 'application'
+             AND p.subject_id = ANY(v_refs) AND p.status IN ({open_statuses})) THEN
+    RAISE EXCEPTION 'erasure: work for the subject is still queued, running, held or uncertain' USING ERRCODE = 'CE004';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.provisioning_accessrevocation r
+             JOIN public.provisioning_provisioningrequest q ON q.id = r.request_id
+             WHERE q.application_id = ANY(v_apps) AND r.state NOT IN ({final})) THEN
+    RAISE EXCEPTION 'erasure: an access revocation is not final' USING ERRCODE = 'CE005';
+  END IF;
+"""
+    unknown = "      RAISE EXCEPTION 'erasure: unknown subject' USING ERRCODE = 'CE002';\n"
+    if replay:  # data review of PR #103, finding 1: a key the backup holds only on rows outside an application or invitation
+        unknown = ("      IF p_key IS NULL OR pg_catalog.strpos(p_key, '@') = 0 THEN\n"
+                   "        RAISE EXCEPTION 'erasure: unknown subject' USING ERRCODE = 'CE002';\n"
+                   "      END IF;\n"
+                   "      v_key := p_key;\n")
+    signature = "p_classes text[], p_key text DEFAULT NULL)" if replay else "p_classes text[])"
+    return f"""CREATE OR REPLACE FUNCTION public.{"catalyst_erase_replay" if replay else "catalyst_erase"}(p_subject uuid, p_authority text, p_reason text,
+                                                 {signature}
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
 DECLARE
   v_key text;
@@ -524,12 +560,11 @@ BEGIN
      OR pg_catalog.cardinality(p_classes) = 0 OR NOT (p_classes <@ ARRAY[{known}{CUSTODY_BEGIN}, 'custody_keys_destroyed'{CUSTODY_END}]::text[]) THEN
     RAISE EXCEPTION 'erasure: malformed request' USING ERRCODE = 'CE006';
   END IF;
-  SELECT a.email_key INTO v_key FROM public.applications_application a WHERE a.public_ref = p_subject;
+{held if replay else ""}  SELECT a.email_key INTO v_key FROM public.applications_application a WHERE a.public_ref = p_subject;
   IF NOT FOUND THEN
     SELECT i.email_key INTO v_key FROM public.applications_invitation i WHERE i.public_id = p_subject;
     IF NOT FOUND THEN
-      RAISE EXCEPTION 'erasure: unknown subject' USING ERRCODE = 'CE002';
-    END IF;
+{unknown}    END IF;
   END IF;
   -- A tombstone (never a real key: no @) means an earlier erasure ran. The key can no longer find anything, so the
   -- subject is scoped by its own references and the key-selected rows are skipped (v_key NULL matches nothing); the
@@ -551,19 +586,7 @@ BEGIN
       FROM (SELECT a.id, a.public_ref FROM public.applications_application a WHERE a.email_key = v_key
             ORDER BY a.id FOR UPDATE) s;
   END IF;
-  IF EXISTS (SELECT 1 FROM public.applications_application a WHERE a.id = ANY(v_apps) AND a.stage NOT IN ({terminal})) THEN
-    RAISE EXCEPTION 'erasure: the subject has an open application' USING ERRCODE = 'CE003';
-  END IF;
-  IF EXISTS (SELECT 1 FROM public.workflow_pendingaction p WHERE p.subject_type = 'application'
-             AND p.subject_id = ANY(v_refs) AND p.status IN ({open_statuses})) THEN
-    RAISE EXCEPTION 'erasure: work for the subject is still queued, running, held or uncertain' USING ERRCODE = 'CE004';
-  END IF;
-  IF EXISTS (SELECT 1 FROM public.provisioning_accessrevocation r
-             JOIN public.provisioning_provisioningrequest q ON q.id = r.request_id
-             WHERE q.application_id = ANY(v_apps) AND r.state NOT IN ({final})) THEN
-    RAISE EXCEPTION 'erasure: an access revocation is not final' USING ERRCODE = 'CE005';
-  END IF;
-  -- Provider-held copies (211.7.1, QA finding 12): a manual handoff each, recorded in the durable erasure record.
+{gates}  -- Provider-held copies (211.7.1, QA finding 12): a manual handoff each, recorded in the durable erasure record.
   IF EXISTS (SELECT 1 FROM public.agreements_agreementinstance i WHERE i.application_id = ANY(v_apps)
              AND i.envelope_id <> '') THEN
     v_handoffs := v_handoffs || 'documenso'::text;
