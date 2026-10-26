@@ -2199,6 +2199,12 @@ hardened after the PR #102 security, release-operations and data reviews).**
        never for the erasure. The lift after a replay is shown on the main leg, and the marker's re-read at the lift
        is in pytest;
     8. a backup afterwards runs.
+- **The drill on the dev box, 2026-10-26** (`scripts/restore_drill.sh` at `923ac37`): **76 PASS, 0 FAIL, 1 NOT RUN**
+  (the off-site, object-locked leg, as before). All 17 new 9kg.25 cases passed, the controls included. Measured:
+  backup 5 s; recovery from an empty host to serving 97 s; restore, post-restore and start alone 52 s.
+
+  The run before it, at `8b80642`, had 74 PASS and 1 FAIL. That FAIL expected the fourth stack's lift to release,
+  which it cannot without Documenso evidence; the check was corrected to what the stack can show (step 7 above).
 - **Evidence.**
   - `tests/test_erasure_replay.py`, mapped under TEST-P6-29 and in group "9kg.25". The tests cover:
     - a real backup, three erasures after it (one open with queued work at the backup, one whose address changed,
