@@ -125,7 +125,7 @@ with the affected user, risk, owner and bead. Stage IDs are `004`'s.
 | J-06 Questions | Observed: a clarification sender existed in design but was unregistered at the checkout (reported restored later; UNKNOWN); pacing limits exist; reminders unbuilt. | REQ-012, REQ-034, P3-D-5 (model questions never sent unapproved) | `correspondence`: approved, frozen messages; staff-authored and model-proposed questions through approval; TEST-P2 cases; GATE-P2 PASS 54 | Real delivery and reply collection (mail canary) | INCLUDED (staff-authored questions only) | **PRESERVE** the owner-approval rule; **IMPROVE**: v2 has the loop the first-generation service lacked. |
 | J-07 Inbound | Observed: a 60-second poll of one shared service mailbox with a durable UIDVALIDITY plus UID cursor, deterministic classes, no bodies stored; bridge and existing-member replies land in the same inbox; a human reply emails the owner a notice. | REQ-012, REQ-034, D-27, D-28, D-31 (fail-closed identity) | `correspondence/imap.py`, `inbound.py`, `processing.py`; association and trust; staff exceptions (TEST-P2-01, 07, 12 to 24) | Live inbound health (TEST-P6-18); the real mailbox | INCLUDED, on **v2's own mailbox** | **PRESERVE** durable collection; **RETIRE** the shared mailbox for v2 (M8, P6-D-10): a second poller of the first-generation mailbox would duplicate and race. Decision `211.7.3`. The owner reply notice is a MANUAL HANDOFF (the staff queue shows replies; no owner mail). |
 | J-08 Reminders, autoresponders, bounces | Observed: autoresponders and bounces classified; nothing suppresses on a bounce (defect); no reminders. | REQ-012, D-27; `9kg.2`, `9kg.3` (closed): hard bounce blocks every send; system pauses need a decision-maker | `correspondence/reminders.py`, `remind`, `escalate_unanswered`; TEST-P2-02, 04, 10 | Live bounce path (mail canary) | INCLUDED | **IMPROVE** (bounce block and reminders exist in v2 only). |
-| J-09 Takeover | Observed: no global pause in the service; host-level switches; per-case halts in the bridge cleared by hand. | REQ-013, D-30 | `AutomationPause`, `staff_actions.pause/resume`; the pause row protected in code only (`9kg.6` open) | A database guard on the pause row | INCLUDED | **PRESERVE**; **IMPROVE** `9kg.6` before launch. |
+| J-09 Takeover | Observed: no global pause in the service; host-level switches; per-case halts in the bridge cleared by hand. | REQ-013, D-30 | `AutomationPause`, `staff_actions.pause/resume`; the pause row protected in the database since `9kg.6` (workflow migration 0005) | A database guard on the pause row | INCLUDED | **PRESERVE**; **IMPROVE** `9kg.6` before launch. |
 | J-10 Decision | Observed: approval is an owner command that also queues the NDA envelope; decline is an owner command that sends nothing and later cancels open envelopes; a model hold is recorded as "recommended" only. Intended agrees (owner keeps every decision). | REQ-010, POL-05 (P3-D-9: one named decision group), P3-D-11 (decline terminal), P4-D-12 (`send_decline` held until a template exists) | `assessments/decisions.py`: the decision-maker records admit, decline or hold with exact inputs; `CATALYST_QUALIFICATION_AUTHORITY` must be set; `send_decline` has **no handler** | A decline notice; a staff member's permission grant without SQL | INCLUDED | **PRESERVE** human authority; **IMPROVE**: the decline notice (`oc4.11`, a deliberate improvement over "sends nothing"), permission grants (`9kg.30`). |
 
 ### 4.3 Agreements and custody (J-11 to J-13)
@@ -189,7 +189,7 @@ The owner's question behind this handoff is whether every first-generation featu
 | Duplicate handling: repeat from the same address becomes a revision | Built | INCLUDED | PRESERVE (J-02) |
 | AI reviewer reading supplied public links, GitHub lookup from a supplied link, shadow-mode recommendation | Built as the fetcher, evidence collection and the assessment stages; model requests disabled in code | DISABLED (fetching and model advice) | OUT OF INITIAL SCOPE (`9kg.39`, `oc4.9`, `oc4.7`, decision `211.7.4`) |
 | Human decision by owner command | Built as the decision screen for the named decision group | INCLUDED | PRESERVE (J-10, `9kg.30`) |
-| Decline sends the applicant nothing | A decline notice action exists without a handler | INCLUDED once built | IMPROVE (`oc4.11`): a deliberate improvement over silence |
+| Decline sends the applicant nothing | Built: the decline notice through the P2 sender (`oc4.11`, section 17.3) | INCLUDED | IMPROVE (`oc4.11`): a deliberate improvement over silence |
 | Clarification questions to the applicant (unregistered at the checkout) | Built, with approval, pacing and reminders | INCLUDED (staff-authored questions) | PRESERVE and IMPROVE (J-06, J-08) |
 | Shared service mailbox polled every 60 s with a durable cursor | Built, on v2's own mailbox | INCLUDED, separate mailbox | PRESERVE the collection; RETIRE the sharing (J-07, `211.7.3`) |
 | Autoresponder and bounce classification (nothing suppresses on a bounce) | Built, with a hard-bounce block | INCLUDED | IMPROVE (J-08) |
@@ -244,7 +244,7 @@ three exist in v2 but stay disabled at launch by default (mailbox provisioning, 
 | Uncertain send | worker, then staff | reconcile by Sent-folder read; unknown goes to a staff item | staff decide resend or abandon (decision-maker) | built against the fake, the read-only Sent reader and the mail-host allow-list included (`9kg.49`, `016` section 10.12a); the live proof is the mail canary |
 | Mailbox cursor in resync, recovery or blocked; SMTP transport blocked | worker | health anomaly codes | staff item; the owner for a transport block | built; live proof in the mail canary |
 | Hard bounce | staff | immediate block of every send | decision-maker recovery after the cause is addressed | built (`9kg.3`) |
-| Paused (staff or system) | staff | shown with reason; `aged_waits.pauses` (`9kg.51`, built; application pauses only, audit only until listed) | resume by the right role; system pauses need review | built; database guard open (`9kg.6`) |
+| Paused (staff or system) | staff | shown with reason; `aged_waits.pauses` (`9kg.51`, built; application pauses only, audit only until listed) | resume by the right role; system pauses need review | built, with its database guard (`9kg.6`, workflow 0005) |
 | Refused or capped assessment snapshot (at launch: refused by suspension) | staff | `aged_waits.assessing` (`9kg.51`) | the human-only decision form (`oc4.12`, built in PR #87 on `oc4.8`'s default; `CATALYST_CAPPED_EXIT`) | built |
 | Awaiting decision | decision-maker | `aged_waits.awaiting_decision` (`9kg.51`, built; audit only until listed); the dossier flags it | decision screen | built; the authority is configuration and granted by the command (`9kg.30`, built in PR #87) |
 | Declined | none (the worker sends the notice) | terminal; the notice waits, with a staff item, while its wording is not approved here | uncertain, failed and bounced notices reach staff items the decision-maker settles; withholding is a choice on the decision form (`oc4.11`, section 17.3) | built; the real wording is the owner's (`211.7.4`, `211.7.7`) |
@@ -813,6 +813,17 @@ Missing evidence about an enabled critical step blocks that step's readiness cla
 work.
 
 ## 13. The work graph (as it exists in Beads)
+
+> **Status note (2026-10-26).** This section records the graph as planned on 2026-10-23; Beads holds the current
+> state. Since then the following merged: `9kg.43`, `9kg.29`, `9kg.37`, `9kg.38`, `9kg.30`, `oc4.12`, `9kg.33`,
+> `9kg.6`, `9kg.5`, `9kg.32`, `9kg.34`, `oc4.9`, `oc4.10`, `oc4.11`, `9kg.39` and `9kg.25` (PR #103). Council `030`
+> (D-51) removed the POL-10 and POL-09 edges in front of `9kg.32`, `9kg.34` and `9kg.25`; they were built before those
+> decisions, with every value shipped undecided, so the "after POL-10" labels in 13.1 and the arrows in 13.2 are
+> history. D-51 is the council's provisional adoption (`030`), not the owner's ratification. MERGED_LIST_029 New beads from the 2026-10-26 reconciliation: `9kg.31.11` (admit `production` in code;
+> blocks the dark deploy), `9kg.72` (name an invited-only person for erasure; blocks the go/no-go), `9kg.73`, `9kg.74`
+> and `9kg.71` (follow-ups). The owner decision package is `031`, the release-control readback and host requests are
+> `032`, and readiness by boundary is in `006`. The "new" and "reused" column says how a bead entered this plan, not
+> its state.
 
 Epics reused: P6 `9kg`, PL `dy7`, P3 `oc4`, selection quality `f1u`, policies `211.7`. One new feature bead,
 `9kg.31`, is the launch milestone. Authority classes: repo-only; GitHub-admin; target-host read; target-host write;
