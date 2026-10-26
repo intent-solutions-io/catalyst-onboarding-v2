@@ -27,6 +27,7 @@ from applications.models import Application, ApplicationEvent, ContactChallenge,
 from config import backup
 from correspondence.models import InboundMessage, OutboundMessage
 from erasure import catalog, record, registry, service
+from tests import support
 from tests.support import manage_as_owner, run
 from tests.test_backup_commands import run_backup
 from tests.test_closure import active_member, cl  # noqa: F401  (fixture chain and helper)
@@ -38,7 +39,7 @@ from workflow import journal
 from workflow.models import AutomationPause, PendingAction
 
 ROLES = settings.CATALYST_DB_ROLES
-KEY = "synthetic-erasure-key-for-tests-only-0123456789abcdef"  # gitleaks:allow (synthetic; never a real key)
+KEY = support.ERASURE_KEY
 AUTHORITY, REASON = "pol-10:synthetic-decision", "subject-request"
 DECIDED = {
     **{name: {"treatment": registry.ANONYMIZE, "retention": "synthetic-p90d"} for name in registry.SUBJECT_CLASSES},
@@ -65,7 +66,6 @@ def raises_sqlstate(code, conn, statement, params):
 def decided(monkeypatch, settings):
     """A decided synthetic registry and a synthetic erasure key (the shipped registry is undecided: refuse)."""
     monkeypatch.setattr(registry, "REGISTRY", DECIDED)
-    monkeypatch.setattr(registry, "REPLAY_BUILT", True)  # what 9kg.25 will flip; until then nothing real proceeds
     settings.CATALYST_ERASURE_KEY = KEY
     return DECIDED
 
@@ -145,17 +145,13 @@ def digests(owner) -> dict:
 def test_9kg_32_the_registry_ships_undecided_and_refuses_the_erasure_and_a_real_backup(privileged_reset, settings):
     assert registry.REGISTRY.keys() == DECIDED.keys()
     assert all(row == {"treatment": "undecided", "retention": "undecided"} for row in registry.REGISTRY.values())
-    assert registry.REPLAY_BUILT is False  # 9kg.25 flips it with the replay
-    assert len(registry.problems()) == 2 * len(registry.REGISTRY) + 1
-    assert registry.problems(DECIDED) == ["replay:not_built"]  # decided rows still cannot open live backups
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(registry, "REPLAY_BUILT", True)
-        assert registry.problems(DECIDED) == []
-        assert registry.problems({**DECIDED, "signed_documents": {"treatment": "anonymize", "retention": "p1y"}}) == [
-            "signed_documents.treatment:unsupported"]  # `retain` or `destroy_key` (9kg.34), never `anonymize`
-        for stranded in registry.KEY_SELECTED_CLASSES:  # their rows are found only by the real key
-            assert registry.problems({**DECIDED, stranded: {"treatment": "retain", "retention": "p1y"}}) == [
-                "application_identity:retains_key_selected_classes"], stranded
+    assert len(registry.problems()) == 2 * len(registry.REGISTRY)
+    assert registry.problems(DECIDED) == []  # 9kg.25: replay after a restore exists, so decided rows are enough
+    assert registry.problems({**DECIDED, "signed_documents": {"treatment": "anonymize", "retention": "p1y"}}) == [
+        "signed_documents.treatment:unsupported"]  # `retain` or `destroy_key` (9kg.34), never `anonymize`
+    for stranded in registry.KEY_SELECTED_CLASSES:  # their rows are found only by the real key
+        assert registry.problems({**DECIDED, stranded: {"treatment": "retain", "retention": "p1y"}}) == [
+            "application_identity:retains_key_selected_classes"], stranded
     settings.CATALYST_ERASURE_KEY = KEY
     app = subject()
     with pytest.raises(service.Refused) as refused:
@@ -232,7 +228,8 @@ def test_9kg_32_the_branch_is_in_every_guarded_function_once_and_the_installed_f
     # The installed generated functions are exactly what the map generates for this schema (a new subject column needs
     # a migration that reinstalls them).
     for name, generated in (("catalyst_erasure_admits", catalog.checker_sql(retention, existing)),
-                            ("catalyst_erase", catalog.erase_sql(retention, existing))):
+                            ("catalyst_erase", catalog.erase_sql(retention, existing)),
+                            ("catalyst_erase_replay", catalog.erase_sql(retention, existing, replay=True))):
         assert sources[name] == generated.split("$fn$")[1], name
     # Derived from the catalog, not a list (PR #99 review): every UPDATE trigger on a table with subject columns calls a
     # function that carries the branch, so no trigger there can refuse the audited path unseen.
@@ -659,7 +656,6 @@ import django
 django.setup()
 from erasure import registry
 registry.REGISTRY = json.loads(sys.argv[1])
-registry.REPLAY_BUILT = True
 from django.core.management import call_command
 call_command("catalyst_erase", "--subject", sys.argv[2], "--authority", "pol-10:synthetic-decision", "--reason", "subject-request")
 """
@@ -735,8 +731,8 @@ def test_9kg_32_the_erasure_migration_reverses_and_reapplies_and_keeps_the_rows(
     finally:
         with admin("postgres") as conn:
             conn.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(fresh)))
-    assert owner.execute("SELECT count(*) FROM pg_proc WHERE proname IN ('catalyst_erase', 'catalyst_erasure_admits',"
-                         " 'catalyst_erasable_append_only')").fetchone()[0] == 0
+    assert owner.execute("SELECT count(*) FROM pg_proc WHERE proname IN ('catalyst_erase', 'catalyst_erase_replay',"
+                         " 'catalyst_erasure_admits', 'catalyst_erasable_append_only')").fetchone()[0] == 0
     assert owner.execute("SELECT count(*) FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid"
                          " WHERE p.proname = 'catalyst_append_only_strict' AND t.tgname <> 'catalyst_no_truncate'"
                          " AND t.tgrelid::regclass::text IN ('applications_retentionaudit', 'agreements_agreementrecipient',"
@@ -756,11 +752,12 @@ def test_9kg_32_the_new_functions_have_their_owner_definer_and_search_path():
     with connection.cursor() as cursor:
         cursor.execute("SELECT p.proname, p.prosecdef, p.proconfig, pg_get_userbyid(p.proowner) FROM pg_proc p"
                        " JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = ANY(%s)",
-                       [["catalyst_erase", "catalyst_erasure_admits", "catalyst_erasable_append_only",
-                         "catalyst_erasure_audit_txid"]])
+                       [["catalyst_erase", "catalyst_erase_replay", "catalyst_erasure_admits",
+                         "catalyst_erasable_append_only", "catalyst_erasure_audit_txid"]])
         rows = {name: (definer, config, owner) for name, definer, config, owner in cursor.fetchall()}
     assert rows == {
         "catalyst_erase": (True, ["search_path=pg_catalog, public, pg_temp"], ROLES["owner"]),
+        "catalyst_erase_replay": (True, ["search_path=pg_catalog, public, pg_temp"], ROLES["owner"]),  # 9kg.25
         "catalyst_erasure_admits": (True, ["search_path=pg_catalog, public, pg_temp"], ROLES["owner"]),
         "catalyst_erasable_append_only": (False, ["search_path=public, pg_temp"], ROLES["owner"]),
         "catalyst_erasure_audit_txid": (False, ["search_path=public, pg_temp"], ROLES["owner"]),
@@ -825,7 +822,7 @@ def test_9kg_32_an_interrupted_first_erasure_is_listed_without_a_head_and_raises
     with pytest.raises(SystemExit):
         call_command("catalyst_erasure_record", "--list-open")
     # The resume needs no registry gate: an erasure already begun is finished even while a value is undecided.
-    monkeypatch.setattr(registry, "REPLAY_BUILT", False)
+    monkeypatch.setattr(registry, "REGISTRY", {**DECIDED, "effect_journal": {"treatment": "undecided", "retention": "undecided"}})
     assert erase(privileged_reset, app.public_ref).status == "erased"
     assert record.list_open()["open"] == []
     assert system_health.erasure_health()["anomalies"] == ["handoff_owed"]
@@ -872,14 +869,14 @@ def test_9kg_32_an_already_tombstoned_subject_still_runs_the_classes_scoped_by_i
     assert ApplicationEvent.objects.get(application=app, kind="late_note").data == {}
 
 
-def test_9kg_32_a_restore_hold_cannot_lift_while_the_journal_holds_an_unreplayed_erasure(privileged_reset, decided):
+def test_9kg_25_a_restore_hold_cannot_lift_while_the_journal_holds_an_unreplayed_erasure(privileged_reset, decided):
     from django.db import connection
 
     from config import post_restore
 
     app = subject()
     erase(privileged_reset, app.public_ref)
-    assert post_restore.erasures_unreplayed() is False  # replay "built" in this test's registry
+    assert post_restore.erasure_replay_problem() == "unreplayed"  # 9kg.25: nothing replayed it yet
     owner = privileged_reset.connect("owner", autocommit=True)
     owner.execute("INSERT INTO workflow_automationpause (subject_type, subject_id, reason, actor_ref, created_at)"
                   " VALUES ('system', '00000000-0000-0000-0000-00000000aaaa', %s, 'catalyst_restore|::', now())",
@@ -887,6 +884,6 @@ def test_9kg_32_a_restore_hold_cannot_lift_while_the_journal_holds_an_unreplayed
     result = run([sys.executable, "manage.py", "catalyst_post_restore", "--confirm-database", connection.settings_dict["NAME"],
                   "--lift", "--outward-checked", "--no-closures-after-backup"], timeout=120,
                  CATALYST_DB_NAME=connection.settings_dict["NAME"], CATALYST_DB_USER=ROLES["owner"],
-                 CATALYST_DB_PASSWORD=os.environ["CATALYST_DB_OWNER_PASSWORD"])
-    assert result.returncode != 0 and post_restore.ITEM_ERASURE in result.stderr, result.stderr
+                 CATALYST_DB_PASSWORD=os.environ["CATALYST_DB_OWNER_PASSWORD"], CATALYST_ERASURE_KEY=KEY)
+    assert result.returncode != 0 and "erasure replay missing (unreplayed)" in result.stderr, result.stderr
     assert owner.execute("SELECT count(*) FROM workflow_automationpause WHERE subject_type = 'system'").fetchone()[0] == 1

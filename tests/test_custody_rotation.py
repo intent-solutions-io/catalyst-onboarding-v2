@@ -46,7 +46,7 @@ def head():
 def test_9kg_69_rotation_rewraps_every_live_key_keeps_every_document_open_and_never_revives_a_destroyed_one(
         custody, settings):
     kept = documents(3)
-    erased = drill.synthetic_document(subject(email="erased@example.test", name="Erased Example"), b"%PDF-1.7 erased")
+    erased = drill.synthetic_document(subject(email="erased@example.test", name="Other Example"), b"%PDF-1.7 erased")
     keystore.destroy(str(erased.application.public_ref), [erased.envelope.key_ref])
     old = keystore.wrapping_key()
     old_id = keystore.wrapping_key_id(old)
