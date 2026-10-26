@@ -495,6 +495,9 @@ def journal_problems(settings) -> list[str]:
     problem = journal.directory_problem(write=kind in ("web", "worker", "reconcile"))
     if problem and not (problem == "not_configured"):
         return [f"CATALYST_EFFECT_JOURNAL_DIR is {problem}: a private (0700) directory this process can write"]
+    if getattr(settings, "CATALYST_ENV", "") in LIVE_ENVIRONMENTS and not getattr(settings, "CATALYST_JOURNAL_SHIP_LAG_SECONDS", 0):
+        return ["CATALYST_JOURNAL_SHIP_LAG_SECONDS must be set in a live environment: the journal is shipped off the host "
+                "and its lag pages (9kg.60)"]
     return []
 
 

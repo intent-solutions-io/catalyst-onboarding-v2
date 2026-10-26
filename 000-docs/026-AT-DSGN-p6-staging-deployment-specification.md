@@ -2124,6 +2124,45 @@ hardened after the PR #102 security, release-operations and data reviews).**
   - The staging stand-in and `nip.io` are outside dependencies of the staging check, like the existing TEST-P6-30
     cases; without public DNS the by-address cases print NOT RUN.
 
+**9kg.60, the effect journal shipped off the host (029 section 6.2's deferred item; 2026-10-26).**
+
+- **Why.** The journal lives on a volume on the same host as the database. Host loss is the usual reason to restore,
+  and the effects after the last backup then have no copy anywhere. The restore drill carries the journal by hand
+  from a volume that still exists, which models a planned move, not a loss.
+- **Built** (`workflow/shipping.py`):
+  - `catalyst_journal_ship --to <absolute directory>` copies the journal bytes and `head.json` (identity, seq, hash,
+    time) to a destination the host names. It reads the bytes and verifies their chain in one locked read. It writes
+    under temporary names, fsyncs and renames into place. It records the shipped head beside the journal
+    (`effects.shipped`).
+  - It refuses a destination inside the journal, the repository, custody or a key directory.
+  - It refuses (`destination_ahead_of_journal`) when the destination already holds a head the local journal lacks.
+    The local journal lost shipped entries (rolled back, emptied or replaced), and overwriting would destroy their
+    only copy.
+  - The `journal` health part pages `effect_journal_ship_lag` once the oldest unshipped entry is older than
+    `CATALYST_JOURNAL_SHIP_LAG_SECONDS`, and `effect_journal_never_shipped` while that is set and nothing was
+    shipped. It pages `effect_journal_behind_shipped` when the local journal no longer holds what it shipped. A live
+    environment refuses to start with the threshold at 0.
+  - `catalyst_restore --shipped-head <identity:seq:hash | none>` (read from `head.json` at the copy) refuses, before
+    the load, a journal that does not hold the last shipped head. `--accept-journal-behind-shipped` is the owner's
+    recorded override (`behind_shipped` on the journal's `restore` entry). A live restore must name the head.
+- **The host's part** (`9kg.28`, not built here):
+  - the destination: another machine or mount, never inside the backup output, because a backup store is not a
+    backup source;
+  - the timer and its cadence (every few minutes);
+  - the threshold, which is the journal's RPO and the owner's (`211.7.2`);
+  - the runbook step: on a lost host, copy `effects.jsonl` from the destination into the new journal volume, then
+    restore with `--shipped-head` from `head.json`.
+- **Evidence:** `tests/test_journal_shipping.py`, 7 tests, mapped under `P6_SUPPORTING` in group "9kg.60". They cover:
+  - a whole copy with a matching head, and unsafe destinations refused;
+  - a rolled-back local journal never overwriting the copy;
+  - the lag, never-shipped and behind-shipped signals;
+  - the live threshold guard;
+  - the shipped-head check, with its override;
+  - a real restore refused before the load, then accepted and recorded;
+  - the command.
+- **Not yet shown:** the restore drill still carries the journal by hand. A drill leg that ships to an off-host
+  directory and restores from it after the source is gone belongs with the host destination (`9kg.28`).
+
 ## 17. The aged-waits health part (9kg.51, 2026-10-23)
 
 `029` section 5.2 listed the waits with no bound once the first-generation owner notices retire: an application in

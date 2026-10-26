@@ -1674,6 +1674,15 @@ P6_SUPPORTING = {
         "test_erasure::test_9kg_32_an_already_tombstoned_subject_still_runs_the_classes_scoped_by_its_references",
         "test_erasure::test_9kg_32_a_restore_hold_cannot_lift_while_the_journal_holds_an_unreplayed_erasure",
     ],
+    "9kg.60 the effect journal shipped off the host, its lag paged, and a restore behind the shipped head refused (026)": [
+        "test_journal_shipping::test_9kg_60_the_journal_and_its_head_are_shipped_whole_and_recorded_beside_the_journal",
+        "test_journal_shipping::test_9kg_60_a_local_journal_that_lost_shipped_entries_never_overwrites_the_copy",
+        "test_journal_shipping::test_9kg_60_the_lag_pages_past_the_threshold_and_never_shipped_pages_too",
+        "test_journal_shipping::test_9kg_60_a_live_environment_must_set_the_lag_threshold",
+        "test_journal_shipping::test_9kg_60_the_shipped_head_check_refuses_a_journal_behind_it_unless_the_owner_accepts",
+        "test_journal_shipping::test_9kg_60_a_restore_refuses_a_journal_behind_the_shipped_head_before_the_load",
+        "test_journal_shipping::test_9kg_60_the_command_ships_and_refuses_with_a_code",
+    ],
     "9kg.34 custody sealed at rest with per-document keys outside the backup, recoverable and destroyed on erasure (029 section 6.2)": [
         "test_custody_encryption::test_9kg_34_a_signed_document_is_sealed_at_rest_under_its_own_key_and_retrieval_returns_the_recorded_plaintext",
         "test_custody_encryption::test_9kg_34_nothing_new_is_stored_in_the_clear_and_a_live_environment_stores_nothing_while_the_decision_is_open",

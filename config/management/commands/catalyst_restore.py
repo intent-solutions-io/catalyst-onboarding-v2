@@ -30,15 +30,21 @@ class Command(BaseCommand):
         parser.add_argument("--storage-dir", required=True, help="an empty or new custody directory to restore into")
         parser.add_argument("--confirm-database", required=True, help="the target database's name, typed again")
         parser.add_argument("--expect-manifest-sha256", default="", help="the manifest digest recorded with the set")
+        parser.add_argument("--shipped-head", default="",
+                            help="9kg.60: the journal head last shipped off the host (head.json at the copy), or none")
+        parser.add_argument("--accept-journal-behind-shipped", action="store_true",
+                            help="the owner accepts losing the journal entries after the local head (recorded)")
 
-    def handle(self, *args, source, storage_dir, confirm_database, expect_manifest_sha256, **options):
+    def handle(self, *args, source, storage_dir, confirm_database, expect_manifest_sha256, shipped_head,
+               accept_journal_behind_shipped, **options):
         os.umask(0o077)
         args = {**connection_args(), "user": os.environ["CATALYST_DB_ADMIN_USER"], "password": admin_password()}
         try:
             with psycopg.connect(**args) as conn:
                 summary = backup.restore(conn, Path(source), Path(storage_dir), database=args["dbname"],
                                          confirm_database=confirm_database,
-                                         expect_manifest_sha256=expect_manifest_sha256)
+                                         expect_manifest_sha256=expect_manifest_sha256, shipped_head=shipped_head,
+                                         accept_behind_shipped=accept_journal_behind_shipped)
         except backup.BackupError as exc:
             self.stderr.write(f"restore refused: {exc}")
             raise SystemExit(1) from None

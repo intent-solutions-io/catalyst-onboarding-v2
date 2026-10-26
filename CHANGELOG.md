@@ -159,6 +159,11 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   lift; start-up only checks), recovery needs the out-of-band head and the erasure key, a resumed erasure checks the key
   store before it commits, one document that cannot be sealed never stops the migration, the associated data binds the recorded hash, erasure 0003 reverses cleanly, and the drill
   shows both outcomes
+- The effect journal shipped off the host (bead `9kg.60`; `026` section 16): `catalyst_journal_ship --to` copies the
+  chain-verified journal and its head to a directory the host names. It never overwrites a copy that holds entries the
+  local journal lost. The health part pages shipping lag, never-shipped and behind-shipped (threshold
+  `CATALYST_JOURNAL_SHIP_LAG_SECONDS`, required in a live environment). `catalyst_restore --shipped-head` refuses a
+  journal that does not hold the last shipped head unless the owner records `--accept-journal-behind-shipped`
 - Hardening (internal-launch batch item 6): the database freezes inbound message provenance and the identity
   columns of outbound attempts and reply links for every role, with the audited retention path left open for
   erasure (correspondence migration 0017, `016` section 10.14)
