@@ -612,15 +612,17 @@ def test_the_evidence_register_reproduces_aar_028_per_case_and_in_total():
     # Batch 2 (PR #84) moved 10, 24 and 25 to full; 25 was partial against 9kg.63 while the deploy drill submitted
     # without an invitation under the invitation-only default (PR #85), and is full again since the drill invites
     # before each submission and ran 60 of 60 (026 section 16, the 9kg.63 record).
-    assert sorted(moved) == ["TEST-P6-10", "TEST-P6-24", "TEST-P6-25"]
+    # 9kg.25 (PR #103) moved 29 to full: erasure replay after a restore, its one clause 028 left open.
+    assert sorted(moved) == ["TEST-P6-10", "TEST-P6-24", "TEST-P6-25", "TEST-P6-29"]
     summary = acceptance.summarise(acceptance.register({c: "PASS" for c in acceptance.P6_CASES}))
-    assert (summary["full"], summary["partial"], summary["live_only"]) == (24, 14, ["TEST-P6-27"])
-    # 24 full, less the live-only case (recorded, never a pytest result) and the four full shape-only cases (08, 24,
-    # 25, 26): 25 moved back to full adds no proven case, since its gated tests pin the shape and the drill shows it.
-    assert summary["proven_this_run"] == 19
+    assert (summary["full"], summary["partial"], summary["live_only"]) == (25, 13, ["TEST-P6-27"])
+    # 25 full, less the live-only case (recorded, never a pytest result) and the four full shape-only cases (08, 24,
+    # 25, 26): 25 moved back to full adds no proven case, since its gated tests pin the shape and the drill shows it;
+    # 29 adds one, its replay proved through a real backup and restore in pytest.
+    assert summary["proven_this_run"] == 20
     # A partial case is never proven, whatever its gate result, and a failed full case is not proven either.
     rows = acceptance.register({c: "PASS" if c != "TEST-P6-02" else "FAIL" for c in acceptance.P6_CASES})
-    assert acceptance.summarise(rows)["proven_this_run"] == 18
+    assert acceptance.summarise(rows)["proven_this_run"] == 19
     assert not any(r["proven_this_run"] for r in rows if r["partial"])
 
 

@@ -15,6 +15,9 @@
 # backup), backs it up, destroys the key after the backup (the erasure's step), restores the set into a fresh database
 # and shows the restored document cannot be opened; the set holds no key material and no plaintext. The off-site,
 # object-locked leg of the real chain cannot run from this repository: reported NOT RUN.
+# 9kg.25: the post-restore review refuses until the erasure record is replayed (as the retention login, with the
+# erasure key); on the fourth stack the applicant is erased after the backup by the real erasure command, the older set
+# is restored, and the replay, its controls, a second replay, the review, the lift and a later backup are shown.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 work="$(mktemp -d)"
@@ -76,6 +79,11 @@ head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$work/secrets/custody_wra
 # 9kg.34: the erasure key, for the mac of each journaled key destruction (mounted only into the custody leg's one-shot).
 printf 'synthetic-erasure-%s' "$(head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48)" > "$work/secrets/erasure_key"
 chmod 0444 "$work/secrets"/*
+# 9kg.25: the erasure replay's one-shots run as the retention login with the erasure key, from a secrets directory of
+# their own (the service's own secrets name the owner's password).
+install -d -m 0755 "$work/erasure-secrets"
+for name in secret_key verification_key verification_fallback_keys erasure_key; do cp "$work/secrets/$name" "$work/erasure-secrets/"; done
+cp "$work/secrets/retention_password" "$work/erasure-secrets/db_password" && chmod 0444 "$work/erasure-secrets"/*
 docker build -q --target staging --build-arg "CATALYST_COMMIT=$(git rev-parse HEAD)" -t "$CATALYST_IMAGE" . >/dev/null || exit 1
 as_root "$CATALYST_IMAGE" sh -c 'chown 10001:10001 /archive && chmod 0700 /archive'
 
@@ -158,7 +166,23 @@ b up -d --no-deps --wait web proxy >/dev/null 2>&1
 for _ in $(seq 30); do offered 19443 "$link" && break; sleep 1; done
 check "TEST-P6-29 control: before the post-restore step, the restored link still opens" offered 19443 "$link"
 b stop web proxy >/dev/null 2>&1  # the post-restore step runs with nothing serving (026 section 6)
-b --profile ops run --rm --no-deps -T restore python manage.py catalyst_post_restore --confirm-database catalyst >"$work/post.out" 2>&1
+as_owner() { "$1" --profile ops run --rm --no-deps -T restore "${@:2}"; }  # the review: no erasure key (it reads the providers)
+as_owner_with_key() {  # the lift's one-shot, also holding the erasure key (it verifies the replay marker's mac)
+  "$1" --profile ops run --rm --no-deps -T -v "$work/secrets/erasure_key:/run/secrets/erasure_key:ro" restore "${@:2}"
+}
+as_retention() {  # as_retention <stack> [docker run options] -- <manage.py arguments>: the retention login, the erasure key
+  local stack="$1" opts=(); shift
+  while [ "$1" != -- ]; do opts+=("$1"); shift; done; shift
+  "$stack" run --rm --no-deps -T -e CATALYST_DB_USER=catalyst_retention -e CATALYST_SECRETS_DIR=/run/erasure-secrets \
+    -v "$work/erasure-secrets:/run/erasure-secrets:ro" "${opts[@]}" migrate python manage.py "$@"
+}
+as_owner b python manage.py catalyst_post_restore --confirm-database catalyst >"$work/post-unreplayed.out" 2>&1
+check "9kg.25 the post-restore review refuses before the erasure replay" test $? = 1
+check "9kg.25 ... for that reason" grep -q "erasure replay missing (unreplayed)" "$work/post-unreplayed.out"
+as_retention b -- catalyst_erasure_replay --expect-head none >"$work/replay.out" 2>&1
+check "9kg.25 the erasure replay runs as the retention login (no erasure was ever made: head none)" test $? = 0
+[ "$fail" = 0 ] || sed 's/^/  replay said: /' "$work/replay.out" | tail -3
+as_owner b python manage.py catalyst_post_restore --confirm-database catalyst >"$work/post.out" 2>&1
 check "the post-restore review runs" test $? = 0
 [ "$fail" = 0 ] || sed 's/^/  post-restore said: /' "$work/post.out" | tail -3
 # 9kg.33: the review replayed the journal (the account created after the backup is a grant: the owner's act, so it
@@ -168,14 +192,14 @@ effect_item="$(python3 -c 'import json,sys;r=json.loads(sys.argv[1]);print(next(
 check "9kg.33 the review read the journal and reconciled every provider it needed (no evidence missing)" \
   test "$(python3 -c 'import json,sys;r=json.loads(sys.argv[1]);print(r["effects"]["journal"], len(r["effects"]["blocked"]))' "$report" 2>/dev/null)" = "ok 0"
 check "9kg.33 the account created after the backup is a staff item for the owner, not a replay" test -n "$effect_item"
-b --profile ops run --rm --no-deps -T restore python manage.py catalyst_post_restore --confirm-database catalyst --lift \
+as_owner_with_key b python manage.py catalyst_post_restore --confirm-database catalyst --lift \
   --outward-checked --no-closures-after-backup >"$work/lift-refused.out" 2>&1
 check "9kg.33 the lift is refused while a restore_effect_ item is open" test $? = 1
 check "9kg.33 ... for that reason" grep -q "effects are unresolved" "$work/lift-refused.out"
 b --profile ops run --rm --no-deps -T restore python manage.py catalyst_post_restore --confirm-database catalyst \
   --resolve "$effect_item" --note "Drill: the owner re-creates the account after the restore" >"$work/resolve.out" 2>&1
 check "9kg.33 the owner resolves the effect with a reason" test $? = 0
-b --profile ops run --rm --no-deps -T restore python manage.py catalyst_post_restore --confirm-database catalyst --lift \
+as_owner_with_key b python manage.py catalyst_post_restore --confirm-database catalyst --lift \
   --outward-checked --no-closures-after-backup >"$work/lift.out" 2>&1
 check "the post-restore lift runs once the effects are reconciled and resolved (effects reconciled)" test $? = 0
 check "9kg.33 the restored stack has no account created after the backup (a grant is never replayed from a file)" \
@@ -215,11 +239,12 @@ grep -q "journal_mismatch" "$work/restore-empty.out" || grep -E "refused|failed"
 check "9kg.33 ... and the empty target stayed empty" test "$(count_applications c)" = 0
 c --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
 
-# --- 9kg.34: crypto-shredding against an older backup, on a fourth stack ------------------------------------------
+# --- 9kg.34 and 9kg.25: crypto-shredding and erasure replay against an older backup, on a fourth stack ---------------
 # The custody files are sealed under per-document keys kept in two volumes of their own (the key directory and its
-# live mirror), which no backup reads. The drill command points custody at the volumes for its own run (staging stores
-# no custody files otherwise) and the key is destroyed with the erasure's own step (the erasure command itself refuses
-# while the POL-10 registry is undecided).
+# live mirror), which no backup reads. The drill commands point custody at the volumes for their own run (staging
+# stores no custody files otherwise). The subject is erased after the backup by the real erasure command, as the
+# retention login: the shipped POL-10 registry is undecided and refuses every erasure, so `catalyst_erasure_drill`
+# installs a decided synthetic registry for its own process and calls the real commands (erase, then replay).
 custody_project="catalyst-restore-custody-$$"
 keys_vol="$custody_project-keys" mirror_vol="$custody_project-keys-mirror"
 e() { CATALYST_PUBLIC_PORT=21443 CATALYST_STAFF_PORT=21444 docker compose --project-name "$custody_project" -f deploy/staging/compose.yaml "$@"; }
@@ -232,6 +257,9 @@ cdrill() {  # cdrill <custody dir> <action> [arguments]: the custody drill comma
     -v "$work/secrets/erasure_key:/run/secrets/erasure_key:ro" migrate python manage.py \
     catalyst_custody_drill "$1" --storage-dir "$dir" --key-dir /var/lib/catalyst/custody-keys \
     --mirror-dir /var/lib/catalyst/custody-keys-mirror "${@:2}" 2>"$work/cdrill.err" | tail -1
+}
+etrace() {  # etrace <needle>: rows of the stack's tables holding a synthetic marker (the owner's one-shot)
+  e run --rm --no-deps -T migrate python manage.py catalyst_erasure_drill trace --needle "$1" 2>/dev/null | tail -1
 }
 field() { python3 -c 'import json,sys;print(json.loads(sys.argv[1]).get(sys.argv[2], ""))' "$1" "$2" 2>/dev/null; }
 fresh_custody_db() {
@@ -272,8 +300,19 @@ check "9kg.34 the set holds both sealed files and was read (sealed files 2, file
 check "9kg.34 the set holds no key material (no key file, no wrapped key, no data key, no wrapping key)" \
   test "$(field "$absent" key_material_found):$(field "$absent" key_files_in_set)" = "0:0"
 check "9kg.34 ... and no plaintext (the document's marker is in no file of the set)" test "$(field "$absent" plaintext_marker_found)" = 0
-check "9kg.34 one key is destroyed after the backup (journaled with its mac, then unlinked from the mirror and the key directory)" \
-  test "$(field "$(cdrill /var/lib/catalyst/custody destroy --document "$document")" destroyed)" = 2
+subject_ref="$(field "$seeded" application)" tag="custody-drill-${marker#SYNTHETIC-CUSTODY-DRILL-}"
+control_tag="custody-drill-${control_marker#SYNTHETIC-CUSTODY-DRILL-}"
+erased="$(as_retention e -v "${custody_project}_catalyst-custody:/var/lib/catalyst/custody" \
+  -v "$keys_vol:/var/lib/catalyst/custody-keys" -v "$mirror_vol:/var/lib/catalyst/custody-keys-mirror" -- \
+  catalyst_erasure_drill erase --subject "$subject_ref" --storage-dir /var/lib/catalyst/custody \
+  --key-dir /var/lib/catalyst/custody-keys --mirror-dir /var/lib/catalyst/custody-keys-mirror 2>"$work/erase.err" | tail -1)"
+erasure_head="$(field "$erased" journal_head)"
+check "9kg.25 the subject is erased after the backup by the erasure command, as the retention login" \
+  test "$(field "$erased" status)" = erased
+[ -n "$erasure_head" ] || sed 's/^/  erase said: /' "$work/erase.err" | tail -3
+check "9kg.34 its one key is destroyed (journaled with its mac, then unlinked from the mirror and the key directory)" \
+  test "$(field "$erased" keys_destroyed):$(field "$erased" key_files_removed)" = 1:2
+check "9kg.25 the live tables no longer hold the subject's address" test "$(field "$(etrace "$tag")" rows)" = 0
 check "9kg.34 the live copy of that document can no longer be opened" \
   test "$(field "$(cdrill /var/lib/catalyst/custody read --document "$document")" code)" = custody_key_destroyed
 e rm -sf db >/dev/null 2>&1 && docker volume rm "${custody_project}_catalyst-db" >/dev/null 2>&1  # the database is lost
@@ -283,6 +322,35 @@ e --profile ops run --rm --no-deps -T -v "$archive:/archive:ro" restore python m
   >"$work/restore-custody.out" 2>&1
 check "9kg.34 the older set restores into a fresh database (rows and the sealed files come back)" test $? = 0
 grep -q '"restored"' "$work/restore-custody.out" || grep -E "refused|failed" "$work/restore-custody.out" | sed 's/^/  custody restore said: /' | tail -2
+check "9kg.25 control: restored as it was, the older set holds the erased subject's address again" \
+  test "$(field "$(etrace "$tag")" rows)" -gt 0
+as_owner e python manage.py catalyst_post_restore --confirm-database catalyst >"$work/post-custody-unreplayed.out" 2>&1
+check "9kg.25 the post-restore review refuses before the erasure replay" test $? = 1
+as_retention e -- catalyst_erasure_drill replay --expect-head none >"$work/replay-none.out" 2>&1
+check "9kg.25 a replay without the out-of-band head is refused (the journal holds erasures)" test $? = 1
+check "9kg.25 ... because the head it was given is not the journal's" grep -q "record_journal_mismatch" "$work/replay-none.out"
+replayed="$(as_retention e -- catalyst_erasure_drill replay --expect-head "$erasure_head" 2>"$work/replay.err" | tail -1)"
+check "9kg.25 the replay re-applies the erasure to the restored tables, verified against the out-of-band head" \
+  test "$(field "$replayed" subjects):$(field "$replayed" erased):$(field "$replayed" absent)" = 1:1:0
+[ -n "$replayed" ] || sed 's/^/  replay said: /' "$work/replay.err" | tail -3
+check "9kg.25 ... and no row of the restored tables holds the subject's address" test "$(field "$(etrace "$tag")" rows)" = 0
+check "9kg.25 positive control: the applicant nobody erased is still there" test "$(field "$(etrace "$control_tag")" rows)" -gt 0
+again="$(as_retention e -- catalyst_erasure_drill replay --expect-head "$erasure_head" 2>/dev/null | tail -1)"
+check "9kg.25 a second replay is harmless (nothing left to change)" \
+  test "$(field "$again" erased):$(field "$again" already)" = 0:1
+as_owner e python manage.py catalyst_post_restore --confirm-database catalyst >"$work/post-custody.out" 2>&1
+check "9kg.25 the post-restore review runs once the erasures are replayed" test $? = 0
+[ "$fail" = 0 ] || sed 's/^/  custody review said: /' "$work/post-custody.out" | tail -3
+# Staging has no Documenso, and this stack holds the seeded applicants' agreement records: the envelope read cannot
+# complete, so the review stays at "reviewed" and the lift refuses for that evidence (fail closed), never for the
+# erasure. The lift after a replay is shown on the main leg; the marker's re-read at the lift is in pytest.
+check "9kg.25 ... and the only evidence it still misses is the envelope read (no Documenso in staging)" \
+  test "$(python3 -c 'import json,sys;r=json.loads(open(sys.argv[1]).read().strip().splitlines()[-1]);print(",".join(r["effects"]["blocked"]))' "$work/post-custody.out" 2>/dev/null)" = envelopes
+as_owner_with_key e python manage.py catalyst_post_restore --confirm-database catalyst --lift --outward-checked \
+  --no-closures-after-backup >"$work/lift-custody.out" 2>&1
+check "9kg.25 the lift keeps the hold for the missing envelope evidence, not for the erasure" \
+  bash -c "grep -q 'evidence missing or unreachable' '$work/lift-custody.out' && ! grep -q 'erasure replay missing' '$work/lift-custody.out'"
+echo "BY DESIGN the restore hold is procedural for the web process: it serves the restored rows as soon as it starts, so nothing is started before the lift (026 section 6)"
 check "9kg.34 the restored rows name both documents and their envelopes" test "$(e run --rm --no-deps -T migrate python manage.py shell -c \
   "from agreements.models import CustodyEnvelope, StoredDocument; print(StoredDocument.objects.count(), CustodyEnvelope.objects.count())" 2>/dev/null | tail -1)" = "2 2"
 restored_absent="$(cdrill /var/lib/catalyst/custody absent --set /var/lib/catalyst/custody/restored --marker "$marker")"
@@ -294,6 +362,8 @@ check "9kg.34 the restore of the older backup cannot open the destroyed subject'
   test "$(field "$(cdrill /var/lib/catalyst/custody/restored read --document "$document")" code)" = custody_key_destroyed
 check "9kg.34 ... and the journal names its key as destroyed, with a verified mac" \
   test "$(field "$(cdrill /var/lib/catalyst/custody/restored journaled --document "$document")" journaled_destroyed)" = True
+check "9kg.25 a backup after the erasure and its replay runs (the erased subject's sealed file stays, unreadable)" \
+  test -n "$(field "$(e --profile ops run --rm backup 2>/dev/null | tail -1)" name)"
 echo "NOT RUN 9kg.34 the off-site, object-locked copy: it is reached only through the host's backup fabric, not from this repository; the live-chain drill is a go/no-go evidence item"
 e --profile provision --profile ops down -v --remove-orphans >/dev/null 2>&1
 docker volume rm "$keys_vol" "$mirror_vol" >/dev/null 2>&1

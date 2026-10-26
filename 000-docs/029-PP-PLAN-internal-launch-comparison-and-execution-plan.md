@@ -205,7 +205,7 @@ The owner's question behind this handoff is whether every first-generation featu
 | Withdrawal, suspension, offboarding states with no path to them | Built with applicant and staff paths and recorded revocation | INCLUDED (revocation effects only with provisioning) | IMPROVE (J-16) |
 | Hourly read-only reconcile, frequent monitors, nightly dump, periodic restore drill | Built as the health command, heartbeat, sweep, alerts, backup and restore commands; host timers not installed | INCLUDED once installed | PRESERVE (`9kg.28`); the hourly reconcile as a later timer |
 | Outward-flag gate (host approval record for every outward switch) | Built as environment guards plus activation commands with approval references | INCLUDED | PRESERVE (section 4.5) |
-| Nothing deletes personal data | The erasure path is built (`9kg.32`, section 6.2); its registry is undecided, so it refuses until POL-10; replay after a restore is `9kg.25` | required before real data | IMPROVE (`211.7.1`, `9kg.32`, `9kg.25`) |
+| Nothing deletes personal data | The erasure path is built (`9kg.32`, section 6.2); its registry is undecided, so it refuses until POL-10; replay after a restore is built (`9kg.25`) | required before real data | IMPROVE (`211.7.1`, `9kg.32`, `9kg.25`) |
 | Whatever the later release added (an explicit confirmation step and a countersignature claim are reported) | UNKNOWN | — | VERIFY (U11, `dy7.4`) |
 
 No feature a candidate or staff member relies on is dropped. Three are handled differently on purpose (owner notices,
@@ -255,7 +255,7 @@ three exist in v2 but stay disabled at launch by default (mailbox provisioning, 
 | Withdrawal racing provisioning | worker | the withdrawal services cancel and revoke; unsupported checks stay unresolved | staff item | built against the fake |
 | On hold | staff | `aged_waits.on_hold` (`9kg.51`, built; audit only until listed); the dossier flags it | the decision form: admit or decline (`9kg.50`, built in PR #87) | built |
 | Uncertain Documenso create, distribute or cancel; template approval | decision-maker | staff item (links the agreements screen) | the agreements screen and the template screen (`9kg.47`, built in PR #87) | built |
-| Restore hold | the owner | nothing runs until reconciliation | `catalyst_post_restore` review and lift | built; erasure replay and effect reconciliation open (`9kg.25`, `9kg.33`) |
+| Restore hold | the owner | nothing runs until reconciliation | `catalyst_post_restore` review and lift | built, with erasure replay (`9kg.25`) and effect reconciliation (`9kg.33`) |
 
 The bounds and whether each pages are the owner's values (`211.7.2`, `211.7.7`); the health part that counts aged
 waits is `9kg.51` (`026` section 17). **Still unbounded after PR #87:** verification sent and unconfirmed (the
@@ -303,13 +303,13 @@ screen shows its age (`9kg.41`); the stage, item and pause classes are counted b
 | Evidence observations and digests | PostgreSQL | dumps | yes (no raw bytes, P3-D-13) | retention period |
 | Signed documents | custody directory, sealed at rest under per-document keys (`9kg.34`); the keys in a key directory and its live mirror, outside the backup | the sealed custody copy in every backup set (no key in any); the provider's copy | yes | BUILT (`9kg.34`): registry row `signed_documents` takes `retain` or `destroy_key`; the location, access rule and key recovery are the owner's (`211.7.9`, `agreements/custody_policy.py`, shipped undecided); the provider's copy under P4-D-15 until POL-10 |
 | Logs and receipts | host | the host archive | no | code-only by design (TEST-P6-13, 35) |
-| Backups | the dump and custody set | the host archive, the off-site leg (object-locked) | by policy | the erasure record replayed on restore (`9kg.25`); object-locked copies age out, never purge one person |
+| Backups | the dump and custody set | the host archive, the off-site leg (object-locked) | by policy | the erasure record replayed on restore (`9kg.25`, built); object-locked copies age out, never purge one person |
 | The effect journal (`9kg.33`): public references, opaque staff references, group names, codes, digests, counts and times; no address, name, body or username | the journal volume on the host, outside the backup | the host archive (the volume is the restore's evidence) | yes (append-only, hash-chained; the owner's repair journals itself) | retention and erasure treatment under POL-10 (`211.7.1`): the durable erasure record shares the file (`9kg.32`, section 6.2); kept at least as long as the oldest restorable backup (registry rows `erasure_record`, `effect_journal`) |
 | Selection-review material | none in the repository (`f1u.4`) | private location to approve | — | `f1u.4` |
 | Invitations (the email key, the issuer, the note, the recorded notice and invitation wording digests) | PostgreSQL | dumps; the host archive; the off-site leg | yes (trigger, `9kg.43`, `9kg.52`) | BUILT (`9kg.32`, class `invitations`): the email key becomes a unique tombstone and the note `[erased]` under the audited exception; issuer, times and digests kept; counsel decides the registry row (POL-10) |
 | First-generation agreement-on-file records (the email key, the agreement version labels, the recorder) | PostgreSQL | dumps; the host archive; the off-site leg | yes (trigger, `9kg.52`) | BUILT (`9kg.32`, class `member_on_file`): the email key becomes a unique tombstone under the audited exception; the labels and the attestation kept as the reason a decline was never recorded; counsel decides the registry row (POL-10) |
 
-### 6.2 The erasure design (`9kg.32`, `9kg.33` and `9kg.34` built; `9kg.25` to build)
+### 6.2 The erasure design (`9kg.32`, `9kg.33`, `9kg.34` and `9kg.25` built)
 
 - An erasure is an authorized command run by the retention role, never by web or worker, under POL-10.
 - The smallest durable erasure record (keyed hashes of the erased identifiers, the time and the authority; never a
@@ -356,7 +356,7 @@ screen shows its age (`9kg.41`); the stage, item and pause classes are counted b
 Council record `030` Q3 (D-51) set the shape: build the mechanism now, keep every value in a registry that ships
 undecided, and refuse while anything is undecided. Counsel's POL-10 decision (`211.7.1`) then changes registry rows,
 never the schema. The code is the `erasure` app. Nothing real can be erased or backed up yet: the registry is
-undecided, and it also reports `replay:not_built` until `9kg.25` builds the replay after a restore.
+undecided (until `9kg.25` built the replay after a restore, it also reported `replay:not_built`).
 
 **The registry** (`erasure/registry.py`). One row per data class, each with a `treatment` and a `retention`, every
 value `undecided`.
@@ -368,10 +368,8 @@ value `undecided`.
 - `provider_copies` takes `manual_handoff`.
 - `erasure_record` and `effect_journal` take `retain`, with a period at or above the oldest restorable backup.
 
-`registry.problems()` blocks three further cases:
+`registry.problems()` blocks two further cases (a third, `replay:not_built`, went with `9kg.25`):
 
-- `replay:not_built`, while the `REPLAY_BUILT` constant is false (`9kg.25` flips it in the change that builds the
-  replay);
 - anonymizing `application_identity` while retaining a class found only by the real key (`invitations`,
   `member_on_file`, `mail_derivatives`, `throttle_keys`), because those rows could never be found again;
 - a treatment the mechanism does not support.
@@ -497,27 +495,38 @@ names it only by a 16-hex key id. The database audit row carries no hash.
 - `--list-open` needs no head, so an interrupted first erasure is visible.
 - Health reports `erasure.intent_open` and `erasure.handoff_owed`.
 
-**The restore's resurrection guard** (until `9kg.25`). While `REPLAY_BUILT` is false and the journal holds any
-erasure entry:
-
-- the post-restore review opens `restore_effect_erasure_unreplayed`;
-- `catalyst_post_restore --lift` refuses outright, whether or not that item was resolved by hand.
+**The restore's resurrection guard** (until `9kg.25`; replaced by the replay below). While no replay existed and the
+journal held any erasure entry, the post-restore review opened `restore_effect_erasure_unreplayed` and the lift
+refused outright.
 
 **Never web or worker.** No view or job reaches the erasure, and the command refuses in a web or worker process.
 Stated limit: the retention login can call `catalyst_erase` directly. That would skip the durable record, so the
 operating rule is that the function is called only through the command, and only on the host's erase service
 (`026` section 16). Replay (`9kg.25`) is the one other caller.
 
-**What `9kg.25` (replay after restore) needs.**
+**Replay after a restore, as built (`9kg.25`, 2026-10-26; `026` section 16 has the operations record).**
 
-1. The order: restore, migrate, replay, verify, lift.
-2. Read `erasure.record.fold(journal.read(), key)` (mac-verified). It gives, per public reference, the last intent,
-   its completion and the handoffs done.
-3. For every erased completion and every open intent whose restored row still holds a real key, check the key's HMAC
-   against the hash, then call `public.catalyst_erase` directly with the classes of the registry in force.
+1. The order: restore, migrate, replay (`catalyst_erasure_replay --expect-head <head>`, the retention login and the
+   erasure key), review, lift.
+2. The replay verifies the record against the out-of-band head (`erasure.record.verify`) and reads
+   `erasure.record.fold(journal.read(), key)`, mac-verified: per public reference, the last intent and its
+   completion.
+3. For every erased completion and every open intent, it calls `public.catalyst_erase_replay` (erasure 0004) with
+   the classes of the registry in force and the intent's authority and reason. This is the erase function without
+   its refusals for an open application, work in flight and an unfinished revocation, because the restored rows
+   predate the closure. It runs only under the restore hold, which only the restore's load or the owner can place
+   (workflow 0006). The handoff named `public.catalyst_erase` here; the refusals made that impossible on the usual
+   restore. The replay also matches the recorded subject hash across restored applications, invitations and member
+   records (invited before the backup, erased after it), and a restored key that does not hash to the record refuses
+   before anything is erased.
 4. `unknown_subject` (a subject created after the backup) counts as satisfied.
-5. Refuse to lift while the out-of-band head is missing from the journal.
-6. Then flip `REPLAY_BUILT`.
+5. It ends with an `erasures_replayed` marker, with its mac, bound to the restore and to the last erasure entry. The
+   review and the lift both refuse until a marker written since the hold was placed covers every erasure entry, so
+   the out-of-band head was checked and an erasure made during the hold needs another replay. The lift verifies the
+   marker's mac; the review, which reads the providers, holds no key.
+6. The review settles what the refusals guarded: the work of erased subjects is cancelled, and a subject still open
+   or with an unfinished revocation after the journal's replay gets a `restore_effect_erased_subject_open` item.
+7. `REPLAY_BUILT` and `replay:not_built` are removed; a live backup still waits for POL-10's decided registry.
 
 Class names are append-only: a renamed class would orphan recorded intents.
 
@@ -622,7 +631,7 @@ keys_destroyed` with the number of references verified gone. The database audit 
 
 No new table is added for it.
 
-**What `9kg.25` (replay) needs from custody:** nothing to replay. A destroyed key is outside the rollback domain, so a
+**What `9kg.25` (replay) needed from custody, as built:** nothing to replay. A destroyed key is outside the rollback domain, so a
 restored row already points at a sealed file that cannot be opened without a surviving copy of the wrapped key and the wrapping key. The hook: the journal's `custody_key_destroyed` entries
 name every destroyed key, if replay ever needs to report them.
 
