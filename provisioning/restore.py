@@ -5,8 +5,9 @@ From the effect journal, inside the post-restore transaction:
 - `application_closed`: a restored application that is not closed is closed again through `closure.close_locked`
   (the same stop intents, cancellations and revocation obligations as the original closure), as the system actor.
 - `access_revocation`: a restored obligation whose state is not final takes the journaled final state, so a
-  removal that happened is not reported as outstanding; the revocation round the review queues still runs and
-  reads the provider, which is harmless and confirms it.
+  removal that happened is not reported as outstanding and the review queues no round for it; a removal the journal
+  lacks (the host calls come before the entry's transaction) stays open, and the round the review queues for it
+  repeats the removal and reads the provider.
 
 From the mail host, outside the transaction (`read_mailboxes`): every restored request under which a mailbox may
 exist is read by address. A mailbox the restored record does not account for, or a mailbox the restored record

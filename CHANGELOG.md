@@ -195,11 +195,13 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   finished by running it again. `--retire-old-key` checks that no key file is still under the old key, then journals
   its retirement, so a remnant of an erased document's wrapped key has no key left that opens it. The next key is
   refused by every process but the owner-run rotation
-- The effect registry (bead `9kg.62`; `029` section 6.2): `workflow/effects.py` classifies every function that
-  performs an effect a restore cannot undo, and `tests/test_effect_registry.py` finds those effects in the source and
-  fails on an unclassified, stale or misclassified one, on a journal kind with no writer, and on a provider write
-  method the scanner does not know. The revocation's host calls are recorded as covered by the post-restore review's
-  revocation round, not by the journal entry that follows them. No runtime behaviour changes
+- The effect registry (bead `9kg.62`; `029` section 6.2): `workflow/effects.py` classifies each function that
+  performs an effect a restore cannot undo in seven families (journal, SMTP, Django mail, Documenso, MXroute, IMAP,
+  model), naming the function that covers each one. `tests/test_effect_registry.py` finds those calls in the source
+  and fails on an unclassified, stale or misclassified one, on a journal kind that is unresolvable or has no writer,
+  on a provider write method the scanner does not know, and on a new module that reaches the network, starts a
+  process or writes a file. It found an uncovered case, filed as `9kg.76`: an envelope created after the backup for an
+  agreement the restore does not hold. No runtime behaviour changes
 - The custody health part (bead `9kg.70`; `026` section 16): `catalyst_health` reports the custody key store's state
   without the wrapping key, counts only, and pages each fault under its own code. The codes cover an unavailable
   store (naming the directory), an unsafe store, the wrong wrapping key, a lost key, an incomplete recovery copy,
