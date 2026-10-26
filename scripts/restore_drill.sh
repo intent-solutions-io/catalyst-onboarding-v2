@@ -15,6 +15,9 @@
 # backup), backs it up, destroys the key after the backup (the erasure's step), restores the set into a fresh database
 # and shows the restored document cannot be opened; the set holds no key material and no plaintext. The off-site,
 # object-locked leg of the real chain cannot run from this repository: reported NOT RUN.
+# 9kg.25: the post-restore review refuses until the erasure record is replayed (as the retention login, with the
+# erasure key); on the fourth stack the applicant is erased after the backup by the real erasure command, the older set
+# is restored, and the replay, its controls, a second replay, the review, the lift and a later backup are shown.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 work="$(mktemp -d)"
