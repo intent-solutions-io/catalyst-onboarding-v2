@@ -102,6 +102,11 @@ KINDS = {
     # 9kg.34 (review of PR #102, F2): an orphan the owner reaped: a never-used key (`kind: key`) or a sealed file no row
     # names (`kind: sealed_file`), keyed `custody_orphan:<reference>`.
     "custody_orphan_reaped": {"kind", "phase"},
+    # 9kg.69 (agreements.keystore.rotate, retire): a wrapping-key rotation, keyed `custody_rotation:<old id>:<new id>`
+    # (`prepare` at the start, `done` once every live key is rewrapped and every live document opens under the new
+    # key) and its retirement, keyed `custody_rotation_retired:<old id>`, once no key file is under the old key. Key ids
+    # only (16 hex of a hash), never a key.
+    "custody_rotation": {"from_key", "to_key", "keys", "documents", "phase"},
 }
 RESTRICTIVE = ("application_closed", "access_revocation", "automation_pause", "question_withdrawn", "staff_role_changed")
 

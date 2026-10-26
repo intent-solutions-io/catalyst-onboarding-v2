@@ -185,6 +185,13 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   owner records `--accept-journal-behind-shipped`. The destination needs a provisioning marker, so an unmounted mount
   point is refused; every copy is read back before it counts; and `--rebaseline` keeps an old copy after an accepted
   loss
+- Custody wrapping-key rotation (bead `9kg.69`; `027` section 2, `026` section 16): `catalyst_custody_keys --rotate
+  --expect-head` rewraps every live data key under a next wrapping key mounted for that run only, in both key
+  directories and atomically per file, then opens every live document under the next key before it journals
+  completion. It finishes journaled destructions first and never rewraps a destroyed key. An interrupted run is
+  finished by running it again. `--retire-old-key` checks that no key file is still under the old key, then journals
+  its retirement, so a remnant of an erased document's wrapped key has no key left that opens it. The next key is
+  refused by every process but the owner-run rotation
 - Hardening (internal-launch batch item 6): the database freezes inbound message provenance and the identity
   columns of outbound attempts and reply links for every role, with the audited retention path left open for
   erasure (correspondence migration 0017, `016` section 10.14)

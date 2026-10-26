@@ -1981,7 +1981,7 @@ hardened after the PR #102 security, release-operations and data reviews).**
     - a key in swap or a core dump.
 
     The only way to retire such remnants is to rotate the wrapping key (rewrap every live data key), then destroy
-    the old wrapping key everywhere, the escrow included. Rotation is not built (a follow-up).
+    the old wrapping key everywhere, the escrow included. Rotation is built since (9kg.69, record below).
   - The processes that hold the wrapping key or a data key should run without swap and with core dumps disabled:
     host configuration for `9kg.28`.
   - Host disk encryption is separate, and it is not what makes erasure work.
@@ -2298,6 +2298,54 @@ hardened after the PR #102 security, release-operations and data reviews).**
     itself, a rebaseline that keeps the old copy, and the stale and unreadable codes.
 - **Not yet shown:** the restore drill still carries the journal by hand. A drill leg that ships to an off-host
   directory and restores from it after the source is gone belongs with the host destination (`9kg.28`).
+
+**9kg.69, rotating the custody wrapping key (`027` section 2; 2026-10-26).**
+
+- **Why.** A surviving copy of an erased document's wrapped key, plus the wrapping key, still opens that document.
+  Such a copy can be a snapshot, unlinked blocks, a copy-on-write or SSD remnant, or an object-locked off-site copy. No
+  code can reach those copies. Rotating the wrapping key and then destroying the old one everywhere leaves them with
+  no key that opens them.
+- **Built.** `catalyst_custody_keys --rotate --expect-head <head>` (`agreements.keystore.rotate`), run by the owner
+  with web and worker stopped and the next key mounted for that run only (`custody_next_wrapping_key`; every other
+  process refuses to start holding it):
+  1. The journal must hold the out-of-band head, as for `--recover`.
+  2. Every journaled destruction is finished first, and a destroyed key is never rewrapped.
+  3. Both directories must hold the same live keys (`key_needs_recovery` otherwise).
+  4. Each copy is unwrapped under the current key, wrapped under the next, checked to give the same data key, and
+     replaced atomically (a temporary name, fsync, rename).
+  5. Every live document is opened under the next key and its hash checked. Only then is `custody_rotation` `done`
+     journaled (key ids and counts, never a key).
+
+  `--retire-old-key <from_key> --expect-head <head>` runs after the owner made the next key current and destroyed the
+  old one, escrow included. It refuses while this process still holds a next key, while the named key is still
+  current, or while any key file is still under it. Then it journals the retirement.
+- **Interruption** is safe and deterministic: each wrapped key names the key it is under, every copy is under one of
+  the two keys the owner still holds, and the same command run again finishes the rest. A key wrapped under a third
+  key refuses the run (`rotation_incomplete`), and nothing is journaled as done.
+- **Security review of PR #104, fixed in the same PR:**
+  - a rotation's temporary copy is removed on any failure, and a destruction removes it too;
+  - retirement and the health part refuse any stray file in a key directory;
+  - a rotation holds the key store exclusively, and creating or destroying a key holds it shared, so neither can
+    interleave with the rewrap;
+  - the next key refuses outside the owner-run management process, and the worker refuses to start holding it (the
+    start-up guards run before a worker declares itself);
+  - retirement needs a rotation from that key journaled done, and no destroyed key's file left behind;
+  - the two copies of a key must carry the same data key;
+  - the next key must differ from every other secret.
+- **The claim, precisely:** after retirement no key opens a remnant wrapped under the old key. A data key that itself
+  leaked (in swap or a core dump) is outside it: rotation changes the wrapping, not the data keys. The retirement
+  entry is the owner's attestation that the old key is destroyed; code cannot see the escrow or a running process.
+- **Not covered by code:** destroying the old key's escrow copy and any copy outside the host, which is the owner's
+  act, recorded by `--retire-old-key`. The rotation interval is the owner's (211.7.9). On the host, the next key's
+  mount for one run is part of 9kg.28.
+- **Evidence:** `tests/test_custody_rotation.py`, mapped under `P6_SUPPORTING` in group "9kg.69". It covers:
+  - every live key rewrapped, every document open, a destroyed key never revived, and the journal shape;
+  - a remnant under the old key that no current key opens after retirement, and a stray old-key copy that blocks
+    retirement until the same rotation finishes it;
+  - an interruption part way through, with every copy still openable, finished by a rerun;
+  - the refusals;
+  - the next key held only by the owner-run rotation;
+  - `027`'s custody row.
 
 ## 17. The aged-waits health part (9kg.51, 2026-10-23)
 
