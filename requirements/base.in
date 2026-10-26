@@ -7,7 +7,7 @@ psycopg[binary]==3.3.6
 # FunctionModel only, and no live provider client is installed until a live model use is authorized.
 pydantic-ai-slim==2.57.0
 # 6B.5 (026 section 4): the WSGI server for the web process, bound to the proxy's unix socket, with no access log.
-gunicorn==23.0.0
+gunicorn==26.2.0
 # 6B.9 (026 section 8, P6-D-3): staff two-factor. django-otp alone (TOTP and recovery codes, depending only on Django)
 # rather than django-two-factor-auth (phone, QR and form-wizard dependencies); 1.7.5's one change was read before pinning.
 django-otp==1.7.5
