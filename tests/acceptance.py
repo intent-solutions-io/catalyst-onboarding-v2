@@ -1703,6 +1703,17 @@ P6_SUPPORTING = {
         "test_journal_shipping::test_9kg_60_a_rebaseline_keeps_the_old_copy_and_starts_a_new_one",
         "test_journal_shipping::test_9kg_60_a_dead_timer_and_an_unreadable_record_page_under_their_own_codes",
     ],
+    "9kg.62 every effect a restore cannot undo is classified, and an unclassified one or a new outward module fails (029)": [
+        "test_effect_registry::test_9kg62_every_function_with_an_effect_is_registered_and_no_registration_is_stale",
+        "test_effect_registry::test_9kg62_each_class_matches_what_the_function_does",
+        "test_effect_registry::test_9kg62_every_journal_kind_has_a_writer_and_each_restrictive_kind_is_prepared",
+        "test_effect_registry::test_9kg62_the_scanner_knows_every_write_method_of_each_provider_client",
+        "test_effect_registry::test_9kg62_only_reviewed_modules_reach_the_network_start_a_process_or_write_a_file",
+        "test_effect_registry::test_9kg62_an_unclassified_effect_in_any_spelling_is_found",
+        "test_effect_registry::test_9kg62_a_kind_is_resolved_from_a_constant_or_a_caller_and_otherwise_refused",
+        "test_effect_registry::test_9kg62_lookalike_calls_are_not_effects",
+        "test_effect_registry::test_9kg62_an_unreviewed_outward_module_is_found",
+    ],
     "9kg.70 the custody key store's faults page under their own codes, an erased document's absent key never (026)": [
         "test_custody_health::test_9kg_70_a_healthy_store_raises_nothing_and_an_erased_document_is_counted_never_paged",
         "test_custody_health::test_9kg_70_each_fault_pages_under_its_own_code",
