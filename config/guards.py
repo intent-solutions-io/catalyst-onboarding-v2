@@ -17,7 +17,7 @@ POSTGRESQL_ENGINE = "django.db.backends.postgresql"
 # them in the environment outside test and development.
 SECRET_ENV_NAMES = ("CATALYST_SECRET_KEY", "CATALYST_VERIFICATION_KEY", "CATALYST_VERIFICATION_FALLBACK_KEYS",
                     "CATALYST_DB_PASSWORD", "CATALYST_MAIL_PASSWORD", "CATALYST_ERASURE_KEY",
-                    "CATALYST_CUSTODY_WRAPPING_KEY")
+                    "CATALYST_CUSTODY_WRAPPING_KEY", "CATALYST_CUSTODY_NEXT_WRAPPING_KEY")
 
 # Environments Catalyst may run in. `staging` (026 P6-D-2, D-49) is synthetic like `test`: the same fakes under the
 # same strict rules, never a real provider. Production settings are not authorized (a later P6 decision).
@@ -495,6 +495,9 @@ def journal_problems(settings) -> list[str]:
     problem = journal.directory_problem(write=kind in ("web", "worker", "reconcile"))
     if problem and not (problem == "not_configured"):
         return [f"CATALYST_EFFECT_JOURNAL_DIR is {problem}: a private (0700) directory this process can write"]
+    if getattr(settings, "CATALYST_ENV", "") in LIVE_ENVIRONMENTS and not getattr(settings, "CATALYST_JOURNAL_SHIP_LAG_SECONDS", 0):
+        return ["CATALYST_JOURNAL_SHIP_LAG_SECONDS must be set in a live environment: the journal is shipped off the host "
+                "and its lag pages (9kg.60)"]
     return []
 
 
@@ -560,24 +563,33 @@ def custody_key_problems(settings, kind: str) -> list[str]:
 
     problems = []
     secret = str(getattr(settings, "CATALYST_CUSTODY_WRAPPING_KEY", "") or "")
+    databases = getattr(settings, "DATABASES", {}) or {}
+    others = [getattr(settings, "SECRET_KEY", ""), getattr(settings, "CATALYST_VERIFICATION_KEY", "") or "",
+              *(getattr(settings, "CATALYST_VERIFICATION_FALLBACK_KEYS", []) or []),
+              getattr(settings, "CATALYST_ERASURE_KEY", "") or "",
+              # review of PR #102: the passwords and webhook secrets this process holds, where it holds them
+              *(str((db or {}).get("PASSWORD", "") or "") for db in databases.values()),
+              getattr(settings, "CATALYST_MAIL_PASSWORD", "") or "",
+              *(getattr(settings, "CATALYST_AGREEMENT_WEBHOOK_SECRETS", []) or [])]
     if secret:
         if not re.fullmatch(r"[0-9a-f]{64}", secret):
             problems.append("CATALYST_CUSTODY_WRAPPING_KEY must be 64 lower-case hex characters (32 random bytes)")
         elif len(set(secret)) == 1:
             problems.append("CATALYST_CUSTODY_WRAPPING_KEY is one character repeated, not a random key")
-        databases = getattr(settings, "DATABASES", {}) or {}
-        others = [getattr(settings, "SECRET_KEY", ""), getattr(settings, "CATALYST_VERIFICATION_KEY", "") or "",
-                  *(getattr(settings, "CATALYST_VERIFICATION_FALLBACK_KEYS", []) or []),
-                  getattr(settings, "CATALYST_ERASURE_KEY", "") or "",
-                  # review of PR #102: the passwords and webhook secrets this process holds, where it holds them
-                  *(str((db or {}).get("PASSWORD", "") or "") for db in databases.values()),
-                  getattr(settings, "CATALYST_MAIL_PASSWORD", "") or "",
-                  *(getattr(settings, "CATALYST_AGREEMENT_WEBHOOK_SECRETS", []) or [])]
         if secret in [o for o in others if o]:
             problems.append("CATALYST_CUSTODY_WRAPPING_KEY must differ from every other key")
         role = getattr(settings, "CATALYST_PROCESS_ROLE", "") or ""
         if role in CUSTODY_KEY_DENIED_ROLES or kind == "reconcile":
             problems.append(f"CATALYST_CUSTODY_WRAPPING_KEY may not be given to the {role or kind} process (9kg.34)")
+    upcoming = str(getattr(settings, "CATALYST_CUSTODY_NEXT_WRAPPING_KEY", "") or "")
+    if upcoming:  # 9kg.69: the next wrapping key, held only by the owner-run rotation
+        if not re.fullmatch(r"[0-9a-f]{64}", upcoming) or len(set(upcoming)) == 1:
+            problems.append("CATALYST_CUSTODY_NEXT_WRAPPING_KEY must be 64 lower-case hex characters (32 random bytes)")
+        if upcoming == secret or upcoming in [o for o in others if o]:
+            problems.append("CATALYST_CUSTODY_NEXT_WRAPPING_KEY must differ from the current wrapping key and every other key")
+        role = getattr(settings, "CATALYST_PROCESS_ROLE", "") or ""
+        if kind != "management" or role in (*CUSTODY_KEY_DENIED_ROLES, "web", "worker"):
+            problems.append("CATALYST_CUSTODY_NEXT_WRAPPING_KEY is held only by the owner-run rotation (9kg.69)")
     primary = str(getattr(settings, "CATALYST_CUSTODY_KEY_DIR", "") or "")
     mirror = str(getattr(settings, "CATALYST_CUSTODY_KEY_MIRROR_DIR", "") or "")
     storage = str(getattr(settings, "CATALYST_AGREEMENT_STORAGE_DIR", "") or "")

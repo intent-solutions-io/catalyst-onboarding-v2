@@ -1981,7 +1981,7 @@ hardened after the PR #102 security, release-operations and data reviews).**
     - a key in swap or a core dump.
 
     The only way to retire such remnants is to rotate the wrapping key (rewrap every live data key), then destroy
-    the old wrapping key everywhere, the escrow included. Rotation is not built (a follow-up).
+    the old wrapping key everywhere, the escrow included. Rotation is built since (9kg.69, record below).
   - The processes that hold the wrapping key or a data key should run without swap and with core dumps disabled:
     host configuration for `9kg.28`.
   - Host disk encryption is separate, and it is not what makes erasure work.
@@ -2241,6 +2241,111 @@ hardened after the PR #102 security, release-operations and data reviews).**
   - `tests/test_erasure.py`: the installed functions, definer and reverse tests extended to the new function.
   - `tests/test_post_restore.py`: its helper writes the marker for tests about other things.
   - `tests/test_database.py`: the approved migration.
+
+**9kg.60, the effect journal shipped off the host (029 section 6.2's deferred item; 2026-10-26).**
+
+- **Why.** The journal lives on a volume on the same host as the database. Host loss is the usual reason to restore,
+  and the effects after the last backup then have no copy anywhere. The restore drill carries the journal by hand
+  from a volume that still exists, which models a planned move, not a loss.
+- **Built** (`workflow/shipping.py`, revised after the release-operations review of PR #106):
+  - `catalyst_journal_ship --to <dir> --provision`, once, writes a marker on the mounted destination. Every run
+    refuses a destination without it (`destination_unprovisioned`), so an unmounted mount point is never shipped to.
+  - `catalyst_journal_ship --to <dir>` takes an exclusive lock on the marker. It copies the journal bytes whose chain
+    it verified in one locked read, under a temporary name, then fsyncs and renames. It reads the copy back (its digest
+    must match), then writes `head.json` and reads it back, then records the run beside the journal (`effects.shipped`,
+    with `shipped_at`). An interruption leaves the copy's journal at or ahead of its head, never behind it. A copy
+    with no head is anchored on its own last entry.
+  - It refuses a destination inside the journal, the repository, custody or a key directory.
+  - It refuses (`destination_ahead_of_journal`) when the copy holds entries the local journal lacks. **Operator
+    action:** stop; restore the local journal from the copy; ship again. Only after an owner-accepted loss (below),
+    `--rebaseline` moves the old copy aside under a dated name (it is kept) and the next run starts a new copy.
+  - The `journal` health part, when `CATALYST_JOURNAL_SHIP_LAG_SECONDS` is above 0, pages under these codes:
+    - `effect_journal_ship_lag`: the oldest unshipped entry is older than the threshold;
+    - `effect_journal_ship_stale`: no completed run within the threshold, so a dead timer pages even with no new
+      effects;
+    - `effect_journal_never_shipped`;
+    - `effect_journal_behind_shipped`: the local journal lost what it shipped;
+    - `effect_journal_shipped_unreadable`: the local record cannot be read.
+
+    A live environment refuses to start with the threshold at 0.
+  - `catalyst_restore --shipped-from <dir | none>` reads the copy's head from the provisioned destination; it is
+    never typed. Before the load, it refuses a local journal that does not hold that head. The owner's override is
+    `--accept-journal-behind-shipped`. The restore entry records `behind_shipped` and the copy's `shipped_seq`. A
+    live restore must name the copy; `none` (nothing was ever shipped) is accepted there only with the override.
+- **The host runbook after a host loss** (a `9kg.28` item):
+  1. Mount the destination on the new host.
+  2. Copy `effects.jsonl` from it into the new journal volume (directory 0700, file 0600, owned by the service user).
+  3. Restore the newest backup whose receipt head the copied journal holds, with `--shipped-from <destination>`.
+     `check_journal` refuses a backup newer than the copy.
+  4. Ship once immediately before every backup, so the newest backup's head is always in the copy (the backup
+     timer's pre-step).
+- **The host's part** (`9kg.28`). Each item below is PENDING:
+  - the destination: another machine or mount, never inside the backup output (a backup store is not a backup
+    source), and its own retention and immutability;
+  - the timer and its cadence, and where a failed run is routed;
+  - the threshold value, which is the journal's RPO and the owner's (`211.7.2`);
+  - a real host-loss drill: ship, destroy the source volume, copy, restore, lift;
+  - alert drills for the lag, stale, never-shipped and behind-shipped codes.
+- **Evidence:** `tests/test_journal_shipping.py`, 11 tests, mapped under `P6_SUPPORTING` in group "9kg.60". They cover:
+  - a whole copy with a matching head, and unsafe destinations refused;
+  - a rolled-back local journal never overwriting the copy;
+  - the lag, never-shipped and behind-shipped signals;
+  - the live threshold guard;
+  - the shipped-head check, with its override;
+  - a real restore refused before the load, then accepted and recorded;
+  - the command;
+  - from the review: an unmounted destination refused and a second run waiting, a copy without its head anchored on
+    itself, a rebaseline that keeps the old copy, and the stale and unreadable codes.
+- **Not yet shown:** the restore drill still carries the journal by hand. A drill leg that ships to an off-host
+  directory and restores from it after the source is gone belongs with the host destination (`9kg.28`).
+
+**9kg.69, rotating the custody wrapping key (`027` section 2; 2026-10-26).**
+
+- **Why.** A surviving copy of an erased document's wrapped key, plus the wrapping key, still opens that document.
+  Such a copy can be a snapshot, unlinked blocks, a copy-on-write or SSD remnant, or an object-locked off-site copy. No
+  code can reach those copies. Rotating the wrapping key and then destroying the old one everywhere leaves them with
+  no key that opens them.
+- **Built.** `catalyst_custody_keys --rotate --expect-head <head>` (`agreements.keystore.rotate`), run by the owner
+  with web and worker stopped and the next key mounted for that run only (`custody_next_wrapping_key`; every other
+  process refuses to start holding it):
+  1. The journal must hold the out-of-band head, as for `--recover`.
+  2. Every journaled destruction is finished first, and a destroyed key is never rewrapped.
+  3. Both directories must hold the same live keys (`key_needs_recovery` otherwise).
+  4. Each copy is unwrapped under the current key, wrapped under the next, checked to give the same data key, and
+     replaced atomically (a temporary name, fsync, rename).
+  5. Every live document is opened under the next key and its hash checked. Only then is `custody_rotation` `done`
+     journaled (key ids and counts, never a key).
+
+  `--retire-old-key <from_key> --expect-head <head>` runs after the owner made the next key current and destroyed the
+  old one, escrow included. It refuses while this process still holds a next key, while the named key is still
+  current, or while any key file is still under it. Then it journals the retirement.
+- **Interruption** is safe and deterministic: each wrapped key names the key it is under, every copy is under one of
+  the two keys the owner still holds, and the same command run again finishes the rest. A key wrapped under a third
+  key refuses the run (`rotation_incomplete`), and nothing is journaled as done.
+- **Security review of PR #104, fixed in the same PR:**
+  - a rotation's temporary copy is removed on any failure, and a destruction removes it too;
+  - retirement and the health part refuse any stray file in a key directory;
+  - a rotation holds the key store exclusively, and creating or destroying a key holds it shared, so neither can
+    interleave with the rewrap;
+  - the next key refuses outside the owner-run management process, and the worker refuses to start holding it (the
+    start-up guards run before a worker declares itself);
+  - retirement needs a rotation from that key journaled done, and no destroyed key's file left behind;
+  - the two copies of a key must carry the same data key;
+  - the next key must differ from every other secret.
+- **The claim, precisely:** after retirement no key opens a remnant wrapped under the old key. A data key that itself
+  leaked (in swap or a core dump) is outside it: rotation changes the wrapping, not the data keys. The retirement
+  entry is the owner's attestation that the old key is destroyed; code cannot see the escrow or a running process.
+- **Not covered by code:** destroying the old key's escrow copy and any copy outside the host, which is the owner's
+  act, recorded by `--retire-old-key`. The rotation interval is the owner's (211.7.9). On the host, the next key's
+  mount for one run is part of 9kg.28.
+- **Evidence:** `tests/test_custody_rotation.py`, mapped under `P6_SUPPORTING` in group "9kg.69". It covers:
+  - every live key rewrapped, every document open, a destroyed key never revived, and the journal shape;
+  - a remnant under the old key that no current key opens after retirement, and a stray old-key copy that blocks
+    retirement until the same rotation finishes it;
+  - an interruption part way through, with every copy still openable, finished by a rerun;
+  - the refusals;
+  - the next key held only by the owner-run rotation;
+  - `027`'s custody row.
 
 ## 17. The aged-waits health part (9kg.51, 2026-10-23)
 

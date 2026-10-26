@@ -66,7 +66,8 @@ LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}")
 # The kinds the journal accepts and the data keys each may carry (codes, references, counts and digests only).
 KINDS = {
     "genesis": {"id"},
-    "restore": {"backup_seq", "backup_head", "backup_journal_id", "backup_started_at"},
+    "restore": {"backup_seq", "backup_head", "backup_journal_id", "backup_started_at", "behind_shipped",
+                "shipped_seq"},
     "repair": {"discarded_bytes", "last_good_hash"},
     "application_closed": {"outcome", "phase"},
     "access_revocation": {"state", "phase"},
@@ -101,6 +102,11 @@ KINDS = {
     # 9kg.34 (review of PR #102, F2): an orphan the owner reaped: a never-used key (`kind: key`) or a sealed file no row
     # names (`kind: sealed_file`), keyed `custody_orphan:<reference>`.
     "custody_orphan_reaped": {"kind", "phase"},
+    # 9kg.69 (agreements.keystore.rotate, retire): a wrapping-key rotation, keyed `custody_rotation:<old id>:<new id>`
+    # (`prepare` at the start, `done` once every live key is rewrapped and every live document opens under the new
+    # key) and its retirement, keyed `custody_rotation_retired:<old id>`, once no key file is under the old key. Key ids
+    # only (16 hex of a hash), never a key.
+    "custody_rotation": {"from_key", "to_key", "keys", "documents", "phase"},
 }
 RESTRICTIVE = ("application_closed", "access_revocation", "automation_pause", "question_withdrawn", "staff_role_changed")
 
@@ -229,6 +235,12 @@ def read() -> list[Entry]:
     """Every entry, in order, with the chain verified, under a shared lock taken through a read-only descriptor, so
     a reader on a read-only mount (the backup) works. Raises JournalError rather than returning a partial record. A
     lock file that does not exist yet means no writer has ever appended (a writer creates it before the file)."""
+    return snapshot()[1]
+
+
+def snapshot() -> tuple[bytes, list[Entry]]:
+    """The file's bytes and its entries, read once under the shared lock, so the two always agree (9kg.60: the
+    shipper copies exactly the bytes whose chain it verified)."""
     if not configured():
         raise JournalError("not_configured")
     if not os.path.isdir(directory()):
@@ -236,13 +248,15 @@ def read() -> list[Entry]:
     try:
         fd = os.open(os.path.join(directory(), LOCK), os.O_RDONLY | os.O_NOFOLLOW)
     except FileNotFoundError:
-        return _entries(_read_bytes())
+        raw = _read_bytes()
+        return raw, _entries(raw)
     except OSError:
         raise JournalError("unreadable") from None
     try:
         fcntl.flock(fd, fcntl.LOCK_SH)
         try:
-            return _entries(_read_bytes())
+            raw = _read_bytes()
+            return raw, _entries(raw)
         finally:
             fcntl.flock(fd, fcntl.LOCK_UN)
     except OSError:

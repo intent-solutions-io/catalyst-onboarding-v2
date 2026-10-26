@@ -227,6 +227,10 @@ if EMAIL_TIMEOUT * 2 > CATALYST_WORKER_LEASE_SECONDS:
 # (workflow.journal). An absolute directory outside the repository, shared by every process on the host; required
 # outside test and development (config.guards). Empty in the local environments means no durable effects.
 CATALYST_EFFECT_JOURNAL_DIR = os.environ.get("CATALYST_EFFECT_JOURNAL_DIR", "").strip()
+# 9kg.60: the journal's off-host copy (workflow.shipping). When above 0, the health part pages once the oldest entry
+# not yet shipped is older than this many seconds, or nothing was ever shipped. 0 turns the signal off, allowed only
+# outside a live environment (config.guards). The value is the journal's RPO, the owner's (211.7.2).
+CATALYST_JOURNAL_SHIP_LAG_SECONDS = number("CATALYST_JOURNAL_SHIP_LAG_SECONDS", "0", minimum=0)
 # 9kg.32 (029 section 6.2): the key of the durable erasure record's keyed hashes (erasure.record states its custody).
 # Optional here: only the owner-run erasure command (and the post-restore replay, 9kg.25) needs it, and refuses
 # without it. A file in CATALYST_SECRETS_DIR outside test and development, never in the database or a backup set.
@@ -479,6 +483,9 @@ CATALYST_AGREEMENT_STORAGE_DIR = ""
 # encrypted secret store, never in the database, a backup set, the journal, a receipt or a log. Optional: only the web
 # process (decision-maker retrieval), the worker (custody writes) and the owner-run custody commands hold it.
 CATALYST_CUSTODY_WRAPPING_KEY = secret("CATALYST_CUSTODY_WRAPPING_KEY", "")
+# 9kg.69: the next wrapping key (`custody_next_wrapping_key`), mounted only into the owner-run rotation
+# (`catalyst_custody_keys --rotate`) for that run; every other process refuses to start holding it (config.guards).
+CATALYST_CUSTODY_NEXT_WRAPPING_KEY = secret("CATALYST_CUSTODY_NEXT_WRAPPING_KEY", "")
 CATALYST_CUSTODY_KEY_DIR = ""
 CATALYST_CUSTODY_KEY_MIRROR_DIR = ""
 # Required details per agreement type (POL-18 open: no production field list). Synthetic field names only, set by

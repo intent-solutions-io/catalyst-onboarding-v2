@@ -177,6 +177,21 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   decided registry is enough for a live backup. The restore drill runs a real erasure after the backup, then the
   restore, the refusals, the replay, its control, a second replay, the review and a later backup
   (`catalyst_erasure_drill`, synthetic only)
+- The effect journal shipped off the host (bead `9kg.60`; `026` section 16): `catalyst_journal_ship --to` copies the
+  chain-verified journal and its head to a directory the host names. It never overwrites a copy that holds entries the
+  local journal lost. The health part pages shipping lag, never-shipped and behind-shipped (threshold
+  `CATALYST_JOURNAL_SHIP_LAG_SECONDS`, required in a live environment), plus a stale run and an unreadable record.
+  `catalyst_restore --shipped-from <copy>` reads the copy's head and refuses a local journal that lacks it unless the
+  owner records `--accept-journal-behind-shipped`. The destination needs a provisioning marker, so an unmounted mount
+  point is refused; every copy is read back before it counts; and `--rebaseline` keeps an old copy after an accepted
+  loss
+- Custody wrapping-key rotation (bead `9kg.69`; `027` section 2, `026` section 16): `catalyst_custody_keys --rotate
+  --expect-head` rewraps every live data key under a next wrapping key mounted for that run only, in both key
+  directories and atomically per file, then opens every live document under the next key before it journals
+  completion. It finishes journaled destructions first and never rewraps a destroyed key. An interrupted run is
+  finished by running it again. `--retire-old-key` checks that no key file is still under the old key, then journals
+  its retirement, so a remnant of an erased document's wrapped key has no key left that opens it. The next key is
+  refused by every process but the owner-run rotation
 - Hardening (internal-launch batch item 6): the database freezes inbound message provenance and the identity
   columns of outbound attempts and reply links for every role, with the audited retention path left open for
   erasure (correspondence migration 0017, `016` section 10.14)
