@@ -15,4 +15,4 @@ django-otp==1.7.5
 # (pyca), its AES-256-GCM primitive only: no bespoke cryptography and no KMS. 50.0.2 was released 2026-09-30.
 cryptography==50.0.2
 # Its build-free C binding's parser, pinned below the newest release (3.12, 2026-10-22) to one at least two weeks old.
-pycparser==3.11
+pycparser==3.12
