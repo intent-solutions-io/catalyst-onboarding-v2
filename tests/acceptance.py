@@ -1680,6 +1680,10 @@ P6_SUPPORTING = {
         "test_custody_health::test_9kg_70_keys_under_two_wrapping_keys_are_an_unfinished_rotation",
         "test_custody_health::test_9kg_70_an_unconfigured_store_reports_nothing",
         "test_custody_health::test_9kg_70_the_health_command_names_the_custody_code_and_exits_1",
+        "test_custody_health::test_9kg_70_the_wrong_wrapping_key_and_copies_that_differ_page",
+        "test_custody_health::test_9kg_70_a_destruction_with_no_erasure_on_record_pages",
+        "test_custody_health::test_9kg_70_a_write_in_progress_never_pages_and_an_unreadable_journal_withholds_loss_codes",
+        "test_custody_health::test_9kg_70_a_store_fault_names_the_directory",
     ],
     "9kg.69 the custody wrapping key rotated and the old key retired, so no key opens a remnant of an erased key (027)": [
         "test_custody_rotation::test_9kg_69_rotation_rewraps_every_live_key_keeps_every_document_open_and_never_revives_a_destroyed_one",

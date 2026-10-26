@@ -168,9 +168,10 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   refused by every process but the owner-run rotation
 - The custody health part (bead `9kg.70`; `026` section 16): `catalyst_health` reports the custody key store's state
   without the wrapping key, counts only, and pages each fault under its own code. The codes cover an unavailable
-  store, a lost key, an incomplete recovery copy, a destroyed key still present, plaintext, orphans, an invalid or
-  stray key file, an unfinished rotation and an unreadable journal. An erased document's absent key is counted and
-  never paged
+  store (naming the directory), an unsafe store, the wrong wrapping key, a lost key, an incomplete recovery copy,
+  copies that differ, a destroyed key still present, a destruction with no erasure on record, plaintext, orphans, an
+  invalid or stray key file, an unfinished rotation and an unreadable journal. A settle window keeps writes and
+  destructions in progress from paging. An erased document's absent key is counted and never paged
 - Hardening (internal-launch batch item 6): the database freezes inbound message provenance and the identity
   columns of outbound attempts and reply links for every role, with the audited retention path left open for
   erasure (correspondence migration 0017, `016` section 10.14)
