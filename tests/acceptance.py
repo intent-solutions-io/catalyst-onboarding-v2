@@ -1674,6 +1674,10 @@ P6_SUPPORTING = {
         "test_erasure::test_9kg_32_a_key_that_starts_like_a_tombstone_but_has_an_at_sign_is_a_real_key",
         "test_erasure::test_9kg_32_an_already_tombstoned_subject_still_runs_the_classes_scoped_by_its_references",
     ],
+    "9kg.72 a person invited who never applied is named to the erasure by reference, never by address (029 section 6.2)": [
+        "test_erasure_lookup::test_9kg_72_an_invited_person_who_never_applied_is_named_by_reference_and_erased",
+        "test_erasure_lookup::test_9kg_72_the_lookup_runs_only_as_the_retention_login_lists_applications_and_refuses_bad_input",
+    ],
     "9kg.25 the erasure record replayed after a restore before the review and the lift (029 section 6.2.1)": [
         "test_erasure::test_9kg_25_a_restore_hold_cannot_lift_while_the_journal_holds_an_unreplayed_erasure",
         "test_erasure_replay::test_9kg_25_only_the_retention_role_runs_the_replay_function_and_only_under_the_restore_hold",
@@ -1698,6 +1702,17 @@ P6_SUPPORTING = {
         "test_journal_shipping::test_9kg_60_an_interrupted_first_run_is_anchored_on_the_copy_itself",
         "test_journal_shipping::test_9kg_60_a_rebaseline_keeps_the_old_copy_and_starts_a_new_one",
         "test_journal_shipping::test_9kg_60_a_dead_timer_and_an_unreadable_record_page_under_their_own_codes",
+    ],
+    "9kg.70 the custody key store's faults page under their own codes, an erased document's absent key never (026)": [
+        "test_custody_health::test_9kg_70_a_healthy_store_raises_nothing_and_an_erased_document_is_counted_never_paged",
+        "test_custody_health::test_9kg_70_each_fault_pages_under_its_own_code",
+        "test_custody_health::test_9kg_70_keys_under_two_wrapping_keys_are_an_unfinished_rotation",
+        "test_custody_health::test_9kg_70_an_unconfigured_store_reports_nothing",
+        "test_custody_health::test_9kg_70_the_health_command_names_the_custody_code_and_exits_1",
+        "test_custody_health::test_9kg_70_the_wrong_wrapping_key_and_copies_that_differ_page",
+        "test_custody_health::test_9kg_70_a_destruction_with_no_erasure_on_record_pages",
+        "test_custody_health::test_9kg_70_a_write_in_progress_never_pages_and_an_unreadable_journal_withholds_loss_codes",
+        "test_custody_health::test_9kg_70_a_store_fault_names_the_directory",
     ],
     "9kg.69 the custody wrapping key rotated and the old key retired, so no key opens a remnant of an erased key (027)": [
         "test_custody_rotation::test_9kg_69_rotation_rewraps_every_live_key_keeps_every_document_open_and_never_revives_a_destroyed_one",
