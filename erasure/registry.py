@@ -69,10 +69,6 @@ ALLOWED = {
 
 REGISTRY = {name: {"treatment": UNDECIDED, "retention": UNDECIDED} for name in (*SUBJECT_CLASSES, *OTHER_CLASSES)}
 
-# Replay after a restore (9kg.25) does not exist yet. Until it does, an erasure could be undone by restoring an older
-# backup, so the registry reports `replay:not_built`: neither an erasure nor a live backup proceeds, however decided the
-# rows are. 9kg.25 flips this constant in the same change that builds the replay (PR #99 reviews).
-REPLAY_BUILT = False
 # The classes whose rows are found only through the subject's real email key. Once `application_identity` replaces the
 # key with a tombstone, these rows can never be found again, so anonymizing the identity while retaining any of them
 # would strand them (PR #99 data review).
@@ -105,8 +101,6 @@ def problems(registry: dict | None = None) -> list[str]:
     identity = (registry.get("application_identity") or {}).get("treatment")
     if identity == ANONYMIZE and any((registry.get(n) or {}).get("treatment") == RETAIN for n in KEY_SELECTED_CLASSES):
         found.append("application_identity:retains_key_selected_classes")
-    if not REPLAY_BUILT:
-        found.append("replay:not_built")
     return found
 
 

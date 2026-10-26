@@ -42,7 +42,10 @@ LIFT = ("--lift", "--outward-checked", "--no-closures-after-backup")
 SENT = {"CATALYST_SEND_EVIDENCE_SOURCE": "tests.smtp_server.DirectoryEvidence"}
 
 
-def post_restore(*extra, confirm=None, db=None, **env):
+def post_restore(*extra, confirm=None, db=None, replayed=True, **env):
+    if replayed:  # 9kg.25: the erasure replay (nothing to replay here) runs before the review and the lift
+        support.mark_erasures_replayed()
+    env.setdefault("CATALYST_ERASURE_KEY", support.ERASURE_KEY)
     result = support.run([sys.executable, "manage.py", "catalyst_post_restore", "--confirm-database",
                           confirm or db or connection.settings_dict["NAME"], *extra], timeout=120,
                          CATALYST_DB_NAME=db or connection.settings_dict["NAME"],
@@ -56,8 +59,7 @@ def hold():
 
 
 def place_hold(anchor=""):
-    AutomationPause.objects.create(subject_type=RESTORE_HOLD[0], subject_id=RESTORE_HOLD[1],
-                                   reason="restore hold (test)", actor_ref="catalyst_restore" + (f"|{anchor}" if anchor else ""))
+    support.place_restore_hold(actor_ref="catalyst_restore" + (f"|{anchor}" if anchor else ""))
 
 
 def test_6b7b_links_from_before_the_restore_stop_working_the_negative_control(cl, monkeypatch):
@@ -660,8 +662,9 @@ def test_9kg_33_missing_or_unreachable_evidence_blocks_the_lift(p2, tmp_path, ef
     assert report["effects"]["sends"]["status"].startswith("unreachable:") and report["effects"]["blocked"] == ["sends"]
     assert post_restore(*LIFT)[0].returncode == 1
     (effect_journal / journal.FILE).write_bytes(b'{"seq": 1, "at": "x", "kind": "x", "key": "x", "data": {}, "prev": "0", "hash": "0"}\n')
+    # 9kg.25: a broken journal cannot show the erasure replay either, so the review refuses before it reads anything.
     result, report = post_restore(**with_sent(tmp_path))
-    assert report["effects"]["journal"] == "chain_broken" and report["effects"]["blocked"] == ["journal"]
+    assert result.returncode == 1 and "erasure replay missing (chain_broken)" in result.stderr, result.stderr
     assert post_restore(*LIFT)[0].returncode == 1
 
 

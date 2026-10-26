@@ -110,9 +110,7 @@ def test_6b7_the_worker_claims_nothing_while_the_restore_hold_is_present(p2):
     for kind in ("send_message", manual):  # an automated kind and a staff-initiated one
         PendingAction.objects.create(kind=kind, subject_type="application", subject_id=uuid.uuid4(),
                                      idempotency_key=f"hold-probe-{kind}")
-    hold = AutomationPause.objects.create(subject_type=backup_module.RESTORE_HOLD[0],
-                                          subject_id=backup_module.RESTORE_HOLD[1], reason="restore hold (test)",
-                                          actor_ref="test")
+    hold = AutomationPause.objects.get(pk=support.place_restore_hold())  # 9kg.25: placed as the owner
     assert ledger.claim_next(registry) is None and ledger.claim_next({manual: registry[manual]}) is None
     assert not ledger.run_one(registry)  # the worker's own entry point runs nothing either
     owner = p2.committed.connect("owner", autocommit=True)  # the owner (the post-restore step) lifts it
@@ -125,9 +123,7 @@ def test_6b7_the_application_role_cannot_lift_the_restore_hold(p2):
 
     from workflow.models import AutomationPause
 
-    hold = AutomationPause.objects.create(subject_type=backup_module.RESTORE_HOLD[0],
-                                          subject_id=backup_module.RESTORE_HOLD[1], reason="restore hold (test)",
-                                          actor_ref="test")
+    hold = AutomationPause.objects.get(pk=support.place_restore_hold())  # 9kg.25: placed as the owner
     with pytest.raises(Exception, match="restore hold") as caught, transaction.atomic():
         AutomationPause.objects.filter(pk=hold.pk).delete()
     assert isinstance(caught.value.__cause__, psycopg.errors.InsufficientPrivilege)

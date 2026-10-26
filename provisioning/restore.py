@@ -19,6 +19,7 @@ open setup and marked an in-flight set uncertain, and staff reissue the link.
 import uuid
 
 from django.db import transaction
+from django.db.models import Q
 
 from applications.models import TERMINAL_STAGES, Application, ApplicationEvent
 from correspondence.staff_items import event
@@ -83,7 +84,9 @@ def replay(entries, opener) -> dict:
 def read_mailboxes(opener) -> dict:
     """The provider read, outside any transaction. Returns {"status": "ok" | "not_configured" | "unreachable:<code>",
     "checked": n, "items": n}."""
-    requests = list(ProvisioningRequest.objects.select_related("reservation", "application").filter(status__in=MAY_HOLD))
+    # 9kg.25: an erased subject's reserved name is a tombstone, so a read by it says nothing (the mailbox is a handoff).
+    requests = list(ProvisioningRequest.objects.select_related("reservation", "application").filter(status__in=MAY_HOLD)
+                    .exclude(Q(application__email_key__startswith="erased:") & ~Q(application__email_key__contains="@")))
     if not requests:
         return {"status": "ok", "checked": 0, "items": 0}
     try:
