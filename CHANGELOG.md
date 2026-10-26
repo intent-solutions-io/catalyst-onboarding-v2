@@ -159,6 +159,20 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   lift; start-up only checks), recovery needs the out-of-band head and the erasure key, a resumed erasure checks the key
   store before it commits, one document that cannot be sealed never stops the migration, the associated data binds the recorded hash, erasure 0003 reverses cleanly, and the drill
   shows both outcomes
+- Erasure replay after a restore (bead `9kg.25`, TEST-P6-29; `029` section 6.2.1, `026` section 16): on a restored
+  host the order is restore, migrate, replay, review, lift. `catalyst_erasure_replay --expect-head <head>`, run as the
+  retention login with the erasure key, verifies the durable record against the head kept out of band and re-erases
+  every recorded subject in the restored tables through `catalyst_erase_replay` (erasure migration 0004). That is the
+  erase function without its refusals for an open application, work in flight and an unfinished revocation, which
+  the restored rows predate. It runs only under the restore hold and keeps the same audit row and tombstones. A
+  subject created after the backup counts as satisfied, and a changed address is erased all the same and reported.
+  The run ends with a mac'd `erasures_replayed` marker that the post-restore review and lift both require for the
+  current restore and every erasure entry, so an erasure made during the hold needs another replay. The review
+  cancels the work of erased subjects, leaves them out of link, setup and revocation work, and opens one item for a
+  subject still open after the journal's replay. `registry.REPLAY_BUILT` and `replay:not_built` are removed, so a
+  decided registry is enough for a live backup. The restore drill runs a real erasure after the backup, then the
+  restore, the refusals, the replay, its control, a second replay, the review, the lift and a later backup
+  (`catalyst_erasure_drill`, synthetic only)
 - Hardening (internal-launch batch item 6): the database freezes inbound message provenance and the identity
   columns of outbound attempts and reply links for every role, with the audited retention path left open for
   erasure (correspondence migration 0017, `016` section 10.14)

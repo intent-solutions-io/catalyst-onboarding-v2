@@ -42,7 +42,10 @@ LIFT = ("--lift", "--outward-checked", "--no-closures-after-backup")
 SENT = {"CATALYST_SEND_EVIDENCE_SOURCE": "tests.smtp_server.DirectoryEvidence"}
 
 
-def post_restore(*extra, confirm=None, db=None, **env):
+def post_restore(*extra, confirm=None, db=None, replayed=True, **env):
+    if replayed:  # 9kg.25: the erasure replay (nothing to replay here) runs before the review and the lift
+        support.mark_erasures_replayed()
+    env.setdefault("CATALYST_ERASURE_KEY", support.ERASURE_KEY)
     result = support.run([sys.executable, "manage.py", "catalyst_post_restore", "--confirm-database",
                           confirm or db or connection.settings_dict["NAME"], *extra], timeout=120,
                          CATALYST_DB_NAME=db or connection.settings_dict["NAME"],

@@ -73,6 +73,7 @@ APPROVED_MIGRATIONS = {
     ("applications", "0009_tombstone_keys_unique"), ("erasure", "0001_initial"), ("erasure", "0002_erasure_path"),
     ("correspondence", "0019_decline_notice"),  # oc4.11: the decline kind and template; held send_decline cancelled
     ("agreements", "0010_custody_envelope"), ("erasure", "0003_custody_keys"),  # 9kg.34: custody sealed at rest
+    ("erasure", "0004_erase_replay"),  # 9kg.25: the replay variant of the erase function, under the restore hold only
 }
 
 

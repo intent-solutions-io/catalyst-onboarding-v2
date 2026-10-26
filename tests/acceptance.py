@@ -1477,6 +1477,7 @@ P6_CASES = {
         "test_post_restore::test_6b7b_withdrawal_links_close_and_in_flight_password_sets_become_unknown",
         "test_post_restore::test_6b7b_unfinished_access_removal_gets_one_new_round",
         "test_post_restore::test_6b7b_the_report_lists_outward_actions_and_running_ones_are_recovered",
+        "test_erasure_replay::test_9kg_25_a_restore_of_an_older_backup_replays_every_later_erasure_and_nothing_brings_the_person_back",
     ],
     "TEST-P6-30": [
         "test_egress::test_6b11_the_policy_refuses_anything_but_a_connect_to_a_name_on_an_allowed_port",
@@ -1672,7 +1673,16 @@ P6_SUPPORTING = {
         "test_erasure::test_9kg_32_the_erasure_key_is_refused_in_web_and_worker_processes",
         "test_erasure::test_9kg_32_a_key_that_starts_like_a_tombstone_but_has_an_at_sign_is_a_real_key",
         "test_erasure::test_9kg_32_an_already_tombstoned_subject_still_runs_the_classes_scoped_by_its_references",
-        "test_erasure::test_9kg_32_a_restore_hold_cannot_lift_while_the_journal_holds_an_unreplayed_erasure",
+    ],
+    "9kg.25 the erasure record replayed after a restore before the review and the lift (029 section 6.2.1)": [
+        "test_erasure::test_9kg_25_a_restore_hold_cannot_lift_while_the_journal_holds_an_unreplayed_erasure",
+        "test_erasure_replay::test_9kg_25_only_the_retention_role_runs_the_replay_function_and_only_under_the_restore_hold",
+        "test_erasure_replay::test_9kg_25_missing_corrupt_or_stale_erasure_evidence_keeps_the_restore_held",
+        "test_erasure_replay::test_9kg_25_an_interrupted_replay_writes_no_marker_and_the_next_run_finishes",
+        "test_erasure_replay::test_9kg_25_an_erased_subject_left_open_after_the_journal_replay_holds_the_lift_until_the_owner_resolves_it",
+        "test_erasure_replay::test_9kg_25_the_replay_command_never_runs_in_a_web_or_worker_process_or_beside_the_custody_key",
+        "test_erasure_replay::test_9kg_25_the_drill_command_is_synthetic_only_and_traces_rows_by_a_marker",
+        "test_erasure_replay::test_9kg_25_the_restore_drill_pins_its_erasure_replay_legs",
     ],
     "9kg.34 custody sealed at rest with per-document keys outside the backup, recoverable and destroyed on erasure (029 section 6.2)": [
         "test_custody_encryption::test_9kg_34_a_signed_document_is_sealed_at_rest_under_its_own_key_and_retrieval_returns_the_recorded_plaintext",
@@ -1930,7 +1940,6 @@ DRILLS = {
     "scripts/cutover_rehearsal.sh": {"revision": "2cb12cf", "record": "026 section 16, 6B.11 part 3 (PR #79)"},
 }
 RESIDUAL_BOUNDARIES = {  # the earliest boundary each residual bead blocks (029 section 13.1)
-    "9kg.25": "real-data storage",
     "9kg.27": "the provider canaries (9kg.31.1 to .3)",
     "9kg.28": "the dark deploy (9kg.31.5)",
     "9kg.39": "enabling fetching",
@@ -1990,7 +1999,9 @@ P6_EVIDENCE = {
     "TEST-P6-28": {"proofs": ["pytest", STAGING_CHECK], "partial": "9kg.39",
                    "residual": "the operator-supplied deny list of the estate's real production hosts, mounted on the "
                                "host and refusing a canary from it (host item in 9kg.28)"},
-    "TEST-P6-29": {"proofs": ["pytest", RESTORE_DRILL], "partial": "9kg.25", "residual": "erasure replay after a restore"},
+    "TEST-P6-29": {"proofs": ["pytest", RESTORE_DRILL],
+                   "since_028": "9kg.25 (PR #103): erasures are replayed from the durable record before the review and "
+                                "the lift, drilled through a real erasure after the backup and the restore of the older set"},
     "TEST-P6-30": {"proofs": ["pytest", STAGING_CHECK]},
     "TEST-P6-31": {"proofs": ["pytest", STAGING_CHECK], "pytest": "shape", "partial": "9kg.28",
                    "residual": "the deploy force-command on the host"},

@@ -89,6 +89,11 @@ KINDS = {
     "erasure_complete": {"subject", "key_id", "status", "changed", "custody", "keys_destroyed", "key_files_removed",
                          "phase", "mac"},
     "erasure_handoff": {"provider", "completed_on", "phase", "mac"},
+    # 9kg.25 (erasure.replay): the erasures re-applied to a restored database, keyed `erasure_replay:<restore seq>` (the
+    # seq of the `restore` entry it answers, 0 for a hold placed by hand): `through` is the seq of the last erasure
+    # entry it covered, the rest are counts. The post-restore review and lift re-read it, verified by its `mac`.
+    "erasures_replayed": {"restore", "through", "subjects", "erased", "already", "absent", "mismatched", "key_id",
+                          "phase", "mac"},
     # 9kg.34 (agreements.keystore): one custody data key destroyed, keyed `custody_key:<key reference>` (a random
     # reference, never key material), with the erased subject's public reference. Appended before the key's files are
     # unlinked (the restrictive class): recovery never restores a key recorded here, and a destruction recorded but

@@ -110,3 +110,16 @@ def resume_pauses(*applications, note="synthetic resume (test setup)") -> int:
                 actor_ref="user:test-setup", data={"note": note, "paused_by": row.actor_ref, "pause_reason": row.reason,
                                                    "system_pause": row.actor_ref == "system" or row.actor_ref.startswith("system:")})
         return rows.delete()[0]
+
+
+# 9kg.25: the erasure key tests use (synthetic; never a real key), and the replay marker the post-restore review and lift
+# require, for tests about something else: the replay with nothing to replay, written straight to the journal.
+ERASURE_KEY = "synthetic-erasure-key-for-tests-only-0123456789abcdef"  # gitleaks:allow (synthetic; never a real key)
+
+
+def mark_erasures_replayed() -> None:
+    from erasure import replay
+    from workflow import journal
+
+    if journal.configured():
+        replay.mark(journal.read(), ERASURE_KEY.encode())

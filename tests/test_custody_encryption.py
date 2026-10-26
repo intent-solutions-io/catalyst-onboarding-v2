@@ -301,7 +301,6 @@ def test_9kg_34_documents_stored_in_the_clear_are_sealed_by_the_operator_and_the
 # --- the erasure step and the registry -----------------------------------------------------------------------------
 
 def test_9kg_34_the_registry_admits_destroy_key_for_signed_documents_only_and_ships_undecided(monkeypatch):
-    monkeypatch.setattr(registry, "REPLAY_BUILT", True)
     assert registry.problems(DESTROYING) == []
     assert registry.ALLOWED["signed_documents"] == (registry.RETAIN, registry.DESTROY_KEY)
     assert "submissions.treatment:unsupported" in registry.problems(
@@ -546,10 +545,10 @@ def test_9kg_34_the_drill_command_seeds_reads_destroys_and_checks_a_set_for_key_
 def test_9kg_34_the_restore_drill_pins_its_custody_leg():
     """The drill carries the behaviour through the real staging backup and restore and is run on the dev box; this
     gate pins its shape only: a sealed document, the set checked for key material and plaintext, the key destroyed
-    after the backup, the older set restored into a fresh database, the restored document refused, and the off-site
+    after the backup (by the erasure itself since 9kg.25), the older set restored into a fresh database, the restored document refused, and the off-site
     leg reported NOT RUN."""
     script = (Path(__file__).resolve().parent.parent / "scripts" / "restore_drill.sh").read_text()
-    for line in ("catalyst_custody_drill", "custody_wrapping_key", "absent --set", "destroy --document",
+    for line in ("catalyst_custody_drill", "custody_wrapping_key", "absent --set", "catalyst_erasure_drill erase",
                  "positive control", "negative control: the backup refuses", "sealed_files_in_set", "needles",
                  "volumes_before", "journaled --document",
                  "custody/restored read --document", "custody_key_destroyed", "NOT RUN 9kg.34 the off-site, object-locked copy",

@@ -6,6 +6,12 @@ T are valid again, staff accounts and passwords are as they were at T, access re
 and mail, envelopes and mailbox changes made after T are not in the ledger. The step runs in three phases, and work
 resumes only after all of them.
 
+**Erasure replay first** (9kg.25): `catalyst_erasure_replay --expect-head <head>`, as the retention login, re-applies
+every erasure of the durable record to the restored tables and ends with an `erasures_replayed` marker (erasure.replay).
+The review and the lift both refuse until a marker for this restore, verified under the erasure key, covers every
+erasure entry of the journal: missing, corrupt, stale or unavailable erasure evidence keeps the hold. (Where no journal
+is configured, in test and development only, there is no record to replay.)
+
 **Review run** (no `--lift`), first in one transaction, before any web or worker process starts:
 
 1. closes every outstanding applicant link (unused confirmation links, open password links, open withdrawal links)
@@ -25,6 +31,10 @@ resumes only after all of them.
    resolutions, question withdrawals, reply-link outcomes, decisions on uncertain sends, the reminder series
    position, staff role removals); a grant, a resend or a revision that cannot be re-applied blindly opens a
    `restore_effect_*` staff item;
+5b. settles erased subjects (`settle_erased`, 9kg.25): their live actions are cancelled, and one still open or with an
+   access revocation that is not final after the journal's replay gets a `restore_effect_erased_subject_open` item;
+   the link, setup and revocation steps above and below leave them out, so nobody is asked to write to an erased
+   person;
 6. clears every mailbox cursor's completed-collection watermark, so no reminder fires before the first completed
    collection pass after the restore;
 7. reports, per kind and status, with action ids, every outward action, so a person can compare them with what each
@@ -46,14 +56,11 @@ and the operator confirms both limits explicitly: `--outward-checked` (the repor
 providers and any already done were cancelled) and `--no-closures-after-backup` (no application was closed after T,
 or its access was removed again by hand). `--resolve <item> --note "..."` is the manual exceptional resolution of one
 `restore_effect_*` item, recorded as the owner's; the note passes the staff-message content checks.
-
-Not here: erasure replay (026 option d) needs the erasure path itself (POL-10); its bead must land before any real
-personal data is restored.
 """
 
 from django.contrib.sessions.models import Session
 from django.db import transaction
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.db.models.functions import Now
 
 from config.backup import RESTORE_HOLD
@@ -74,22 +81,32 @@ ITEMS = {"restore": (ITEM_CONFIRMATION, ITEM_WITHDRAWAL),
 # 9kg.33: items reconciliation opens, one per unresolved effect; the lift refuses while any is open.
 EFFECT_ITEM_PREFIX = "restore_effect_"
 ITEM_OUTWARD = "restore_effect_outward_action"
-# 9kg.32 (PR #99 reviews): until replay after a restore exists (9kg.25, erasure.registry.REPLAY_BUILT), a journal that
-# holds any erasure means the restored tables may hold an erased person again; the review opens this item and the lift
-# refuses outright, whether or not the item was resolved by hand.
-ITEM_ERASURE = "restore_effect_erasure_unreplayed"
+# 9kg.25: an erased subject still open, or with an access revocation that is not final, after the journal's replay.
+ITEM_ERASED_OPEN = "restore_effect_erased_subject_open"
 
 
-def erasures_unreplayed() -> bool:
-    """True while the journal holds an erasure and nothing can replay it (an unreadable journal counts as true)."""
-    from erasure import record, registry
+def erasure_replay_problem() -> str | None:
+    """None when no journal is configured (test and development only) or a verified `erasures_replayed` marker for the
+    current restore covers every erasure entry (erasure.replay); otherwise the code that keeps the hold: `unreplayed`,
+    `stale`, `forged_marker`, or a key or journal code."""
+    from erasure import replay
 
-    if registry.REPLAY_BUILT:
-        return False
-    try:
-        return record.any_erasure(journal.read())
-    except journal.JournalError:
-        return True
+    if not journal.configured():
+        return None
+    found = replay.current_state()
+    return None if found == "replayed" else found
+
+
+def _require_erasure_replay() -> None:
+    problem = erasure_replay_problem()
+    if problem is not None:
+        raise PostRestoreError(f"erasure replay missing ({problem}): run catalyst_erasure_replay --expect-head <head> as "
+                               "the retention login first; the restored tables may hold an erased person, so the hold stays")
+
+
+def erased(prefix: str = "") -> Q:
+    """Applications whose email key is a tombstone (erasure.catalog: the `erased:` prefix and no `@`)."""
+    return Q(**{f"{prefix}email_key__startswith": "erased:"}) & ~Q(**{f"{prefix}email_key__contains": "@"})
 RESOLVED_BY_OWNER = "owner_resolved_after_restore"
 LIVE_STATUSES = ("queued", "running", "held")
 
@@ -122,14 +139,14 @@ def close_outstanding_links(report: dict, cause: str = "restore", signed_only: b
     # A staff item only for an applicant genuinely left waiting: a live link, an unconfirmed contact, still at the
     # first stage. Expired links and settled applications need nothing (PR #68 re-check).
     stranded = {c.application for c in challenges.filter(expires_at__gt=Now(), application__contact_verified_at__isnull=True,
-                                                          application__stage="submitted")}
+                                                          application__stage="submitted").exclude(erased("application__"))}
     report["confirmation_links_closed"] = challenges.update(superseded_at=Now())
     for application in stranded:
         open_item(ITEMS[cause][0], f"{cause}:confirmation:{application.public_ref}", application=application)
     if signed_only:
         return
     setups = CredentialSetup.objects.filter(state__in=(*OPEN_SETUP_STATES, "set_pending")).select_related("request")
-    affected = {s.request for s in setups}
+    affected = {s.request for s in setups.exclude(erased("request__application__"))}
     report["password_links_closed"] = CredentialSetup.objects.filter(state__in=OPEN_SETUP_STATES).update(
         state="superseded", updated_at=Now())
     report["password_sets_now_unknown"] = CredentialSetup.objects.filter(state="set_pending").update(
@@ -137,7 +154,7 @@ def close_outstanding_links(report: dict, cause: str = "restore", signed_only: b
     for request in affected:  # staff send a fresh link through the existing reissue path
         core.item(credentials.ITEM_SETUP, request)
     withdrawals = WithdrawalConfirmation.objects.filter(state__in=("pending", "sent", "uncertain")).select_related("application")
-    for application in {w.application for w in withdrawals}:
+    for application in {w.application for w in withdrawals.exclude(erased("application__"))}:
         open_item(ITEMS[cause][1], f"{cause}:withdrawal:{application.public_ref}", application=application)
     report["withdrawal_links_closed"] = withdrawals.update(state="superseded", updated_at=Now())
 
@@ -204,6 +221,30 @@ def replay_journal(report: dict, hold_row) -> tuple[list, "EffectOpener"]:
     return entries, opener
 
 
+def settle_erased(report: dict, opener) -> None:
+    """Phase 5b (9kg.25): what the replay function did not refuse on, settled as the owner after the journal's replay.
+    Every live action of an erased subject is cancelled: it would act on tombstones, or reach outside, for a person who
+    is gone. A subject still open, or with an access revocation that is not final, gets one item the lift waits for:
+    the erasure passed both checks when it ran, so the restored rows lost a closure or an outcome the journal did not
+    carry, and the owner confirms at the provider and closes the application by hand."""
+    from applications.models import TERMINAL_STAGES, Application
+    from provisioning import closure
+    from provisioning.models import AccessRevocation
+    from workflow.models import PendingAction
+
+    subjects = list(Application.objects.filter(erased()).order_by("id"))
+    report["erased_actions_cancelled"] = PendingAction.objects.filter(
+        subject_type="application", subject_id__in=[a.public_ref for a in subjects],
+        status__in=(*LIVE_STATUSES, PendingAction.Status.UNCERTAIN)).update(
+        status=PendingAction.Status.CANCELLED, last_error="subject_erased", lease_token=None, lease_expires_at=None,
+        completed_at=Now(), updated_at=Now())
+    still = [a for a in subjects if a.stage not in TERMINAL_STAGES or AccessRevocation.objects.filter(
+        request__application=a).exclude(state__in=closure.FINAL).exists()]
+    for application in still:
+        opener(ITEM_ERASED_OPEN, f"erased:{application.public_ref}", application=application)
+    report["erased_subjects"], report["erased_subjects_open"] = len(subjects), len(still)
+
+
 def uncertain_outward(report: dict, opener) -> None:
     """Phase 3 (PR #89 review): an outward action queued, running or held at T may have run after T. It becomes
     uncertain, with one item per action; a send gets its decidable `send_outcome_unknown` item, which the Sent read
@@ -240,6 +281,7 @@ def review() -> dict:
     row = hold.first()
     if row is None:
         raise PostRestoreError("there is no restore hold: this database was not just restored")
+    _require_erasure_replay()
     report = {}
     close_outstanding_links(report)
     report["staff_sessions_ended"] = Session.objects.all().delete()[0]
@@ -252,12 +294,10 @@ def review() -> dict:
     else:
         report["staff_passwords_disabled"] = 0
     entries, opener = replay_journal(report, row)
-    if journal.configured() and erasures_unreplayed():
-        opener(ITEM_ERASURE, "erasure:unreplayed")
-        report.setdefault("effects", {})["erasure"] = "unreplayed"
+    settle_erased(report, opener)
     uncertain_outward(report, opener)
     rounds = 0
-    for request in ProvisioningRequest.objects.filter(stop_requested_at__isnull=False):
+    for request in ProvisioningRequest.objects.filter(stop_requested_at__isnull=False).exclude(erased("application__")):
         if AccessRevocation.objects.filter(request=request).exclude(state__in=closure.FINAL).exists():
             rounds += int(closure._queue_round(request))
     report["revocation_rounds_queued"] = rounds
@@ -350,9 +390,7 @@ def run(lift: bool, outward_checked: bool = False, no_closures_after_backup: boo
             raise PostRestoreError("the review found evidence missing or unreachable; run the review again until it reports reconciled")
         if row.reason != RECONCILED:
             raise PostRestoreError("run the review first (without --lift), then lift")
-        if journal.configured() and erasures_unreplayed():
-            raise PostRestoreError(f"{ITEM_ERASURE}: the effect journal holds erasures and replay (9kg.25) is not built; "
-                                   "the restored tables may hold an erased person, so the hold stays")
+        _require_erasure_replay()  # again: an erasure made during the hold needs another replay
         items = open_effect_items()
         if items:
             raise PostRestoreError("effects are unresolved: resolve each restore_effect_* item (--resolve <id> --note ...): "
