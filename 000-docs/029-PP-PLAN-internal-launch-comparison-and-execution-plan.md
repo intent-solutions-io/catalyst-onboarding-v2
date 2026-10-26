@@ -819,7 +819,8 @@ work.
 > `9kg.6`, `9kg.5`, `9kg.32`, `9kg.34`, `oc4.9`, `oc4.10`, `oc4.11`, `9kg.39` and `9kg.25` (PR #103). Council `030`
 > (D-51) removed the POL-10 and POL-09 edges in front of `9kg.32`, `9kg.34` and `9kg.25`; they were built before those
 > decisions, with every value shipped undecided, so the "after POL-10" labels in 13.1 and the arrows in 13.2 are
-> history. D-51 is the council's provisional adoption (`030`), not the owner's ratification. MERGED_LIST_029 New beads from the 2026-10-26 reconciliation: `9kg.31.11` (admit `production` in code;
+> history. D-51 is the council's provisional adoption (`030`), not the owner's ratification. Merged later the same day: `9kg.69` (PR #104), `9kg.70` (#105), `9kg.60` (#106) and `9kg.72`
+> (#107), with the drill evidence and the residual host items on each bead. New beads from the 2026-10-26 reconciliation: `9kg.31.11` (admit `production` in code;
 > blocks the dark deploy), `9kg.72` (name an invited-only person for erasure; blocks the go/no-go), `9kg.73`, `9kg.74`
 > and `9kg.71` (follow-ups). The owner decision package is `031`, the release-control readback and host requests are
 > `032`, and readiness by boundary is in `006`. The "new" and "reused" column says how a bead entered this plan, not

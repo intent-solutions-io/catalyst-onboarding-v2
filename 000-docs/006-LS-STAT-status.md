@@ -4,15 +4,17 @@
 |---|---|
 | Document | `006-LS-STAT-status` |
 | Last updated | 2026-10-26 |
-| Source revision | `main` `MAIN_REV` (PR #103 merged as `e9193db`; MERGED_LIST) |
+| Source revision | `main` `0211ce9` (PR #103 merged as `e9193db`; PRs #104 (`9kg.69`) as `0691e02`, #105 (`9kg.70`) as `4fc527a`, #106 (`9kg.60`) as `7aed4ac` and #107 (`9kg.72`) as `0211ce9`) |
 | Classification | Public |
 
-> **Status (2026-10-26): the internal-launch candidate's repository work is merged or in review; nothing is deployed,
+> **Status (2026-10-26): the internal-launch candidate's launch-critical repository work is merged, apart from two open
+> beads (`9kg.31.11`, `9kg.75`); nothing is deployed,
 > enabled or owner-approved for real use.** Merged since 2026-10-23 (PRs #82 to #103, all through `safe-merge` on
 > green required checks): the internal-launch batches, effect reconciliation after a restore (`9kg.33`), the erasure
 > path (`9kg.32`), custody encryption (`9kg.34`), the live-call protections (`oc4.9`, `oc4.10`), the decline notice
 > (`oc4.11`), the egress deny list (`9kg.39`) and erasure replay after a restore (`9kg.25`, TEST-P6-29 now full).
-> STATUS_REVIEW_LINE The owner decision package is `031`; the release-control readback and the host
+> Also merged on 2026-10-26: custody wrapping-key rotation (`9kg.69`), the custody health part (`9kg.70`), the
+> journal's off-host copy (`9kg.60`) and naming an invited-only person for erasure (`9kg.72`). The owner decision package is `031`; the release-control readback and the host
 > requests are `032`. Readiness, boundary by boundary, is in "Readiness" below. The restore drill's off-site,
 > object-locked leg remains NOT RUN.
 >
@@ -33,11 +35,11 @@
 
 | Boundary | Ready? | What stands between |
 |---|---|---|
-| A. Repository work, synthetic verification | in progress: the launch-critical repository beads are merged, in review, or open and unstarted (listed) | in review: PRs #104 (`9kg.69`), #105 (`9kg.70`), #106 (`9kg.60`), #107 (`9kg.72`); open: `9kg.31.11` (admit `production`), `9kg.75` (the retention-due report); follow-ups: `9kg.71`, `9kg.73`, `9kg.74` |
+| A. Repository work, synthetic verification | the launch-critical repository beads are merged except two | open: `9kg.31.11` (admit `production`; blocks the dark deploy), `9kg.75` (the retention-due report; blocks the go/no-go, and needs POL-10's values); follow-ups: `9kg.71`, `9kg.73`, `9kg.74` |
 | B. Read-only host preflight (`9kg.42`) | request prepared (`032` section 2) | the owner's go |
 | C. Host preparation and the synthetic dark deploy (`9kg.28`, `9kg.31.5`) | **not ready** | the preflight (`9kg.42`); `9kg.35` (no server-side protection exists: `032` section 1.8); `9kg.31.11`; `9kg.31.4` (release preparation, which waits on `9kg.36`); the host name and coexistence (`211.7.3`); the custody locations (`211.7.9`); staff holders and devices (`211.7.5`); the challenge lifetime and page list (`211.7.7`, `211.7.2`); the journal-copy destination; and the owner's choice on `9kg.31.5`: POL-10 decided first (a live backup refuses while the registry is undecided) or the backup and restore proofs taken after it |
 | D. Live-provider canaries (`9kg.31.1` to `.3`) | **not ready** | the dark deploy; POL-09 (`211.7.9`); the agreement inventory (`211.7.4`); `dy7.2`, `dy7.3`; `9kg.69`, `9kg.70`; each canary's own go |
-| E. GATE-PILOT and real internal intake (`9kg.31.6`) | **not ready** | POL-10 and POL-09 decided (with counsel where `031` section 6 says); `211.7.2`, `211.7.4` to `211.7.8`; the canaries; `dy7.2`, `dy7.3`; `9kg.60`; `9kg.72`; `9kg.75`; the go/no-go package (`9kg.31.4`); the owner's acceptance of the manual retention procedure as "enforced" and ratification of D-51 and D-M |
+| E. GATE-PILOT and real internal intake (`9kg.31.6`) | **not ready** | POL-10 and POL-09 decided (with counsel where `031` section 6 says); `211.7.2`, `211.7.4` to `211.7.8`; the canaries; `dy7.2`, `dy7.3`; `9kg.60`'s host wiring (merged code, destination PENDING); `9kg.75`; the go/no-go package (`9kg.31.4`); the owner's acceptance of the manual retention procedure as "enforced" and ratification of D-51 and D-M |
 | F. Wider enrollment and the public cutover | **not in scope** | `9kg.31.10` and GATE-CUTOVER, separately authorized; `oc4.7`, `oc4.8`, `f1u.*`, `9kg.71`, `9kg.74` |
 
 ## Current state
@@ -53,7 +55,7 @@
 | Candidate selection quality | APPROVED as the governing contract (D-35): authority in `011` section 11; methods, evaluation and scorecard in `019`; open: domain expert, operational delegate, private evaluation location, scorecard minimums, capped-snapshot path | PR #33 |
 | Open product policies | POL-01 decided for the slice (D-25); POL-19 decided (D-31); POL-06 and POL-13 decided for synthetic P2 only (D-29, D-30); POL-03, POL-04 and POL-05 synthetic P3 defaults approved with `018` (D-34); production values open (`011` section 6) | bead "Obtain owner decisions on the open product policies listed in the master blueprint" |
 | Specialist subagents | all eleven discovered in a fresh session; one (`catalyst-django-architect`) probed at runtime | `008` section 5.1 |
-| Documentation and runtime CI | green on every merged head through `main` `MAIN_REV`; the last full run before a merge: CI run 40262971591 on PR #103's head `19c5b31` (merged as `e9193db`), its summary line "1821 passed in 1718.72s" (no failure, skip or error reported) | GitHub Actions |
+| Documentation and runtime CI | green on every merged head through `main` `0211ce9`; the last full run before a merge: CI run 40262971591 on PR #103's head `19c5b31` (merged as `e9193db`), its summary line "1821 passed in 1718.72s" (no failure, skip or error reported) | GitHub Actions |
 | Runtime CI lane | job "Runtime checks (Python 3.14.8, PostgreSQL 16.15)", aggregated into the required check; failure path demonstrated (probe run 38030066475: runtime failed, required check failed, `safe-merge` refused) | PR #9, closed probe PR #10 |
 | v0.1.0 tag | an automatic tag, not a release (`CHANGELOG.md`) | |
 

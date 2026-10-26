@@ -6,7 +6,7 @@
 | Version | 0.1.0 (draft, 2026-10-26) |
 | Status | **PROPOSED.** Three change requests for the owner. Writing them authorizes nothing. The GitHub protections are executed by the owner's own hand (`030` Q7, Q9); the preflight and host preparation each run only under the owner's recorded host go (`030` Q9). No agent session runs any step marked "owner". |
 | Owner | Jeremy Longshore |
-| Beads | `9kg.35`, `9kg.36` (release control); `9kg.42` (read-only host preflight); `9kg.28` (host preparation); related: `9kg.25` (PR #103, merged as `e9193db`), `9kg.60` (PR #106), `9kg.69` (PR #104), `9kg.70` (PR #105), `9kg.31.11` |
+| Beads | `9kg.35`, `9kg.36` (release control); `9kg.42` (read-only host preflight); `9kg.28` (host preparation); related: `9kg.25` (PR #103, merged as `e9193db`), `9kg.60` (PR #106, `7aed4ac`), `9kg.69` (PR #104, `0691e02`), `9kg.70` (PR #105, `4fc527a`), `9kg.72` (PR #107, `0211ce9`), `9kg.31.11` (open) |
 | Inputs | `009` sections 2, 5.5 and 8; `026` sections 3 to 9 and 16; `027`; `029` sections 6, 7, 12 and 13; `030` Q1, Q7, Q9, Q10; `scripts/apply-github-protections.sh`; `scripts/host-preflight-read.sh`; `.github/workflows/`; `deploy/staging/compose.yaml`; code at `main` `2a19730` |
 | Companion | `031` (the owner decision package; its section 8 lists the conflicts these requests depend on) |
 | Classification | Public repository. Secrets by name only, never values. No host name, address, private path or named holder: those live in the private operations record. |
@@ -300,10 +300,10 @@ Not on the host at all (fixed rules): the mail-host provisioning credential (D-F
    calls only (`scripts/restore_drill.sh`).
 5. **The custody keys are never restored.** A restore brings back rows and sealed files only; a destroyed key stays
    destroyed.
-6. **The journal off the host** (`9kg.60`, PR #106): a provisioned destination (`catalyst_journal_ship --provision`,
+6. **The journal off the host** (`9kg.60`, merged as PR #106): a provisioned destination (`catalyst_journal_ship --provision`,
    once), a timer running `catalyst_journal_ship --to <destination>` every few minutes and immediately before each
    backup, `CATALYST_JOURNAL_SHIP_LAG_SECONDS` set to the owner's RPO (`211.7.2`), and every restore run with
-   `--shipped-from <destination>`. The destination, cadence and value are INPUTS. Until it merges and is wired, the
+   `--shipped-from <destination>`. The destination, cadence and value are INPUTS. Until the host wires it, the
    owner copies the head and the person's entries to the off-host private store after every erasure, handoff and
    restore.
 
@@ -314,9 +314,9 @@ review runs without it (PR #103 as merged; the `9kg.28` bead carries the correct
 
 - The health timer every five minutes and the liveness sweep, with OnFailure surfacing exit 3; the backup-freshness
   and restore-drill-overdue signals; codes only in alerts.
-- The custody health part (`9kg.70`, PR #105) in the existing health timer: every condition pages under its own code,
+- The custody health part (`9kg.70`, merged as PR #105) in the existing health timer: every condition pages under its own code,
   a missing mirror copy included (`recovery_incomplete`); verify one custody code through the host timer to Buzz.
-  Until it merges, a scheduled `catalyst_custody_keys --status` with a dead-man entry.
+  It is merged; until the host timer runs it, nothing pages a custody fault.
 - A scheduled proof that the key volumes are absent from the newest host archive, the dev-box replica and the
   off-site listing (`9kg.28` note, item 4). PROVISIONAL (D-51 pattern): a precondition of completing `9kg.28` and of the
   Documenso canary.

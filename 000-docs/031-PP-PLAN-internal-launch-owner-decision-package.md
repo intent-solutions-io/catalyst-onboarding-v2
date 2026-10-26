@@ -9,7 +9,7 @@
 | Beads | `211.7.1` (POL-10), `211.7.9` (POL-09), `oc4.8`, `9kg.59`, and the launch-manifest inputs that `9kg.31.6` needs; read on 2026-10-26 |
 | Inputs | `002` section 6 (the gates); `011` sections 4 to 6 (D-49 to D-51, the policy register); `029` (sections 1, 6, 7, 9 to 14 and 17); `030`; `026` sections 6 and 16; `027`; `019` (only the separation of dogfooding from selection validation) |
 | Code read | `main` at `2a19730`, re-checked at `e9193db` (PR #103 merged) for the replay statements: `erasure/registry.py`, `erasure/catalog.py`, `erasure/record.py`, `erasure/service.py`, `agreements/custody_policy.py`, `agreements/keystore.py`, `config/backup.py`, `config/settings.py`, `config/guards.py`, `assessments/decisions.py`, `assessments/runs.py`, `applications/management/commands/catalyst_invite.py` |
-| Merged since drafting | PR #103 (`9kg.25`): erasure replay after a restore, merged 2026-10-26 as `e9193db`. Stated limit filed as `9kg.71`. In review: PR #104 (`9kg.69`), #105 (`9kg.70`), #106 (`9kg.60`), #107 (`9kg.72`). |
+| Merged since drafting | PR #103 (`9kg.25`): erasure replay after a restore, merged 2026-10-26 as `e9193db`. Stated limit filed as `9kg.71`. Merged the same day: PR #104 (`9kg.69`, `0691e02`), #105 (`9kg.70`, `4fc527a`), #106 (`9kg.60`, `7aed4ac`), #107 (`9kg.72`, `0211ce9`). |
 | Companion | `032` (release control, the host preflight request and the host preparation request) |
 | Classification | Public repository. No applicant data, agreement text, credentials, private paths, named private holders, brain content or transcripts. Roles are named; people are not. |
 
@@ -204,7 +204,7 @@ an owner act per erasure is the right control for this cohort. Instead:
 
 1. `catalyst_invite` prints the invitation's public reference, and one read-only report command lists, by public
    reference only, the terminal applications past their clock and the expired, never-used invitations. No names, no
-   addresses. Filed 2026-10-26 as `9kg.72` (the reference and an address lookup, PR #107) and `9kg.75` (the due
+   addresses. Filed 2026-10-26 as `9kg.72` (the reference and an address lookup, merged as PR #107) and `9kg.75` (the due
    report); the go/no-go `9kg.31.6` depends on both. Boundary: E, because R2 cannot be applied without them. A
    first-generation member record with no application or invitation still has no reference the erase function
    resolves (stated in `026`).
@@ -434,7 +434,7 @@ facts behind each are in sections 2 and 3.
 | 4 | Provider handoffs | `211.7.1` | within 30 days after the erasure; Documenso deletion behaviour checked at the canary first | E | owner with counsel |
 | 5 | Erasure record and journal retention | `211.7.1` | deployment life until `9kg.61`; floor: oldest restorable backup; off-host by `9kg.60` before E | E | owner with counsel |
 | 6 | How retention is applied | `211.7.1` | monthly manual procedure (section 2.5), accepted as "enforced" in the go/no-go record | E | owner |
-| 7 | Mechanism for R2 | `9kg.72` (PR #107) and `9kg.75` (filed 2026-10-26) | print the invitation reference and look up references by address (`9kg.72`); a read-only "retention due" report (`9kg.75`) | E | owner |
+| 7 | Mechanism for R2 | `9kg.72` (merged, PR #107) and `9kg.75` (filed 2026-10-26, open) | print the invitation reference and look up references by address (`9kg.72`); a read-only "retention due" report (`9kg.75`) | E | owner |
 | 8 | Unassociated inbound mail | `9kg.71` | widen to live erasure | F | owner |
 | 9 | Custody location | `211.7.9` | under the managed data root; key directory and mirror on different devices; outside every archive | C (mounts), D | owner |
 | 10 | Custody access | `211.7.9` | Agreement decision-makers only, through web | D, E | owner |
@@ -465,10 +465,10 @@ Follow-up recorded on 2026-10-26 by the main session (the numbers are this secti
 - Item 3 (production cannot start) is bead `9kg.31.11`; the dark deploy `9kg.31.5` depends on it.
 - Item 4 (a vacuous model-provider handoff) is bead `9kg.73`, non-blocking. It applies only to a person with an
   assessment run row (a run queued, then refused by the live-call suspension); a human-only decision creates none.
-- Item 6 (a person invited but never applied cannot be named) is `9kg.72` (PR #107); the due report is `9kg.75`. The
+- Item 6 (a person invited but never applied cannot be named) is `9kg.72` (merged, PR #107); the due report is `9kg.75`. The
   go/no-go depends on both. Unassociated inbound mail stays with `9kg.71`.
 - Item 7: `027` now has an erasure-key row (on this branch): routine rotation is not supported, and the leak
-  procedure waits on `9kg.74`. PR #104 adds the wrapping-key row.
+  procedure waits on `9kg.74`. PR #104 (merged) added the wrapping-key row.
 - Item 8 is settled by PR #103's review fix-ups: the restore service holds the erasure key for the lift only, and the
   review runs without it (the `9kg.28` bead carries the correction).
 - Item 9 is noted on `9kg.59`.
