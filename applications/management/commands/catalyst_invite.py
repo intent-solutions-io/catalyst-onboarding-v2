@@ -8,7 +8,8 @@ from the approved template, 9kg.52) for the owner to send by hand, and the notic
 environment refuses to issue while the notice or the invitation wording is unapproved, synthetic or withdrawn
 (applications.notices); a local or synthetic one prints the draft with its marker. `--format text` prints the mail
 alone, ready to paste into a hand send, with the recorded digests after it. A concurrent run for the same address is
-reported as such. The log line carries the issuer only. Exit 0 issued, 1 refused.
+reported as such. The log line carries the issuer only. Both formats print the invitation's public reference (9kg.72):
+the identifier `catalyst_erase --subject` takes for a person invited who never applied. Exit 0 issued, 1 refused.
 """
 
 import json
@@ -67,10 +68,12 @@ class Command(BaseCommand):
         if format == "text":
             self.stdout.write(f"Subject: {mail.subject}\n\n{mail.body}\n"
                               f"-- recorded: data notice version {mail.notice.version} ({mail.notice.sha256}),"
-                              f" invitation wording {mail.template.sha256}{'; DRAFT, not approved' if mail.draft else ''}")
+                              f" invitation wording {mail.template.sha256}{'; DRAFT, not approved' if mail.draft else ''}"
+                              f"\n-- invitation reference: {invitation.public_id}")
             return
         self.stdout.write(json.dumps({
-            "issued": True, "expires_at": invitation.expires_at.isoformat(), "superseded": superseded,
+            "issued": True, "invitation": str(invitation.public_id), "expires_at": invitation.expires_at.isoformat(),
+            "superseded": superseded,
             "mode": settings.CATALYST_INTAKE_MODE,
             "mail": {"subject": mail.subject, "body": mail.body, "draft": mail.draft,
                      "notice_version": mail.notice.version, "notice_sha256": mail.notice.sha256,
