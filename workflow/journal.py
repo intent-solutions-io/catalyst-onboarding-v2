@@ -66,7 +66,8 @@ LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}")
 # The kinds the journal accepts and the data keys each may carry (codes, references, counts and digests only).
 KINDS = {
     "genesis": {"id"},
-    "restore": {"backup_seq", "backup_head", "backup_journal_id", "backup_started_at", "behind_shipped"},
+    "restore": {"backup_seq", "backup_head", "backup_journal_id", "backup_started_at", "behind_shipped",
+                "shipped_seq"},
     "repair": {"discarded_bytes", "last_good_hash"},
     "application_closed": {"outcome", "phase"},
     "access_revocation": {"state", "phase"},

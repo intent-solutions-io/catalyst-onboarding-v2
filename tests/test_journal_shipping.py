@@ -24,9 +24,10 @@ def entries(n=3):
 
 
 @pytest.fixture
-def offhost(tmp_path):
+def offhost(tmp_path, effect_journal):
     path = tmp_path / "offhost"
     path.mkdir()
+    shipping.provision(str(path))  # the host's one-time step on the mounted destination
     return path
 
 
@@ -39,7 +40,7 @@ def test_9kg_60_the_journal_and_its_head_are_shipped_whole_and_recorded_beside_t
     head = json.loads((offhost / shipping.HEAD).read_text())
     assert (head["identity"], head["seq"], head["hash"]) == (identity, seq, digest)
     assert shipping.last_shipped()["seq"] == seq
-    assert not [p for p in offhost.iterdir() if p.name.startswith(".")]  # no temporary file left behind
+    assert {p.name for p in offhost.iterdir() if p.name.startswith(".")} == {shipping.MARKER}  # no temporary file left
     for bad, code in ((str(effect_journal), "destination_unsafe"), (str(effect_journal / "sub"), "destination_unavailable"),
                       ("relative/dir", "destination_unavailable"), (str(offhost / "missing"), "destination_unavailable")):
         with pytest.raises(shipping.ShipError, match=code):
@@ -93,24 +94,32 @@ def test_9kg_60_a_live_environment_must_set_the_lag_threshold(effect_journal, se
     assert not any("CATALYST_JOURNAL_SHIP_LAG_SECONDS" in p for p in guards.journal_problems(settings))
 
 
-def test_9kg_60_the_shipped_head_check_refuses_a_journal_behind_it_unless_the_owner_accepts(effect_journal, settings):
+def test_9kg_60_the_restore_check_reads_the_copy_and_refuses_a_journal_behind_it_unless_the_owner_accepts(
+        effect_journal, offhost, settings):
     entries(3)
-    seq, digest, identity = journal.head()
-    assert backup.check_shipped(f"{identity}:{seq}:{digest}", False) is False  # the journal holds it
-    assert backup.check_shipped("none", False) is False and backup.check_shipped("", False) is False
-    ahead = f"{identity}:{seq + 4}:{'0' * 64}"  # shipped later than this journal reaches
+    shipping.ship(str(offhost))
+    seq = journal.head()[0]
+    assert backup.check_shipped(str(offhost), False) == (False, seq)  # the journal holds the copy's head
+    assert backup.check_shipped("none", False) == (False, None) and backup.check_shipped("", False) == (False, None)
+    lines = (effect_journal / journal.FILE).read_bytes().splitlines(keepends=True)
+    (effect_journal / journal.FILE).write_bytes(b"".join(lines[:2]))  # the host's journal is behind its copy
     with pytest.raises(backup.BackupError, match="journal_behind_shipped"):
-        backup.check_shipped(ahead, False)
-    assert backup.check_shipped(ahead, True) is True  # the owner accepts the loss; the restore records it
-    with pytest.raises(backup.BackupError, match="must be <identity>:<seq>:<hash>"):
-        backup.check_shipped("not-a-head", False)
+        backup.check_shipped(str(offhost), False)
+    assert backup.check_shipped(str(offhost), True) == (True, seq)  # the owner accepts; the restore records both
+    unmarked = offhost.parent / "unmarked"
+    unmarked.mkdir()
+    with pytest.raises(backup.BackupError, match="destination_unprovisioned"):
+        backup.check_shipped(str(unmarked), False)  # never a typed head, never an unmarked directory
     settings.CATALYST_ENV = "production"
-    with pytest.raises(backup.BackupError, match="names the journal head last shipped"):
+    with pytest.raises(backup.BackupError, match="names the journal's off-host copy"):
         backup.check_shipped("", False)
+    with pytest.raises(backup.BackupError, match="needs --accept-journal-behind-shipped"):
+        backup.check_shipped("none", False)
+    assert backup.check_shipped("none", True) == (True, None)
 
 
 @pytest.mark.django_db
-def test_9kg_60_a_restore_refuses_a_journal_behind_the_shipped_head_before_the_load(effect_journal, tmp_path):
+def test_9kg_60_a_restore_refuses_a_journal_behind_the_shipped_head_before_the_load(effect_journal, offhost, tmp_path):
     out, storage = tmp_path / "sets", tmp_path / "custody"
     out.mkdir()
     storage.mkdir(mode=0o700)
@@ -118,7 +127,10 @@ def test_9kg_60_a_restore_refuses_a_journal_behind_the_shipped_head_before_the_l
     result = run_backup(out, storage)
     assert result.returncode == 0, result.stderr
     entries(2)
-    seq, digest, identity = journal.head()
+    shipping.ship(str(offhost))
+    seq = journal.head()[0]
+    lines = (effect_journal / journal.FILE).read_bytes().splitlines(keepends=True)
+    (effect_journal / journal.FILE).write_bytes(b"".join(lines[:-1]))  # the new host's journal lacks the last entry
     database = new_database()
     try:
         def restore(*extra):
@@ -126,14 +138,14 @@ def test_9kg_60_a_restore_refuses_a_journal_behind_the_shipped_head_before_the_l
                                 "--storage-dir", str(tmp_path / "restored"), "--confirm-database", database, *extra],
                                timeout=300, CATALYST_DB_NAME=database, CATALYST_DB_USER=django_settings.CATALYST_DB_ROLES["owner"],
                                CATALYST_DB_PASSWORD=os.environ["CATALYST_DB_OWNER_PASSWORD"], **ADMIN)
-        refused = restore("--shipped-head", f"{identity}:{seq + 3}:{'0' * 64}")
+        refused = restore("--shipped-from", str(offhost))
         assert refused.returncode == 1 and "journal_behind_shipped" in refused.stderr, refused.stderr
         with admin(database) as conn:  # refused before the load: the target is still empty
             assert conn.execute("SELECT count(*) FROM workflow_automationpause").fetchone()[0] == 0
-        accepted = restore("--shipped-head", f"{identity}:{seq + 3}:{'0' * 64}", "--accept-journal-behind-shipped")
+        accepted = restore("--shipped-from", str(offhost), "--accept-journal-behind-shipped")
         assert accepted.returncode == 0, accepted.stderr
         marker = [e for e in journal.read() if e.kind == "restore"][-1]
-        assert marker.data.get("behind_shipped") is True  # the owner's acceptance is on the record
+        assert marker.data.get("behind_shipped") is True and marker.data.get("shipped_seq") == seq  # on the record
     finally:
         drop(database)
 
@@ -144,3 +156,62 @@ def test_9kg_60_the_command_ships_and_refuses_with_a_code(effect_journal, offhos
     assert json.loads(capsys.readouterr().out.strip())["shipped_seq"] == journal.head()[0]
     with pytest.raises(SystemExit):
         call_command("catalyst_journal_ship", "--to", "relative")
+
+
+# --- the release-operations review of PR #106 --------------------------------------------------------------------
+
+def test_9kg_60_an_unmounted_destination_is_refused_and_a_second_run_waits(effect_journal, offhost, tmp_path):
+    entries(1)
+    bare = tmp_path / "mount-point"  # what an unmounted mount point looks like: an empty local directory
+    bare.mkdir()
+    with pytest.raises(shipping.ShipError, match="destination_unprovisioned"):
+        shipping.ship(str(bare))
+    assert shipping.last_shipped() is None  # nothing recorded as shipped
+    import fcntl
+
+    with open(offhost / shipping.MARKER, "rb") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        with pytest.raises(shipping.ShipError, match="ship_in_progress"):
+            shipping.ship(str(offhost))
+
+
+def test_9kg_60_an_interrupted_first_run_is_anchored_on_the_copy_itself(effect_journal, offhost):
+    entries(3)
+    shipping.ship(str(offhost))
+    (offhost / shipping.HEAD).unlink()  # the journal was renamed into place, its head never was
+    lines = (effect_journal / journal.FILE).read_bytes().splitlines(keepends=True)
+    (effect_journal / journal.FILE).write_bytes(b"".join(lines[:2]))
+    with pytest.raises(shipping.ShipError, match="destination_ahead_of_journal"):
+        shipping.ship(str(offhost))  # still refused: the copy's own last entry is the anchor
+
+
+def test_9kg_60_a_rebaseline_keeps_the_old_copy_and_starts_a_new_one(effect_journal, offhost):
+    entries(3)
+    shipping.ship(str(offhost))
+    old = (offhost / journal.FILE).read_bytes()
+    (effect_journal / journal.FILE).write_bytes(b"")  # an owner-accepted loss: a new journal
+    journal.ensure_genesis()
+    with pytest.raises(shipping.ShipError, match="destination_ahead_of_journal"):
+        shipping.ship(str(offhost))
+    report = shipping.rebaseline(str(offhost))
+    assert report["rebaselined"] == 2
+    assert [p.read_bytes() for p in offhost.glob(f"{journal.FILE}.superseded-*")] == [old]  # kept, never deleted
+    assert shipping.ship(str(offhost))["shipped_seq"] == journal.head()[0]
+
+
+def test_9kg_60_a_dead_timer_and_an_unreadable_record_page_under_their_own_codes(effect_journal, offhost, settings,
+                                                                                 monkeypatch):
+    entries(1)
+    settings.CATALYST_JOURNAL_SHIP_LAG_SECONDS = 300
+    shipping.ship(str(offhost))
+
+    class Later(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(UTC) + timedelta(seconds=900)
+    monkeypatch.setattr(shipping, "datetime", Later)
+    assert system_health.journal_health()["anomalies"] == ["effect_journal_ship_stale"]  # no effect, no run
+    monkeypatch.undo()
+    settings.CATALYST_JOURNAL_SHIP_LAG_SECONDS = 300
+    (effect_journal / shipping.SHIPPED).write_text("not json")
+    assert system_health.journal_health()["anomalies"] == ["effect_journal_shipped_unreadable"]

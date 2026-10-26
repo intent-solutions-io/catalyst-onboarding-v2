@@ -278,17 +278,17 @@ def check_target(admin_conn, database: str, confirm_database: str, manifest: dic
 
 
 def restore(admin_conn, backup_dir: Path, storage_dir: Path, *, database: str, confirm_database: str,
-            expect_manifest_sha256: str = "", shipped_head: str = "", accept_behind_shipped: bool = False) -> dict:
+            expect_manifest_sha256: str = "", shipped_from: str = "", accept_behind_shipped: bool = False) -> dict:
     """Load a checked set into the target database (admin_conn, the bootstrap administrator, not in a transaction)
     and its custody files into storage_dir, recording the restore hold in the same transaction as the load.
-    `shipped_head` is the journal head last shipped off the host (9kg.60): a journal that does not hold it is refused
-    unless the owner accepts the loss (`accept_behind_shipped`, recorded in the journal's restore entry)."""
+    `shipped_from` is the off-host copy of the journal (9kg.60): a local journal that does not hold the copy's head is
+    refused unless the owner accepts the loss (`accept_behind_shipped`, recorded with the head in the restore entry)."""
     manifest = check_set(backup_dir, expect_manifest_sha256)
     if storage_dir.is_symlink() or (storage_dir.exists() and any(storage_dir.iterdir())):
         raise BackupError("the custody directory to restore into is not empty")
     receipt = json.loads((backup_dir / "receipt.json").read_text())
     check_journal(receipt)
-    behind_shipped = check_shipped(shipped_head, accept_behind_shipped)
+    behind_shipped, shipped_seq = check_shipped(shipped_from, accept_behind_shipped)
     check_target(admin_conn, database, confirm_database, manifest)
     admin_conn.rollback()
     staging = storage_dir.parent / f".{storage_dir.name}.staging"
@@ -341,41 +341,48 @@ def restore(admin_conn, backup_dir: Path, storage_dir: Path, *, database: str, c
     marker = journal.append("restore", f"restore:{backup_dir.name}", {
         "backup_seq": receipt.get("effect_journal_seq"), "backup_head": receipt.get("effect_journal_head") or "",
         "backup_journal_id": receipt.get("effect_journal_id") or "", "backup_started_at": receipt.get("started_at"),
-        **({"behind_shipped": True} if behind_shipped else {})})
+        **({"behind_shipped": True} if behind_shipped else {}),
+        **({"shipped_seq": shipped_seq} if shipped_seq is not None else {})})
     status = "marked" if marker else "not_marked"
     if receipt.get("effect_journal_error") or not isinstance(receipt.get("effect_journal_seq"), int):
         status = "unanchored"  # the set carries no journal head: the review reconciles every entry (safe, but unverified)
     return {"restored": backup_dir.name, "hold": "recorded", "effect_journal": status}
 
 
-def check_shipped(shipped_head: str, accept_behind: bool) -> bool:
-    """9kg.60: the journal on this host must hold the head last shipped off it, or the effects after it would be
-    forgotten (a journal rebuilt from an older copy, or the old host's lost). Restore the journal from the off-host copy
-    first. Returns True when the owner accepted a journal behind it. A live restore must name the head (`none` only
-    when nothing was ever shipped)."""
+def check_shipped(shipped_from: str, accept_behind: bool) -> tuple[bool, int | None]:
+    """9kg.60: the journal on this host must hold the head of the off-host copy (`shipped_from`, its provisioned
+    directory, read here, never typed), or the effects after it would be forgotten (a journal rebuilt from an older
+    copy, or the old host's lost). Restore the journal from the copy first. Returns (owner accepted a journal behind
+    the copy, the copy's seq). A live restore must name the copy; `none` (nothing was ever shipped) is accepted there
+    only with the owner's override, which the restore entry records."""
     from django.conf import settings
 
     from config.guards import LIVE_ENVIRONMENTS
-    from erasure.record import HEAD
-    from workflow import journal
+    from workflow import journal, shipping
 
-    if not shipped_head:
-        if settings.CATALYST_ENV in LIVE_ENVIRONMENTS:
-            raise BackupError("a live restore names the journal head last shipped off the host (--shipped-head)")
-        return False
-    if shipped_head == "none":
-        return False
-    found = HEAD.fullmatch(shipped_head)
-    if found is None:
-        raise BackupError("--shipped-head must be <identity>:<seq>:<hash>, or none")
+    live = settings.CATALYST_ENV in LIVE_ENVIRONMENTS
+    if not shipped_from:
+        if live:
+            raise BackupError("a live restore names the journal's off-host copy (--shipped-from)")
+        return False, None
+    if shipped_from == "none":
+        if live and not accept_behind:
+            raise BackupError("a live restore with no off-host copy needs --accept-journal-behind-shipped")
+        return live, None
     try:
-        journal.verify_anchor(journal.read(), found.group(1), int(found.group(2)), found.group(3))
+        head = shipping.copy_head(shipped_from)
+    except shipping.ShipError as exc:
+        raise BackupError(f"the journal's off-host copy cannot be read ({exc.code})") from None
+    if head is None:
+        return False, 0
+    try:
+        journal.verify_anchor(journal.read(), head["identity"], head["seq"], head["hash"])
     except journal.JournalError:
         if accept_behind:
-            return True
-        raise BackupError("the effect journal does not hold the head last shipped off the host (journal_behind_shipped):"
-                          " restore the journal from the off-host copy, or record --accept-journal-behind-shipped") from None
-    return False
+            return True, head["seq"]
+        raise BackupError("the effect journal does not hold the head of its off-host copy (journal_behind_shipped):"
+                          " restore the journal from the copy, or record --accept-journal-behind-shipped") from None
+    return False, head["seq"]
 
 
 def check_journal(receipt: dict) -> None:

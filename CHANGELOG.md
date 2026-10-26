@@ -180,8 +180,11 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 - The effect journal shipped off the host (bead `9kg.60`; `026` section 16): `catalyst_journal_ship --to` copies the
   chain-verified journal and its head to a directory the host names. It never overwrites a copy that holds entries the
   local journal lost. The health part pages shipping lag, never-shipped and behind-shipped (threshold
-  `CATALYST_JOURNAL_SHIP_LAG_SECONDS`, required in a live environment). `catalyst_restore --shipped-head` refuses a
-  journal that does not hold the last shipped head unless the owner records `--accept-journal-behind-shipped`
+  `CATALYST_JOURNAL_SHIP_LAG_SECONDS`, required in a live environment), plus a stale run and an unreadable record.
+  `catalyst_restore --shipped-from <copy>` reads the copy's head and refuses a local journal that lacks it unless the
+  owner records `--accept-journal-behind-shipped`. The destination needs a provisioning marker, so an unmounted mount
+  point is refused; every copy is read back before it counts; and `--rebaseline` keeps an old copy after an accepted
+  loss
 - Hardening (internal-launch batch item 6): the database freezes inbound message provenance and the identity
   columns of outbound attempts and reply links for every role, with the audited retention path left open for
   erasure (correspondence migration 0017, `016` section 10.14)
