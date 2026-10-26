@@ -110,11 +110,17 @@ or an off-site copy): after the old wrapping key is destroyed, no key opens the 
   4. Make the next key the current one: write it to `custody_wrapping_key` and to the escrow, then remove
      `custody_next_wrapping_key`. Start web and worker, and check one retrieval.
   5. Destroy the old key everywhere: its secret file and its escrow copy.
-  6. Run `catalyst_custody_keys --retire-old-key <from_key> --expect-head <head>`. It refuses while any key file is
-     still under the old key, then journals the retirement.
+  6. Run `catalyst_custody_keys --retire-old-key <from_key> --expect-head <head>`. It refuses unless that rotation
+     was journaled done, and while any key file is still under the old key, a destroyed key's file remains, or a
+     stray file is in a key directory. Then it journals the retirement, which is your attestation that the old key
+     is destroyed.
+- **A key directory lost during a rotation:** `--recover` holds one wrapping key, so it copies only the copies that
+  key opens and reports the rest as unrecoverable. Run `--recover` once with the old key current, then once with the
+  next key as the current key, and then run the rotation again.
 - **Interval:** the owner's (211.7.9), and immediately after a suspected leak of the wrapping key or of a key
   directory.
-- **What users notice:** document retrieval is unavailable while web is stopped (step 1 to step 4).
+- **What users notice:** document retrieval is unavailable while web is stopped (step 1 to step 4). A rotation that
+  finds a key being created or destroyed refuses (`custody_operation_in_progress`); run it again.
 - **Not covered by code:** destroying the old key's escrow copy and any copy outside the host. That is the owner's
   act, recorded by step 6.
 

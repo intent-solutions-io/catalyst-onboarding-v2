@@ -177,3 +177,100 @@ def test_9kg_69_the_rotation_runbook_has_a_custody_row():
     runbook = (Path(__file__).resolve().parent.parent / "000-docs" / "027-OD-OPNS-secret-rotation-runbook.md").read_text()
     for line in ("custody_next_wrapping_key", "--rotate --expect-head", "--retire-old-key", "escrow"):
         assert line in runbook, line
+
+
+# --- the security review of PR #104 -------------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_9kg_69_an_interrupted_replace_leaves_no_temporary_copy_and_a_destruction_removes_one_anyway(
+        custody, settings, monkeypatch):
+    """F1: a rotation's temporary copy of a wrapped key never outlives the run, and never a destruction."""
+    import os
+
+    document = documents(1)[0]
+    ref = document.envelope.key_ref
+    primary, mirror = keystore.directories()
+    settings.CATALYST_CUSTODY_NEXT_WRAPPING_KEY = secrets.token_hex(32)
+    real_rename = os.rename
+
+    def disk_full(*args, **kwargs):
+        raise OSError("no space left")
+    monkeypatch.setattr(os, "rename", disk_full)
+    code, report = command("catalyst_custody_keys", "--rotate", "--expect-head", head())
+    assert code == 1 and report["refused"] == "key_store_unavailable"
+    monkeypatch.setattr(os, "rename", real_rename)
+    assert keystore.strays() == 0  # the temporary copy was removed on the failure
+    # A leftover from a harder crash (the process killed before its cleanup) goes with the key's destruction.
+    (primary / f"{ref}.key.rotating").write_bytes(keystore._read(primary, ref))
+    (primary / f"{ref}.key.rotating").chmod(0o600)
+    assert keystore.strays() == 1
+    keystore.destroy(str(document.application.public_ref), [ref])
+    assert keystore.strays() == 0 and not (primary / f"{ref}.key.rotating").exists()
+    assert keystore._read(mirror, ref) is None
+
+
+@pytest.mark.django_db
+def test_9kg_69_a_rotation_holds_the_store_exclusively_and_a_second_one_is_refused(custody, settings):
+    """F2 and F5: creation and destruction take the store lock shared; a rotation takes it exclusively."""
+    documents(1)
+    settings.CATALYST_CUSTODY_NEXT_WRAPPING_KEY = secrets.token_hex(32)
+    with keystore.store_lock(exclusive=False):  # a key being created or destroyed elsewhere
+        code, report = command("catalyst_custody_keys", "--rotate", "--expect-head", head())
+    assert code == 1 and report["refused"] == "custody_operation_in_progress"
+    assert command("catalyst_custody_keys", "--rotate", "--expect-head", head())[0] == 0
+
+
+@pytest.mark.django_db
+def test_9kg_69_the_next_key_is_refused_outside_the_owner_run_management_process(custody, settings):
+    """F3: a worker declares its kind after the start-up guards ran, so the key itself refuses there too."""
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+
+    from config import runtime
+
+    settings.CATALYST_CUSTODY_NEXT_WRAPPING_KEY = secrets.token_hex(32)
+    runtime.declare_process("worker")
+    try:
+        with pytest.raises(keystore.KeyStoreError, match="next_wrapping_key_not_allowed"):
+            keystore.next_wrapping_key()
+    finally:
+        runtime.declare_process("management")
+    with pytest.raises(CommandError, match="held only by the owner-run rotation"):
+        call_command("run_worker", "--exit-when-idle")
+    runtime.declare_process("management")
+    settings.SECRET_KEY = settings.CATALYST_CUSTODY_NEXT_WRAPPING_KEY = "ab" * 32  # the same value as another secret
+    assert any("every other key" in p for p in guards.custody_key_problems(settings, "management"))
+
+
+@pytest.mark.django_db
+def test_9kg_69_retirement_needs_a_finished_rotation_from_that_key_and_a_clean_store(custody, settings):
+    """F4: no id no rotation finished, and no stray file or destroyed key's file left behind."""
+    document = documents(1)[0]
+    old_id = keystore.wrapping_key_id(keystore.wrapping_key())
+    code, report = command("catalyst_custody_keys", "--retire-old-key", "a" * 16, "--expect-head", head())
+    assert code == 1 and report["refused"] == "rotation_not_done"
+    settings.CATALYST_CUSTODY_NEXT_WRAPPING_KEY = secrets.token_hex(32)
+    assert command("catalyst_custody_keys", "--rotate", "--expect-head", head())[0] == 0
+    settings.CATALYST_CUSTODY_WRAPPING_KEY, settings.CATALYST_CUSTODY_NEXT_WRAPPING_KEY = (
+        settings.CATALYST_CUSTODY_NEXT_WRAPPING_KEY, "")
+    primary, _ = keystore.directories()
+    (primary / "left-behind").write_bytes(b"x")
+    (primary / "left-behind").chmod(0o600)
+    code, report = command("catalyst_custody_keys", "--retire-old-key", old_id, "--expect-head", head())
+    assert code == 1 and report["refused"] == "rotation_incomplete"
+    (primary / "left-behind").unlink()
+    assert command("catalyst_custody_keys", "--retire-old-key", old_id, "--expect-head", head())[0] == 0
+    assert opens(document)
+
+
+@pytest.mark.django_db
+def test_9kg_69_copies_that_disagree_on_the_data_key_are_never_rotated_into_agreement(custody, settings):
+    """F6: the mirror and the primary must hold the same data key."""
+    document = documents(1)[0]
+    ref = document.envelope.key_ref
+    _, mirror = keystore.directories()
+    keystore._replace(mirror, ref, keystore._wrap(keystore.wrapping_key(), ref, b"\x01" * 32))
+    settings.CATALYST_CUSTODY_NEXT_WRAPPING_KEY = secrets.token_hex(32)
+    code, report = command("catalyst_custody_keys", "--rotate", "--expect-head", head())
+    assert code == 1 and report["refused"] == "rotation_incomplete"
+    assert [e.data["phase"] for e in journal.read() if e.kind == "custody_rotation"] == ["prepare"]

@@ -1681,6 +1681,11 @@ P6_SUPPORTING = {
         "test_custody_rotation::test_9kg_69_rotation_refuses_without_the_next_key_the_head_or_aligned_directories",
         "test_custody_rotation::test_9kg_69_only_the_owner_run_rotation_may_hold_the_next_key",
         "test_custody_rotation::test_9kg_69_the_rotation_runbook_has_a_custody_row",
+        "test_custody_rotation::test_9kg_69_an_interrupted_replace_leaves_no_temporary_copy_and_a_destruction_removes_one_anyway",
+        "test_custody_rotation::test_9kg_69_a_rotation_holds_the_store_exclusively_and_a_second_one_is_refused",
+        "test_custody_rotation::test_9kg_69_the_next_key_is_refused_outside_the_owner_run_management_process",
+        "test_custody_rotation::test_9kg_69_retirement_needs_a_finished_rotation_from_that_key_and_a_clean_store",
+        "test_custody_rotation::test_9kg_69_copies_that_disagree_on_the_data_key_are_never_rotated_into_agreement",
     ],
     "9kg.34 custody sealed at rest with per-document keys outside the backup, recoverable and destroyed on erasure (029 section 6.2)": [
         "test_custody_encryption::test_9kg_34_a_signed_document_is_sealed_at_rest_under_its_own_key_and_retrieval_returns_the_recorded_plaintext",

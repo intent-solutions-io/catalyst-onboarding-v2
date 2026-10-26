@@ -277,17 +277,21 @@ def rotate_keys(expected_head: str) -> dict:
     try:
         report = keystore.rotate(expected_head)
         destroyed = keystore.journaled_destroyed(verify=True)
-        settings.CATALYST_CUSTODY_WRAPPING_KEY = settings.CATALYST_CUSTODY_NEXT_WRAPPING_KEY  # this process only
+        current = settings.CATALYST_CUSTODY_WRAPPING_KEY
+        settings.CATALYST_CUSTODY_WRAPPING_KEY = settings.CATALYST_CUSTODY_NEXT_WRAPPING_KEY  # verify under the next key
         report.update(documents_opened=0, documents_failed=0)
-        for envelope in CustodyEnvelope.objects.select_related("document").order_by("id"):
-            if envelope.key_ref in destroyed:
-                continue
-            document = envelope.document
-            try:
-                storage.read(document.storage_key, document.sha256, document.size, envelope)
-                report["documents_opened"] += 1
-            except storage.StorageError:
-                report["documents_failed"] += 1
+        try:
+            for envelope in CustodyEnvelope.objects.select_related("document").order_by("id"):
+                if envelope.key_ref in destroyed:
+                    continue
+                document = envelope.document
+                try:
+                    storage.read(document.storage_key, document.sha256, document.size, envelope)
+                    report["documents_opened"] += 1
+                except storage.StorageError:
+                    report["documents_failed"] += 1
+        finally:
+            settings.CATALYST_CUSTODY_WRAPPING_KEY = current
         if not report["documents_failed"]:
             key = f"custody_rotation:{report['from_key']}:{report['to_key']}"
             if journal.append("custody_rotation", key, {"from_key": report["from_key"], "to_key": report["to_key"],

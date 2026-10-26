@@ -2147,6 +2147,19 @@ hardened after the PR #102 security, release-operations and data reviews).**
 - **Interruption** is safe and deterministic: each wrapped key names the key it is under, every copy is under one of
   the two keys the owner still holds, and the same command run again finishes the rest. A key wrapped under a third
   key refuses the run (`rotation_incomplete`), and nothing is journaled as done.
+- **Security review of PR #104, fixed in the same PR:**
+  - a rotation's temporary copy is removed on any failure, and a destruction removes it too;
+  - retirement and the health part refuse any stray file in a key directory;
+  - a rotation holds the key store exclusively, and creating or destroying a key holds it shared, so neither can
+    interleave with the rewrap;
+  - the next key refuses outside the owner-run management process, and the worker refuses to start holding it (the
+    start-up guards run before a worker declares itself);
+  - retirement needs a rotation from that key journaled done, and no destroyed key's file left behind;
+  - the two copies of a key must carry the same data key;
+  - the next key must differ from every other secret.
+- **The claim, precisely:** after retirement no key opens a remnant wrapped under the old key. A data key that itself
+  leaked (in swap or a core dump) is outside it: rotation changes the wrapping, not the data keys. The retirement
+  entry is the owner's attestation that the old key is destroyed; code cannot see the escrow or a running process.
 - **Not covered by code:** destroying the old key's escrow copy and any copy outside the host, which is the owner's
   act, recorded by `--retire-old-key`. The rotation interval is the owner's (211.7.9). On the host, the next key's
   mount for one run is part of 9kg.28.

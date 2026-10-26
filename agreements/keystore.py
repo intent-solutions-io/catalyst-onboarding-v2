@@ -65,7 +65,9 @@ Limits, stated (review of PR #102, F5, F9, F10):
 """
 
 import base64
+import contextlib
 import errno
+import fcntl
 import hashlib
 import json
 import os
@@ -118,9 +120,13 @@ def wrapping_key() -> bytes:
 
 def next_wrapping_key() -> bytes:
     """9kg.69: the new wrapping key, present only for the owner-run rotation (`custody_next_wrapping_key`)."""
+    from config import runtime
+
     value = getattr(settings, "CATALYST_CUSTODY_NEXT_WRAPPING_KEY", "") or ""
     if not value:
         raise KeyStoreError("next_wrapping_key_missing")
+    if runtime.process_kind() != "management":  # review of PR #104, F3: a worker declares itself after the guards ran
+        raise KeyStoreError("next_wrapping_key_not_allowed")
     if not WRAPPING_KEY.fullmatch(value):
         raise KeyStoreError("wrapping_key_invalid")
     secret = bytes.fromhex(value)
@@ -261,6 +267,13 @@ def _unlink(path: Path, ref: str) -> bool:
             removed = False
         except OSError:
             raise KeyStoreError("key_store_unavailable") from None
+        try:  # an interrupted rotation's temporary copy of the same key goes with it (review of PR #104, F1)
+            os.unlink(f"{_name(ref)}.rotating", dir_fd=directory)
+            removed = True
+        except FileNotFoundError:
+            pass
+        except OSError:
+            raise KeyStoreError("key_store_unavailable") from None
         os.fsync(directory)
         return removed
     finally:
@@ -299,6 +312,8 @@ def _replace(path: Path, ref: str, blob: bytes) -> None:
             raise KeyStoreError("key_store_unavailable") from None
         os.fsync(directory)
     finally:
+        with contextlib.suppress(OSError):  # review of PR #104, F1: no wrapped key is ever left under another name
+            os.unlink(temporary, dir_fd=directory)
         os.close(directory)
 
 
@@ -308,6 +323,36 @@ def _listing(path: Path) -> set:
         return {m.group(1) for name in os.listdir(directory) if (m := KEY_FILE.fullmatch(name))}
     finally:
         os.close(directory)
+
+
+def strays() -> int:
+    """Files in either key directory that are neither the provisioning marker nor `<reference>.key`: an interrupted
+    rotation's temporary copy, or anything else that does not belong (review of PR #104, F1)."""
+    count = 0
+    for path in directories():
+        directory = _open_dir(path)
+        try:
+            count += sum(1 for name in os.listdir(directory) if name != MARKER and not KEY_FILE.fullmatch(name))
+        finally:
+            os.close(directory)
+    return count
+
+
+@contextlib.contextmanager
+def store_lock(exclusive: bool):
+    """An advisory lock on the primary key directory (review of PR #104, F2 and F5): a rotation holds it exclusively,
+    and creating or destroying a key holds it shared, so no key is created under the old wrapping key or destroyed
+    while a rotation reads and replaces it. A rotation that finds it held refuses (`custody_operation_in_progress`)."""
+    primary, _ = directories()
+    directory = _open_dir(primary)
+    try:
+        try:
+            fcntl.flock(directory, fcntl.LOCK_EX | fcntl.LOCK_NB if exclusive else fcntl.LOCK_SH)
+        except BlockingIOError:
+            raise KeyStoreError("custody_operation_in_progress") from None
+        yield
+    finally:
+        os.close(directory)  # closing the descriptor releases the lock
 
 
 # --- wrapping -------------------------------------------------------------------------------------------------------
@@ -361,12 +406,13 @@ def create() -> tuple[str, bytes, str]:
     ref = secrets.token_hex(16)
     data_key = AESGCM.generate_key(bit_length=256)
     blob = _wrap(secret, ref, data_key)
-    _write(primary, ref, blob)
-    try:
-        _write(mirror, ref, blob)
-    except KeyStoreError:
-        _unlink(primary, ref)
-        raise
+    with store_lock(exclusive=False):
+        _write(primary, ref, blob)
+        try:
+            _write(mirror, ref, blob)
+        except KeyStoreError:
+            _unlink(primary, ref)
+            raise
     return ref, data_key, wrapping_key_id(secret)
 
 
@@ -507,13 +553,14 @@ def destroy(subject_ref: str, refs) -> int:
     if secret is None:
         raise KeyStoreError("erasure_key_missing")  # every destruction entry carries a mac under the erasure key
     removed = 0
-    for ref in sorted(set(refs)):
-        _name(ref)
-        key, data = f"custody_key:{ref}", {"subject": str(subject_ref), "phase": "prepare"}
-        if journal.append(DESTROYED, key, {**data, "mac": entry_mac(DESTROYED, key, data, secret)}) is None:
-            raise KeyStoreError("journal_unavailable")  # never unlink what the record does not hold
-        removed += int(_unlink(mirror, ref))
-        removed += int(_unlink(primary, ref))
+    with store_lock(exclusive=False):  # never while a rotation reads and replaces the files (review of PR #104, F2)
+        for ref in sorted(set(refs)):
+            _name(ref)
+            key, data = f"custody_key:{ref}", {"subject": str(subject_ref), "phase": "prepare"}
+            if journal.append(DESTROYED, key, {**data, "mac": entry_mac(DESTROYED, key, data, secret)}) is None:
+                raise KeyStoreError("journal_unavailable")  # never unlink what the record does not hold
+            removed += int(_unlink(mirror, ref))
+            removed += int(_unlink(primary, ref))
     for ref in set(refs):  # verified, not assumed: every reference is gone from both directories
         if _read(mirror, ref) is not None or _read(primary, ref) is not None:
             raise KeyStoreError("destruction_incomplete")
@@ -611,9 +658,14 @@ def rotate(expected_head: str) -> dict:
     `unrecoverable`, and the rotation refuses at the end (`rotation_incomplete`) without journaling completion.
     Interruption is safe: every copy is under one key or the other, both keys are still held, and the same command
     run again finishes the rest. The journal records the start and the completion (`custody_rotation`)."""
+    current, upcoming = wrapping_key(), next_wrapping_key()
+    with store_lock(exclusive=True):
+        return _rotate(current, upcoming, expected_head)
+
+
+def _rotate(current: bytes, upcoming: bytes, expected_head: str) -> dict:
     from workflow import journal
 
-    current, upcoming = wrapping_key(), next_wrapping_key()
     primary, mirror = directories()
     destroyed = _destroyed_at_head(expected_head)
     old_id, new_id = wrapping_key_id(current), wrapping_key_id(upcoming)
@@ -629,26 +681,33 @@ def rotate(expected_head: str) -> dict:
     if live_primary != live_mirror:
         raise KeyStoreError("key_needs_recovery")
     for ref in sorted(live_primary):
+        held = None  # the data key the two copies must agree on (review of PR #104, F6)
         for directory in (mirror, primary):
             blob = _read(directory, ref) or b""
             by = wrapped_by(blob)
             try:
                 if by == new_id:
-                    _unwrap(upcoming, ref, blob)
-                    report["already_rotated"] += 1
-                    continue
-                if by != old_id:
+                    data_key = _unwrap(upcoming, ref, blob)
+                elif by == old_id:
+                    data_key = _unwrap(current, ref, blob)
+                else:
                     raise KeyStoreError("key_corrupt")
-                data_key = _unwrap(current, ref, blob)
             except KeyStoreError:
                 report["unrecoverable"] += 1
+                continue
+            if held is not None and data_key != held:
+                report["unrecoverable"] += 1  # the mirror and the primary disagree: never rotated into agreement
+                continue
+            held = data_key
+            if by == new_id:
+                report["already_rotated"] += 1
                 continue
             rewrapped = _wrap(upcoming, ref, data_key)
             if _unwrap(upcoming, ref, rewrapped) != data_key:
                 raise KeyStoreError("key_corrupt")
             _replace(directory, ref, rewrapped)
             report["rewrapped"] += 1
-    if report["unrecoverable"]:
+    if report["unrecoverable"] or strays():
         raise KeyStoreError("rotation_incomplete")
     report["keys"] = len(live_primary)
     return report
@@ -656,9 +715,12 @@ def rotate(expected_head: str) -> dict:
 
 def retire(retired_id: str, expected_head: str) -> dict:
     """9kg.69: after the owner destroyed the old wrapping key everywhere (its secret file and its escrow copy), check
-    that this process holds neither it nor a next key, that no wrapped key file in either directory is still under it,
-    and that every live key unwraps under the current key; then journal the retirement. From then on a remnant wrapped
-    under the old key (a stray archive, unlinked blocks, an off-site copy) has no key that opens it."""
+    that a rotation from it was journaled done, that this process holds neither it nor a next key, that neither
+    directory holds a stray file, a file of a destroyed key or a file still under it, and that every live key unwraps
+    under the current key; then journal the retirement. The entry is the owner's attestation that the old key is
+    destroyed (code cannot see the escrow or a running process's memory). From then on no key opens a remnant wrapped
+    under the old key (a stray archive, unlinked blocks, an off-site copy). A data key itself leaked in swap or a core
+    dump is outside this claim: rotation changes the wrapping, not the data keys."""
     from workflow import journal
 
     if not re.fullmatch(r"[0-9a-f]{16}", retired_id or ""):
@@ -670,6 +732,12 @@ def retire(retired_id: str, expected_head: str) -> dict:
         raise KeyStoreError("retired_key_still_current")
     primary, mirror = directories()
     destroyed = _destroyed_at_head(expected_head)
+    rotated = [e for e in journal.read() if e.kind == "custody_rotation" and e.data.get("phase") == "done"
+               and e.key.startswith(f"custody_rotation:{retired_id}:")]
+    if not rotated:
+        raise KeyStoreError("rotation_not_done")  # review of PR #104, F4: never an id no rotation retired
+    if strays() or (_listing(primary) | _listing(mirror)) & destroyed:
+        raise KeyStoreError("rotation_incomplete")
     still = 0
     for directory in (primary, mirror):
         for ref in sorted(_listing(directory) - destroyed):
