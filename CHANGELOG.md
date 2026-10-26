@@ -178,8 +178,8 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   restore, the refusals, the replay, its control, a second replay, the review and a later backup
   (`catalyst_erasure_drill`, synthetic only)
 - Naming a person to the erasure (bead `9kg.72`): `catalyst_invite` prints the invitation's public reference, and the
-  owner-run, read-only `catalyst_erasure_subjects <address>` prints the application and invitation references held for
-  an address (never the address), so a person invited who never applied can be erased
+  read-only `catalyst_erasure_subjects <address>`, run only as the retention login, prints the application and
+  invitation references held for an address (never the address), so a person invited who never applied can be erased
 - The effect journal shipped off the host (bead `9kg.60`; `026` section 16): `catalyst_journal_ship --to` copies the
   chain-verified journal and its head to a directory the host names. It never overwrites a copy that holds entries the
   local journal lost. The health part pages shipping lag, never-shipped and behind-shipped (threshold

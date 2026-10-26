@@ -1676,7 +1676,7 @@ P6_SUPPORTING = {
     ],
     "9kg.72 a person invited who never applied is named to the erasure by reference, never by address (029 section 6.2)": [
         "test_erasure_lookup::test_9kg_72_an_invited_person_who_never_applied_is_named_by_reference_and_erased",
-        "test_erasure_lookup::test_9kg_72_the_lookup_lists_applications_too_and_refuses_in_web_and_worker",
+        "test_erasure_lookup::test_9kg_72_the_lookup_runs_only_as_the_retention_login_lists_applications_and_refuses_bad_input",
     ],
     "9kg.25 the erasure record replayed after a restore before the review and the lift (029 section 6.2.1)": [
         "test_erasure::test_9kg_25_a_restore_hold_cannot_lift_while_the_journal_holds_an_unreplayed_erasure",
