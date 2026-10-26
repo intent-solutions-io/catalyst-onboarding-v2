@@ -622,7 +622,7 @@ def test_the_evidence_register_reproduces_aar_028_per_case_and_in_total():
     assert summary["proven_this_run"] == 20
     # A partial case is never proven, whatever its gate result, and a failed full case is not proven either.
     rows = acceptance.register({c: "PASS" if c != "TEST-P6-02" else "FAIL" for c in acceptance.P6_CASES})
-    assert acceptance.summarise(rows)["proven_this_run"] == 18
+    assert acceptance.summarise(rows)["proven_this_run"] == 19
     assert not any(r["proven_this_run"] for r in rows if r["partial"])
 
 

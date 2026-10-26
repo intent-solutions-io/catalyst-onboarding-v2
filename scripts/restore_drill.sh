@@ -340,9 +340,15 @@ check "9kg.25 a second replay is harmless (nothing left to change)" \
 as_owner_with_key e python manage.py catalyst_post_restore --confirm-database catalyst >"$work/post-custody.out" 2>&1
 check "9kg.25 the post-restore review runs once the erasures are replayed" test $? = 0
 [ "$fail" = 0 ] || sed 's/^/  custody review said: /' "$work/post-custody.out" | tail -3
+# Staging has no Documenso, and this stack holds the seeded applicants' agreement records: the envelope read cannot
+# complete, so the review stays at "reviewed" and the lift refuses for that evidence (fail closed), never for the
+# erasure. The lift after a replay is shown on the main leg; the marker's re-read at the lift is in pytest.
+check "9kg.25 ... and the only evidence it still misses is the envelope read (no Documenso in staging)" \
+  test "$(python3 -c 'import json,sys;r=json.loads(open(sys.argv[1]).read().strip().splitlines()[-1]);print(",".join(r["effects"]["blocked"]))' "$work/post-custody.out" 2>/dev/null)" = envelopes
 as_owner_with_key e python manage.py catalyst_post_restore --confirm-database catalyst --lift --outward-checked \
   --no-closures-after-backup >"$work/lift-custody.out" 2>&1
-check "9kg.25 the lift re-reads the replay marker and releases the restored stack" test $? = 0
+check "9kg.25 the lift keeps the hold for the missing envelope evidence, not for the erasure" \
+  bash -c "grep -q 'evidence missing or unreachable' '$work/lift-custody.out' && ! grep -q 'erasure replay missing' '$work/lift-custody.out'"
 echo "BY DESIGN the restore hold is procedural for the web process: it serves the restored rows as soon as it starts, so nothing is started before the lift (026 section 6)"
 check "9kg.34 the restored rows name both documents and their envelopes" test "$(e run --rm --no-deps -T migrate python manage.py shell -c \
   "from agreements.models import CustodyEnvelope, StoredDocument; print(StoredDocument.objects.count(), CustodyEnvelope.objects.count())" 2>/dev/null | tail -1)" = "2 2"

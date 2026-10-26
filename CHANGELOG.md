@@ -171,7 +171,7 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   cancels the work of erased subjects, leaves them out of link, setup and revocation work, and opens one item for a
   subject still open after the journal's replay. `registry.REPLAY_BUILT` and `replay:not_built` are removed, so a
   decided registry is enough for a live backup. The restore drill runs a real erasure after the backup, then the
-  restore, the refusals, the replay, its control, a second replay, the review, the lift and a later backup
+  restore, the refusals, the replay, its control, a second replay, the review and a later backup
   (`catalyst_erasure_drill`, synthetic only)
 - Hardening (internal-launch batch item 6): the database freezes inbound message provenance and the identity
   columns of outbound attempts and reply links for every role, with the audited retention path left open for

@@ -663,8 +663,9 @@ def test_9kg_33_missing_or_unreachable_evidence_blocks_the_lift(p2, tmp_path, ef
     assert report["effects"]["sends"]["status"].startswith("unreachable:") and report["effects"]["blocked"] == ["sends"]
     assert post_restore(*LIFT)[0].returncode == 1
     (effect_journal / journal.FILE).write_bytes(b'{"seq": 1, "at": "x", "kind": "x", "key": "x", "data": {}, "prev": "0", "hash": "0"}\n')
+    # 9kg.25: a broken journal cannot show the erasure replay either, so the review refuses before it reads anything.
     result, report = post_restore(**with_sent(tmp_path))
-    assert report["effects"]["journal"] == "chain_broken" and report["effects"]["blocked"] == ["journal"]
+    assert result.returncode == 1 and "erasure replay missing (chain_broken)" in result.stderr, result.stderr
     assert post_restore(*LIFT)[0].returncode == 1
 
 

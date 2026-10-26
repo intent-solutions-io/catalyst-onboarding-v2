@@ -2194,7 +2194,10 @@ hardened after the PR #102 security, release-operations and data reviews).**
     4. the replay with the head re-erases the subject, and no table holds the address;
     5. the applicant nobody erased is still there;
     6. a second replay changes nothing;
-    7. the review and lift run;
+    7. the review runs past the replay gate. Its only missing evidence is the envelope read: staging has no
+       Documenso, and this stack holds the seeded agreement records. So the lift keeps the hold for that evidence,
+       never for the erasure. The lift after a replay is shown on the main leg, and the marker's re-read at the lift
+       is in pytest;
     8. a backup afterwards runs.
 - **Evidence.**
   - `tests/test_erasure_replay.py`, mapped under TEST-P6-29 and in group "9kg.25". The tests cover:

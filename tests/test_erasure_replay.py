@@ -312,6 +312,7 @@ def test_9kg_25_the_restore_drill_pins_its_erasure_replay_legs():
                  "erasure replay missing (unreplayed)", "catalyst_erasure_drill erase --subject",
                  'catalyst_erasure_drill replay --expect-head "$erasure_head"', "record_journal_mismatch",
                  "a second replay is harmless", "positive control: the applicant nobody erased",
-                 "the lift re-reads the replay marker", "a backup after the erasure and its replay runs",
+                 "the lift keeps the hold for the missing envelope evidence, not for the erasure",
+                 "a backup after the erasure and its replay runs",
                  "BY DESIGN the restore hold is procedural for the web process", "/run/secrets/erasure_key:ro\" restore"):
         assert line in script, line

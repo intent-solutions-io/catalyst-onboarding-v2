@@ -122,4 +122,7 @@ def mark_erasures_replayed() -> None:
     from workflow import journal
 
     if journal.configured():
-        replay.mark(journal.read(), ERASURE_KEY.encode())
+        try:
+            replay.mark(journal.read(), ERASURE_KEY.encode())
+        except journal.JournalError:
+            pass  # a broken journal: the review refuses on it, as it must
