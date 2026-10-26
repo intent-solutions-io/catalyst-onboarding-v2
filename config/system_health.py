@@ -146,14 +146,39 @@ def journal_health() -> dict:
     problem = journal.directory_problem(write=True)
     if problem:
         anomalies.append(f"effect_journal_{problem}")
+    entries = None
     try:
-        journal.read()
+        entries = journal.read()
     except journal.JournalError as exc:
         anomalies.append(f"effect_journal_{exc.code}")
     failed = journal.failures()
     if failed:
         anomalies.append("effect_journal_append_failed")
-    return {"configured": True, "append_failures": failed, "anomalies": anomalies}
+    report = {"configured": True, "append_failures": failed, "ship_lag_seconds": None, "ship_age_seconds": None}
+    threshold = getattr(settings, "CATALYST_JOURNAL_SHIP_LAG_SECONDS", 0)
+    if threshold and entries is not None:  # 9kg.60: the off-host copy (workflow.shipping); off when 0
+        from workflow import shipping
+
+        try:
+            shipped = shipping.last_shipped()
+        except shipping.ShipError:
+            anomalies.append("effect_journal_shipped_unreadable")
+        else:
+            try:
+                if shipped is not None:
+                    journal.verify_anchor(entries, shipped["identity"], shipped["seq"], shipped["hash"])
+            except journal.JournalError:
+                anomalies.append("effect_journal_behind_shipped")  # the local journal lost what it had shipped
+            else:
+                report["ship_lag_seconds"] = shipping.lag(entries)
+                report["ship_age_seconds"] = shipping.age()
+                if report["ship_lag_seconds"] is None:
+                    anomalies.append("effect_journal_never_shipped")
+                elif report["ship_lag_seconds"] > threshold:
+                    anomalies.append("effect_journal_ship_lag")
+                elif report["ship_age_seconds"] is not None and report["ship_age_seconds"] > threshold:
+                    anomalies.append("effect_journal_ship_stale")  # the timer stopped: no run within the threshold
+    return {**report, "anomalies": anomalies}
 
 
 def erasure_health() -> dict:
