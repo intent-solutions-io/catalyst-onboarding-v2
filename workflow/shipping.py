@@ -23,9 +23,11 @@ source), with `head.json` beside it (identity, seq, hash, time):
 
 The health part (config.system_health.journal_health) pages `effect_journal_ship_lag` once the oldest entry not yet
 shipped is older than `CATALYST_JOURNAL_SHIP_LAG_SECONDS` (the journal's RPO, the owner's: 211.7.2), and
-`effect_journal_never_shipped` while that is set and nothing was shipped. A restore names the last shipped head
-(`catalyst_restore --shipped-head`, read from `head.json` at the destination) and refuses a journal that does not hold
-it unless the owner records the loss (`--accept-journal-behind-shipped`): restore the journal from the copy first.
+`effect_journal_never_shipped` while that is set and nothing was shipped; also `effect_journal_ship_stale` (no run
+within the threshold), `effect_journal_behind_shipped` and `effect_journal_shipped_unreadable`. A restore names the
+copy (`catalyst_restore --shipped-from <destination>`, whose head it reads with `copy_head`) and refuses a journal that
+does not hold that head unless the owner records the loss (`--accept-journal-behind-shipped`): restore the journal from
+the copy first.
 """
 
 import fcntl
