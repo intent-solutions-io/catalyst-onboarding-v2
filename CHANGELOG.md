@@ -166,6 +166,11 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   finished by running it again. `--retire-old-key` checks that no key file is still under the old key, then journals
   its retirement, so a remnant of an erased document's wrapped key has no key left that opens it. The next key is
   refused by every process but the owner-run rotation
+- The custody health part (bead `9kg.70`; `026` section 16): `catalyst_health` reports the custody key store's state
+  without the wrapping key, counts only, and pages each fault under its own code. The codes cover an unavailable
+  store, a lost key, an incomplete recovery copy, a destroyed key still present, plaintext, orphans, an invalid or
+  stray key file, an unfinished rotation and an unreadable journal. An erased document's absent key is counted and
+  never paged
 - Hardening (internal-launch batch item 6): the database freezes inbound message provenance and the identity
   columns of outbound attempts and reply links for every role, with the audited retention path left open for
   erasure (correspondence migration 0017, `016` section 10.14)

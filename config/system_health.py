@@ -175,6 +175,65 @@ def erasure_health() -> dict:
             "anomalies": [n for n, c in (("intent_open", opened), ("handoff_owed", owed)) if c]}
 
 
+def custody_health() -> dict:
+    """9kg.70 (release-ops review of PR #102): the custody key store's state, read-only, counts only, without the
+    wrapping key (agreements.keystore; `catalyst_custody_keys --status` gives the same counts to the operator). Each
+    condition pages under its own code:
+
+    - `key_store_unavailable`: a key directory or its provisioning marker is missing, unsafe or unreadable;
+    - `key_lost`: a sealed document's key is in neither directory and the journal never recorded it destroyed;
+    - `recovery_incomplete`: a key is in one directory and not the other (the mirror is the only recovery copy, so a
+      second loss would lose the document): run `--recover`;
+    - `destroyed_still_present`: a key the journal records as destroyed still has a file (an unfinished destruction);
+    - `in_the_clear`: a document stored unsealed, or a migrated document whose plaintext file is still on disk;
+    - `orphans`: a key or a sealed file no record names (a crash between a write and its record): `--reap-orphans`;
+    - `key_invalid`: a key file that is not a wrapped key, or a file in a key directory that does not belong there (an
+      interrupted rotation's temporary copy);
+    - `rotation_incomplete`: a rotation journaled as begun and not done, or keys under more than one wrapping key;
+    - `journal_unavailable`: the journal cannot be read, so destructions cannot be told apart from losses.
+
+    A document whose key an erasure destroyed is the intended absence: counted (`erased_documents`), never paged."""
+    from agreements import keystore, storage
+    from agreements.management.commands.catalyst_custody_keys import state
+    from workflow import journal
+
+    if not keystore.configured():
+        return {"configured": False, "anomalies": []}
+    try:
+        found = state()
+        primary, mirror = keystore.directories()
+        in_primary, in_mirror = keystore._listing(primary), keystore._listing(mirror)
+        wrapped = [keystore.wrapped_by(keystore._read(d, ref) or b"") for d, refs in ((primary, in_primary), (mirror, in_mirror))
+                   for ref in refs]
+        stray = keystore.strays()
+    except keystore.KeyStoreError:
+        return {"configured": True, "anomalies": ["key_store_unavailable"]}
+    except (storage.StorageError, OSError):
+        return {"configured": True, "anomalies": ["key_store_unavailable"]}
+    begun = done = destroyed = set()
+    if found["journal"] == "ok":
+        everything = journal.read()
+        destroyed = keystore.destroyed_refs(everything)
+        entries = [e for e in everything if e.kind == "custody_rotation" and e.key.startswith("custody_rotation:")]
+        begun = {e.key for e in entries if e.data.get("phase") == "prepare"}
+        done = {e.key for e in entries if e.data.get("phase") == "done"}
+    counts = {
+        "documents": found["documents"], "sealed": found["sealed"], "erased_documents": found["sealed_after_destruction"],
+        "keys_primary": found["keys_primary"], "keys_mirror": found["keys_mirror"],
+        "key_lost": found["lost"],
+        "recovery_incomplete": len((in_primary ^ in_mirror) - destroyed),  # a destroyed key's leftover is not this
+        "destroyed_still_present": found["destroyed_still_present"],
+        "in_the_clear": found["in_the_clear"] + found["plaintext_lingering"],
+        "orphans": found["orphan_keys"] + found["orphan_sealed_files"],
+        "key_invalid": sum(1 for by in wrapped if by is None) + stray,  # unreadable, or a file that does not belong
+        "rotation_incomplete": len(begun - done) + int(len({by for by in wrapped if by}) > 1),
+        "journal_unavailable": int(found["journal"] not in ("ok", "not_configured")),
+    }
+    paging = ("key_lost", "recovery_incomplete", "destroyed_still_present", "in_the_clear", "orphans", "key_invalid",
+              "rotation_incomplete", "journal_unavailable")
+    return {"configured": True, **counts, "anomalies": [name for name in paging if counts[name]]}
+
+
 def backup_health() -> dict:
     """9kg.32: in a live environment a backup refuses while the erasure registry is not decided (or replay is not
     built), so the nightly set is not being written: `registry_blocked`."""
@@ -298,4 +357,4 @@ def report() -> dict:
             "verification": verification_health(),
             "journal": journal_health(),
             "aged_waits": aged_waits_health(), "decision": decision_health(), "intake": intake_health(),
-            "erasure": erasure_health(), "backup": backup_health()}
+            "erasure": erasure_health(), "backup": backup_health(), "custody": custody_health()}

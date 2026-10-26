@@ -1674,6 +1674,13 @@ P6_SUPPORTING = {
         "test_erasure::test_9kg_32_an_already_tombstoned_subject_still_runs_the_classes_scoped_by_its_references",
         "test_erasure::test_9kg_32_a_restore_hold_cannot_lift_while_the_journal_holds_an_unreplayed_erasure",
     ],
+    "9kg.70 the custody key store's faults page under their own codes, an erased document's absent key never (026)": [
+        "test_custody_health::test_9kg_70_a_healthy_store_raises_nothing_and_an_erased_document_is_counted_never_paged",
+        "test_custody_health::test_9kg_70_each_fault_pages_under_its_own_code",
+        "test_custody_health::test_9kg_70_keys_under_two_wrapping_keys_are_an_unfinished_rotation",
+        "test_custody_health::test_9kg_70_an_unconfigured_store_reports_nothing",
+        "test_custody_health::test_9kg_70_the_health_command_names_the_custody_code_and_exits_1",
+    ],
     "9kg.69 the custody wrapping key rotated and the old key retired, so no key opens a remnant of an erased key (027)": [
         "test_custody_rotation::test_9kg_69_rotation_rewraps_every_live_key_keeps_every_document_open_and_never_revives_a_destroyed_one",
         "test_custody_rotation::test_9kg_69_after_retirement_no_key_opens_a_remnant_wrapped_under_the_old_key",

@@ -2172,6 +2172,39 @@ hardened after the PR #102 security, release-operations and data reviews).**
   - the next key held only by the owner-run rotation;
   - `027`'s custody row.
 
+**9kg.70, the custody health part (release-ops review of PR #102; 2026-10-26).**
+
+- **Why.** Until now `catalyst_custody_keys --status` was manual. A lost mirror, a lost key, a destroyed key still
+  present, an orphan, or plaintext still in the clear reached neither the health command nor Buzz.
+- **Built.** `config.system_health.custody_health`, part `custody` of `catalyst_health`. It reads the store without
+  the wrapping key, in the health process's role, and reports counts only. Each fault pages under its own code:
+
+  | Code | Condition |
+  |---|---|
+  | `custody.key_store_unavailable` | a directory or its provisioning marker is missing, unsafe or unreadable |
+  | `custody.key_lost` | a sealed document's key is in neither directory and was never journaled destroyed |
+  | `custody.recovery_incomplete` | a live key is in one directory only; a destroyed key's leftover is not counted here |
+  | `custody.destroyed_still_present` | a destroyed key still has a file |
+  | `custody.in_the_clear` | a document is stored unsealed, or a migrated document's plaintext lingers |
+  | `custody.orphans` | a key or a sealed file no record names |
+  | `custody.key_invalid` | a key file that is not a wrapped key, or a stray file such as a rotation's temporary copy |
+  | `custody.rotation_incomplete` | a rotation journaled as begun and not done, or keys under two wrapping keys |
+  | `custody.journal_unavailable` | destructions cannot be told apart from losses |
+
+  An erased document's absent key is the intended outcome. It is counted (`erased_documents`) and never paged.
+- **Deviation from the bead:** a missing mirror copy pages instead of warning. The mirror is the only recovery
+  copy, so one more loss would lose the document, and the health adapter has no warning level.
+- **The page path** is the generic one, `health.sh`, then the alert floor at `high`, which the alert drill proves
+  for other codes. A custody code is shaped like every other (`part.name`).
+- **NOT RUN:** the staging alert drill for a custody condition. The staging services hold no custody configuration
+  until `9kg.28`, so the part reports `configured: false` there. That case is a host-preparation verification item.
+- **Evidence:** `tests/test_custody_health.py`, mapped under `P6_SUPPORTING` in group "9kg.70". It covers:
+  - a healthy store with an erased document, which raises nothing and prints counts only;
+  - each fault under its own code;
+  - keys under two wrapping keys;
+  - an unconfigured store;
+  - the health command exiting 1 and naming the code.
+
 ## 17. The aged-waits health part (9kg.51, 2026-10-23)
 
 `029` section 5.2 listed the waits with no bound once the first-generation owner notices retire: an application in
