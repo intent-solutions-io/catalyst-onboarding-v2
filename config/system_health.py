@@ -200,6 +200,128 @@ def erasure_health() -> dict:
             "anomalies": [n for n, c in (("intent_open", opened), ("handoff_owed", owed)) if c]}
 
 
+# 9kg.70 (release-ops review of PR #105): a key file, a sealed file or a destruction younger than this is left out of
+# the orphan, recovery and destruction counts, so a write or a destruction in progress never pages.
+CUSTODY_SETTLE_SECONDS = 600
+
+
+def custody_health() -> dict:
+    """9kg.70: the custody key store's state, read-only, counts only (agreements.keystore; `catalyst_custody_keys
+    --status` gives the operator the same view). Each condition pages under its own code; the operator action is in
+    026 section 16:
+
+    - `key_store_unavailable` / `key_store_unsafe`: a key directory (`store` says which) is missing or unmarked, or has
+      the wrong owner or mode;
+    - `wrapping_key_mismatch`: key files under a wrapping key other than the one this process holds (a replaced
+      secret file, or an older key directory put back), so the documents cannot be opened;
+    - `key_lost`: a sealed document's key is in neither directory and was never journaled destroyed;
+    - `recovery_incomplete`: a live key in one directory only; `copies_differ`: the two copies of a key differ;
+    - `destroyed_still_present`: a key journaled destroyed still has a file;
+    - `destroyed_without_erasure`: a destruction whose subject has no erasure in the record (a mistaken or forged
+      entry would hide a real loss as an erasure);
+    - `in_the_clear`, `orphans`, `key_invalid` (unreadable, does not unwrap, or a stray file), `rotation_incomplete`;
+    - `journal_unavailable`: destructions cannot be told apart from losses, so `key_lost` and `orphans` are withheld.
+
+    A document whose key an erasure destroyed is the intended outcome: counted (`erased_documents`), never paged. A
+    planned rotation or migration pages by design while it runs (`rotation_incomplete`, `key_invalid` for its
+    temporary copy, `wrapping_key_mismatch`)."""
+    import time
+
+    from agreements import keystore, storage
+    from agreements.management.commands.catalyst_custody_keys import orphan_files, state
+    from agreements.models import CustodyEnvelope
+    from erasure import record
+    from workflow import journal
+
+    if not keystore.configured():
+        return {"configured": False, "anomalies": []}
+    try:
+        primary, mirror = keystore.directories()
+    except keystore.KeyStoreError as exc:
+        return {"configured": True, "store": "configuration", "anomalies": [exc.code]}
+    listed = {}
+    for name, path in (("primary", primary), ("mirror", mirror)):
+        try:
+            listed[name] = keystore._listing(path)
+        except keystore.KeyStoreError as exc:
+            code = "key_store_unsafe" if exc.code == "key_store_unsafe" else "key_store_unavailable"
+            return {"configured": True, "store": name, "anomalies": [code]}
+    try:
+        found = state()
+        blobs = {(name, ref): keystore._read(path, ref) or b"" for name, path in (("primary", primary), ("mirror", mirror))
+                 for ref in listed[name]}
+        stray = keystore.strays()
+        refs = set(CustodyEnvelope.objects.values_list("key_ref", flat=True))
+        sealed_orphans = orphan_files(list(CustodyEnvelope.objects.all()))
+    except keystore.KeyStoreError as exc:
+        code = "key_store_unsafe" if exc.code == "key_store_unsafe" else "key_store_unavailable"
+        return {"configured": True, "store": "either", "anomalies": [code]}
+    except (storage.StorageError, OSError):
+        return {"configured": True, "store": "custody", "anomalies": ["key_store_unavailable"]}
+    now = time.time()
+
+    def settled(path) -> bool:
+        try:
+            return path.stat().st_mtime <= now - CUSTODY_SETTLE_SECONDS
+        except OSError:
+            return True
+    journal_ok, destroyed, recent, begun, done, unmatched = found["journal"] == "ok", set(), set(), set(), set(), 0
+    if journal_ok:
+        try:
+            entries = journal.read()
+        except journal.JournalError:
+            journal_ok = False
+        else:
+            destroyed = keystore.destroyed_refs(entries)
+            recent = {e.key.partition(":")[2] for e in entries if e.kind == keystore.DESTROYED
+                      and e.when.timestamp() > now - CUSTODY_SETTLE_SECONDS}
+            erased = set(record.fold(entries, None))
+            unmatched = sum(1 for e in entries if e.kind == keystore.DESTROYED and str(e.data.get("subject")) not in erased)
+            rotations = [e for e in entries if e.kind == "custody_rotation" and e.key.startswith("custody_rotation:")]
+            begun = {e.key for e in rotations if e.data.get("phase") == "prepare"}
+            done = {e.key for e in rotations if e.data.get("phase") == "done"}
+    in_primary, in_mirror = listed["primary"], listed["mirror"]
+    wrapped = {key: keystore.wrapped_by(blob) for key, blob in blobs.items()}
+    held = None
+    if getattr(settings, "CATALYST_CUSTODY_WRAPPING_KEY", ""):  # the worker and web hold it; the check needs no decryption
+        try:
+            held = keystore.wrapping_key()
+        except keystore.KeyStoreError:
+            held = None
+    unwrap_failed = 0
+    if held is not None:
+        held_id = keystore.wrapping_key_id(held)
+        for (name, ref), by in wrapped.items():
+            if by == held_id:
+                try:
+                    keystore._unwrap(held, ref, blobs[(name, ref)])
+                except keystore.KeyStoreError:
+                    unwrap_failed += 1
+    counts = {
+        "documents": found["documents"], "sealed": found["sealed"], "erased_documents": found["sealed_after_destruction"],
+        "keys_primary": len(in_primary), "keys_mirror": len(in_mirror),
+        "wrapping_key_mismatch": sum(1 for by in wrapped.values() if by and held is not None
+                                     and by != keystore.wrapping_key_id(held)),
+        "key_lost": found["lost"] if journal_ok else 0,
+        "recovery_incomplete": sum(1 for ref in (in_primary ^ in_mirror) - destroyed
+                                   if settled((primary if ref in in_primary else mirror) / f"{ref}.key")),
+        "copies_differ": sum(1 for ref in in_primary & in_mirror if blobs[("primary", ref)] != blobs[("mirror", ref)]),
+        "destroyed_still_present": len(((in_primary | in_mirror) & destroyed) - recent),
+        "destroyed_without_erasure": unmatched,
+        "in_the_clear": found["in_the_clear"] + found["plaintext_lingering"],
+        "orphans": (sum(1 for ref in (in_primary | in_mirror) - refs - destroyed
+                        if settled(primary / f"{ref}.key") and settled(mirror / f"{ref}.key"))
+                    + sum(1 for n in sealed_orphans if settled(storage.root() / n))) if journal_ok else 0,
+        "key_invalid": sum(1 for by in wrapped.values() if by is None) + unwrap_failed + stray,
+        "rotation_incomplete": len(begun - done) + int(len({by for by in wrapped.values() if by}) > 1),
+        "journal_unavailable": int(not journal_ok and found["journal"] != "not_configured"),
+    }
+    paging = ("wrapping_key_mismatch", "key_lost", "recovery_incomplete", "copies_differ", "destroyed_still_present",
+              "destroyed_without_erasure", "in_the_clear", "orphans", "key_invalid", "rotation_incomplete",
+              "journal_unavailable")
+    return {"configured": True, **counts, "anomalies": [name for name in paging if counts[name]]}
+
+
 def backup_health() -> dict:
     """9kg.32: in a live environment a backup refuses while the erasure registry is not decided (or replay is not
     built), so the nightly set is not being written: `registry_blocked`."""
@@ -323,4 +445,4 @@ def report() -> dict:
             "verification": verification_health(),
             "journal": journal_health(),
             "aged_waits": aged_waits_health(), "decision": decision_health(), "intake": intake_health(),
-            "erasure": erasure_health(), "backup": backup_health()}
+            "erasure": erasure_health(), "backup": backup_health(), "custody": custody_health()}
