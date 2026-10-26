@@ -1979,8 +1979,8 @@ DRILLS = {
     "scripts/staging_check.sh": {"revision": "a5a19fd", "record": "026 section 16, 6B.11 part 1 (PR #75); the dark deploy at 2cb12cf (PR #79)"},
     "scripts/deploy_drill.sh": {"revision": "74cbb53", "record": "026 section 16, 6B.10 (PR #73); batch 2 at main (PRs #82 to #85); 9kg.63 under invitation-only intake"},
     "scripts/alert_drill.sh": {"revision": "ae10624", "record": "026 section 16, 6B.12 (PR #77)"},
-    "scripts/restore_drill.sh": {"revision": "c5dcb17", "record": "026 section 16, 6B.13 (PR #78); the 9kg.34 custody leg; "
-                                                              "the 9kg.25 erasure-replay legs (PR #103), 76 PASS"},
+    "scripts/restore_drill.sh": {"revision": "0211ce9", "record": "026 section 16, 6B.13 (PR #78); the 9kg.34 custody leg; "
+                                                              "the 9kg.25 erasure-replay legs (PR #103); re-run on main at 0211ce9, 76 PASS"},
     "scripts/cutover_rehearsal.sh": {"revision": "2cb12cf", "record": "026 section 16, 6B.11 part 3 (PR #79)"},
 }
 RESIDUAL_BOUNDARIES = {  # the earliest boundary each residual bead blocks (029 section 13.1)

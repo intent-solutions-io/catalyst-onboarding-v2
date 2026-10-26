@@ -2232,6 +2232,9 @@ hardened after the PR #102 security, release-operations and data reviews).**
   reviews now run without the erasure key): **76 PASS, 0 FAIL, 1 NOT RUN** (the off-site, object-locked leg, as
   before). All 17 new 9kg.25 cases passed, the controls included. Measured: backup 4 s; recovery from an empty host to
   serving 109 s; restore, post-restore and start alone 58 s. The same tally at `923ac37`, before the review fixes.
+  Re-run on `main` at `0211ce9` (2026-10-26), after the rotation's store lock (#104), the custody health part (#105),
+  the journal's off-host copy (#106) and the subject lookup (#107) touched code the drill exercises: **76 PASS, 0 FAIL,
+  1 NOT RUN** (the off-site leg); backup 4 s, recovery from an empty host to serving 97 s. No proof was invalidated.
 
   The run before it, at `8b80642`, had 74 PASS and 1 FAIL. That FAIL expected the fourth stack's lift to release,
   which it cannot without Documenso evidence; the check was corrected to what the stack can show (step 7 above).

@@ -124,13 +124,26 @@ or an off-site copy): after the old wrapping key is destroyed, no key opens the 
 - **Not covered by code:** destroying the old key's escrow copy and any copy outside the host. That is the owner's
   act, recorded by step 6.
 
+**Erasure key** (`erasure_key`, 9kg.32; mounted only in the owner-run erasure, replay and custody commands and the
+restore lift; its source in the operator's encrypted secret store). It keys the subject hashes and the macs of the
+durable erasure record and of every custody-key destruction in the effect journal.
+
+- **Routine:** none. Do not rotate it on a schedule.
+- **Leak:** NOT SUPPORTED YET. Every entry is verified under the one current key, so after a rotation every older
+  entry reads as forged, and the erasure, the replay after a restore and key recovery all refuse. Bead `9kg.74` adds
+  verification under earlier keys and must land before this procedure exists. Until then, a suspected leak means: stop
+  the erase and restore services, keep the current key (rotating it would lock the record), and treat any journal
+  entry written after the suspected time as untrusted until reviewed.
+- **What users notice:** nothing.
+
 ## 3. Rules
 
 - **A leaked key is never a fallback.** `catalyst_close_links` refuses while the leaked key is the link key or any
   fallback key, so the leak procedure cannot be finished half-way or in the wrong order.
 - **One class at a time,** each with its own smoke and record, so a failure is attributable.
 - **Intervals:** the owner sets them (P6-D-15). Until then, rotate on a leak, on any staff departure, and before
-  the pilot's first real applicant.
+  the pilot's first real applicant. The erasure key is the exception: it is not rotated until `9kg.74` lets the record
+  be verified under earlier keys (its row above).
 - **Not covered here:** the TLS certificates (the proxy's own, internal in staging), the host's SOPS key, two-factor
   devices (the owner's break-glass reset, 026 section 16, 6B.9), and a leak of the database itself. A database leak
   exposes the password-setup and withdrawal link hashes, and is an incident, not a rotation.
