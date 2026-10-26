@@ -126,3 +126,19 @@ def mark_erasures_replayed() -> None:
             replay.mark(journal.read(), ERASURE_KEY.encode())
         except journal.JournalError:
             pass  # a broken journal: the review refuses on it, as it must
+
+
+def place_restore_hold(reason="restore hold (test)", actor_ref="test") -> int:
+    """The restore hold, placed as the owner (9kg.25: the application role may not insert a `system` pause row).
+    Returns the row's id."""
+    import psycopg
+    from django.conf import settings
+    from django.db import connection
+
+    from config.backup import RESTORE_HOLD
+
+    with psycopg.connect(host=connection.settings_dict["HOST"], port=connection.settings_dict["PORT"],
+                         dbname=connection.settings_dict["NAME"], user=settings.CATALYST_DB_ROLES["owner"],
+                         password=os.environ["CATALYST_DB_OWNER_PASSWORD"], autocommit=True) as conn:
+        return conn.execute("INSERT INTO workflow_automationpause (subject_type, subject_id, reason, actor_ref, created_at)"
+                            " VALUES (%s, %s, %s, %s, now()) RETURNING id", [*RESTORE_HOLD, reason, actor_ref]).fetchone()[0]

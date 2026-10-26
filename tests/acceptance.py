@@ -1683,6 +1683,8 @@ P6_SUPPORTING = {
         "test_erasure_replay::test_9kg_25_the_replay_command_never_runs_in_a_web_or_worker_process_or_beside_the_custody_key",
         "test_erasure_replay::test_9kg_25_the_drill_command_is_synthetic_only_and_traces_rows_by_a_marker",
         "test_erasure_replay::test_9kg_25_the_restore_drill_pins_its_erasure_replay_legs",
+        "test_erasure_replay::test_9kg_25_a_key_found_only_on_a_member_record_is_erased_and_a_mismatched_key_refuses_before_anything",
+        "test_erasure_replay::test_9kg_25_a_restored_plaintext_copy_of_an_erased_subjects_document_withholds_the_marker",
     ],
     "9kg.34 custody sealed at rest with per-document keys outside the backup, recoverable and destroyed on erasure (029 section 6.2)": [
         "test_custody_encryption::test_9kg_34_a_signed_document_is_sealed_at_rest_under_its_own_key_and_retrieval_returns_the_recorded_plaintext",

@@ -165,9 +165,13 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   every recorded subject in the restored tables through `catalyst_erase_replay` (erasure migration 0004). That is the
   erase function without its refusals for an open application, work in flight and an unfinished revocation, which
   the restored rows predate. It runs only under the restore hold and keeps the same audit row and tombstones. A
-  subject created after the backup counts as satisfied, and a changed address is erased all the same and reported.
-  The run ends with a mac'd `erasures_replayed` marker that the post-restore review and lift both require for the
-  current restore and every erasure entry, so an erasure made during the hold needs another replay. The review
+  subject with nothing left in the restored tables counts as satisfied.
+  It also finds a person by the recorded subject hash across restored applications, invitations and member records,
+  refuses before anything when a restored key does not hash to the record, and withholds its marker while a restored
+  plaintext copy of an erased subject's document is on disk under `destroy_key`. The run ends with a mac'd
+  `erasures_replayed` marker that the post-restore review and lift both require: written since the hold was placed,
+  covering every erasure entry (the lift verifies its mac; the review holds no key), so an erasure made during the
+  hold needs another replay. Workflow migration 0006 stops the application role inserting the restore hold. The review
   cancels the work of erased subjects, leaves them out of link, setup and revocation work, and opens one item for a
   subject still open after the journal's replay. `registry.REPLAY_BUILT` and `replay:not_built` are removed, so a
   decided registry is enough for a live backup. The restore drill runs a real erasure after the backup, then the

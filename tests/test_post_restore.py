@@ -59,8 +59,7 @@ def hold():
 
 
 def place_hold(anchor=""):
-    AutomationPause.objects.create(subject_type=RESTORE_HOLD[0], subject_id=RESTORE_HOLD[1],
-                                   reason="restore hold (test)", actor_ref="catalyst_restore" + (f"|{anchor}" if anchor else ""))
+    support.place_restore_hold(actor_ref="catalyst_restore" + (f"|{anchor}" if anchor else ""))
 
 
 def test_6b7b_links_from_before_the_restore_stop_working_the_negative_control(cl, monkeypatch):

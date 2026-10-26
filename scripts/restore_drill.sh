@@ -166,7 +166,8 @@ b up -d --no-deps --wait web proxy >/dev/null 2>&1
 for _ in $(seq 30); do offered 19443 "$link" && break; sleep 1; done
 check "TEST-P6-29 control: before the post-restore step, the restored link still opens" offered 19443 "$link"
 b stop web proxy >/dev/null 2>&1  # the post-restore step runs with nothing serving (026 section 6)
-as_owner_with_key() {  # the restore service's one-shot, also holding the erasure key (the review and lift re-read the marker)
+as_owner() { "$1" --profile ops run --rm --no-deps -T restore "${@:2}"; }  # the review: no erasure key (it reads the providers)
+as_owner_with_key() {  # the lift's one-shot, also holding the erasure key (it verifies the replay marker's mac)
   "$1" --profile ops run --rm --no-deps -T -v "$work/secrets/erasure_key:/run/secrets/erasure_key:ro" restore "${@:2}"
 }
 as_retention() {  # as_retention <stack> [docker run options] -- <manage.py arguments>: the retention login, the erasure key
@@ -175,13 +176,13 @@ as_retention() {  # as_retention <stack> [docker run options] -- <manage.py argu
   "$stack" run --rm --no-deps -T -e CATALYST_DB_USER=catalyst_retention -e CATALYST_SECRETS_DIR=/run/erasure-secrets \
     -v "$work/erasure-secrets:/run/erasure-secrets:ro" "${opts[@]}" migrate python manage.py "$@"
 }
-as_owner_with_key b python manage.py catalyst_post_restore --confirm-database catalyst >"$work/post-unreplayed.out" 2>&1
+as_owner b python manage.py catalyst_post_restore --confirm-database catalyst >"$work/post-unreplayed.out" 2>&1
 check "9kg.25 the post-restore review refuses before the erasure replay" test $? = 1
 check "9kg.25 ... for that reason" grep -q "erasure replay missing (unreplayed)" "$work/post-unreplayed.out"
 as_retention b -- catalyst_erasure_replay --expect-head none >"$work/replay.out" 2>&1
 check "9kg.25 the erasure replay runs as the retention login (no erasure was ever made: head none)" test $? = 0
 [ "$fail" = 0 ] || sed 's/^/  replay said: /' "$work/replay.out" | tail -3
-as_owner_with_key b python manage.py catalyst_post_restore --confirm-database catalyst >"$work/post.out" 2>&1
+as_owner b python manage.py catalyst_post_restore --confirm-database catalyst >"$work/post.out" 2>&1
 check "the post-restore review runs" test $? = 0
 [ "$fail" = 0 ] || sed 's/^/  post-restore said: /' "$work/post.out" | tail -3
 # 9kg.33: the review replayed the journal (the account created after the backup is a grant: the owner's act, so it
@@ -323,7 +324,7 @@ check "9kg.34 the older set restores into a fresh database (rows and the sealed 
 grep -q '"restored"' "$work/restore-custody.out" || grep -E "refused|failed" "$work/restore-custody.out" | sed 's/^/  custody restore said: /' | tail -2
 check "9kg.25 control: restored as it was, the older set holds the erased subject's address again" \
   test "$(field "$(etrace "$tag")" rows)" -gt 0
-as_owner_with_key e python manage.py catalyst_post_restore --confirm-database catalyst >"$work/post-custody-unreplayed.out" 2>&1
+as_owner e python manage.py catalyst_post_restore --confirm-database catalyst >"$work/post-custody-unreplayed.out" 2>&1
 check "9kg.25 the post-restore review refuses before the erasure replay" test $? = 1
 as_retention e -- catalyst_erasure_drill replay --expect-head none >"$work/replay-none.out" 2>&1
 check "9kg.25 a replay without the out-of-band head is refused (the journal holds erasures)" test $? = 1
@@ -337,7 +338,7 @@ check "9kg.25 positive control: the applicant nobody erased is still there" test
 again="$(as_retention e -- catalyst_erasure_drill replay --expect-head "$erasure_head" 2>/dev/null | tail -1)"
 check "9kg.25 a second replay is harmless (nothing left to change)" \
   test "$(field "$again" erased):$(field "$again" already)" = 0:1
-as_owner_with_key e python manage.py catalyst_post_restore --confirm-database catalyst >"$work/post-custody.out" 2>&1
+as_owner e python manage.py catalyst_post_restore --confirm-database catalyst >"$work/post-custody.out" 2>&1
 check "9kg.25 the post-restore review runs once the erasures are replayed" test $? = 0
 [ "$fail" = 0 ] || sed 's/^/  custody review said: /' "$work/post-custody.out" | tail -3
 # Staging has no Documenso, and this stack holds the seeded applicants' agreement records: the envelope read cannot

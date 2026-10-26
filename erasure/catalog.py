@@ -498,7 +498,9 @@ def erase_sql(retention_literal: str, existing: dict, replay: bool = False) -> s
 
     `replay=True` generates public.catalyst_erase_replay (9kg.25, erasure 0004): the same function under its own name,
     without the three refusals for an open application, work in flight and an access revocation that is not final,
-    and refusing instead unless the restore hold is present (CE008). It re-applies, to a restored older backup, an erasure that passed those refusals when it ran: the restored rows are as
+    and refusing instead unless the restore hold is present (CE008). Its optional `p_key` names a real email key the
+    replay matched by the recorded subject hash on a row outside any application or invitation (a first-generation
+    member record): used only when `p_subject` is unknown, it scopes the key-selected classes. It re-applies, to a restored older backup, an erasure that passed those refusals when it ran: the restored rows are as
     they were before the person was closed out, so the refusals would keep the restore held for good. The post-restore
     review settles what they guarded (config.post_restore.settle_erased) before anything runs."""
     terminal = ", ".join(_lit(s) for s in TERMINAL_STAGES)
@@ -527,8 +529,15 @@ def erase_sql(retention_literal: str, existing: dict, replay: bool = False) -> s
     RAISE EXCEPTION 'erasure: an access revocation is not final' USING ERRCODE = 'CE005';
   END IF;
 """
+    unknown = "      RAISE EXCEPTION 'erasure: unknown subject' USING ERRCODE = 'CE002';\n"
+    if replay:  # data review of PR #103, finding 1: a key the backup holds only on rows outside an application or invitation
+        unknown = ("      IF p_key IS NULL OR pg_catalog.strpos(p_key, '@') = 0 THEN\n"
+                   "        RAISE EXCEPTION 'erasure: unknown subject' USING ERRCODE = 'CE002';\n"
+                   "      END IF;\n"
+                   "      v_key := p_key;\n")
+    signature = "p_classes text[], p_key text DEFAULT NULL)" if replay else "p_classes text[])"
     return f"""CREATE OR REPLACE FUNCTION public.{"catalyst_erase_replay" if replay else "catalyst_erase"}(p_subject uuid, p_authority text, p_reason text,
-                                                 p_classes text[])
+                                                 {signature}
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
 DECLARE
   v_key text;
@@ -555,8 +564,7 @@ BEGIN
   IF NOT FOUND THEN
     SELECT i.email_key INTO v_key FROM public.applications_invitation i WHERE i.public_id = p_subject;
     IF NOT FOUND THEN
-      RAISE EXCEPTION 'erasure: unknown subject' USING ERRCODE = 'CE002';
-    END IF;
+{unknown}    END IF;
   END IF;
   -- A tombstone (never a real key: no @) means an earlier erasure ran. The key can no longer find anything, so the
   -- subject is scoped by its own references and the key-selected rows are skipped (v_key NULL matches nothing); the

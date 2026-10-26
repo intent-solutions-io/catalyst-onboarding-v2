@@ -514,13 +514,16 @@ operating rule is that the function is called only through the command, and only
 3. For every erased completion and every open intent, it calls `public.catalyst_erase_replay` (erasure 0004) with
    the classes of the registry in force and the intent's authority and reason. This is the erase function without
    its refusals for an open application, work in flight and an unfinished revocation, because the restored rows
-   predate the closure. It runs only under the restore hold. A restored row whose key does not hash to the recorded
-   subject is erased all the same, by its public reference, and reported. The handoff named `public.catalyst_erase`
-   here; the refusals made that impossible on the usual restore.
+   predate the closure. It runs only under the restore hold, which only the restore's load or the owner can place
+   (workflow 0006). The handoff named `public.catalyst_erase` here; the refusals made that impossible on the usual
+   restore. The replay also matches the recorded subject hash across restored applications, invitations and member
+   records (invited before the backup, erased after it), and a restored key that does not hash to the record refuses
+   before anything is erased.
 4. `unknown_subject` (a subject created after the backup) counts as satisfied.
 5. It ends with an `erasures_replayed` marker, with its mac, bound to the restore and to the last erasure entry. The
-   review and the lift both refuse until a marker covers every erasure entry, so the out-of-band head was checked
-   and an erasure made during the hold needs another replay.
+   review and the lift both refuse until a marker written since the hold was placed covers every erasure entry, so
+   the out-of-band head was checked and an erasure made during the hold needs another replay. The lift verifies the
+   marker's mac; the review, which reads the providers, holds no key.
 6. The review settles what the refusals guarded: the work of erased subjects is cancelled, and a subject still open
    or with an unfinished revocation after the journal's replay gets a `restore_effect_erased_subject_open` item.
 7. `REPLAY_BUILT` and `replay:not_built` are removed; a live backup still waits for POL-10's decided registry.

@@ -420,6 +420,7 @@ EXPECTED_TRIGGERS = {
     ("assessments_qualificationdecision", "catalyst_append_only"), ("assessments_qualificationdecision", "catalyst_no_truncate"),
     ("applications_application", "catalyst_decided_stage_needs_decision"),  # P3 3B.4
     ("workflow_automationpause", "catalyst_restore_hold"),  # 6B.7a
+    ("workflow_automationpause", "catalyst_restore_hold_insert"),  # 9kg.25: the app role never places the hold
     # 9kg.6: the pause row is cleared only by an audited resume; events carry the inserting transaction
     ("workflow_automationpause", "catalyst_pause_resume_guard"), ("workflow_automationpause", "catalyst_pause_fixed"),
     ("workflow_automationpause", "catalyst_no_truncate"), ("applications_applicationevent", "catalyst_event_txid"),

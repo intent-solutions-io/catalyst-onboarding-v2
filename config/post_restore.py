@@ -8,8 +8,9 @@ resumes only after all of them.
 
 **Erasure replay first** (9kg.25): `catalyst_erasure_replay --expect-head <head>`, as the retention login, re-applies
 every erasure of the durable record to the restored tables and ends with an `erasures_replayed` marker (erasure.replay).
-The review and the lift both refuse until a marker for this restore, verified under the erasure key, covers every
-erasure entry of the journal: missing, corrupt, stale or unavailable erasure evidence keeps the hold. (Where no journal
+The review and the lift both refuse until a marker for this restore, written after the hold was placed, covers every
+erasure entry of the journal (the lift also verifies its mac under the erasure key; the review, which reads the
+providers, holds no key): missing, corrupt, stale or unavailable erasure evidence keeps the hold. (Where no journal
 is configured, in test and development only, there is no record to replay.)
 
 **Review run** (no `--lift`), first in one transaction, before any web or worker process starts:
@@ -85,20 +86,22 @@ ITEM_OUTWARD = "restore_effect_outward_action"
 ITEM_ERASED_OPEN = "restore_effect_erased_subject_open"
 
 
-def erasure_replay_problem() -> str | None:
-    """None when no journal is configured (test and development only) or a verified `erasures_replayed` marker for the
-    current restore covers every erasure entry (erasure.replay); otherwise the code that keeps the hold: `unreplayed`,
-    `stale`, `forged_marker`, or a key or journal code."""
+def erasure_replay_problem(since=None, verify: bool = True) -> str | None:
+    """None when no journal is configured (test and development only) or an `erasures_replayed` marker for the current
+    restore, written since the hold was placed, covers every erasure entry (erasure.replay); otherwise the code that
+    keeps the hold: `unreplayed`, `stale`, `forged_marker`, or a key or journal code. The lift verifies the marker's
+    mac (`verify`, the erasure key); the review checks it without the key, so the run that reads providers never holds
+    it (security review of PR #103, finding 4)."""
     from erasure import replay
 
     if not journal.configured():
         return None
-    found = replay.current_state()
+    found = replay.current_state(since, verify)
     return None if found == "replayed" else found
 
 
-def _require_erasure_replay() -> None:
-    problem = erasure_replay_problem()
+def _require_erasure_replay(hold_row, verify: bool) -> None:
+    problem = erasure_replay_problem(hold_row.created_at, verify)
     if problem is not None:
         raise PostRestoreError(f"erasure replay missing ({problem}): run catalyst_erasure_replay --expect-head <head> as "
                                "the retention login first; the restored tables may hold an erased person, so the hold stays")
@@ -281,7 +284,7 @@ def review() -> dict:
     row = hold.first()
     if row is None:
         raise PostRestoreError("there is no restore hold: this database was not just restored")
-    _require_erasure_replay()
+    _require_erasure_replay(row, verify=False)
     report = {}
     close_outstanding_links(report)
     report["staff_sessions_ended"] = Session.objects.all().delete()[0]
@@ -390,7 +393,7 @@ def run(lift: bool, outward_checked: bool = False, no_closures_after_backup: boo
             raise PostRestoreError("the review found evidence missing or unreachable; run the review again until it reports reconciled")
         if row.reason != RECONCILED:
             raise PostRestoreError("run the review first (without --lift), then lift")
-        _require_erasure_replay()  # again: an erasure made during the hold needs another replay
+        _require_erasure_replay(row, verify=True)  # again, verified: an erasure made during the hold needs another replay
         items = open_effect_items()
         if items:
             raise PostRestoreError("effects are unresolved: resolve each restore_effect_* item (--resolve <id> --note ...): "

@@ -17,7 +17,7 @@ from django.db import migrations
 
 from erasure import catalog
 
-SIGNATURE = "public.catalyst_erase_replay(uuid, text, text, text[])"
+SIGNATURE = "public.catalyst_erase_replay(uuid, text, text, text[], text)"
 
 
 def _existing(schema_editor):
@@ -45,5 +45,6 @@ def uninstall(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("erasure", "0003_custody_keys")]
+    # workflow 0006: the hold this function requires can no longer be placed by the application role.
+    dependencies = [("erasure", "0003_custody_keys"), ("workflow", "0006_restore_hold_insert_guard")]
     operations = [migrations.RunPython(install, uninstall)]

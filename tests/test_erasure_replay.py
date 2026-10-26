@@ -22,6 +22,7 @@ from config import backup
 from erasure import catalog, record, replay, service
 from tests import support
 from tests.test_backup_commands import admin, drop, new_database, run_backup, run_restore
+from tests.test_custody_encryption import custody  # noqa: F401  (fixture)
 from tests.test_erasure import (  # noqa: F401  (the `decided` fixture)
     AUTHORITY, DECIDED, KEY, REASON, Crash, decided, erase, owner_scan, raises_sqlstate, subject,
 )
@@ -40,7 +41,7 @@ registry.REGISTRY = json.loads(sys.argv[1])
 from django.core.management import call_command
 call_command("catalyst_erasure_replay", "--expect-head", sys.argv[2])
 """
-SIGNATURE = "public.catalyst_erase_replay(uuid, text, text, text[])"
+SIGNATURE = "public.catalyst_erase_replay(uuid, text, text, text[], text)"
 
 
 def replay_command(database, head, role="retention"):
@@ -67,25 +68,25 @@ def queued_work(app):
 
 def test_9kg_25_a_restore_of_an_older_backup_replays_every_later_erasure_and_nothing_brings_the_person_back(
         privileged_reset, decided, tmp_path):
-    # At the backup: one person still open with work queued (as a person usually is when the backup runs), one whose
-    # address changes before the erasure, and a control nobody erases.
+    # At the backup: one person still open with work queued (as a person usually is when the backup runs), one only
+    # invited (under invitation-only intake she applies after the backup), and a control nobody erases.
     grace = subject("grace@example.test", "Grace Example", stage="submitted")
     work = queued_work(grace)
-    opal = subject("opal@example.test", "Opal Example")
+    owner = privileged_reset.connect("owner", autocommit=True)
+    owner.execute("INSERT INTO applications_invitation (public_id, email_key, issued_by, note, expires_at)"
+                  " VALUES (gen_random_uuid(), 'opal@example.test', 'owner', 'Invited: Opal Example', now() + interval '7 days')")
     subject("ruth@example.test", "Ruth Control")
     sets, custody = tmp_path / "sets", tmp_path / "custody"
     sets.mkdir()
     custody.mkdir(mode=0o700)
     result = run_backup(sets, custody)
     assert result.returncode == 0, result.stderr
-    # After the backup: Grace is closed out (journaled, as every closure is) and erased; Opal's address changes, then
-    # she is erased; Iris applies and is erased. The durable record outside the backup names all three.
+    # After the backup: Grace is closed out (journaled, as every closure is) and erased; Opal applies and is erased by
+    # her application, which the backup does not hold; Iris applies and is erased. The record names all three.
     journal.append("application_closed", f"application:{grace.public_ref}", {"outcome": "withdrawn", "phase": "done"})
     Application.objects.filter(pk=grace.pk).update(stage="withdrawn")
     PendingAction.objects.filter(pk=work.pk).update(status="done")
-    privileged_reset.connect("owner", autocommit=True).execute(  # a contact correction (the owner; no screen does it)
-        "UPDATE applications_application SET email = %s, email_key = %s WHERE id = %s",
-        ["opal.moved@example.test", "opal.moved@example.test", opal.pk])
+    opal = subject("opal@example.test", "Opal Example")
     iris = subject("iris@example.test", "Iris Later")
     for person in (grace, opal, iris):
         assert erase(privileged_reset, person.public_ref).status == "erased"
@@ -115,11 +116,11 @@ def test_9kg_25_a_restore_of_an_older_backup_replays_every_later_erasure_and_not
         assert result.returncode == 0, result.stderr
         report = printed(result)
         assert (report["subjects"], report["erased"], report["already"], report["absent"]) == (3, 2, 0, 1)
-        assert report["mismatched"] == [str(opal.public_ref)] and report["open"] == []  # erased all the same
+        assert report["matched_by_key"] == 1 and report["open"] == []  # Opal, found by her recorded hash on the invitation
         assert "example.test" not in result.stdout and "Example" not in result.stdout  # references and counts only
         assert replay.current_state() == "replayed"
         with admin(database) as conn:
-            assert owner_scan(conn, "grace", "opal", "Example Grace", "Grace Example", "Opal Example") == {}
+            assert owner_scan(conn, "grace", "opal", "Grace Example", "Opal Example") == {}
             assert owner_scan(conn, "ruth@example.test", "Ruth Control")  # the control is untouched
             stage = conn.execute("SELECT stage, email_key FROM applications_application WHERE public_ref = %s",
                                  [grace.public_ref]).fetchone()
@@ -127,12 +128,14 @@ def test_9kg_25_a_restore_of_an_older_backup_replays_every_later_erasure_and_not
             assert conn.execute("SELECT status FROM workflow_pendingaction WHERE id = %s", [work.pk]).fetchone() == ("queued",)
         second = replay_command(database, head)  # a second replay changes nothing and is harmless
         assert second.returncode == 0, second.stderr
-        assert (printed(second)["erased"], printed(second)["already"], printed(second)["absent"]) == (0, 2, 1)
+        # Opal's invitation is a tombstone now, so nothing of her matches any more: absent, like Iris.
+        assert (printed(second)["erased"], printed(second)["already"], printed(second)["absent"]) == (0, 1, 2)
 
-        # The review replays Grace's closure, cancels her work, opens nothing for the erased and reaches reconciled.
-        reviewed, review = run_post_restore(db=database, replayed=False, **env)
+        # The review replays Grace's closure, cancels her work, opens nothing for the erased and reaches reconciled. It
+        # runs without the erasure key (it reads the providers); the lift verifies the marker with it.
+        reviewed, review = run_post_restore(db=database, replayed=False, **env, CATALYST_ERASURE_KEY="")
         assert reviewed.returncode == 0, reviewed.stderr
-        assert (review["erased_subjects"], review["erased_subjects_open"], review["erased_actions_cancelled"]) == (2, 0, 1)
+        assert (review["erased_subjects"], review["erased_subjects_open"], review["erased_actions_cancelled"]) == (1, 0, 1)
         assert review["effects"]["blocked"] == [] and review["effect_items_open"] == []
         with admin(database) as conn:
             assert conn.execute("SELECT stage FROM applications_application WHERE public_ref = %s",
@@ -141,12 +144,14 @@ def test_9kg_25_a_restore_of_an_older_backup_replays_every_later_erasure_and_not
                                 [work.pk]).fetchone() == ("cancelled", "subject_erased")
             live = conn.execute("SELECT count(*) FROM workflow_pendingaction WHERE subject_id = ANY(%s)"
                                 " AND status IN ('queued', 'running', 'held', 'uncertain')",
-                                [[grace.public_ref, opal.public_ref]]).fetchone()[0]
+                                [[grace.public_ref]]).fetchone()[0]
             items = conn.execute("SELECT count(*) FROM correspondence_staffitem i JOIN applications_application a"
                                  " ON a.id = i.application_id WHERE a.public_ref = ANY(%s)",
-                                 [[grace.public_ref, opal.public_ref]]).fetchone()[0]
+                                 [[grace.public_ref]]).fetchone()[0]
             assert (live, items) == (0, 0)  # no job and no staff item reaches an erased person
             assert owner_scan(conn, "grace", "opal", "Grace Example", "Opal Example") == {}
+        keyless, _ = run_post_restore(*LIFT, db=database, replayed=False, **env, CATALYST_ERASURE_KEY="")
+        assert keyless.returncode == 1 and "erasure replay missing (key_missing)" in keyless.stderr, keyless.stderr
         lifted, outcome = run_post_restore(*LIFT, db=database, replayed=False, **env)
         assert lifted.returncode == 0 and outcome == {"hold": "lifted"}, lifted.stderr
     finally:
@@ -174,6 +179,10 @@ def test_9kg_25_only_the_retention_role_runs_the_replay_function_and_only_under_
     with pytest.raises(errors.InsufficientPrivilege):
         app_conn.execute(call, args)
     app_conn.rollback()
+    with pytest.raises(errors.InsufficientPrivilege):  # the application role can never plant the hold (workflow 0006)
+        app_conn.execute("INSERT INTO workflow_automationpause (subject_type, subject_id, reason, actor_ref)"
+                         " VALUES (%s, %s, 'planted', 'catalyst_restore|x:1:y')", list(backup.RESTORE_HOLD))
+    app_conn.rollback()
     place_hold(privileged_reset)
     result = retention.execute(call, args).fetchone()[0]
     retention.commit()
@@ -194,7 +203,11 @@ def test_9kg_25_missing_corrupt_or_stale_erasure_evidence_keeps_the_restore_held
     grace = subject()
     erase(privileged_reset, grace.public_ref)
     head = record.head_string()
+    replay.mark(journal.read(), KEY.encode())  # a marker from before this hold (an earlier restore or drill)
     place_hold(privileged_reset)
+    placed = privileged_reset.connect("owner", autocommit=True).execute(
+        "SELECT created_at FROM workflow_automationpause WHERE subject_type = 'system'").fetchone()[0]
+    assert replay.current_state(since=placed) == "unreplayed"  # security review of PR #103, finding 2
     conn = privileged_reset.connect("retention")
     settings.CATALYST_ERASURE_KEY = ""  # the key is not mounted: nothing can be verified
     with pytest.raises(service.Refused, match="record_key_missing"):
@@ -202,32 +215,32 @@ def test_9kg_25_missing_corrupt_or_stale_erasure_evidence_keeps_the_restore_held
     settings.CATALYST_ERASURE_KEY = KEY
     with pytest.raises(service.Refused, match="registry_undecided"):  # the shipped, undecided registry
         replay.replay(conn, head, rows={n: {"treatment": "undecided", "retention": "undecided"} for n in DECIDED})
-    assert replay.current_state() == "unreplayed"
+    assert replay.current_state(since=placed) == "unreplayed"
     assert replay.replay(conn, head, rows=DECIDED)["already"] == 1
-    assert replay.current_state() == "replayed"
+    assert replay.current_state(since=placed) == "replayed"
+    assert replay.current_state(since=placed, verify=False) == "replayed"
     # An erasure made while the restore is held (a later entry) is not covered: stale until the next replay.
     opal = subject("opal@example.test", "Opal Example")
     erase(privileged_reset, opal.public_ref)
-    assert replay.current_state() == "stale"
+    assert replay.current_state(since=placed) == "stale"
     from config import post_restore
 
     assert post_restore.erasure_replay_problem() == "stale"
     assert replay.replay(conn, record.head_string(), rows=DECIDED)["already"] == 2
-    assert replay.current_state() == "replayed"
+    assert replay.current_state(since=placed) == "replayed"
     # A marker for a later restore that does not verify (written without the key) is never taken as a replay.
     journal.append("restore", "restore:test", {"backup_seq": 0, "backup_head": "", "backup_journal_id": ""})
-    assert replay.current_state() == "unreplayed"
+    assert replay.current_state(since=placed) == "unreplayed"
     seq = replay.restore_seq(journal.read())
     journal.append(replay.MARKER, replay.marker_key(seq), {"restore": seq, "through": 10**6, "subjects": 0, "erased": 0,
-                                                          "already": 0, "absent": 0, "mismatched": 0, "phase": "done",
-                                                          "mac": "a" * 64})
-    assert replay.current_state() == "forged_marker"
+                                                          "already": 0, "absent": 0, "phase": "done", "mac": "a" * 64})
+    assert replay.current_state(since=placed) == "forged_marker"
     # A forged erasure entry refuses the whole replay.
     journal.append("erasure_handoff", f"erasure:{uuid.uuid4()}", {"provider": "mail_sent", "completed_on": "2026-10-24",
                                                                   "phase": "done", "mac": "b" * 64})
     with pytest.raises(service.Refused, match="record_forged_entry"):
         replay.replay(conn, record.head_string(), rows=DECIDED)
-    assert replay.current_state() == "forged_marker"
+    assert replay.current_state(since=placed) == "forged_marker"
 
 
 def test_9kg_25_an_interrupted_replay_writes_no_marker_and_the_next_run_finishes(privileged_reset, decided, monkeypatch):
@@ -316,3 +329,53 @@ def test_9kg_25_the_restore_drill_pins_its_erasure_replay_legs():
                  "a backup after the erasure and its replay runs",
                  "BY DESIGN the restore hold is procedural for the web process", "/run/secrets/erasure_key:ro\" restore"):
         assert line in script, line
+
+
+def test_9kg_25_a_key_found_only_on_a_member_record_is_erased_and_a_mismatched_key_refuses_before_anything(
+        privileged_reset, decided):
+    """Data review of PR #103: findings 1 (rows found by the recorded subject hash, here a first-generation member
+    record and no application or invitation) and 3 (a restored key that does not hash to the record refuses)."""
+    from erasure import registry
+
+    owner = privileged_reset.connect("owner", autocommit=True)
+    owner.execute("INSERT INTO applications_memberagreementonfile (public_id, email_key, covers, completion_verified,"
+                  " recorded_by) VALUES (gen_random_uuid(), 'june@example.test', '{\"nda\": \"v1\"}', true, 'owner_command')")
+    secret, classes = KEY.encode(), registry.anonymized_classes(DECIDED)
+    kid, june = record.key_id(secret), record.subject_hash("june@example.test", secret)
+    later = uuid.uuid4()  # her application, made and erased after the backup: the restored tables do not hold it
+    record.append_intent(later, june, kid, AUTHORITY, REASON, classes, [], [], secret)
+    record.append_complete(later, june, kid, "erased", 5, secret)
+    place_hold(privileged_reset)
+    found = replay.replay(privileged_reset.connect("retention"), record.head_string(), rows=DECIDED)
+    assert (found["erased"], found["absent"], found["matched_by_key"]) == (1, 0, 1)
+    assert owner.execute("SELECT count(*) FROM applications_memberagreementonfile WHERE email_key LIKE %s",
+                         ["%june%"]).fetchone()[0] == 0
+    ruth = subject("ruth@example.test", "Ruth Example")  # a row whose key is not the recorded subject's
+    other = record.subject_hash("someone-else@example.test", secret)
+    record.append_intent(ruth.public_ref, other, kid, AUTHORITY, REASON, classes, [], [], secret)
+    record.append_complete(ruth.public_ref, other, kid, "erased", 5, secret)
+    with pytest.raises(service.Refused, match="replay_subject_mismatch") as refused:
+        replay.replay(privileged_reset.connect("retention"), record.head_string(), rows=DECIDED)
+    assert refused.value.detail == [str(ruth.public_ref)]
+    assert Application.objects.get(pk=ruth.pk).email == "ruth@example.test"  # nothing was erased
+    assert replay.current_state() == "stale"  # the hold stays
+
+
+def test_9kg_25_a_restored_plaintext_copy_of_an_erased_subjects_document_withholds_the_marker(
+        privileged_reset, decided, custody):
+    """Data review of PR #103, finding 2: a set taken before the document was sealed brings its plaintext back; under
+    `destroy_key` no marker is written while that file is on disk."""
+    from agreements.management.commands import catalyst_custody_drill as drill
+    from tests.test_custody_encryption import DESTROYING
+
+    app = subject()
+    document = drill.synthetic_document(app, b"%PDF-1.7 synthetic legacy", sealed=False)  # in the clear, before 9kg.34
+    erase(privileged_reset, app.public_ref)  # under `retain` (DECIDED): the document stays, as in the older set
+    place_hold(privileged_reset)
+    conn = privileged_reset.connect("retention")
+    with pytest.raises(service.Refused, match="replay_custody_plaintext_restored"):
+        replay.replay(conn, record.head_string(), rows=DESTROYING)
+    assert replay.current_state() == "unreplayed"
+    (custody / document.storage_key).unlink()  # the owner removes the restored plaintext file
+    assert replay.replay(conn, record.head_string(), rows=DESTROYING)["already"] == 1
+    assert replay.current_state() == "replayed"
