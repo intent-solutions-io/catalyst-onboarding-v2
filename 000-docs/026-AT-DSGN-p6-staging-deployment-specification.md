@@ -2247,6 +2247,63 @@ hardened after the PR #102 security, release-operations and data reviews).**
   - `tests/test_post_restore.py`: its helper writes the marker for tests about other things.
   - `tests/test_database.py`: the approved migration.
 
+**9kg.60, the effect journal shipped off the host (029 section 6.2's deferred item; 2026-10-26).**
+
+- **Why.** The journal lives on a volume on the same host as the database. Host loss is the usual reason to restore,
+  and the effects after the last backup then have no copy anywhere. The restore drill carries the journal by hand
+  from a volume that still exists, which models a planned move, not a loss.
+- **Built** (`workflow/shipping.py`, revised after the release-operations review of PR #106):
+  - `catalyst_journal_ship --to <dir> --provision`, once, writes a marker on the mounted destination. Every run
+    refuses a destination without it (`destination_unprovisioned`), so an unmounted mount point is never shipped to.
+  - `catalyst_journal_ship --to <dir>` takes an exclusive lock on the marker. It copies the journal bytes whose chain
+    it verified in one locked read, under a temporary name, then fsyncs and renames. It reads the copy back (its digest
+    must match), then writes `head.json` and reads it back, then records the run beside the journal (`effects.shipped`,
+    with `shipped_at`). An interruption leaves the copy's journal at or ahead of its head, never behind it. A copy
+    with no head is anchored on its own last entry.
+  - It refuses a destination inside the journal, the repository, custody or a key directory.
+  - It refuses (`destination_ahead_of_journal`) when the copy holds entries the local journal lacks. **Operator
+    action:** stop; restore the local journal from the copy; ship again. Only after an owner-accepted loss (below),
+    `--rebaseline` moves the old copy aside under a dated name (it is kept) and the next run starts a new copy.
+  - The `journal` health part, when `CATALYST_JOURNAL_SHIP_LAG_SECONDS` is above 0, pages under these codes:
+    - `effect_journal_ship_lag`: the oldest unshipped entry is older than the threshold;
+    - `effect_journal_ship_stale`: no completed run within the threshold, so a dead timer pages even with no new
+      effects;
+    - `effect_journal_never_shipped`;
+    - `effect_journal_behind_shipped`: the local journal lost what it shipped;
+    - `effect_journal_shipped_unreadable`: the local record cannot be read.
+
+    A live environment refuses to start with the threshold at 0.
+  - `catalyst_restore --shipped-from <dir | none>` reads the copy's head from the provisioned destination; it is
+    never typed. Before the load, it refuses a local journal that does not hold that head. The owner's override is
+    `--accept-journal-behind-shipped`. The restore entry records `behind_shipped` and the copy's `shipped_seq`. A
+    live restore must name the copy; `none` (nothing was ever shipped) is accepted there only with the override.
+- **The host runbook after a host loss** (a `9kg.28` item):
+  1. Mount the destination on the new host.
+  2. Copy `effects.jsonl` from it into the new journal volume (directory 0700, file 0600, owned by the service user).
+  3. Restore the newest backup whose receipt head the copied journal holds, with `--shipped-from <destination>`.
+     `check_journal` refuses a backup newer than the copy.
+  4. Ship once immediately before every backup, so the newest backup's head is always in the copy (the backup
+     timer's pre-step).
+- **The host's part** (`9kg.28`). Each item below is PENDING:
+  - the destination: another machine or mount, never inside the backup output (a backup store is not a backup
+    source), and its own retention and immutability;
+  - the timer and its cadence, and where a failed run is routed;
+  - the threshold value, which is the journal's RPO and the owner's (`211.7.2`);
+  - a real host-loss drill: ship, destroy the source volume, copy, restore, lift;
+  - alert drills for the lag, stale, never-shipped and behind-shipped codes.
+- **Evidence:** `tests/test_journal_shipping.py`, 11 tests, mapped under `P6_SUPPORTING` in group "9kg.60". They cover:
+  - a whole copy with a matching head, and unsafe destinations refused;
+  - a rolled-back local journal never overwriting the copy;
+  - the lag, never-shipped and behind-shipped signals;
+  - the live threshold guard;
+  - the shipped-head check, with its override;
+  - a real restore refused before the load, then accepted and recorded;
+  - the command;
+  - from the review: an unmounted destination refused and a second run waiting, a copy without its head anchored on
+    itself, a rebaseline that keeps the old copy, and the stale and unreadable codes.
+- **Not yet shown:** the restore drill still carries the journal by hand. A drill leg that ships to an off-host
+  directory and restores from it after the source is gone belongs with the host destination (`9kg.28`).
+
 ## 17. The aged-waits health part (9kg.51, 2026-10-23)
 
 `029` section 5.2 listed the waits with no bound once the first-generation owner notices retire: an application in
