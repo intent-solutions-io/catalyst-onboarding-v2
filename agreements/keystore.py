@@ -56,8 +56,8 @@ Limits, stated (review of PR #102, F5, F9, F10):
   stray archive or snapshot of a key directory, an unlinked file's blocks not yet reused, a copy-on-write or SSD
   remnant, or a wrapped key in swap or a core dump. Unlinking does not scrub storage blocks; on SSDs and copy-on-write
   filesystems no overwrite reliably does. The only way to retire such remnants is to rotate the wrapping key (rewrap
-  every live data key under a new one) and then destroy the old wrapping key everywhere, the escrow included.
-  Rotation is not built yet (a follow-up).
+  every live data key under a new one) and then destroy the old wrapping key everywhere, the escrow included:
+  `rotate` and `retire` below (9kg.69).
 - The processes that hold the wrapping key or a data key should run without swap and with core dumps disabled; that
   is host configuration (9kg.28), not this code.
 - The wrapping key's escrow is the operator's process, not this code.
@@ -114,6 +114,19 @@ def wrapping_key() -> bytes:
     if not WRAPPING_KEY.fullmatch(value):
         raise KeyStoreError("wrapping_key_invalid")  # 64 lower-case hex: exactly 32 random bytes
     return bytes.fromhex(value)
+
+
+def next_wrapping_key() -> bytes:
+    """9kg.69: the new wrapping key, present only for the owner-run rotation (`custody_next_wrapping_key`)."""
+    value = getattr(settings, "CATALYST_CUSTODY_NEXT_WRAPPING_KEY", "") or ""
+    if not value:
+        raise KeyStoreError("next_wrapping_key_missing")
+    if not WRAPPING_KEY.fullmatch(value):
+        raise KeyStoreError("wrapping_key_invalid")
+    secret = bytes.fromhex(value)
+    if secret == wrapping_key():
+        raise KeyStoreError("next_wrapping_key_same")
+    return secret
 
 
 def wrapping_key_id(secret: bytes) -> str:
@@ -254,6 +267,41 @@ def _unlink(path: Path, ref: str) -> bool:
         os.close(directory)
 
 
+def _replace(path: Path, ref: str, blob: bytes) -> None:
+    """9kg.69: replace a wrapped key file atomically (a temporary name the listing ignores, fsynced, renamed over the
+    old one, the directory fsynced): an interruption leaves the old wrapped key or the new one, never neither."""
+    directory = _open_dir(path)
+    temporary = f"{_name(ref)}.rotating"
+    try:
+        try:
+            os.unlink(temporary, dir_fd=directory)  # a leftover of an interrupted run
+        except FileNotFoundError:
+            pass
+        try:
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+        except OSError:
+            raise KeyStoreError("key_store_unavailable") from None
+        try:
+            view = memoryview(blob)
+            while view:
+                written = os.write(fd, view)
+                if written <= 0:
+                    raise OSError("short write")
+                view = view[written:]
+            os.fsync(fd)
+        except OSError:
+            raise KeyStoreError("key_store_unavailable") from None
+        finally:
+            os.close(fd)
+        try:
+            os.rename(temporary, _name(ref), src_dir_fd=directory, dst_dir_fd=directory)
+        except OSError:
+            raise KeyStoreError("key_store_unavailable") from None
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
 def _listing(path: Path) -> set:
     directory = _open_dir(path)
     try:
@@ -273,6 +321,15 @@ def _wrap(secret: bytes, ref: str, data_key: bytes) -> bytes:
     sealed = AESGCM(secret).encrypt(nonce, data_key, WRAP_AAD + ref.encode())
     return json.dumps({"v": 1, "scheme": SCHEME, "wrapping_key_id": wrapping_key_id(secret), "nonce": _b64(nonce),
                        "sealed": _b64(sealed)}, sort_keys=True).encode()
+
+
+def wrapped_by(blob: bytes) -> str | None:
+    """The id of the wrapping key a wrapped key file was written under (9kg.69), or None when the file is unreadable."""
+    try:
+        value = json.loads(blob)["wrapping_key_id"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    return value if isinstance(value, str) else None
 
 
 def _unwrap(secret: bytes, ref: str, blob: bytes) -> bytes:
@@ -499,26 +556,9 @@ def recover(expected_head: str) -> dict:
     out-of-band head the erasure command prints, PR #99; `none` only for a journal with no erasure and no destruction):
     an emptied, truncated or replaced journal would forget destructions and let recovery revive their keys (review of
     PR #102, F4). The mismatch is `journal_mismatch`."""
-    from erasure.record import HEAD
-    from workflow import journal
-
     secret = wrapping_key()
     primary, mirror = directories()
-    if not journal.configured():
-        raise KeyStoreError("journal_unavailable")
-    try:
-        entries = journal.read()
-        if expected_head == "none":
-            if any(e.kind == DESTROYED or e.kind.startswith("erasure_") for e in entries):
-                raise journal.JournalError("journal_mismatch")
-        else:
-            found = HEAD.fullmatch(expected_head or "")
-            if found is None or int(found.group(2)) < 1:
-                raise KeyStoreError("bad_head")
-            journal.verify_anchor(entries, found.group(1), int(found.group(2)), found.group(3))
-        destroyed = _verified_destroyed(entries)
-    except journal.JournalError as exc:
-        raise KeyStoreError("journal_mismatch" if exc.code == "journal_mismatch" else "journal_unavailable") from None
+    destroyed = _destroyed_at_head(expected_head)
     report = {"copied_to_primary": 0, "copied_to_mirror": 0, "destruction_finished": 0, "unrecoverable": 0}
     in_primary, in_mirror = _listing(primary), _listing(mirror)
     for ref in sorted((in_primary | in_mirror) & destroyed):
@@ -534,6 +574,116 @@ def recover(expected_head: str) -> dict:
         _write(target, ref, blob)
         report[field] += 1
     return report
+
+
+def _destroyed_at_head(expected_head: str) -> set:
+    """The verified destroyed references of a journal that holds the out-of-band head (`none` only for a journal with
+    no erasure and no destruction): an emptied, truncated or replaced journal would forget destructions."""
+    from erasure.record import HEAD
+    from workflow import journal
+
+    if not journal.configured():
+        raise KeyStoreError("journal_unavailable")
+    try:
+        entries = journal.read()
+        if expected_head == "none":
+            if any(e.kind == DESTROYED or e.kind.startswith("erasure_") for e in entries):
+                raise journal.JournalError("journal_mismatch")
+        else:
+            found = HEAD.fullmatch(expected_head or "")
+            if found is None or int(found.group(2)) < 1:
+                raise KeyStoreError("bad_head")
+            journal.verify_anchor(entries, found.group(1), int(found.group(2)), found.group(3))
+        return _verified_destroyed(entries)
+    except journal.JournalError as exc:
+        raise KeyStoreError("journal_mismatch" if exc.code == "journal_mismatch" else "journal_unavailable") from None
+
+
+def rotate(expected_head: str) -> dict:
+    """9kg.69: rewrap every live data key under the next wrapping key, in both directories. Run by the owner with the
+    worker and web stopped, holding the current key and the next one (`custody_next_wrapping_key`, this run only).
+
+    The journal must hold the out-of-band head, as for `recover`. Every destruction it records is finished first, and
+    a destroyed key is never rewrapped: a rotation cannot revive one. The two directories must hold the same keys
+    (`key_needs_recovery` otherwise: run `--recover` first), so no key is rotated in one copy and lost in the other.
+    Each copy is unwrapped under the current key, wrapped under the next, checked to unwrap to the same data key, and
+    replaced atomically. A copy already under the next key is checked and left; one under any third key is
+    `unrecoverable`, and the rotation refuses at the end (`rotation_incomplete`) without journaling completion.
+    Interruption is safe: every copy is under one key or the other, both keys are still held, and the same command
+    run again finishes the rest. The journal records the start and the completion (`custody_rotation`)."""
+    from workflow import journal
+
+    current, upcoming = wrapping_key(), next_wrapping_key()
+    primary, mirror = directories()
+    destroyed = _destroyed_at_head(expected_head)
+    old_id, new_id = wrapping_key_id(current), wrapping_key_id(upcoming)
+    key = f"custody_rotation:{old_id}:{new_id}"
+    if journal.append("custody_rotation", key, {"from_key": old_id, "to_key": new_id, "phase": "prepare"}) is None:
+        raise KeyStoreError("journal_unavailable")
+    report = {"from_key": old_id, "to_key": new_id, "rewrapped": 0, "already_rotated": 0, "destruction_finished": 0,
+              "unrecoverable": 0}
+    in_primary, in_mirror = _listing(primary), _listing(mirror)
+    for ref in sorted((in_primary | in_mirror) & destroyed):
+        report["destruction_finished"] += int(_unlink(mirror, ref)) + int(_unlink(primary, ref))
+    live_primary, live_mirror = in_primary - destroyed, in_mirror - destroyed
+    if live_primary != live_mirror:
+        raise KeyStoreError("key_needs_recovery")
+    for ref in sorted(live_primary):
+        for directory in (mirror, primary):
+            blob = _read(directory, ref) or b""
+            by = wrapped_by(blob)
+            try:
+                if by == new_id:
+                    _unwrap(upcoming, ref, blob)
+                    report["already_rotated"] += 1
+                    continue
+                if by != old_id:
+                    raise KeyStoreError("key_corrupt")
+                data_key = _unwrap(current, ref, blob)
+            except KeyStoreError:
+                report["unrecoverable"] += 1
+                continue
+            rewrapped = _wrap(upcoming, ref, data_key)
+            if _unwrap(upcoming, ref, rewrapped) != data_key:
+                raise KeyStoreError("key_corrupt")
+            _replace(directory, ref, rewrapped)
+            report["rewrapped"] += 1
+    if report["unrecoverable"]:
+        raise KeyStoreError("rotation_incomplete")
+    report["keys"] = len(live_primary)
+    return report
+
+
+def retire(retired_id: str, expected_head: str) -> dict:
+    """9kg.69: after the owner destroyed the old wrapping key everywhere (its secret file and its escrow copy), check
+    that this process holds neither it nor a next key, that no wrapped key file in either directory is still under it,
+    and that every live key unwraps under the current key; then journal the retirement. From then on a remnant wrapped
+    under the old key (a stray archive, unlinked blocks, an off-site copy) has no key that opens it."""
+    from workflow import journal
+
+    if not re.fullmatch(r"[0-9a-f]{16}", retired_id or ""):
+        raise KeyStoreError("bad_key_id")
+    current = wrapping_key()
+    if getattr(settings, "CATALYST_CUSTODY_NEXT_WRAPPING_KEY", ""):
+        raise KeyStoreError("next_wrapping_key_present")  # the rotation's secret file is removed before retirement
+    if wrapping_key_id(current) == retired_id:
+        raise KeyStoreError("retired_key_still_current")
+    primary, mirror = directories()
+    destroyed = _destroyed_at_head(expected_head)
+    still = 0
+    for directory in (primary, mirror):
+        for ref in sorted(_listing(directory) - destroyed):
+            blob = _read(directory, ref) or b""
+            if wrapped_by(blob) == retired_id:
+                still += 1
+                continue
+            _unwrap(current, ref, blob)  # every live key opens under the current key, or this raises
+    if still:
+        raise KeyStoreError("rotation_incomplete")
+    if journal.append("custody_rotation", f"custody_rotation_retired:{retired_id}",
+                      {"from_key": retired_id, "to_key": wrapping_key_id(current), "phase": "done"}) is None:
+        raise KeyStoreError("journal_unavailable")
+    return {"retired_key": retired_id, "current_key": wrapping_key_id(current)}
 
 
 def listing() -> tuple[set, set]:

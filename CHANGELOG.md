@@ -159,6 +159,13 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   lift; start-up only checks), recovery needs the out-of-band head and the erasure key, a resumed erasure checks the key
   store before it commits, one document that cannot be sealed never stops the migration, the associated data binds the recorded hash, erasure 0003 reverses cleanly, and the drill
   shows both outcomes
+- Custody wrapping-key rotation (bead `9kg.69`; `027` section 2, `026` section 16): `catalyst_custody_keys --rotate
+  --expect-head` rewraps every live data key under a next wrapping key mounted for that run only, in both key
+  directories and atomically per file, then opens every live document under the next key before it journals
+  completion. It finishes journaled destructions first and never rewraps a destroyed key. An interrupted run is
+  finished by running it again. `--retire-old-key` checks that no key file is still under the old key, then journals
+  its retirement, so a remnant of an erased document's wrapped key has no key left that opens it. The next key is
+  refused by every process but the owner-run rotation
 - Hardening (internal-launch batch item 6): the database freezes inbound message provenance and the identity
   columns of outbound attempts and reply links for every role, with the audited retention path left open for
   erasure (correspondence migration 0017, `016` section 10.14)

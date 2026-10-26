@@ -6,6 +6,8 @@ the clear before 9kg.34, and key recovery by the named holder.
     manage.py catalyst_custody_keys --migrate --confirm
     manage.py catalyst_custody_keys --recover --expect-head <identity:seq:hash | none>
     manage.py catalyst_custody_keys --reap-orphans [--confirm] [--min-age-seconds N]
+    manage.py catalyst_custody_keys --rotate --expect-head <identity:seq:hash | none>
+    manage.py catalyst_custody_keys --retire-old-key <old key id> --expect-head <identity:seq:hash | none>
 
 - `--provision`: the one step that creates the key directory and its mirror (0700) and writes each one's
   provisioning marker. Nothing else ever creates them: every other operation refuses with `key_store_unavailable` when a
@@ -31,6 +33,17 @@ the clear before 9kg.34, and key recovery by the named holder.
   `--confirm` journals each one (`custody_orphan_reaped`) and removes it. Only orphans older than `--min-age-seconds`
   (default 3600) are touched, so a write in progress is never reaped; run it with the worker stopped. A plaintext
   file no row names is reported, never removed here (removing it is a retention act).
+
+- `--rotate` (9kg.69): with the web and worker stopped and the next wrapping key mounted for this run
+  (`custody_next_wrapping_key`), rewrap every live data key under it in both directories (agreements.keystore.rotate),
+  then open every live document under the next key and check its hash. A destroyed key is never rewrapped. An
+  interrupted run is finished by running it again: every copy is under the current key or the next one, and both are
+  still held. Only when every key is rewrapped and every live document opens does it journal `custody_rotation`
+  `done`. Then the owner makes the next key the current one (the secret file and the escrow), restarts the services
+  and removes the next-key file.
+- `--retire-old-key <id>` (9kg.69): after the owner destroyed the old wrapping key everywhere, the escrow copy included,
+  check that no key file is still under it and every live key opens under the current one, and journal the
+  retirement. The old key's id is the `from_key` that `--rotate` printed.
 
 Every output is one JSON line of counts and codes, never a key, a document's bytes or a person's data, and states the
 claim's scope: v2's custody copy only; the provider's copy is under P4-D-15 until POL-10. Exit 0 when the action
@@ -59,8 +72,11 @@ class Command(BaseCommand):
         action.add_argument("--migrate", action="store_true", help="seal every document stored in the clear")
         action.add_argument("--recover", action="store_true", help="re-align the key directory and its mirror")
         action.add_argument("--reap-orphans", action="store_true", help="list (or with --confirm remove) orphans")
+        action.add_argument("--rotate", action="store_true", help="rewrap every live key under the next wrapping key")
+        action.add_argument("--retire-old-key", default="", help="record that the old wrapping key (by id) is destroyed")
         parser.add_argument("--confirm", action="store_true", help="required with --migrate; acts with --reap-orphans")
-        parser.add_argument("--expect-head", default="", help="--recover: the journal head kept out of band (PR #99)")
+        parser.add_argument("--expect-head", default="",
+                            help="--recover, --rotate, --retire-old-key: the journal head kept out of band (PR #99)")
         parser.add_argument("--min-age-seconds", type=int, default=3600, help="--reap-orphans: leave younger orphans")
 
     def emit(self, report: dict, ok: bool):
@@ -71,8 +87,8 @@ class Command(BaseCommand):
     def refuse(self, code: str):
         self.emit({"refused": code}, False)
 
-    def handle(self, *args, provision, status, migrate, recover, reap_orphans, confirm, min_age_seconds, expect_head,
-               **options):
+    def handle(self, *args, provision, status, migrate, recover, reap_orphans, rotate, retire_old_key, confirm,
+               min_age_seconds, expect_head, **options):
         if runtime.process_kind() in runtime.ENFORCED_KINDS:
             self.refuse("not_a_management_process")
         try:
@@ -88,6 +104,14 @@ class Command(BaseCommand):
                 self.emit(report, not (report["plaintext_cleanup_failed"] or report["seal_failed"]))
             elif reap_orphans:
                 self.emit(reap(confirm, max(0, min_age_seconds)), True)
+            elif rotate or retire_old_key:
+                if not expect_head:
+                    self.refuse("expect_head_required")
+                if rotate:
+                    report = rotate_keys(expect_head)
+                    self.emit(report, report["documents_failed"] == 0)
+                else:
+                    self.emit(keystore.retire(retire_old_key, expect_head), True)
             else:
                 if not expect_head:
                     self.refuse("expect_head_required")
@@ -237,3 +261,40 @@ def reap(confirm: bool, min_age: int) -> dict:
         storage.discard_file(name)
         report["removed_files"] += 1
     return report
+
+
+def rotate_keys(expected_head: str) -> dict:
+    """9kg.69: rewrap (agreements.keystore.rotate), then open every live document under the next key and check its
+    hash; `custody_rotation` `done` is journaled only when all of them open. One rotation or migration at a time."""
+    from django.conf import settings
+
+    from workflow import journal
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", [MIGRATE_LOCK])
+        if not cursor.fetchone()[0]:
+            raise keystore.KeyStoreError("custody_operation_in_progress")
+    try:
+        report = keystore.rotate(expected_head)
+        destroyed = keystore.journaled_destroyed(verify=True)
+        settings.CATALYST_CUSTODY_WRAPPING_KEY = settings.CATALYST_CUSTODY_NEXT_WRAPPING_KEY  # this process only
+        report.update(documents_opened=0, documents_failed=0)
+        for envelope in CustodyEnvelope.objects.select_related("document").order_by("id"):
+            if envelope.key_ref in destroyed:
+                continue
+            document = envelope.document
+            try:
+                storage.read(document.storage_key, document.sha256, document.size, envelope)
+                report["documents_opened"] += 1
+            except storage.StorageError:
+                report["documents_failed"] += 1
+        if not report["documents_failed"]:
+            key = f"custody_rotation:{report['from_key']}:{report['to_key']}"
+            if journal.append("custody_rotation", key, {"from_key": report["from_key"], "to_key": report["to_key"],
+                                                        "keys": report["keys"], "documents": report["documents_opened"],
+                                                        "phase": "done"}) is None:
+                raise keystore.KeyStoreError("journal_unavailable")
+        return report
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_unlock(%s)", [MIGRATE_LOCK])

@@ -92,6 +92,32 @@ provider variables until P6-D-6.
 - **Leak:** revoke the old value at the provider first.
 - **Status:** a procedure, not tested until the pilot.
 
+**Custody wrapping key** (`custody_wrapping_key`, 9kg.34; mounted in web and worker and the owner-run custody
+commands; its escrow copy in the operator's encrypted secret store). It wraps every per-document data key. A rotation
+is also the only way to retire a remnant of an erased document's wrapped key (a snapshot, unlinked blocks, an archive
+or an off-site copy): after the old wrapping key is destroyed, no key opens the remnant.
+
+- **Routine and leak** (tested, `tests/test_custody_rotation.py`, 9kg.69):
+  1. Stop web and worker. Retrieval and sealing pause for the run.
+  2. Generate the next key (32 random bytes, 64 lower-case hex). Mount it for this run only as
+     `custody_next_wrapping_key`, beside the current `custody_wrapping_key`. Every other process refuses to start
+     holding it.
+  3. Run `catalyst_custody_keys --rotate --expect-head <the last head from the private operations record>`. It
+     finishes every journaled destruction, rewraps every live key in both directories, and opens every live document
+     under the next key. Only then does it journal `custody_rotation` `done`. It prints `from_key` and `to_key` (key ids,
+     never keys). If it is interrupted, run the same command again: every copy is under one of the two keys, and both
+     are still held. If it refuses with `key_needs_recovery`, run `--recover` first.
+  4. Make the next key the current one: write it to `custody_wrapping_key` and to the escrow, then remove
+     `custody_next_wrapping_key`. Start web and worker, and check one retrieval.
+  5. Destroy the old key everywhere: its secret file and its escrow copy.
+  6. Run `catalyst_custody_keys --retire-old-key <from_key> --expect-head <head>`. It refuses while any key file is
+     still under the old key, then journals the retirement.
+- **Interval:** the owner's (211.7.9), and immediately after a suspected leak of the wrapping key or of a key
+  directory.
+- **What users notice:** document retrieval is unavailable while web is stopped (step 1 to step 4).
+- **Not covered by code:** destroying the old key's escrow copy and any copy outside the host. That is the owner's
+  act, recorded by step 6.
+
 ## 3. Rules
 
 - **A leaked key is never a fallback.** `catalyst_close_links` refuses while the leaked key is the link key or any

@@ -17,7 +17,7 @@ POSTGRESQL_ENGINE = "django.db.backends.postgresql"
 # them in the environment outside test and development.
 SECRET_ENV_NAMES = ("CATALYST_SECRET_KEY", "CATALYST_VERIFICATION_KEY", "CATALYST_VERIFICATION_FALLBACK_KEYS",
                     "CATALYST_DB_PASSWORD", "CATALYST_MAIL_PASSWORD", "CATALYST_ERASURE_KEY",
-                    "CATALYST_CUSTODY_WRAPPING_KEY")
+                    "CATALYST_CUSTODY_WRAPPING_KEY", "CATALYST_CUSTODY_NEXT_WRAPPING_KEY")
 
 # Environments Catalyst may run in. `staging` (026 P6-D-2, D-49) is synthetic like `test`: the same fakes under the
 # same strict rules, never a real provider. Production settings are not authorized (a later P6 decision).
@@ -578,6 +578,15 @@ def custody_key_problems(settings, kind: str) -> list[str]:
         role = getattr(settings, "CATALYST_PROCESS_ROLE", "") or ""
         if role in CUSTODY_KEY_DENIED_ROLES or kind == "reconcile":
             problems.append(f"CATALYST_CUSTODY_WRAPPING_KEY may not be given to the {role or kind} process (9kg.34)")
+    upcoming = str(getattr(settings, "CATALYST_CUSTODY_NEXT_WRAPPING_KEY", "") or "")
+    if upcoming:  # 9kg.69: the next wrapping key, held only by the owner-run rotation
+        if not re.fullmatch(r"[0-9a-f]{64}", upcoming) or len(set(upcoming)) == 1:
+            problems.append("CATALYST_CUSTODY_NEXT_WRAPPING_KEY must be 64 lower-case hex characters (32 random bytes)")
+        if upcoming == secret:
+            problems.append("CATALYST_CUSTODY_NEXT_WRAPPING_KEY must differ from the current wrapping key")
+        role = getattr(settings, "CATALYST_PROCESS_ROLE", "") or ""
+        if kind != "management" or role in (*CUSTODY_KEY_DENIED_ROLES, "web", "worker"):
+            problems.append("CATALYST_CUSTODY_NEXT_WRAPPING_KEY is held only by the owner-run rotation (9kg.69)")
     primary = str(getattr(settings, "CATALYST_CUSTODY_KEY_DIR", "") or "")
     mirror = str(getattr(settings, "CATALYST_CUSTODY_KEY_MIRROR_DIR", "") or "")
     storage = str(getattr(settings, "CATALYST_AGREEMENT_STORAGE_DIR", "") or "")

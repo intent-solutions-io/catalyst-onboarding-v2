@@ -1674,6 +1674,14 @@ P6_SUPPORTING = {
         "test_erasure::test_9kg_32_an_already_tombstoned_subject_still_runs_the_classes_scoped_by_its_references",
         "test_erasure::test_9kg_32_a_restore_hold_cannot_lift_while_the_journal_holds_an_unreplayed_erasure",
     ],
+    "9kg.69 the custody wrapping key rotated and the old key retired, so no key opens a remnant of an erased key (027)": [
+        "test_custody_rotation::test_9kg_69_rotation_rewraps_every_live_key_keeps_every_document_open_and_never_revives_a_destroyed_one",
+        "test_custody_rotation::test_9kg_69_after_retirement_no_key_opens_a_remnant_wrapped_under_the_old_key",
+        "test_custody_rotation::test_9kg_69_an_interrupted_rotation_leaves_every_document_openable_and_the_same_command_finishes_it",
+        "test_custody_rotation::test_9kg_69_rotation_refuses_without_the_next_key_the_head_or_aligned_directories",
+        "test_custody_rotation::test_9kg_69_only_the_owner_run_rotation_may_hold_the_next_key",
+        "test_custody_rotation::test_9kg_69_the_rotation_runbook_has_a_custody_row",
+    ],
     "9kg.34 custody sealed at rest with per-document keys outside the backup, recoverable and destroyed on erasure (029 section 6.2)": [
         "test_custody_encryption::test_9kg_34_a_signed_document_is_sealed_at_rest_under_its_own_key_and_retrieval_returns_the_recorded_plaintext",
         "test_custody_encryption::test_9kg_34_nothing_new_is_stored_in_the_clear_and_a_live_environment_stores_nothing_while_the_decision_is_open",

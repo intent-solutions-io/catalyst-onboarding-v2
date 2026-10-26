@@ -479,6 +479,9 @@ CATALYST_AGREEMENT_STORAGE_DIR = ""
 # encrypted secret store, never in the database, a backup set, the journal, a receipt or a log. Optional: only the web
 # process (decision-maker retrieval), the worker (custody writes) and the owner-run custody commands hold it.
 CATALYST_CUSTODY_WRAPPING_KEY = secret("CATALYST_CUSTODY_WRAPPING_KEY", "")
+# 9kg.69: the next wrapping key (`custody_next_wrapping_key`), mounted only into the owner-run rotation
+# (`catalyst_custody_keys --rotate`) for that run; every other process refuses to start holding it (config.guards).
+CATALYST_CUSTODY_NEXT_WRAPPING_KEY = secret("CATALYST_CUSTODY_NEXT_WRAPPING_KEY", "")
 CATALYST_CUSTODY_KEY_DIR = ""
 CATALYST_CUSTODY_KEY_MIRROR_DIR = ""
 # Required details per agreement type (POL-18 open: no production field list). Synthetic field names only, set by
