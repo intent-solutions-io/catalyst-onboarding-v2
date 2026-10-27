@@ -34,6 +34,9 @@ def _link_paths() -> tuple[str, ...]:
 PRIVATE_PATHS = _link_paths()
 PUBLIC_EXACT = ("/request-access/", "/request-access/received/")
 TARGET = ROOT / "deploy" / "staging" / "Caddyfile"
+# 9kg.31.11: the production stack mounts the same file beside its compose definition (the sites take their names from
+# the environment, so one rendering serves both).
+PRODUCTION_TARGET = ROOT / "deploy" / "production" / "Caddyfile"
 LEARN_LOG = ROOT / "deploy" / "cutover" / "catalyst-learn-log.caddy"
 
 
@@ -186,6 +189,8 @@ log {{
 if __name__ == "__main__":
     if sys.argv[1:] == ["--write"]:
         TARGET.write_text(render())
+        PRODUCTION_TARGET.parent.mkdir(exist_ok=True)
+        PRODUCTION_TARGET.write_text(render())
         LEARN_LOG.write_text(render_learn_log())
     else:
         sys.stdout.write(render())

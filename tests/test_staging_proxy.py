@@ -29,6 +29,8 @@ def site(text: str, host_variable: str) -> str:
 def test_6b8_the_committed_caddyfile_is_exactly_the_rendering():
     committed = (ROOT / "deploy" / "staging" / "Caddyfile").read_text()
     assert committed == renderer().render(), "run `python scripts/render_caddyfile.py --write` after a route change"
+    # 9kg.31.11: the production stack mounts the same rendering beside its own compose definition.
+    assert (ROOT / "deploy" / "production" / "Caddyfile").read_text() == committed
 
 
 def test_6b8_token_segments_are_redacted_in_every_log_including_errors():

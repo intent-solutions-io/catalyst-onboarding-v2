@@ -586,12 +586,15 @@ TIME_ZONE = "UTC"
 LANGUAGE_CODE = "en-us"
 USE_I18N = False
 
-# A local sink in every allowed environment (production is not one yet; config.guards). Tests use locmem.
+# A local sink in every allowed environment (config.guards). Applicant mail in production leaves through
+# correspondence.transport only; production's Django mailer refuses every message (config.mail) until Django's own
+# mails have their live path (9kg.77), so no live link is written to disk. Tests use locmem.
 EMAIL_BACKEND = env(
     "CATALYST_EMAIL_BACKEND",
     {"test": "django.core.mail.backends.locmem.EmailBackend",
-     # staging: a private file sink, never the console, whose output lands in container logs with bearer links
-     "staging": "django.core.mail.backends.filebased.EmailBackend"}.get(
+     # a deployment: a private file sink, never the console, whose output lands in container logs with bearer links
+     "staging": "django.core.mail.backends.filebased.EmailBackend",
+     "production": "config.mail.RefusingEmailBackend"}.get(
         CATALYST_ENV, "django.core.mail.backends.console.EmailBackend"),
 )
 EMAIL_FILE_PATH = os.environ.get("CATALYST_EMAIL_FILE_PATH") or None  # the filebased sink's private directory
