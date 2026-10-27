@@ -1742,6 +1742,13 @@ P6_SUPPORTING = {
         "test_staging_compose::test_9kg_78_2_the_journal_ship_service_reaches_only_the_journal_and_its_destination",
         "test_egress::test_9kg_78_2_an_intentionally_empty_list_is_healthy_only_where_fetching_is_disabled",
     ],
+    "9kg.78.3 the stack check runs against either stack definition and refuses an unknown one (026)": [
+        "test_staging_compose::test_9kg_78_3_the_stack_check_takes_only_a_known_stack",
+        "test_staging_compose::test_9kg_78_3_the_production_check_runs_only_on_a_local_daemon_without_the_real_stack",
+        "test_staging_compose::test_9kg_78_3_the_production_check_never_removes_a_journal_volume_it_did_not_create",
+        "test_staging_compose::test_9kg_78_3_a_kept_stack_still_exits_with_the_checks_status",
+        "test_staging_compose::test_9kg_78_3_the_production_check_never_counts_a_refusal_as_the_applicant_journey",
+    ],
     "9kg.78.1 the deploy adapters name their stack in every alert and verify TLS outside staging (026)": [
         "test_staging_alerts::test_9kg_78_1_alerts_name_the_stack_and_an_unset_or_unknown_stack_is_refused",
         "test_staging_alerts::test_9kg_78_1_production_clears_the_environment_ca_overrides",

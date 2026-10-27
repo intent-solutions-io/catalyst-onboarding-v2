@@ -2513,13 +2513,32 @@ production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
   comments only) and still fails on a missing, unreadable or malformed one; the policy itself still refuses every
   fetch on an empty list (`assessments.egress.deny_file_state`, `check`).
 
+- **The stack check against production** (`9kg.78.3`, 2026-10-27). `CATALYST_STACK_ENV=production
+  scripts/staging_check.sh` builds the image's production target, renders `deploy/production/compose.yaml` with
+  synthetic inputs on the dev box, and runs the same shape checks (no secret in any environment or `docker inspect`,
+  read-only roots, no capabilities, uid 10001, the proxy's sites and refusals, readiness, log redaction,
+  `check --deploy`, idempotent migrate and role provisioning, the database outage, the path refusals, headers, the
+  webhook, the network and egress rules, staff two-factor, custody). Where production differs on purpose it checks
+  that instead: the worker alone is on the mail network and holds the mail password; the request form and the
+  owner's invitation are refused until real, non-synthetic wording is approved (503 and `data_notice_*`); no
+  applicant means no held action. Five checks are NOT RUN with their reason: the worker's outside reach (its limit
+  is the host firewall) and the four intake and confirmation steps (they wait for the owner's wording, the
+  approvable verification mail `9kg.80`, and a delivered mail, the mail canary `9kg.31.1`). It runs only against a local Docker daemon that holds no
+  `catalyst-production` project and no `catalyst-production-effects` volume, and removes only the volume it created.
+  The production run ends with a summary that keeps apart the applicant journey (not demonstrated), the protective
+  refusals, the structural checks, host and provider evidence (none: this is the dev box) and each NOT RUN with the
+  task that completes it. Runs of 2026-10-27 at the PR head: staging 140 PASS, 0 FAIL, 0 NOT RUN; production 138 PASS
+  (2 protective refusals, 136 structural), 0 FAIL, 5 NOT RUN. A refusal is never counted as the journey. The
+  restore, deploy and alert drills against production are `9kg.78.4`: the first two take a production backup, which
+  refuses until POL-10 is recorded.
+
 - **Adapters** (`9kg.78.1`, 2026-10-27). The deploy adapters require `CATALYST_STACK_ENV` (`staging` or
   `production`; unset, empty or anything else exits 2 before any alert, marker or probe, so a host that lost the
   setting never falls back to staging's `-k`). The staging drills set it. Every alert names the stack (`catalyst
   production: <codes>`). The outside-in probes of the public form pass `-q` first (no `.curlrc` is read) and `-k`
   for staging's internal CA only; production verifies the certificate against the system store, or against
   `CATALYST_PROBE_CA_FILE` when the host names one, with `CURL_CA_BUNDLE`, `SSL_CERT_FILE` and `SSL_CERT_DIR`
-  cleared (`deploy/staging/adapters/stack.sh`). This is the probe's code; that the host's certificate verifies is
+  cleared for the probe alone, not for the notify command (`deploy/staging/adapters/stack.sh`). This is the probe's code; that the host's certificate verifies is
   host evidence (`9kg.28`, `9kg.31.5`).
 
 **Limits** (the PR #118 reviews):
@@ -2530,8 +2549,8 @@ production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
   proxy gets a public certificate is the owner's topology decision with the host preparation (`9kg.28`). The
   refusal of an all-interfaces publish address is also a host preflight item there; the compose file only says so.
 - **Owned elsewhere.** The `erase` and `custody` services of `032` section 3.2, the custody key mounts and the
-  erasure key wait on the owner's decisions (`211.7.1`, `211.7.9`). The drills and the stack check still name the
-  staging stack (`9kg.78.3`, required for the dark deploy). The `restore` service holds the administrator password,
+  erasure key wait on the owner's decisions (`211.7.1`, `211.7.9`). The restore, deploy and alert drills still name
+  the staging stack (`9kg.78.4`, after POL-10). The `restore` service holds the administrator password,
   so it has no route out (`9kg.79`).
 - **No live adapters.** None exists for Documenso or MXroute; their canaries need a reviewed guard amendment first
   (`9kg.31.2`, `9kg.31.3`).

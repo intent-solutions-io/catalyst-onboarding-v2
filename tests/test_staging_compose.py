@@ -243,3 +243,104 @@ def test_9kg_78_2_the_journal_ship_service_reaches_only_the_journal_and_its_dest
     assert services["egress"]["environment"]["CATALYST_EGRESS_FETCHING"] == "disabled"
     staging = module.definition("staging")["services"]
     assert "journal-ship" not in staging and "CATALYST_EGRESS_FETCHING" not in staging["egress"]["environment"]
+
+
+def test_9kg_78_3_the_stack_check_takes_only_a_known_stack():
+    import subprocess
+
+    result = subprocess.run(["bash", str(ROOT / "scripts" / "staging_check.sh")], cwd=ROOT, capture_output=True,
+                            text=True, timeout=60, env={"PATH": "/usr/bin:/bin", "CATALYST_STACK_ENV": "live"})
+    assert result.returncode == 2 and "CATALYST_STACK_ENV must be staging or production" in result.stderr
+    text = (ROOT / "scripts" / "staging_check.sh").read_text()
+    # A real production journal volume on the host is never touched: the run refuses before creating its own.
+    assert text.index("docker volume inspect catalyst-production-effects") < text.index("docker volume create")
+    assert 'compose=(docker compose --project-name "$project" -f "deploy/$stack/compose.yaml")' in text
+
+
+def run_production_guard(tmp_path, env=None, context="default", endpoint="unix:///var/run/docker.sock", name=None,
+                         project_ids="", volume_exists=False, volume_label=None):
+    """Run scripts/staging_check.sh in production mode against a stand-in docker that answers the guard's reads and logs
+    every call. volume_label is what the journal volume's label reads after `volume create` (None: this run's own)."""
+    import os
+    import subprocess
+
+    log, created = tmp_path / "docker.log", tmp_path / "created"
+    log.write_text("")
+    created.unlink(missing_ok=True)
+    label = "$(cat " + str(tmp_path / "project") + ")" if volume_label is None else volume_label
+    fake = tmp_path / "docker"
+    fake.write_text(f"""#!/bin/sh
+echo "$*" >> {log}
+case "$*" in
+  "context show") echo "{context}" ;;
+  "context inspect"*) echo "{endpoint}" ;;
+  "info --format"*) echo "{name or os.uname().nodename}" ;;
+  *"label=com.docker.compose.project=catalyst-production"*) printf '%s' "{project_ids}" ;;
+  "volume create"*) echo "$*" | sed 's/.*catalyst.check=\\([^ ]*\\).*/\\1/' > {tmp_path}/project; touch {created} ;;
+  "volume inspect --format"*) echo "{label}" ;;
+  "volume inspect"*) [ {"0" if volume_exists else "1"} = 0 ] && exit 0; [ -e {created} ] && exit 0; exit 1 ;;
+esac
+exit 0
+""")
+    fake.chmod(0o755)
+    result = subprocess.run(["bash", str(ROOT / "scripts" / "staging_check.sh")], cwd=ROOT, capture_output=True,
+                            text=True, timeout=60, env={"PATH": f"{tmp_path}:/usr/bin:/bin", "CATALYST_STACK_ENV":
+                                                         "production", **(env or {})})
+    return result, log.read_text().splitlines()
+
+
+def test_9kg_78_3_the_production_check_runs_only_on_a_local_daemon_without_the_real_stack(tmp_path):
+    """The production run is confined to resources it creates: another daemon (a context, DOCKER_HOST, a forwarded
+    socket, a daemon that is not this host's), a `catalyst-production` project or an existing journal volume is refused
+    before anything is created (owner, 2026-10-27; PR #124 review)."""
+    cases = [
+        ({"env": {"DOCKER_CONTEXT": "prod-ssh"}}, "DOCKER_CONTEXT names another daemon"),
+        ({"context": "prod-ssh"}, "the current Docker context is not the default one"),
+        ({"env": {"DOCKER_HOST": "tcp://192.0.2.1:2376"}}, "DOCKER_HOST is not the local socket"),
+        ({"env": {"DOCKER_HOST": "ssh://ops@192.0.2.1"}}, "DOCKER_HOST is not the local socket"),
+        ({"env": {"DOCKER_HOST": "unix:///tmp/forwarded.sock"}}, "DOCKER_HOST is not the local socket"),
+        ({"endpoint": "unix:///tmp/forwarded.sock"}, "the default context does not use the local socket"),
+        ({"name": "another-host"}, "the Docker daemon is not this host's"),
+        ({"project_ids": "abc123"}, "a catalyst-production project exists on this daemon"),
+        ({"volume_exists": True}, "the volume catalyst-production-effects exists"),
+    ]
+    for kwargs, reason in cases:
+        result, calls = run_production_guard(tmp_path, **kwargs)
+        assert result.returncode == 2 and reason in result.stderr, (kwargs, result.stderr)
+        assert not [c for c in calls if c.startswith(("volume create", "volume rm", "compose", "build", "run"))], kwargs
+
+
+def test_9kg_78_3_the_production_check_never_removes_a_journal_volume_it_did_not_create(tmp_path):
+    """`docker volume create` succeeds on a volume that appeared after the guard; its label is then not this run's, so
+    the run refuses and leaves the volume alone (PR #124 review)."""
+    result, calls = run_production_guard(tmp_path, volume_label="someone-else")
+    assert result.returncode == 2 and "is not this run's" in result.stderr, result.stderr
+    assert any(c.startswith("volume create --label catalyst.check=catalyst-production-check-") for c in calls)
+    assert not [c for c in calls if c.startswith("volume rm")]
+
+
+def test_9kg_78_3_the_production_check_never_counts_a_refusal_as_the_applicant_journey():
+    """In production the intake steps are refusals or NOT RUN, never an applicant-success PASS, and the summary keeps
+    the journey, the refusals, the structural checks, host evidence and NOT RUN apart (owner, 2026-10-27)."""
+    text = (ROOT / "scripts" / "staging_check.sh").read_text()
+    branch = text[text.index('else\n  # Production: the data notice'):text.index("\nfi\n", text.index('else\n  # Production: the data notice'))]
+    assert 'check "TEST-P6-27' not in branch and branch.count('refusal "intake:') == 2 and "not_run " in branch
+    for line in ("applicant journey demonstrated: no", "protective refusals passed:",
+                 "configuration and structural checks passed:", "host and provider evidence: none", "NOT RUN: ${#skipped[@]}"):
+        assert line in text
+
+
+def test_9kg_78_3_a_kept_stack_still_exits_with_the_checks_status(tmp_path):
+    """KEEP=1: the clean-up trap must not turn a passing run into exit 1 (PR #124 re-review), and a kept production
+    run names the external journal volume it leaves behind."""
+    import subprocess
+
+    text = (ROOT / "scripts" / "staging_check.sh").read_text()
+    functions = text[text.index("ours() {"):text.index("trap cleanup EXIT")]
+    for created, named in (("0", False), ("1", True)):
+        script = (f"set -euo pipefail; KEEP=1 project=p secrets=s created_effects={created} fail=0\n" + functions
+                  + "trap cleanup EXIT\nexit \"$fail\"\n")
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30,
+                                env={"PATH": "/usr/bin:/bin"})
+        assert result.returncode == 0, (created, result.stdout, result.stderr)
+        assert ("kept: volume catalyst-production-effects" in result.stdout) == named
