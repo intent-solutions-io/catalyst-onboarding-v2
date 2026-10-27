@@ -2513,6 +2513,15 @@ production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
   comments only) and still fails on a missing, unreadable or malformed one; the policy itself still refuses every
   fetch on an empty list (`assessments.egress.deny_file_state`, `check`).
 
+- **Adapters** (`9kg.78.1`, 2026-10-27). The deploy adapters require `CATALYST_STACK_ENV` (`staging` or
+  `production`; unset, empty or anything else exits 2 before any alert, marker or probe, so a host that lost the
+  setting never falls back to staging's `-k`). The staging drills set it. Every alert names the stack (`catalyst
+  production: <codes>`). The outside-in probes of the public form pass `-q` first (no `.curlrc` is read) and `-k`
+  for staging's internal CA only; production verifies the certificate against the system store, or against
+  `CATALYST_PROBE_CA_FILE` when the host names one, with `CURL_CA_BUNDLE`, `SSL_CERT_FILE` and `SSL_CERT_DIR`
+  cleared (`deploy/staging/adapters/stack.sh`). This is the probe's code; that the host's certificate verifies is
+  host evidence (`9kg.28`, `9kg.31.5`).
+
 **Limits** (the PR #118 reviews):
 
 - **Topology.** The production stack is the staging topology: an in-stack proxy with Caddy's internal CA

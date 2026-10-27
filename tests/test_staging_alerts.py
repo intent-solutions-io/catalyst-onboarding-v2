@@ -15,7 +15,9 @@ def test_6b12_an_alert_carries_signal_codes_and_nothing_else():
     health = (ADAPTERS / "health.sh").read_text()
     assert '[[ "$c" =~ ^[a-z_]+\\.[a-z_]+$ ]]' in health  # every word is a code; anything else is replaced
     assert 'safe+=("health.unrecognised_signal")' in health
-    assert '"catalyst staging: ${safe[*]}"' in health  # the message is the codes, never the report itself
+    # The message is the codes, never the report itself; the stack name comes from a fixed list (stack.sh, 9kg.78.1).
+    assert '"catalyst ${STACK}: ${safe[*]}"' in health
+    assert "staging) PROBE_ENV=() PROBE_TLS=(-q -k)" in (ADAPTERS / "stack.sh").read_text() and "*) echo" in (ADAPTERS / "stack.sh").read_text()
     assert "CATALYST_NOTIFY_CMD:?" in health and "CATALYST_HEALTH_STATE:?" in health
 
 
@@ -30,7 +32,9 @@ case "$*" in
   exec*) printf '%s' '{health_out}'; exit {health_rc} ;;
 esac
 """)
-    (stubs / "curl").write_text(f"#!/bin/sh\nprintf '%s' '{form}'\n")
+    # One line per call, each argument bracketed, so word boundaries are visible.
+    (stubs / "curl").write_text(f"#!/bin/sh\nprintf '[%s]' \"$@\" >> '{tmp_path}/curl.args'\necho >> '{tmp_path}/curl.args'\n"
+                                f"printf '%s' '{form}'\n")
     for stub in stubs.iterdir():
         stub.chmod(0o755)
     state, log = tmp_path / "health", tmp_path / "alerts.log"
@@ -38,7 +42,9 @@ esac
     python = os.path.dirname(sys.executable)  # the host's python3 parses the report; the test image keeps it here
     env = {"PATH": f"{stubs}:{python}:/usr/bin:/bin", "CATALYST_HEALTH_STATE": str(state), "CATALYST_NOTIFY_CMD": notify,
            "CATALYST_DEPLOY_STATE": str(tmp_path), "CATALYST_COMPOSE_PROJECT": "p", "CATALYST_COMPOSE_FILE": "f",
-           "CATALYST_SMOKE_URL": "https://catalyst.example.test/request-access/", **(extra or {})}
+           "CATALYST_SMOKE_URL": "https://catalyst.example.test/request-access/", "CATALYST_STACK_ENV": "staging",
+           **(extra or {})}
+    env = {k: v for k, v in env.items() if v is not None}  # extra may remove a variable with None
     result = subprocess.run(["bash", str(ADAPTERS / "health.sh")], env=env, capture_output=True, text=True, timeout=30)
     alerts = log.read_text() if log.exists() else ""
     if log.exists():
@@ -83,7 +89,7 @@ def run_sweep(tmp_path, age_minutes, stale="900"):
         os.utime(marker, (old, old))
     log = tmp_path / "alerts.log"
     env = {"PATH": "/usr/bin:/bin", "CATALYST_HEALTH_STATE": str(tmp_path), "CATALYST_HEALTH_STALE_SECONDS": stale,
-           "CATALYST_NOTIFY_CMD": f"printf '%s %s\\n' >> {log}"}
+           "CATALYST_NOTIFY_CMD": f"printf '%s %s\\n' >> {log}", "CATALYST_STACK_ENV": "staging"}
     result = subprocess.run(["bash", str(ADAPTERS / "sweep.sh")], env=env, capture_output=True, text=True, timeout=30)
     return result.returncode, log.read_text() if log.exists() else ""
 
@@ -135,3 +141,105 @@ def test_6b13_a_missing_or_empty_receipt_directory_counts_as_stale(tmp_path):
     extra = {"CATALYST_BACKUP_RECEIPTS": str(tmp_path / "missing"), "CATALYST_DRILL_RECEIPTS": str(tmp_path)}
     rc, alerts, _ = run_health(tmp_path, 0, '{"anomalies": []}', extra=extra)
     assert rc == 1 and alerts == "high catalyst staging: backup.stale restore_drill.overdue\n"
+
+
+# --- 9kg.78.1: the adapters name their stack and verify TLS outside staging -----------------------------------------
+
+def curl_args(tmp_path) -> list:
+    """The arguments of each recorded curl call, one list per call."""
+    path = tmp_path / "curl.args"
+    calls = [line[1:-1].split("][") for line in path.read_text().splitlines() if line] if path.exists() else []
+    if path.exists():
+        path.unlink()
+    return calls
+
+
+def test_9kg_78_1_alerts_name_the_stack_and_an_unset_or_unknown_stack_is_refused(tmp_path):
+    stale = '{"anomalies": ["worker.heartbeat_stale"]}'
+    rc, alerts, _ = run_health(tmp_path, 1, stale)
+    assert rc == 1 and alerts.startswith("urgent catalyst staging: ")
+    rc, alerts, _ = run_health(tmp_path, 1, stale, extra={"CATALYST_STACK_ENV": "production"})
+    assert rc == 1 and alerts == "urgent catalyst production: worker.heartbeat_stale\n"
+    (tmp_path / "health" / "health.ok").unlink()
+    # Refused before anything runs: no alert, no marker, no probe. Unset and empty never fall back to staging's -k.
+    curl_args(tmp_path)  # the two probes above
+    for value in ("prod", "", None):
+        rc, alerts, ok = run_health(tmp_path, 1, stale, extra={"CATALYST_STACK_ENV": value})
+        assert (rc, alerts, ok, curl_args(tmp_path)) == (2, "", False, []), value
+
+
+INSECURE = {"-k", "--insecure", "-ks", "-sk"}
+
+
+def test_9kg_78_1_the_probe_verifies_tls_outside_staging(tmp_path):
+    run_health(tmp_path, 0, "{}")
+    [args] = curl_args(tmp_path)
+    assert args[:2] == ["-q", "-k"]  # staging's internal CA; -q first, so no .curlrc is read
+    run_health(tmp_path, 0, "{}", extra={"CATALYST_STACK_ENV": "production"})
+    [args] = curl_args(tmp_path)
+    assert args[0] == "-q" and not INSECURE & set(args) and "--cacert" not in args
+    ca = "/etc/catalyst/proxy ca.pem"  # a space stays one argument
+    run_health(tmp_path, 0, "{}", extra={"CATALYST_STACK_ENV": "production", "CATALYST_PROBE_CA_FILE": ca,
+                                          "CURL_CA_BUNDLE": "/tmp/other.pem", "HOME": str(tmp_path)})
+    [args] = curl_args(tmp_path)
+    assert args[0] == "-q" and not INSECURE & set(args) and args[args.index("--cacert") + 1] == ca
+    run_health(tmp_path, 0, "{}", extra={"CATALYST_STACK_ENV": "production", "CATALYST_PROBE_CA_FILE": ""})
+    [args] = curl_args(tmp_path)
+    assert args[0] == "-q" and "--cacert" not in args and "" not in args
+    for script in ADAPTERS.glob("*.sh"):  # every curl takes its TLS arguments from stack.sh, first
+        text = script.read_text()
+        calls = [line for line in text.splitlines() if "curl " in line and not line.lstrip().startswith("#")]
+        assert all('"${PROBE_ENV[@]}" curl "${PROBE_TLS[@]}"' in line for line in calls), script.name
+
+
+def test_9kg_78_1_production_clears_the_environment_ca_overrides(tmp_path):
+    """Only CATALYST_PROBE_CA_FILE may change what production trusts: the probe's curl runs without CURL_CA_BUNDLE and
+    the OpenSSL variables, while the notify command keeps them (PR #122 re-review)."""
+    stubs = tmp_path / "bin"
+    stubs.mkdir()
+    seen = tmp_path / "seen"
+    (stubs / "curl").write_text(f"#!/bin/sh\necho \"curl ${{CURL_CA_BUNDLE-unset}} ${{SSL_CERT_FILE-unset}} "
+                                f"${{SSL_CERT_DIR-unset}}\" >> {seen}\nprintf 000\n")
+    (stubs / "curl").chmod(0o755)
+    notify = f"echo notify ${{CURL_CA_BUNDLE-unset}} >> {seen}; true"
+    script = (f'set -euo pipefail; source "{ADAPTERS}/stack.sh"\n'
+              '"${PROBE_ENV[@]}" curl "${PROBE_TLS[@]}" -s https://catalyst.example.test/ >/dev/null\n'
+              'bash -c "$CATALYST_NOTIFY_CMD"\n')
+    for stack, probe in (("production", "curl unset unset unset"), ("staging", "curl /x /y /z")):
+        seen.unlink(missing_ok=True)
+        subprocess.run(["bash", "-c", script], check=True, timeout=30,
+                       env={"PATH": f"{stubs}:/usr/bin:/bin", "CATALYST_STACK_ENV": stack, "CURL_CA_BUNDLE": "/x",
+                            "SSL_CERT_FILE": "/y", "SSL_CERT_DIR": "/z", "CATALYST_NOTIFY_CMD": notify})
+        assert seen.read_text().splitlines() == [probe, "notify /x"], stack
+
+
+def test_9kg_78_1_the_smoke_gate_probes_the_public_form_with_the_stack_tls(tmp_path):
+    """smoke.sh's own probe block, run with curl stubbed: staging passes -q -k, production -q and no -k; a non-200
+    answer fails the gate."""
+    text = (ADAPTERS / "smoke.sh").read_text()
+    block = text[text.index('if [ -n "${CATALYST_SMOKE_URL:-}" ]; then'):]
+    stubs = tmp_path / "bin"
+    stubs.mkdir()
+    log = tmp_path / "curl.args"
+    for stack, form in (("staging", "200"), ("production", "200"), ("production", "503")):
+        (stubs / "curl").write_text(f"#!/bin/sh\nprintf '[%s]' \"$@\" >> '{log}'\necho >> '{log}'\nprintf '%s' '{form}'\n")
+        (stubs / "curl").chmod(0o755)
+        script = (f'set -euo pipefail; fail() {{ echo "FAIL $1"; exit 1; }}; source "{ADAPTERS}/stack.sh"\n' + block)
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30,
+                                env={"PATH": f"{stubs}:/usr/bin:/bin", "CATALYST_STACK_ENV": stack,
+                                     "CATALYST_SMOKE_URL": "https://catalyst.example.test/request-access/"})
+        [args] = curl_args(tmp_path)
+        assert args[0] == "-q" and (("-k" in args) == (stack == "staging")), (stack, args)
+        assert (result.returncode == 0) == (form == "200") and ("FAIL" in result.stdout) == (form != "200")
+
+
+def test_9kg_78_1_the_sweep_names_the_stack(tmp_path):
+    log = tmp_path / "alerts.log"
+    env = {"PATH": "/usr/bin:/bin", "CATALYST_HEALTH_STATE": str(tmp_path), "CATALYST_HEALTH_STALE_SECONDS": "60",
+           "CATALYST_NOTIFY_CMD": f"printf '%s %s\\n' >> {log}", "CATALYST_STACK_ENV": "production"}
+    result = subprocess.run(["bash", str(ADAPTERS / "sweep.sh")], env=env, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 1 and log.read_text() == "urgent catalyst production: health.check_stale\n"
+    env["CATALYST_STACK_ENV"] = "live"
+    log.unlink()
+    result = subprocess.run(["bash", str(ADAPTERS / "sweep.sh")], env=env, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 2 and not log.exists()

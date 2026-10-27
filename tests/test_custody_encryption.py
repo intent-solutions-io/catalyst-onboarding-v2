@@ -727,7 +727,8 @@ def test_9kg_34_lingering_plaintext_of_a_destroyed_key_is_removed_and_one_failur
     envelopes = {d.pk: _interrupted_migration(d) for d in (erased, damaged, fine)}
     keystore.destroy(str(app.public_ref), [envelopes[erased.pk].key_ref])  # its sealed copy can never open again
     sealed_path = custody / envelopes[damaged.pk].storage_key
-    sealed_path.write_bytes(sealed_path.read_bytes()[:-1] + b"X")  # this one cannot be verified
+    tampered = sealed_path.read_bytes()
+    sealed_path.write_bytes(tampered[:-1] + bytes([tampered[-1] ^ 0xFF]))  # this one cannot be verified
     code, report = command("catalyst_custody_keys", "--migrate", "--confirm")
     assert code == 1 and report["plaintext_cleanup_failed"] == 1 and report["plaintext_removed"] == 2
     assert not (custody / erased.storage_key).exists()  # removed without opening the sealed copy

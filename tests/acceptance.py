@@ -1742,6 +1742,14 @@ P6_SUPPORTING = {
         "test_staging_compose::test_9kg_78_2_the_journal_ship_service_reaches_only_the_journal_and_its_destination",
         "test_egress::test_9kg_78_2_an_intentionally_empty_list_is_healthy_only_where_fetching_is_disabled",
     ],
+    "9kg.78.1 the deploy adapters name their stack in every alert and verify TLS outside staging (026)": [
+        "test_staging_alerts::test_9kg_78_1_alerts_name_the_stack_and_an_unset_or_unknown_stack_is_refused",
+        "test_staging_alerts::test_9kg_78_1_production_clears_the_environment_ca_overrides",
+        "test_staging_alerts::test_9kg_78_1_the_smoke_gate_probes_the_public_form_with_the_stack_tls",
+        "test_staging_alerts::test_9kg_78_1_the_probe_verifies_tls_outside_staging",
+        "test_staging_alerts::test_9kg_78_1_the_sweep_names_the_stack",
+        "test_release::test_9kg_78_1_the_deploy_drill_builds_on_the_workflow_apps_newest_migration",
+    ],
     "9kg.62 every effect a restore cannot undo is classified, and an unclassified one or a new outward module fails (029)": [
         "test_effect_registry::test_9kg62_every_function_with_an_effect_is_registered_and_no_registration_is_stale",
         "test_effect_registry::test_9kg62_each_class_matches_what_the_function_does",
