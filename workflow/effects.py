@@ -111,6 +111,10 @@ REGISTRY = {
         "journal": Site(JOURNALED_AFTER, "the day's usage total, on the reservation's commit", ("model_usage",))},
     # The restore point the restore writes into the journal.
     "config.backup:restore": {"journal": Site(MARKER, "the restore entry the post-restore step answers", ("restore",))},
+    # 9kg.77: production's Django mailer sends the three link mails through the transport; the review supersedes every
+    # live link they carry, as for the django_mail sends above.
+    "config.mail:TransportEmailBackend.send_messages": {
+        "smtp": Site(COVERED_BY_REVIEW, "the review supersedes every live link these mails carry", by=CLOSE_LINKS)},
     # Mail: send_begun before SMTP, then the Sent folder is read after a restore. A filed copy is never evidence of a
     # send; the filing action searches the Sent folder for the message first.
     "correspondence.inbound:FileCopy.run": {

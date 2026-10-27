@@ -1708,7 +1708,7 @@ P6_SUPPORTING = {
         "test_guards::test_only_the_four_named_environments_are_allowed",
         "test_guards::test_9kg_31_11_production_keeps_model_advice_fetching_agreements_and_provisioning_off",
         "test_guards::test_9kg_31_11_production_runs_invitation_only_on_its_own_host",
-        "test_guards::test_9kg_31_11_production_refuses_django_mail_and_never_prints_it",
+        "test_guards::test_9kg_31_11_production_never_sinks_or_prints_django_mail",
         "test_guards::test_9kg_31_11_the_refusing_backend_refuses_every_message_and_writes_nothing",
         "test_guards::test_9kg_31_11_production_is_a_deployment_for_every_deployment_rule",
         "test_startup::test_9kg_31_11_production_starts_only_fully_configured",
@@ -1717,6 +1717,13 @@ P6_SUPPORTING = {
         "test_startup::test_9kg_31_11_each_production_service_starts_with_its_rendered_environment",
         "test_staging_compose::test_9kg_31_11_the_committed_production_file_is_exactly_the_rendering",
         "test_staging_compose::test_9kg_31_11_production_differs_from_staging_only_in_the_reviewed_inputs",
+    ],
+    "9kg.77 the confirmation, setup and withdrawal mails leave production only through the pinned transport (026)": [
+        "test_django_mail::test_9kg_77_a_message_leaves_through_the_transport_with_crlf_and_one_recipient",
+        "test_django_mail::test_9kg_77_anything_but_acceptance_raises_so_the_sender_takes_its_failure_path",
+        "test_django_mail::test_9kg_77_one_recipient_only_and_nothing_sent_otherwise",
+        "test_django_mail::test_9kg_77_no_mail_host_means_no_send",
+        "test_django_mail::test_9kg_77_the_transport_backend_is_admitted_only_in_a_live_environment",
     ],
     "9kg.62 every effect a restore cannot undo is classified, and an unclassified one or a new outward module fails (029)": [
         "test_effect_registry::test_9kg62_every_function_with_an_effect_is_registered_and_no_registration_is_stale",

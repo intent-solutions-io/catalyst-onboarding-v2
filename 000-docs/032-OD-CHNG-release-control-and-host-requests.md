@@ -226,8 +226,9 @@ Host preparation starts only when all of these hold:
 4. **Repository work:** a production stack definition and a reviewed release that admits `production` (`031`
    section 8, item 3), bead `9kg.31.11`. Built 2026-10-27 (`026` section 18): production is admitted with every live
    refusal, and `deploy/production/compose.yaml` is the staging definition with reviewed inputs only. Its provider
-   settings (Documenso, MXroute) still need a guard amendment before their canaries, and the three Django-mailer
-   mails need their live path (`9kg.77`) before real intake.
+   settings (Documenso, MXroute) still need a guard amendment before their canaries. The three Django-mailer mails go
+   through the pinned transport in production (`9kg.77`, built 2026-10-27); the worker's outbound route to the mail
+   host is `9kg.79`.
 5. Values the configuration needs before start-up: the challenge lifetime (required at start-up), the custody rows
    (`031` section 3) for the custody mounts, and the erasure registry before the first production backup (`031`
    section 8, item 1).

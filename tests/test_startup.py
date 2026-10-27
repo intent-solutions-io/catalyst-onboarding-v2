@@ -120,7 +120,7 @@ def test_9kg_31_11_production_refuses_each_missing_setting_by_name(name, message
     ({"CATALYST_ALLOWED_HOSTS": "*"}, "ALLOWED_HOSTS may hold only"),
     ({"CATALYST_PUBLIC_BASE_URL": "https://learn.intentsolutions.io\\@catalyst-v2.example.test"}, "must be exactly https://"),
     ({"CATALYST_EMAIL_BACKEND": "django.core.mail.backends.console.EmailBackend"}, "console mail backend is not allowed in production"),
-    ({"CATALYST_EMAIL_BACKEND": "django.core.mail.backends.filebased.EmailBackend"}, "EMAIL_BACKEND must be config.mail.RefusingEmailBackend"),
+    ({"CATALYST_EMAIL_BACKEND": "django.core.mail.backends.filebased.EmailBackend"}, "EMAIL_BACKEND must be config.mail.TransportEmailBackend"),
     ({"CATALYST_FROM_EMAIL": None}, "CATALYST_FROM_EMAIL must be the v2 sender address"),
     ({"CATALYST_EMAIL_BACKEND": "django.core.mail.backends.smtp.EmailBackend"}, "not a local sink backend"),
     ({"CATALYST_ASSESSMENT_MODEL": "test"}, "CATALYST_ASSESSMENT_MODEL may not be set from the environment"),
@@ -199,7 +199,7 @@ def test_unreachable_database_fails_loudly_when_a_command_needs_it():
 @pytest.mark.parametrize(
     ("environment", "backend"),
     [("test", "django.core.mail.backends.locmem.EmailBackend"), ("development", "django.core.mail.backends.console.EmailBackend"),
-     ("staging", "django.core.mail.backends.filebased.EmailBackend"), ("production", "config.mail.RefusingEmailBackend")],
+     ("staging", "django.core.mail.backends.filebased.EmailBackend"), ("production", "config.mail.TransportEmailBackend")],
 )
 def test_configured_default_mail_backend_is_a_local_sink(environment, backend):
     probe = "from django.conf import settings; print(settings.EMAIL_BACKEND)"
