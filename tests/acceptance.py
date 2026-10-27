@@ -1743,7 +1743,9 @@ P6_SUPPORTING = {
         "test_egress::test_9kg_78_2_an_intentionally_empty_list_is_healthy_only_where_fetching_is_disabled",
     ],
     "9kg.78.1 the deploy adapters name their stack in every alert and verify TLS outside staging (026)": [
-        "test_staging_alerts::test_9kg_78_1_alerts_name_the_stack_and_staging_stays_the_default",
+        "test_staging_alerts::test_9kg_78_1_alerts_name_the_stack_and_an_unset_or_unknown_stack_is_refused",
+        "test_staging_alerts::test_9kg_78_1_production_clears_the_environment_ca_overrides",
+        "test_staging_alerts::test_9kg_78_1_the_smoke_gate_probes_the_public_form_with_the_stack_tls",
         "test_staging_alerts::test_9kg_78_1_the_probe_verifies_tls_outside_staging",
         "test_staging_alerts::test_9kg_78_1_the_sweep_names_the_stack",
     ],

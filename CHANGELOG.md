@@ -206,9 +206,9 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   new owner-run `post-restore` service alone join a non-internal `mail` network and hold the mail host settings and
   the `mail_password` secret; the post-restore step runs there, so `restore`, which holds the administrator password,
   never gets a route out. Staging is unchanged
-- The deploy adapters name their stack (bead `9kg.78.1`; `026` section 18): `CATALYST_STACK_ENV` (`staging` or
-  `production`, nothing else) labels every alert, and outside staging the outside-in probes verify TLS instead of
-  passing `-k`
+- The deploy adapters name their stack (bead `9kg.78.1`; `026` section 18): `CATALYST_STACK_ENV` is required
+  (`staging` or `production`; unset or empty is refused) and labels every alert; outside staging the outside-in
+  probes verify TLS instead of passing `-k`, read no `.curlrc`, and ignore the environment's CA overrides
 - Production admitted in code (bead `9kg.31.11`; `026` section 18): the guards admit `production` with every live
   refusal in force (the mail allow-list and pins, the journal ship-lag threshold, custody and backup refused while
   the owner's decisions are open) and keep model advice, evidence fetching, the agreement provider and the

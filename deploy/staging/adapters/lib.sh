@@ -12,7 +12,7 @@
 #   CATALYST_COMPOSE_FILE    the generated deploy/staging/compose.yaml
 #   CATALYST_SMOKE_URL       optional, the public form's URL through the proxy (an outside-in request)
 #   CATALYST_SMOKE_RESOLVE   optional, curl --resolve value for that URL (a staging name with no DNS)
-#   CATALYST_STACK_ENV       the stack these adapters run: staging (the default) or production (9kg.78.1)
+#   CATALYST_STACK_ENV       the stack these adapters run, required: staging or production (9kg.78.1)
 #   CATALYST_PROBE_CA_FILE   optional outside staging: the CA file the outside-in probe trusts (a private proxy CA)
 # plus the compose file's own variables (hosts, publish addresses, the stack's secrets directory variable).
 set -euo pipefail

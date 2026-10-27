@@ -16,6 +16,7 @@
 # Prints PASS or FAIL per case.
 set -uo pipefail
 cd "$(dirname "$0")/.."
+export CATALYST_STACK_ENV=staging  # the adapters require it (9kg.78.1); this drill runs the staging stack only
 : "${DW_WRAPPER:?the path of the estate deploy wrapper}"
 
 project="catalyst-deploy-drill-$$"
