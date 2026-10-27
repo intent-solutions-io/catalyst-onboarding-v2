@@ -1745,6 +1745,7 @@ P6_SUPPORTING = {
     "9kg.78.3 the stack check runs against either stack definition and refuses an unknown one (026)": [
         "test_staging_compose::test_9kg_78_3_the_stack_check_takes_only_a_known_stack",
         "test_staging_compose::test_9kg_78_3_the_production_check_runs_only_on_a_local_daemon_without_the_real_stack",
+        "test_staging_compose::test_9kg_78_3_the_production_check_never_removes_a_journal_volume_it_did_not_create",
         "test_staging_compose::test_9kg_78_3_the_production_check_never_counts_a_refusal_as_the_applicant_journey",
     ],
     "9kg.62 every effect a restore cannot undo is classified, and an unclassified one or a new outward module fails (029)": [
