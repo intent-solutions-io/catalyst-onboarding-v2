@@ -2448,3 +2448,46 @@ Tests: `tests/test_system_health.py` (`9kg.51` in `tests/acceptance.py` P6_SUPPO
 nothing, past its threshold raises its code, and clears when resolved; thresholds and paging per class. `9kg.57`: each held
 follow-on kind aged past the class threshold raises `aged_waits.held_followons`, a released or cancelled follow-on and a
 held action of another kind are not counted, and a follow-on returned to held ages from its return.
+
+## 18. Production admitted in code (9kg.31.11, 2026-10-27)
+
+`031` section 8, conflict 3: the guards admitted only `development`, `test` and `staging`, and the compose renderer
+hard-coded `staging`, so no release could start as production. Built, as repository work only; nothing here starts
+production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
+
+- **Admission.** `config.guards.ALLOWED_ENVIRONMENTS` names `production`; `DEPLOYED_ENVIRONMENTS` (`staging`,
+  `production`) carries the deployment rules; `LIVE_ENVIRONMENTS` (`production`) the live ones. Every rule written
+  for "outside test and development" now applies to production: secrets only from per-secret files, the staff host
+  and local hosts, the worker heartbeat, the effect journal directory, https behind the proxy with secure host-only
+  cookies, staff two-factor, and `check --deploy` clean.
+- **Live refusals kept, each tested in production.** The mail allow-list with the pinned v2 login, the denied
+  first-generation login and the Sent-folder evidence source (`9kg.49`); the journal ship-lag threshold (`9kg.60`);
+  custody refused while the owner's custody decision is open (`211.7.9`); the backup refused while the erasure
+  registry is undecided (`211.7.1`); no unapproved wording served (`9kg.52`). Off in production, as in every
+  non-synthetic environment: model advice (`CATALYST_ASSESSMENT_MODEL` is `none`), evidence fetching (no fetchable
+  host, fixture or trust store), the agreement provider and the provisioning adapter (every setting refused), and
+  every provider credential in the environment.
+- **New live rails** (`config.guards.live_problems`): intake stays invitation-only (open intake is the public
+  cutover); the public base URL is https on a named host; and neither it, the staff host nor `ALLOWED_HOSTS` may be a
+  wildcard, a domain pattern, a look-alike or the learning site's host (the pilot runs on the dedicated v2 host;
+  moving Learn is GATE-CUTOVER).
+- **Mail.** Django's mailer is a private file sink in production as in staging; the console backend is refused in
+  both. Applicant mail in production leaves only through `correspondence.transport` to the allow-listed host. The
+  three mails Django's mailer sends (contact confirmation, password setup, withdrawal link) reach the sink until
+  their live path is built (`9kg.77`, required before real intake, not for the dark deploy).
+- **Roles.** `scripts/provision_db_roles.py` admits production with staging's rules: passwords from files only, the
+  database taken over by the owner role, grants read back.
+- **Stack.** `scripts/render_staging_compose.py` renders `deploy/production/compose.yaml` from the staging
+  definition; `scripts/render_caddyfile.py` writes the same Caddyfile beside it. A test pins the difference to these
+  inputs: `CATALYST_ENV`, the project name, the secrets directory variable (`CATALYST_PRODUCTION_SECRETS`), the
+  owner's challenge lifetime (no default, POL-02), the live mail rules and the ship-lag threshold (no defaults), and
+  the operator-supplied egress deny list.
+
+**Limits.** The production stack is the staging topology: an in-stack proxy publishing on an address the host names.
+Whether the host's proxy fronts it, the `erase` and `custody` services and the external journal volume of `032`
+section 3.2, the custody key mounts and the erasure key are host-preparation work (`9kg.28`) or wait on the owner's
+decisions (`211.7.1`, `211.7.9`). No live adapter exists for Documenso or MXroute; their canaries need a reviewed
+guard amendment first (`9kg.31.2`, `9kg.31.3`).
+
+Tests: `tests/test_guards.py`, `tests/test_startup.py`, `tests/test_db_roles.py`, `tests/test_staging_compose.py`,
+`tests/test_staging_proxy.py` (`9kg.31.11` in `tests/acceptance.py` P6_SUPPORTING).

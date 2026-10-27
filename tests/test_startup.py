@@ -35,6 +35,21 @@ STAGING = {
     "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-staging-worker.beat",
     "CATALYST_EFFECT_JOURNAL_DIR": __import__("tempfile").mkdtemp(prefix="catalyst-staging-effects-"),  # 9kg.33: 0700
 }
+# 9kg.31.11: a production process, synthetic names only. Production is staging's deployment rules plus the live ones:
+# the mail allow-list with the pinned v2 login and the denied first-generation login (9kg.49), the Sent-folder evidence
+# source, the journal's ship-lag threshold (9kg.60), invitation-only intake and a dedicated https host.
+PRODUCTION = {
+    **STAGING, "CATALYST_ENV": "production", "CATALYST_PUBLIC_BASE_URL": "https://catalyst-v2.example.test",
+    "CATALYST_ALLOWED_HOSTS": "catalyst-v2.example.test,staff-v2.example.test,localhost",
+    "CATALYST_STAFF_HOST": "staff-v2.example.test", "CATALYST_EMAIL_FILE_PATH": "/tmp/catalyst-production-mail",
+    "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-production-worker.beat",
+    "CATALYST_EFFECT_JOURNAL_DIR": __import__("tempfile").mkdtemp(prefix="catalyst-production-effects-"),
+    "CATALYST_MAIL_ALLOWED_HOSTS": "mail.example.test",
+    "CATALYST_MAIL_USER_SHA256": __import__("hashlib").sha256(b"v2-synthetic@example.test").hexdigest(),
+    "CATALYST_MAIL_DENIED_USER_SHA256": __import__("hashlib").sha256(b"legacy-synthetic@example.test").hexdigest(),
+    "CATALYST_SEND_EVIDENCE_SOURCE": "correspondence.sent_reader.SentFolderSource",
+    "CATALYST_JOURNAL_SHIP_LAG_SECONDS": "900",
+}
 WSGI = [sys.executable, "-c", "import config.wsgi"]
 
 
@@ -67,10 +82,53 @@ def test_smtp_backend_refuses_to_start():
     assert "not a local sink backend" in result.stderr
 
 
-def test_production_environment_refuses_to_start():
-    result = run(CHECK, CATALYST_ENV="production")
-    assert result.returncode != 0
-    assert "CATALYST_ENV='production' is not allowed" in result.stderr
+def test_9kg_31_11_production_starts_only_fully_configured():
+    result = run(CHECK, **PRODUCTION)
+    assert result.returncode == 0, result.stderr
+    deploy = run([sys.executable, "manage.py", "check", "--deploy", "--fail-level", "WARNING"], **PRODUCTION)
+    assert deploy.returncode == 0, deploy.stderr
+    # The test environment's own settings are not enough: production refuses with every deployment and live rule.
+    bare = run(CHECK, CATALYST_ENV="production")
+    assert bare.returncode != 0 and "is not allowed; use one of" not in bare.stderr
+    for expected in ("CATALYST_SECRETS_DIR must be an absolute path", "CATALYST_STAFF_HOST is required",
+                     "must name the production mail host", "must pin the v2 mailbox login",
+                     "must be https on the dedicated v2 host name"):
+        assert expected in bare.stderr, expected
+
+
+@pytest.mark.parametrize(("name", "message"), [
+    ("CATALYST_SECRETS_DIR", "environment variable CATALYST_SECRET_KEY is required"),  # settings refuse first
+    ("CATALYST_EFFECT_JOURNAL_DIR", "CATALYST_EFFECT_JOURNAL_DIR must be an absolute path"),
+    ("CATALYST_JOURNAL_SHIP_LAG_SECONDS", "CATALYST_JOURNAL_SHIP_LAG_SECONDS must be set in a live environment"),
+    ("CATALYST_MAIL_ALLOWED_HOSTS", "CATALYST_MAIL_ALLOWED_HOSTS must name the production mail host"),
+    ("CATALYST_MAIL_USER_SHA256", "CATALYST_MAIL_USER_SHA256 must pin the v2 mailbox login"),
+    ("CATALYST_MAIL_DENIED_USER_SHA256", "CATALYST_MAIL_DENIED_USER_SHA256 must list the first-generation mailbox"),
+    ("CATALYST_SEND_EVIDENCE_SOURCE", "must be the Sent-folder reader in a live environment"),
+    ("CATALYST_STAFF_HOST", "CATALYST_STAFF_HOST is required"),
+    ("CATALYST_WORKER_HEARTBEAT_FILE", "CATALYST_WORKER_HEARTBEAT_FILE must be an absolute path"),
+])
+def test_9kg_31_11_production_refuses_each_missing_setting_by_name(name, message):
+    result = run(CHECK, **{**PRODUCTION, name: None})
+    assert result.returncode != 0 and message in result.stderr, result.stderr
+
+
+@pytest.mark.parametrize(("overrides", "message"), [
+    ({"CATALYST_SECRET_KEY": "synthetic-in-the-environment"}, "CATALYST_SECRET_KEY may not be in the environment"),
+    ({"CATALYST_SECRETS_DIR": __import__("tempfile").mkdtemp(prefix="catalyst-empty-secrets-")},
+     "secret CATALYST_SECRET_KEY is missing from CATALYST_SECRETS_DIR"),
+    ({"CATALYST_PUBLIC_BASE_URL": "https://learn.intentsolutions.io"}, "GATE-CUTOVER"),
+    ({"CATALYST_ALLOWED_HOSTS": "*"}, "wildcard"),
+    ({"CATALYST_EMAIL_BACKEND": "django.core.mail.backends.console.EmailBackend"}, "console mail backend is not allowed in production"),
+    ({"CATALYST_EMAIL_BACKEND": "django.core.mail.backends.smtp.EmailBackend"}, "not a local sink backend"),
+    ({"CATALYST_ASSESSMENT_MODEL": "test"}, "CATALYST_ASSESSMENT_MODEL may not be set from the environment"),
+    ({"MINIMAX_API_KEY": "synthetic-not-a-key"}, "MINIMAX_API_KEY"),
+    ({"CATALYST_MAIL_USER": "legacy-synthetic@example.test"}, "denied mailbox"),
+    ({"CATALYST_ENV": "development"}, "a deployment must say staging or production"),
+])
+def test_9kg_31_11_production_refuses_a_disallowed_setting(overrides, message):
+    result = run(CHECK, **{**PRODUCTION, **overrides})
+    assert result.returncode != 0 and message in result.stderr, result.stderr
+    assert "synthetic-not-a-key" not in result.stderr + result.stdout
 
 
 @pytest.mark.parametrize("missing", ["CATALYST_SECRET_KEY", "CATALYST_DB_NAME", "CATALYST_ENV", "CATALYST_CHALLENGE_LIFETIME_SECONDS",
@@ -91,11 +149,11 @@ def test_unreachable_database_fails_loudly_when_a_command_needs_it():
 
 @pytest.mark.parametrize(
     ("environment", "backend"),
-    [("test", "locmem"), ("development", "console"), ("staging", "filebased")],
+    [("test", "locmem"), ("development", "console"), ("staging", "filebased"), ("production", "filebased")],
 )
 def test_configured_default_mail_backend_is_a_local_sink(environment, backend):
     probe = "from django.conf import settings; print(settings.EMAIL_BACKEND)"
-    extra = STAGING if environment == "staging" else {}
+    extra = {"staging": STAGING, "production": PRODUCTION}.get(environment, {})
     result = run(
         [sys.executable, "-c", f"import django; django.setup(); {probe}"],
         **{**extra, "CATALYST_ENV": environment, "CATALYST_EMAIL_BACKEND": None},

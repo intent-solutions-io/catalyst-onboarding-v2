@@ -27,12 +27,14 @@ def test_every_non_postgresql_alias_is_reported():
     assert any("'third'" in p and "mysql" in p for p in problems)
 
 
-def test_only_development_test_and_staging_environments_are_allowed():
-    for allowed in ("test", "development", "staging"):  # staging: 026 P6-D-2 (D-49)
+def test_only_the_four_named_environments_are_allowed():
+    for allowed in ("test", "development", "staging", "production"):  # staging: D-49; production: 9kg.31.11
         assert guards.environment_problems(allowed) == []
-    for refused in ("production", "prod", "", "Staging", "staging "):
+    for refused in ("prod", "", "Staging", "staging ", "Production", "production ", "live"):
         assert guards.environment_problems(refused) != []
     assert {e for e in ("test", "staging", "development", "production") if guards.synthetic(e)} == {"test", "staging"}
+    assert guards.LIVE_ENVIRONMENTS == {"production"} and guards.DEPLOYED_ENVIRONMENTS == {"staging", "production"}
+    assert not guards.draft_wording_allowed("production")  # an unapproved wording is never shown in production
 
 
 def test_sink_backends_pass_and_smtp_is_refused():
@@ -60,10 +62,17 @@ def test_all_problems_combines_every_rule():
         CATALYST_ENV="production",
         EMAIL_BACKEND="django.core.mail.backends.smtp.EmailBackend",
     )
-    # the engine, the environment, the backend, the provider variable, the 9kg.29 and 9kg.43 fixed intake settings
-    # (unset here), and (9kg.49) a live environment's empty mail-host allow-list, missing denied list, missing mailbox
-    # pin and missing Sent-folder source
-    assert len(guards.all_problems(settings, {"SMTP_PASSWORD": "x"})) == 10
+    # Production is admitted (9kg.31.11), so every deployment and live rule speaks instead of one environment refusal.
+    problems = guards.all_problems(settings, {"SMTP_PASSWORD": "x"})
+    for expected in ("sqlite3", "not a local sink backend", "SMTP_PASSWORD", "CATALYST_INTAKE_MODE must be",
+                     "CATALYST_CLIENT_IDENTITY must be", "must name the production mail host",
+                     "must list the first-generation mailbox", "must pin the v2 mailbox login",
+                     "must be the Sent-folder reader", "CATALYST_STAFF_HOST is required",
+                     "CATALYST_WORKER_HEARTBEAT_FILE must be", "CATALYST_SECRETS_DIR must be",
+                     "CATALYST_EFFECT_JOURNAL_DIR must be", "must be 'invitation' in a live environment",
+                     "must be https on the dedicated v2 host name"):
+        assert any(expected in p for p in problems), expected
+    assert not any("is not allowed; use one of" in p for p in problems)
 
 
 def test_system_check_reports_a_problem_introduced_after_startup(settings):
@@ -198,7 +207,8 @@ def test_9kg_33_the_effect_journal_directory_is_required_outside_the_local_envir
     assert guards.journal_problems(staging(CATALYST_EFFECT_JOURNAL_DIR="/var/lib/catalyst/effects")) == []
     for bad in ("effects", "relative/effects", str(__import__("pathlib").Path(guards.__file__).resolve().parent.parent / "x")):
         assert guards.journal_problems(staging(CATALYST_EFFECT_JOURNAL_DIR=bad)), bad
-    assert guards.journal_problems(SimpleNamespace(CATALYST_ENV="production", CATALYST_EFFECT_JOURNAL_DIR="")) == []  # refused elsewhere
+    assert guards.journal_problems(SimpleNamespace(CATALYST_ENV="production", CATALYST_EFFECT_JOURNAL_DIR="")) == [
+        "CATALYST_EFFECT_JOURNAL_DIR must be an absolute path outside test and development"]  # 9kg.31.11: admitted
 
 
 def test_9kg_33_the_fetcher_starts_without_a_journal_and_a_journaling_process_does_not(tmp_path, monkeypatch, settings):
@@ -293,7 +303,7 @@ def test_9kg_49_the_allow_list_admits_exactly_the_named_host_for_live_web_and_wo
                                                         CATALYST_MAIL_ALLOWED_HOSTS=[HOST], CATALYST_MAIL_TLS="none"))
         assert any("allowed only in a live environment" in p for p in problems), environment
         assert not guards.mail_host_allowed(environment, HOST, "", [HOST], "web")
-    assert "production" not in guards.ALLOWED_ENVIRONMENTS  # admitting the environment itself is the release decision
+    assert "production" in guards.ALLOWED_ENVIRONMENTS and "production" in guards.LIVE_ENVIRONMENTS  # 9kg.31.11
 
 
 def test_9kg_49_the_first_generation_mailbox_can_never_be_a_source():
@@ -353,3 +363,80 @@ def test_9kg_49_a_live_peer_must_be_the_allow_listed_host_on_a_global_address(se
     assert not transport.mailbox_pinned()  # re-checked before any login, whatever the start-up check saw
     assert transport.send(b"Subject: x\r\n\r\nbody\r\n", "from@example.test", "to@example.test").outcome == "transport_blocked"
     settings.CATALYST_ENV = "test"
+
+
+# --- 9kg.31.11: production is admitted in code with every live refusal in force ------------------------------------
+
+def production(**overrides):
+    values = dict(CATALYST_ENV="production", CATALYST_INTAKE_MODE="invitation",
+                  CATALYST_PUBLIC_BASE_URL="https://catalyst-v2.example.test", CATALYST_STAFF_HOST="staff-v2.example.test",
+                  ALLOWED_HOSTS=["catalyst-v2.example.test", "staff-v2.example.test", "localhost"],
+                  EMAIL_BACKEND="django.core.mail.backends.filebased.EmailBackend", EMAIL_FILE_PATH="/var/lib/catalyst/mail")
+    return SimpleNamespace(**{**values, **overrides})
+
+
+def test_9kg_31_11_production_keeps_model_advice_fetching_agreements_and_provisioning_off():
+    # The QA note on the bead: admission must not open any of the four paths the synthetic environments allow.
+    for name, value in (("CATALYST_EVIDENCE_ALLOWED_HOSTS", ["site.example.test"]),
+                        ("CATALYST_EVIDENCE_FIXTURE_ADDRESS", "127.0.0.1"), ("CATALYST_EVIDENCE_CA_FILE", "/ca.pem")):
+        assert any("synthetic evidence only" in p for p in guards.evidence_problems(production(**{name: value}), {})), name
+    assert any("allowed only in the test and staging" in p
+               for p in guards.assessment_problems(production(CATALYST_ASSESSMENT_MODEL="test"), {}))
+    for mode in ("minimax", "live", "openai:gpt"):
+        assert any("live model use is not authorized" in p
+                   for p in guards.assessment_problems(production(CATALYST_ASSESSMENT_MODEL=mode), {})), mode
+    for name in guards.AGREEMENT_TEST_ONLY:
+        assert any("synthetic agreements only" in p for p in guards.agreement_problems(production(**{name: "x"}), {})), name
+    for name, value in (("CATALYST_PROVISIONING_ADAPTER", "provisioning.live.Adapter"),
+                        ("CATALYST_PROVISIONING_DOMAIN", "intentsolutions.io")):
+        assert any("synthetic provisioning only" in p
+                   for p in guards.provisioning_problems(production(**{name: value}), {})), name
+    # None of them may arrive through the environment either, and no provider credential may be present.
+    environ = {name: "x" for name in (*guards.EVIDENCE_TEST_ONLY, *guards.AGREEMENT_TEST_ONLY,
+                                       *guards.PROVISIONING_TEST_ONLY, "CATALYST_ASSESSMENT_MODEL")}
+    found = (guards.evidence_problems(production(), environ) + guards.agreement_problems(production(), environ)
+             + guards.provisioning_problems(production(), environ) + guards.assessment_problems(production(), environ))
+    assert sum("may not be set from the environment" in p for p in found) == len(environ)
+    assert guards.provider_problems("django.core.mail.backends.filebased.EmailBackend",
+                                    {"MINIMAX_API_KEY": "x", "DOCUMENSO_TOKEN": "y"})
+    assert guards.provider_problems("django.core.mail.backends.smtp.EmailBackend", {})  # Django's mailer stays a sink
+    # With none of them set, the four checks are quiet: admission alone opens nothing and refuses nothing.
+    quiet = production()
+    assert guards.evidence_problems(quiet, {}) == guards.agreement_problems(quiet, {}) == []
+    assert guards.provisioning_problems(quiet, {}) == []
+    assert guards.assessment_problems(SimpleNamespace(**{**vars(quiet), "CATALYST_ASSESSMENT_MODEL": "none"}), {}) == []
+
+
+def test_9kg_31_11_production_runs_invitation_only_on_its_own_host():
+    assert guards.live_problems(production()) == []
+    assert any("must be 'invitation'" in p for p in guards.live_problems(production(CATALYST_INTAKE_MODE="open")))
+    for base in ("", "http://catalyst-v2.example.test", "https://"):
+        assert any("must be https on the dedicated v2 host" in p
+                   for p in guards.live_problems(production(CATALYST_PUBLIC_BASE_URL=base))), base
+    for learn in ("learn.intentsolutions.io", "LEARN.intentsolutions.io.", "x.learn.intentsolutions.io"):
+        for field in ("CATALYST_PUBLIC_BASE_URL", "CATALYST_STAFF_HOST", "ALLOWED_HOSTS"):
+            value = {"CATALYST_PUBLIC_BASE_URL": f"https://{learn}", "CATALYST_STAFF_HOST": learn,
+                     "ALLOWED_HOSTS": ["catalyst-v2.example.test", learn]}[field]
+            assert any("GATE-CUTOVER" in p for p in guards.live_problems(production(**{field: value}))), (learn, field)
+    for wild in ("*", ".", ".example.test", "cat\u2024alyst.example.test"):
+        assert any("wildcard" in p for p in guards.live_problems(production(ALLOWED_HOSTS=[wild]))), wild
+    # Staging is not a live environment: these rails are production's own (staging has its own host rules).
+    assert guards.live_problems(SimpleNamespace(CATALYST_ENV="staging", CATALYST_INTAKE_MODE="open")) == []
+
+
+def test_9kg_31_11_production_never_prints_mail_and_keeps_its_sink_private():
+    console = production(EMAIL_BACKEND="django.core.mail.backends.console.EmailBackend")
+    console.CATALYST_MAIL_TLS, console.CATALYST_MAIL_HOST = "starttls", ""
+    assert any("console mail backend is not allowed in production" in p for p in guards.mail_problems(console))
+    relative = production(EMAIL_FILE_PATH="mail")
+    relative.CATALYST_MAIL_TLS, relative.CATALYST_MAIL_HOST = "starttls", ""
+    assert any("production's file mail sink needs an absolute EMAIL_FILE_PATH" in p for p in guards.mail_problems(relative))
+
+
+def test_9kg_31_11_production_is_a_deployment_for_every_deployment_rule():
+    bare = production(CATALYST_STAFF_HOST="")
+    assert "CATALYST_STAFF_HOST is required outside test and development" in guards.host_problems(bare)
+    assert any("CATALYST_SECRETS_DIR must be an absolute path" in p for p in guards.secret_problems(production(), {}))
+    assert any("CATALYST_SECRET_KEY may not be in the environment" in p
+               for p in guards.secret_problems(production(CATALYST_SECRETS_DIR="/run/secrets"), {"CATALYST_SECRET_KEY": "x"}))
+    assert guards.intake_problems(production(CATALYST_CLIENT_IDENTITY="direct"), {})  # behind the proxy only

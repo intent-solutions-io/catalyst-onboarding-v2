@@ -4,6 +4,7 @@
 import importlib.util
 import json
 
+from config import guards
 from tests.support import ROOT
 
 CATALYST = ("web", "worker", "fetcher", "migrate", "provision-roles", "collect-static", "egress", "backup", "restore")
@@ -147,3 +148,51 @@ def test_6b5b_the_image_creates_the_mount_points_with_their_owners_and_modes():
                  "install -d -o catalyst -g catalyst -m 0700 /var/lib/catalyst/effects",  # 9kg.33: the effect journal
                  "COPY scripts/provision_db_roles.py scripts/provision_db_roles.py"):
         assert line in dockerfile, line
+
+
+# --- 9kg.31.11: the production definition is the staging definition with reviewed inputs only -----------------------
+
+def _differences(left, right, path=""):
+    if isinstance(left, dict) and isinstance(right, dict):
+        for key in sorted(set(left) | set(right)):
+            yield from _differences(left.get(key), right.get(key), f"{path}/{key}")
+    elif left != right:
+        yield path
+
+
+def test_9kg_31_11_the_committed_production_file_is_exactly_the_rendering():
+    committed = (ROOT / "deploy" / "production" / "compose.yaml").read_text()
+    assert committed == renderer().render("production"), "run `python scripts/render_staging_compose.py --write`"
+    json.loads(committed.split("\n", 2)[2])
+
+
+def test_9kg_31_11_production_differs_from_staging_only_in_the_reviewed_inputs():
+    module = renderer()
+    staging, production = module.definition("staging"), module.definition("production")
+    django = ("web", "worker", "fetcher", "migrate", "backup", "restore")  # the processes that load the settings
+    live = ("CATALYST_CHALLENGE_LIFETIME_SECONDS", "CATALYST_MAIL_ALLOWED_HOSTS", "CATALYST_MAIL_USER_SHA256",
+            "CATALYST_MAIL_DENIED_USER_SHA256", "CATALYST_SEND_EVIDENCE_SOURCE", "CATALYST_JOURNAL_SHIP_LAG_SECONDS")
+    expected = ({"/name", "/services/egress/volumes"}
+                | {f"/secrets/{name}/file" for name in module.SECRET_FILES}
+                | {f"/services/{name}/environment/CATALYST_ENV" for name in CATALYST}
+                | {f"/services/{name}/environment/{key}" for name in django for key in live})
+    assert set(_differences(staging, production)) == expected
+    assert production["name"] == "catalyst-production"
+    for name in CATALYST:
+        assert production["services"][name]["environment"]["CATALYST_ENV"] == "production", name
+    for name in django:
+        environment = production["services"][name]["environment"]
+        # Owner values have no default: a missing one stops `docker compose` before anything starts.
+        for key in live:
+            value = environment[key]
+            assert value == module.SENT_FOLDER_SOURCE or (value.startswith(f"${{{key}:?") and value.endswith("}")), key
+    assert production["services"]["egress"]["volumes"] == [
+        "${CATALYST_EGRESS_DENY_FILE:?the operator-supplied deny list}:/etc/catalyst/egress-deny:ro"]
+    assert all(s["file"].startswith("${CATALYST_PRODUCTION_SECRETS:?}/") for s in production["secrets"].values())
+    assert module.SENT_FOLDER_SOURCE == guards.SENT_FOLDER_SOURCE  # the renderer runs without Django, so it keeps a copy
+    try:
+        module.definition("prod")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("an unknown environment rendered")

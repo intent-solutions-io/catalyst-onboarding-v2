@@ -134,7 +134,8 @@ CASES = {
         "test_startup::test_smtp_backend_refuses_to_start",
         "test_worker::test_the_worker_command_refuses_to_start_on_a_guard[smtp-backend]",
         "test_worker::test_the_worker_command_refuses_to_start_on_a_guard[provider-credential]",
-        "test_startup::test_production_environment_refuses_to_start",
+        # 9kg.31.11: production is admitted; it still refuses a provider credential and a non-sink mail backend
+        "test_startup::test_9kg_31_11_production_refuses_a_disallowed_setting",
         "test_startup::test_configured_default_mail_backend_is_a_local_sink",
         "test_guards::test_sink_backends_pass_and_smtp_is_refused",
         "test_guards::test_provider_variables_are_reported_by_name_not_value",
@@ -1244,7 +1245,7 @@ P6_CASES = {
         "test_startup::test_6b2_staging_passes_django_deploy_checks",
     ],
     "TEST-P6-03": [
-        "test_guards::test_only_development_test_and_staging_environments_are_allowed",
+        "test_guards::test_only_the_four_named_environments_are_allowed",
         "test_guards::test_6b1_staging_allows_the_fake_agreement_provider_only_under_the_test_rules",
         "test_guards::test_6b1_staging_allows_only_the_fake_mail_host_and_a_test_domain",
         "test_guards::test_6b1_staging_links_must_be_https_and_production_still_may_not_use_any_fake",
@@ -1702,6 +1703,18 @@ P6_SUPPORTING = {
         "test_journal_shipping::test_9kg_60_an_interrupted_first_run_is_anchored_on_the_copy_itself",
         "test_journal_shipping::test_9kg_60_a_rebaseline_keeps_the_old_copy_and_starts_a_new_one",
         "test_journal_shipping::test_9kg_60_a_dead_timer_and_an_unreadable_record_page_under_their_own_codes",
+    ],
+    "9kg.31.11 production is admitted in code with every live refusal in force, and its stack is staging's with reviewed inputs (026)": [
+        "test_guards::test_only_the_four_named_environments_are_allowed",
+        "test_guards::test_9kg_31_11_production_keeps_model_advice_fetching_agreements_and_provisioning_off",
+        "test_guards::test_9kg_31_11_production_runs_invitation_only_on_its_own_host",
+        "test_guards::test_9kg_31_11_production_never_prints_mail_and_keeps_its_sink_private",
+        "test_guards::test_9kg_31_11_production_is_a_deployment_for_every_deployment_rule",
+        "test_startup::test_9kg_31_11_production_starts_only_fully_configured",
+        "test_startup::test_9kg_31_11_production_refuses_each_missing_setting_by_name",
+        "test_startup::test_9kg_31_11_production_refuses_a_disallowed_setting",
+        "test_staging_compose::test_9kg_31_11_the_committed_production_file_is_exactly_the_rendering",
+        "test_staging_compose::test_9kg_31_11_production_differs_from_staging_only_in_the_reviewed_inputs",
     ],
     "9kg.62 every effect a restore cannot undo is classified, and an unclassified one or a new outward module fails (029)": [
         "test_effect_registry::test_9kg62_every_function_with_an_effect_is_registered_and_no_registration_is_stale",

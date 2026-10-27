@@ -20,8 +20,13 @@ SECRET_ENV_NAMES = ("CATALYST_SECRET_KEY", "CATALYST_VERIFICATION_KEY", "CATALYS
                     "CATALYST_CUSTODY_WRAPPING_KEY", "CATALYST_CUSTODY_NEXT_WRAPPING_KEY")
 
 # Environments Catalyst may run in. `staging` (026 P6-D-2, D-49) is synthetic like `test`: the same fakes under the
-# same strict rules, never a real provider. Production settings are not authorized (a later P6 decision).
-ALLOWED_ENVIRONMENTS = frozenset({"development", "test", "staging"})
+# same strict rules, never a real provider. `production` (9kg.31.11, 026 section 18) is admitted in code with every
+# live refusal in force: it may start, but it reaches no provider the guards below do not name, holds no model, no
+# evidence fetching, no agreement provider and no provisioning adapter, and backs up, stores custody or serves a
+# wording only once the owner's decisions are recorded. Starting it on a host is a separate, owner-approved act.
+ALLOWED_ENVIRONMENTS = frozenset({"development", "test", "staging", "production"})
+# Environments that are deployments: secrets from files, https behind the proxy, a journal, a staff host.
+DEPLOYED_ENVIRONMENTS = frozenset({"staging", "production"})
 SYNTHETIC_ENVIRONMENTS = frozenset({"test", "staging"})
 
 
@@ -83,8 +88,10 @@ def environment_problems(environment: str) -> list[str]:
 
 
 def provider_problems(email_backend: str, environ: Mapping[str, str]) -> list[str]:
-    """In every allowed environment nothing may reach a real provider (REQ-022, D-10): production is not an allowed
-    environment yet (ALLOWED_ENVIRONMENTS), so this holds wherever a Catalyst process can start today."""
+    """In every allowed environment, production included, Django's mailer is a local sink and no provider credential
+    is in the environment (REQ-022, D-10). Applicant mail in production leaves only through `correspondence.transport`
+    to an allow-listed host (mail_problems); the mails Django's mailer sends (the contact confirmation, the password
+    setup and the withdrawal link) reach the file sink until their live path is built (9kg.77)."""
     problems = []
     if email_backend not in SINK_EMAIL_BACKENDS:
         problems.append(f"EMAIL_BACKEND {email_backend!r} is not a local sink backend")
@@ -104,9 +111,8 @@ def is_loopback_literal(host: str) -> bool:
         return False
 
 
-# 9kg.49: the environments in which the production mail-host allow-list applies. Admitting an environment here is
-# the release decision (`production` is not in ALLOWED_ENVIRONMENTS until the owner's go, 029 section 13); the
-# allow-list rule is built and tested so that decision changes one constant, not the guard.
+# 9kg.49: the environments in which the production mail-host allow-list and the other live rules apply. `production` is
+# admitted in code (9kg.31.11); starting it on the host stays the owner's go (029 section 13).
 LIVE_ENVIRONMENTS = frozenset({"production"})
 # The process kinds (config.runtime, declared in code) that may reach the production mail host, per purpose: web and
 # worker send and read; the owner-run `reconcile` kind (the post-restore step, RD-1) reads the Sent folder only.
@@ -203,15 +209,15 @@ def mail_problems(settings) -> list[str]:
     sent, collected = getattr(settings, "CATALYST_MAIL_SENT_FOLDER", ""), getattr(settings, "CATALYST_MAIL_COLLECT_FOLDER", "INBOX")
     if sent and sent == collected:
         problems.append("CATALYST_MAIL_SENT_FOLDER must differ from CATALYST_MAIL_COLLECT_FOLDER (016 3.6)")
-    if settings.CATALYST_ENV == "staging":
-        # 6B.1 review: messages carry bearer links, so staging never prints them (the console backend writes to
+    if settings.CATALYST_ENV in DEPLOYED_ENVIRONMENTS:
+        # 6B.1 review: messages carry bearer links, so a deployment never prints them (the console backend writes to
         # stdout, which is the container log); the file sink needs a private absolute directory.
         backend = getattr(settings, "EMAIL_BACKEND", "")
         if backend == "django.core.mail.backends.console.EmailBackend":
-            problems.append("the console mail backend is not allowed in staging (it writes links to the logs)")
+            problems.append(f"the console mail backend is not allowed in {settings.CATALYST_ENV} (it writes links to the logs)")
         path = getattr(settings, "EMAIL_FILE_PATH", None) or ""
         if backend == "django.core.mail.backends.filebased.EmailBackend" and not str(path).startswith("/"):
-            problems.append("staging's file mail sink needs an absolute EMAIL_FILE_PATH")
+            problems.append(f"{settings.CATALYST_ENV}'s file mail sink needs an absolute EMAIL_FILE_PATH")
     tls = getattr(settings, "CATALYST_MAIL_TLS", "starttls")
     if tls not in ("starttls", "none"):
         problems.append("CATALYST_MAIL_TLS must be 'starttls' or 'none'")
@@ -413,6 +419,9 @@ def provisioning_problems(settings, environ: Mapping[str, str]) -> list[str]:
 
 
 PRODUCTION_DOMAINS = ("intentsolutions.io",)
+# The learning site's host (029 section 7): the internal launch runs on a dedicated v2 host, and moving Learn's routes
+# is GATE-CUTOVER, a separate decision; production may not answer for or link to it.
+LEARN_HOSTS = ("learn.intentsolutions.io",)
 
 
 def _production_host(host: str) -> bool:
@@ -422,6 +431,34 @@ def _production_host(host: str) -> bool:
         return True
     host = host.lower().rstrip(".")
     return any(host == domain or host.endswith("." + domain) for domain in PRODUCTION_DOMAINS)
+
+
+def live_problems(settings) -> list[str]:
+    """9kg.31.11 (029 sections 4.1, 7 and 13; the owner directive of 2026-10-26): the rails a live environment adds.
+    Intake stays invitation-only (open intake is the public cutover, separately authorized); the public base URL is
+    https on a named host; and neither it, the staff host nor ALLOWED_HOSTS may be a wildcard or the learning site's
+    host (the pilot runs on a dedicated v2 host name)."""
+    if getattr(settings, "CATALYST_ENV", "") not in LIVE_ENVIRONMENTS:
+        return []
+    problems = []
+    if getattr(settings, "CATALYST_INTAKE_MODE", None) != "invitation":
+        problems.append("CATALYST_INTAKE_MODE must be 'invitation' in a live environment (open intake is the public cutover)")
+    base = getattr(settings, "CATALYST_PUBLIC_BASE_URL", "") or ""
+    public = (urlsplit(base).hostname or "") if base.startswith("https://") else ""
+    if not public:
+        problems.append("CATALYST_PUBLIC_BASE_URL must be https on the dedicated v2 host name in a live environment")
+    hosts = [public, getattr(settings, "CATALYST_STAFF_HOST", "") or "", *(getattr(settings, "ALLOWED_HOSTS", []) or [])]
+    for host in hosts:
+        raw = host.strip().lower()
+        name = raw.rstrip(".")
+        if not raw:
+            continue
+        if raw in ("*", ".") or raw.startswith(".") or not raw.isascii():
+            problems.append(f"a live environment may not answer for {host!r} (a wildcard, a domain pattern or a look-alike)")
+        elif any(name == learn or name.endswith("." + learn) for learn in LEARN_HOSTS):
+            problems.append(f"a live environment may not answer for or link to {host!r}: the pilot runs on the dedicated "
+                            "v2 host (moving Learn is GATE-CUTOVER)")
+    return problems
 
 
 def host_problems(settings) -> list[str]:
@@ -455,7 +492,7 @@ def secret_problems(settings, environ: Mapping[str, str]) -> list[str]:
     if environment == "development" and getattr(settings, "CATALYST_SECRETS_DIR", ""):
         # A process with mounted secrets is a deployment; "development" would switch the guards and the safe mail sink
         # off (PR #65 review).
-        return ["CATALYST_ENV=development may not be used with CATALYST_SECRETS_DIR (a deployment must say staging)"]
+        return ["CATALYST_ENV=development may not be used with CATALYST_SECRETS_DIR (a deployment must say staging or production)"]
     if environment not in ALLOWED_ENVIRONMENTS or environment in ("test", "development"):
         return []
     problems = [f"{name} may not be in the environment outside test and development; use CATALYST_SECRETS_DIR"
@@ -656,6 +693,7 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + agreement_problems(settings, environ)
         + provisioning_problems(settings, environ)
         + host_problems(settings)
+        + live_problems(settings)
         + secret_problems(settings, environ)
         + journal_problems(settings)
         + process_role_problems(settings, _process_kind())
