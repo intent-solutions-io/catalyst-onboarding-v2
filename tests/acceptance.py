@@ -1735,6 +1735,9 @@ P6_SUPPORTING = {
         "test_django_mail::test_9kg_77_in_production_only_the_web_and_worker_kinds_send",
         "test_django_mail::test_9kg_77_in_production_an_unpinned_login_or_a_non_global_peer_is_refused",
     ],
+    "9kg.79 in production only the worker and the post-restore step have a route to the mail host (026)": [
+        "test_staging_compose::test_9kg_79_only_the_worker_and_the_post_restore_step_reach_the_mail_host",
+    ],
     "9kg.62 every effect a restore cannot undo is classified, and an unclassified one or a new outward module fails (029)": [
         "test_effect_registry::test_9kg62_every_function_with_an_effect_is_registered_and_no_registration_is_stale",
         "test_effect_registry::test_9kg62_each_class_matches_what_the_function_does",

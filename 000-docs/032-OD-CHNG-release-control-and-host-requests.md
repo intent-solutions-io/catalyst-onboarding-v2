@@ -249,7 +249,8 @@ Each service mounts only what it needs. "Never" is enforced by the guards and re
 | `fetcher` | service | fetcher | `fetcher_password`, `secret_key` | none (it names a journal path that does not exist) | backend; fetch (to the egress proxy only) | any provider secret, custody, keys or journal |
 | `egress` | service | none | none | the deny-list directory, read-only | fetch; egress | anything else |
 | `backup` | timer and on demand | backup | `backup_password` (and the keys the staging definition gives it) | the host's logical-dump directory (output), custody read-only, the effect journal read-only | backend | the wrapping key, the erasure key, a key directory (the command refuses all three) |
-| `restore` | owner-run | owner and administrator; the post-restore step as the `reconcile` kind | `owner_password`, `admin_password`, `secret_key`, verification keys; `mail_password` for the IMAP Sent read only (RD-1 default, never SMTP); `erasure_key` **for the lift only** (PR #103 brief; see 3.5) | custody (read-write), the effect journal, the key directory and the mirror (the lift's sweep) | backend; IMAP to the mail host only | the wrapping key (the post-restore step refuses it) |
+| `restore` | owner-run | owner and administrator | `owner_password`, `admin_password`, `secret_key`, verification keys; `erasure_key` **for the lift only** (PR #103 brief; see 3.5) | custody (read-write), the effect journal, the key directory and the mirror (the lift's sweep) | backend only (`9kg.79`) | the wrapping key, the mail password, any route out |
+| `post-restore` (new, `9kg.79`) | owner-run, the review run of the post-restore step as the `reconcile` kind | owner | `owner_password`, `secret_key`, verification keys, `mail_password` for the IMAP Sent read only (RD-1, never SMTP) | custody, the effect journal | backend; mail (the mail host only, by the host firewall) | the administrator password, the erasure key, the wrapping key, the lift |
 | `erase` (new) | owner-run | retention | `retention_password`, `erasure_key` | the effect journal (read-write), the key directory and the mirror (key destruction), custody read-only (the lingering-plaintext check) | backend only | the wrapping key, the fetch and egress networks, any mail or provider secret |
 | `custody` (new one-shot) | owner-run | owner (as the restore drill runs it) | `owner_password`, `custody_wrapping_key`; `erasure_key` for `--recover` only | custody, the key directory and the mirror, the effect journal | backend | running beside the worker for `--migrate` or `--reap-orphans` |
 | proxy | the host's existing proxy | none | none | a new site block for the dedicated v2 host name; the staff host site restricted to named devices; the webhook site (POST only) when the Documenso canary needs it | edge | any change to the learning site's block |
@@ -277,7 +278,9 @@ Not on the host at all (fixed rules): the mail-host provisioning credential (D-F
 ### 3.4 Network restrictions
 
 - The backend and fetch networks are internal. Only `egress` and the worker leave the host; the worker only to the mail
-  host and Documenso, by the mail-host allow-list (`CATALYST_MAIL_ALLOWED_HOSTS`) and the provider settings.
+  host and Documenso, by the mail-host allow-list (`CATALYST_MAIL_ALLOWED_HOSTS`) and the provider settings. In the production definition (`9kg.79`) the worker's route is the `mail` network,
+  which it shares only with the owner-run `post-restore` service (the IMAP Sent read); `restore`, which holds the
+  administrator password, has none. The host firewall limits that network to the mail host.
 - The web process listens on a unix socket only, mode 0660, the proxy's group. No TCP port is published for web,
   database or the staff site.
 - The staff host is reachable only from the named staff devices (tailnet tags, P6-D-3), with two-factor.

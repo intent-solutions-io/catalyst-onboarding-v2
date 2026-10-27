@@ -151,6 +151,9 @@ COMPOSE_INPUTS = {
     "CATALYST_MAIL_DENIED_USER_SHA256": PRODUCTION["CATALYST_MAIL_DENIED_USER_SHA256"],
     "CATALYST_JOURNAL_SHIP_LAG_SECONDS": "900", "CATALYST_FROM_EMAIL": "onboarding@catalyst-v2.example.test",
     "CATALYST_HEALTH_AGED_WAITS_PAGE": "replies_awaiting_processing", "CATALYST_HEALTH_PENDING_AGE_SECONDS": "3600",
+    # 9kg.79: the mail route's inputs (worker and post-restore only); the login hashes to the pinned digest above.
+    "CATALYST_MAIL_HOST": "mail.example.test", "CATALYST_MAIL_PORT": "587", "CATALYST_MAIL_USER": "v2-synthetic@example.test",
+    "CATALYST_MAIL_SENT_FOLDER": "Sent", "CATALYST_MAIL_TRUSTED_AUTHSERV_ID": "mail.example.test",
 }
 
 
@@ -180,7 +183,7 @@ def _compose_environment(service: str) -> dict:
             "CATALYST_EMAIL_FILE_PATH": None, "CATALYST_ALLOWED_HOSTS": None, "CATALYST_LOCAL_HOSTS": None, **filled}
 
 
-@pytest.mark.parametrize("service", ["web", "worker", "fetcher", "migrate", "backup", "restore"])
+@pytest.mark.parametrize("service", ["web", "worker", "fetcher", "migrate", "backup", "restore", "post-restore"])
 def test_9kg_31_11_each_production_service_starts_with_its_rendered_environment(service):
     environment = _compose_environment(service)
     assert environment["CATALYST_ENV"] == "production"

@@ -2493,6 +2493,17 @@ production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
   starts each of the six Django services (web, worker, fetcher, migrate, backup, restore) with its rendered
   environment and the host's inputs filled in.
 
+- **Mail route** (`9kg.79`, 2026-10-27). Production adds a `mail` network that is not internal, joined by the
+  worker and by a new owner-run `post-restore` service, and by no other Catalyst process. Those two alone receive
+  the mail host settings (`CATALYST_MAIL_HOST`, `_PORT`, `_USER`, `_SENT_FOLDER`, no defaults) and the
+  `mail_password` secret. The post-restore step (the reconcile kind: the Sent-folder read, never SMTP) runs in
+  `post-restore` with the owner's login, and its lift runs in `restore` with the erasure key added for that run only,
+  so the erasure key and the mail password are never in one process. `restore` keeps the administrator password and
+  has no route out. The trusted authserv-id is a required input too, or every inbound reply reads unverified. The
+  host firewall restricts the network's destinations to the mail host, and its readback is a deploy gate (`9kg.28`);
+  Documenso's route is a separate decision with its canary (`9kg.31.2`). A test pins which services hold the route
+  and the secret; the staging definition is unchanged.
+
 **Limits** (the PR #118 reviews):
 
 - **Topology.** The production stack is the staging topology: an in-stack proxy with Caddy's internal CA
@@ -2503,8 +2514,7 @@ production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
 - **Owned elsewhere.** The `erase` and `custody` services of `032` section 3.2, the custody key mounts and the
   erasure key wait on the owner's decisions (`211.7.1`, `211.7.9`). The drills, the stack check and the deploy
   adapters still name the staging stack, and the journal-ship service does not exist yet (`9kg.78`, required for the
-  dark deploy). The `restore` service holds the administrator password, so it must never be given a mail route
-  beyond the IMAP Sent read.
+  dark deploy). The `restore` service holds the administrator password, so it has no route out (`9kg.79`).
 - **No live adapters.** None exists for Documenso or MXroute; their canaries need a reviewed guard amendment first
   (`9kg.31.2`, `9kg.31.3`).
 - **Expected red at the dark deploy.** Health reports the undecided erasure registry (the backup refuses) and the
