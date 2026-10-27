@@ -153,7 +153,7 @@ COMPOSE_INPUTS = {
     "CATALYST_HEALTH_AGED_WAITS_PAGE": "replies_awaiting_processing", "CATALYST_HEALTH_PENDING_AGE_SECONDS": "3600",
     # 9kg.79: the mail route's inputs (worker and post-restore only); the login hashes to the pinned digest above.
     "CATALYST_MAIL_HOST": "mail.example.test", "CATALYST_MAIL_PORT": "587", "CATALYST_MAIL_USER": "v2-synthetic@example.test",
-    "CATALYST_MAIL_SENT_FOLDER": "Sent",
+    "CATALYST_MAIL_SENT_FOLDER": "Sent", "CATALYST_MAIL_TRUSTED_AUTHSERV_ID": "mail.example.test",
 }
 
 

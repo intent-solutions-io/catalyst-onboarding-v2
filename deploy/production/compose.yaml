@@ -435,9 +435,10 @@
         "CATALYST_DB_USER": "catalyst_owner",
         "CATALYST_PROCESS_ROLE": "reconcile",
         "CATALYST_MAIL_HOST": "${CATALYST_MAIL_HOST:?the production mail host}",
-        "CATALYST_MAIL_PORT": "${CATALYST_MAIL_PORT:?the mail host's submission port}",
+        "CATALYST_MAIL_PORT": "${CATALYST_MAIL_PORT:?the mail host's submission port (587, STARTTLS; implicit TLS is not supported)}",
         "CATALYST_MAIL_USER": "${CATALYST_MAIL_USER:?the v2 mailbox login}",
-        "CATALYST_MAIL_SENT_FOLDER": "${CATALYST_MAIL_SENT_FOLDER:?the v2 mailbox's Sent folder}"
+        "CATALYST_MAIL_SENT_FOLDER": "${CATALYST_MAIL_SENT_FOLDER:?the v2 mailbox's Sent folder}",
+        "CATALYST_MAIL_TRUSTED_AUTHSERV_ID": "${CATALYST_MAIL_TRUSTED_AUTHSERV_ID:?the mail host's authserv-id}"
       },
       "secrets": [
         {
@@ -599,9 +600,10 @@
         "CATALYST_DB_USER": "catalyst_app",
         "CATALYST_PROCESS_ROLE": "worker",
         "CATALYST_MAIL_HOST": "${CATALYST_MAIL_HOST:?the production mail host}",
-        "CATALYST_MAIL_PORT": "${CATALYST_MAIL_PORT:?the mail host's submission port}",
+        "CATALYST_MAIL_PORT": "${CATALYST_MAIL_PORT:?the mail host's submission port (587, STARTTLS; implicit TLS is not supported)}",
         "CATALYST_MAIL_USER": "${CATALYST_MAIL_USER:?the v2 mailbox login}",
-        "CATALYST_MAIL_SENT_FOLDER": "${CATALYST_MAIL_SENT_FOLDER:?the v2 mailbox's Sent folder}"
+        "CATALYST_MAIL_SENT_FOLDER": "${CATALYST_MAIL_SENT_FOLDER:?the v2 mailbox's Sent folder}",
+        "CATALYST_MAIL_TRUSTED_AUTHSERV_ID": "${CATALYST_MAIL_TRUSTED_AUTHSERV_ID:?the mail host's authserv-id}"
       },
       "secrets": [
         {

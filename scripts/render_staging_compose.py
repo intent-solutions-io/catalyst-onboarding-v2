@@ -58,9 +58,12 @@ PRODUCTION_SECRET_FILES = (*SECRET_FILES, "mail_password")  # 9kg.79: the v2 mai
 # 9kg.79: the mail host settings, given only to the processes on the `mail` network.
 MAIL_ENV = {
     "CATALYST_MAIL_HOST": "${CATALYST_MAIL_HOST:?the production mail host}",
-    "CATALYST_MAIL_PORT": "${CATALYST_MAIL_PORT:?the mail host's submission port}",
+    "CATALYST_MAIL_PORT": "${CATALYST_MAIL_PORT:?the mail host's submission port (587, STARTTLS; implicit TLS is not supported)}",
     "CATALYST_MAIL_USER": "${CATALYST_MAIL_USER:?the v2 mailbox login}",
     "CATALYST_MAIL_SENT_FOLDER": "${CATALYST_MAIL_SENT_FOLDER:?the v2 mailbox's Sent folder}",
+    # The mail host's Authentication-Results identity: unset, every inbound reply's evidence reads untrusted (review of
+    # PR #121), so collection would mark every reply unverified.
+    "CATALYST_MAIL_TRUSTED_AUTHSERV_ID": "${CATALYST_MAIL_TRUSTED_AUTHSERV_ID:?the mail host's authserv-id}",
 }
 STAFF_PORT = 8444
 PUBLIC_PORT = 8443
@@ -200,8 +203,10 @@ def definition(env: str = "staging") -> dict:
                       volumes=["catalyst-backups:/var/lib/catalyst/backups", "catalyst-custody:/var/lib/catalyst/custody:ro",
                                EFFECTS + ":ro"],  # the backup only reads the journal's head into its receipt
                       depends={"db": {"condition": "service_healthy"}})
-    # The restore service also runs the post-restore step: the `reconcile` role (9kg.49, RD-1) may read the Sent
-    # folder and never send; it never runs as web or worker.
+    # In staging the restore service also runs the post-restore step: the `reconcile` role (9kg.49, RD-1) may read the
+    # Sent folder and never send; it never runs as web or worker. In production the review runs in `post-restore`
+    # (the mail route), and the lift runs here with the erasure key added for that run only, never beside the mail
+    # password (9kg.79).
     restore = make(["python", "manage.py", "catalyst_restore", "--help"], "catalyst_owner",
                        [*keys, mount("owner_password", "db_password"), mount("admin_password")], process_role="reconcile",
                        volumes=["catalyst-custody:/var/lib/catalyst/custody", EFFECTS],  # it writes the restore marker
