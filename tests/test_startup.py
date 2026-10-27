@@ -120,7 +120,7 @@ def test_9kg_31_11_production_refuses_each_missing_setting_by_name(name, message
     ({"CATALYST_ALLOWED_HOSTS": "*"}, "ALLOWED_HOSTS may hold only"),
     ({"CATALYST_PUBLIC_BASE_URL": "https://learn.intentsolutions.io\\@catalyst-v2.example.test"}, "must be exactly https://"),
     ({"CATALYST_EMAIL_BACKEND": "django.core.mail.backends.console.EmailBackend"}, "console mail backend is not allowed in production"),
-    ({"CATALYST_EMAIL_BACKEND": "django.core.mail.backends.filebased.EmailBackend"}, "EMAIL_BACKEND must be config.mail.RefusingEmailBackend"),
+    ({"CATALYST_EMAIL_BACKEND": "django.core.mail.backends.filebased.EmailBackend"}, "EMAIL_BACKEND must be config.mail.TransportEmailBackend"),
     ({"CATALYST_FROM_EMAIL": None}, "CATALYST_FROM_EMAIL must be the v2 sender address"),
     ({"CATALYST_EMAIL_BACKEND": "django.core.mail.backends.smtp.EmailBackend"}, "not a local sink backend"),
     ({"CATALYST_ASSESSMENT_MODEL": "test"}, "CATALYST_ASSESSMENT_MODEL may not be set from the environment"),
@@ -151,6 +151,9 @@ COMPOSE_INPUTS = {
     "CATALYST_MAIL_DENIED_USER_SHA256": PRODUCTION["CATALYST_MAIL_DENIED_USER_SHA256"],
     "CATALYST_JOURNAL_SHIP_LAG_SECONDS": "900", "CATALYST_FROM_EMAIL": "onboarding@catalyst-v2.example.test",
     "CATALYST_HEALTH_AGED_WAITS_PAGE": "replies_awaiting_processing", "CATALYST_HEALTH_PENDING_AGE_SECONDS": "3600",
+    # 9kg.79: the mail route's inputs (worker and post-restore only); the login hashes to the pinned digest above.
+    "CATALYST_MAIL_HOST": "mail.example.test", "CATALYST_MAIL_PORT": "587", "CATALYST_MAIL_USER": "v2-synthetic@example.test",
+    "CATALYST_MAIL_SENT_FOLDER": "Sent", "CATALYST_MAIL_TRUSTED_AUTHSERV_ID": "mail.example.test",
 }
 
 
@@ -180,7 +183,7 @@ def _compose_environment(service: str) -> dict:
             "CATALYST_EMAIL_FILE_PATH": None, "CATALYST_ALLOWED_HOSTS": None, "CATALYST_LOCAL_HOSTS": None, **filled}
 
 
-@pytest.mark.parametrize("service", ["web", "worker", "fetcher", "migrate", "backup", "restore"])
+@pytest.mark.parametrize("service", ["web", "worker", "fetcher", "migrate", "backup", "restore", "post-restore"])
 def test_9kg_31_11_each_production_service_starts_with_its_rendered_environment(service):
     environment = _compose_environment(service)
     assert environment["CATALYST_ENV"] == "production"
@@ -199,7 +202,7 @@ def test_unreachable_database_fails_loudly_when_a_command_needs_it():
 @pytest.mark.parametrize(
     ("environment", "backend"),
     [("test", "django.core.mail.backends.locmem.EmailBackend"), ("development", "django.core.mail.backends.console.EmailBackend"),
-     ("staging", "django.core.mail.backends.filebased.EmailBackend"), ("production", "config.mail.RefusingEmailBackend")],
+     ("staging", "django.core.mail.backends.filebased.EmailBackend"), ("production", "config.mail.TransportEmailBackend")],
 )
 def test_configured_default_mail_backend_is_a_local_sink(environment, backend):
     probe = "from django.conf import settings; print(settings.EMAIL_BACKEND)"

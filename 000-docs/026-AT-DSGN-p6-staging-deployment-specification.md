@@ -2476,10 +2476,12 @@ production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
   - `ALLOWED_HOSTS` holds exactly those two and `CATALYST_LOCAL_HOSTS`;
   - the sender address (`CATALYST_FROM_EMAIL`) is set and is not the synthetic default.
 - **Mail.** Applicant mail in production leaves only through `correspondence.transport` to the allow-listed host.
-  Production's Django mailer is `config.mail.RefusingEmailBackend`: the three mails it sends (contact confirmation,
-  password setup, withdrawal link) fail and take each sender's failure path, so no live link or address is written
-  to disk and no delivery is recorded that did not happen. Their live path is `9kg.77` (required before real intake,
-  not for the dark deploy). The console backend is refused in every deployment.
+  Django's own mails (contact confirmation, password setup, withdrawal link) use `config.mail.TransportEmailBackend`
+  in production (`9kg.77`, 2026-10-27): each message goes through the same transport, with its allow-list, pinned
+  login, verified TLS, peer check and web-and-worker rule, one recipient and no copies, and any outcome but
+  `accepted_by_server` raises so the sender takes its failure path (`MailUncertain` when the server may have accepted
+  it). `config.mail.RefusingEmailBackend` stays admitted as the owner's hold. No file or console sink, and not
+  Django's own SMTP backend, is ever admitted in production, so no live link or address is written to disk.
 - **Roles.** `scripts/provision_db_roles.py` admits production with staging's rules: passwords from files only, the
   database taken over by the owner role, grants read back.
 - **Stack.** `scripts/render_staging_compose.py` renders `deploy/production/compose.yaml` from the staging
@@ -2490,6 +2492,17 @@ production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
   an external volume (`catalyst-production-effects`), which `docker compose down -v` cannot remove. A second test
   starts each of the six Django services (web, worker, fetcher, migrate, backup, restore) with its rendered
   environment and the host's inputs filled in.
+
+- **Mail route** (`9kg.79`, 2026-10-27). Production adds a `mail` network that is not internal, joined by the
+  worker and by a new owner-run `post-restore` service, and by no other Catalyst process. Those two alone receive
+  the mail host settings (`CATALYST_MAIL_HOST`, `_PORT`, `_USER`, `_SENT_FOLDER`, no defaults) and the
+  `mail_password` secret. The post-restore step (the reconcile kind: the Sent-folder read, never SMTP) runs in
+  `post-restore` with the owner's login, and its lift runs in `restore` with the erasure key added for that run only,
+  so the erasure key and the mail password are never in one process. `restore` keeps the administrator password and
+  has no route out. The trusted authserv-id is a required input too, or every inbound reply reads unverified. The
+  host firewall restricts the network's destinations to the mail host, and its readback is a deploy gate (`9kg.28`);
+  Documenso's route is a separate decision with its canary (`9kg.31.2`). A test pins which services hold the route
+  and the secret; the staging definition is unchanged.
 
 - **Adapters** (`9kg.78.1`, 2026-10-27). The deploy adapters take `CATALYST_STACK_ENV` (`staging`, the default,
   or `production`; anything else exits 2 before anything runs). Every alert names the stack (`catalyst
@@ -2507,8 +2520,7 @@ production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
 - **Owned elsewhere.** The `erase` and `custody` services of `032` section 3.2, the custody key mounts and the
   erasure key wait on the owner's decisions (`211.7.1`, `211.7.9`). The drills, the stack check and the deploy
   adapters still name the staging stack, and the journal-ship service does not exist yet (`9kg.78`, required for the
-  dark deploy). The `restore` service holds the administrator password, so it must never be given a mail route
-  beyond the IMAP Sent read.
+  dark deploy). The `restore` service holds the administrator password, so it has no route out (`9kg.79`).
 - **No live adapters.** None exists for Documenso or MXroute; their canaries need a reviewed guard amendment first
   (`9kg.31.2`, `9kg.31.3`).
 - **Expected red at the dark deploy.** Health reports the undecided erasure registry (the backup refuses) and the
