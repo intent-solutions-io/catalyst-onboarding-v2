@@ -2513,6 +2513,21 @@ production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
   comments only) and still fails on a missing, unreadable or malformed one; the policy itself still refuses every
   fetch on an empty list (`assessments.egress.deny_file_state`, `check`).
 
+- **The stack check against production** (`9kg.78.3`, 2026-10-27). `CATALYST_STACK_ENV=production
+  scripts/staging_check.sh` builds the image's production target, renders `deploy/production/compose.yaml` with
+  synthetic inputs on the dev box, and runs the same shape checks (no secret in any environment or `docker inspect`,
+  read-only roots, no capabilities, uid 10001, the proxy's sites and refusals, readiness, log redaction,
+  `check --deploy`, idempotent migrate and role provisioning, the database outage, the path refusals, headers, the
+  webhook, the network and egress rules, staff two-factor, custody). Where production differs on purpose it checks
+  that instead: the worker alone is on the mail network and holds the mail password; the request form and the
+  owner's invitation are refused until real, non-synthetic wording is approved (503 and `data_notice_*`); no
+  applicant means no held action. Five checks are NOT RUN with their reason: the worker's outside reach (its limit
+  is the host firewall) and the four intake and confirmation steps (they wait for the owner's wording and a
+  delivered mail, the mail canary `9kg.31.1`). It refuses to run where a `catalyst-production-effects` volume
+  already exists. First runs: staging 140 PASS, 0 FAIL, 0 NOT RUN; production 138 PASS, 0 FAIL, 5 NOT RUN. The
+  restore, deploy and alert drills against production are `9kg.78.4`: the first two take a production backup, which
+  refuses until POL-10 is recorded.
+
 **Limits** (the PR #118 reviews):
 
 - **Topology.** The production stack is the staging topology: an in-stack proxy with Caddy's internal CA
@@ -2521,8 +2536,8 @@ production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
   proxy gets a public certificate is the owner's topology decision with the host preparation (`9kg.28`). The
   refusal of an all-interfaces publish address is also a host preflight item there; the compose file only says so.
 - **Owned elsewhere.** The `erase` and `custody` services of `032` section 3.2, the custody key mounts and the
-  erasure key wait on the owner's decisions (`211.7.1`, `211.7.9`). The drills and the stack check still name the
-  staging stack (`9kg.78.3`, required for the dark deploy). The `restore` service holds the administrator password,
+  erasure key wait on the owner's decisions (`211.7.1`, `211.7.9`). The restore, deploy and alert drills still name
+  the staging stack (`9kg.78.4`, after POL-10). The `restore` service holds the administrator password,
   so it has no route out (`9kg.79`).
 - **No live adapters.** None exists for Documenso or MXroute; their canaries need a reviewed guard amendment first
   (`9kg.31.2`, `9kg.31.3`).

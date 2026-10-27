@@ -243,3 +243,15 @@ def test_9kg_78_2_the_journal_ship_service_reaches_only_the_journal_and_its_dest
     assert services["egress"]["environment"]["CATALYST_EGRESS_FETCHING"] == "disabled"
     staging = module.definition("staging")["services"]
     assert "journal-ship" not in staging and "CATALYST_EGRESS_FETCHING" not in staging["egress"]["environment"]
+
+
+def test_9kg_78_3_the_stack_check_takes_only_a_known_stack():
+    import subprocess
+
+    result = subprocess.run(["bash", str(ROOT / "scripts" / "staging_check.sh")], cwd=ROOT, capture_output=True,
+                            text=True, timeout=60, env={"PATH": "/usr/bin:/bin", "CATALYST_STACK_ENV": "live"})
+    assert result.returncode == 2 and "CATALYST_STACK_ENV must be staging or production" in result.stderr
+    text = (ROOT / "scripts" / "staging_check.sh").read_text()
+    # A real production journal volume on the host is never touched: the run refuses before creating its own.
+    assert text.index("docker volume inspect catalyst-production-effects") < text.index("docker volume create")
+    assert 'compose=(docker compose --project-name "$project" -f "deploy/$stack/compose.yaml")' in text
