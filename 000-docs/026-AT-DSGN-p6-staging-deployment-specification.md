@@ -2491,6 +2491,14 @@ production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
   starts each of the six Django services (web, worker, fetcher, migrate, backup, restore) with its rendered
   environment and the host's inputs filled in.
 
+- **Mail route** (`9kg.79`, 2026-10-27). Production adds a `mail` network that is not internal, joined by the
+  worker and by a new owner-run `post-restore` service, and by no other Catalyst process. Those two alone receive
+  the mail host settings (`CATALYST_MAIL_HOST`, `_PORT`, `_USER`, `_SENT_FOLDER`, no defaults) and the
+  `mail_password` secret. The post-restore step (the reconcile kind: the Sent-folder read, never SMTP) runs in
+  `post-restore` with the owner's login. `restore` keeps the administrator password and has no route out. The host
+  firewall restricts the network's destinations to the mail host (`9kg.28`). A test pins which services hold the
+  route and the secret; the staging definition is unchanged.
+
 **Limits** (the PR #118 reviews):
 
 - **Topology.** The production stack is the staging topology: an in-stack proxy with Caddy's internal CA

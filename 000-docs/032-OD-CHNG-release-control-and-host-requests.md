@@ -276,7 +276,9 @@ Not on the host at all (fixed rules): the mail-host provisioning credential (D-F
 ### 3.4 Network restrictions
 
 - The backend and fetch networks are internal. Only `egress` and the worker leave the host; the worker only to the mail
-  host and Documenso, by the mail-host allow-list (`CATALYST_MAIL_ALLOWED_HOSTS`) and the provider settings.
+  host and Documenso, by the mail-host allow-list (`CATALYST_MAIL_ALLOWED_HOSTS`) and the provider settings. In the production definition (`9kg.79`) the worker's route is the `mail` network,
+  which it shares only with the owner-run `post-restore` service (the IMAP Sent read); `restore`, which holds the
+  administrator password, has none. The host firewall limits that network to the mail host.
 - The web process listens on a unix socket only, mode 0660, the proxy's group. No TCP port is published for web,
   database or the staff site.
 - The staff host is reachable only from the named staff devices (tailnet tags, P6-D-3), with two-factor.

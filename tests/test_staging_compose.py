@@ -173,7 +173,11 @@ def test_9kg_31_11_production_differs_from_staging_only_in_the_reviewed_inputs()
     live = ("CATALYST_CHALLENGE_LIFETIME_SECONDS", "CATALYST_MAIL_ALLOWED_HOSTS", "CATALYST_MAIL_USER_SHA256",
             "CATALYST_MAIL_DENIED_USER_SHA256", "CATALYST_SEND_EVIDENCE_SOURCE", "CATALYST_JOURNAL_SHIP_LAG_SECONDS",
             "CATALYST_FROM_EMAIL", "CATALYST_HEALTH_AGED_WAITS_PAGE", "CATALYST_HEALTH_PENDING_AGE_SECONDS")
+    mail_route = ({"/networks/mail", "/services/post-restore", "/services/worker/networks", "/services/worker/secrets",
+                   "/secrets/mail_password"}
+                  | {f"/services/worker/environment/{key}" for key in module.MAIL_ENV})  # 9kg.79
     expected = ({"/name", "/services/egress/volumes", "/volumes/catalyst-effects/external", "/volumes/catalyst-effects/name"}
+                | mail_route
                 | {f"/secrets/{name}/file" for name in module.SECRET_FILES}
                 | {f"/services/{name}/environment/CATALYST_ENV" for name in CATALYST}
                 | {f"/services/{name}/environment/{key}" for name in django for key in live})
@@ -199,3 +203,27 @@ def test_9kg_31_11_production_differs_from_staging_only_in_the_reviewed_inputs()
         pass
     else:
         raise AssertionError("an unknown environment rendered")
+
+
+def test_9kg_79_only_the_worker_and_the_post_restore_step_reach_the_mail_host():
+    module = renderer()
+    production, staging = module.definition("production"), module.definition("staging")
+    services = production["services"]
+    assert production["networks"]["mail"] == {} and "mail" not in staging["networks"]  # staging stays loopback-only
+    on_mail = {name for name, service in services.items() if "mail" in service.get("networks", [])}
+    assert on_mail == {"worker", "post-restore"}
+    for name, service in services.items():
+        holds = {s["source"] for s in service.get("secrets", [])}
+        environment = service.get("environment", {})
+        if name in on_mail:
+            assert "mail_password" in holds and environment["CATALYST_MAIL_HOST"].startswith("${CATALYST_MAIL_HOST:?")
+        else:
+            assert "mail_password" not in holds, name
+            assert not any(key in environment for key in module.MAIL_ENV), name
+    # The post-restore step reads the Sent folder only (the reconcile kind; RD-1) and never holds the administrator
+    # password; `restore`, which does, has no route out.
+    post, restore = services["post-restore"], services["restore"]
+    assert post["environment"]["CATALYST_PROCESS_ROLE"] == "reconcile" and post["profiles"] == ["ops"]
+    assert "admin_password" not in {s["source"] for s in post["secrets"]}
+    assert "admin_password" in {s["source"] for s in restore["secrets"]} and restore["networks"] == ["backend"]
+    assert services["web"]["networks"] == ["backend"] and services["fetcher"]["networks"] == ["backend", "fetch"]

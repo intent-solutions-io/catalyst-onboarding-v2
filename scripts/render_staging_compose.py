@@ -13,6 +13,13 @@ login, the Sent-folder evidence source; 9kg.49), the journal's ship-lag threshol
 the paging values (no defaults), the egress deny list, which the operator supplies instead of the committed synthetic
 one (9kg.39), and the effect journal on an external volume. Starting it on a host is the owner's go.
 
+Production also adds a mail route (9kg.79; 032 section 3.4): a `mail` network that is not internal, joined by the
+worker (SMTP and IMAP, the kinds that may send) and by a `post-restore` service (the reconcile kind, which may read
+the Sent folder and never send), and by no other Catalyst process. The mail host settings, the mailbox login and the
+`mail_password` secret reach those two only. The post-restore step runs there instead of in `restore`, which holds
+the administrator password and so never gets a route out. The host firewall restricts the network's destinations
+to the mail host (9kg.28).
+
 The rules the definition encodes (each pinned by a test):
 - **Secrets are files, never environment.** Each process kind mounts only its own secrets, read-only, under
   /run/secrets (CATALYST_SECRETS_DIR); no `env_file`, and no secret value in any `environment`. The database password
@@ -47,6 +54,14 @@ CADDY = "caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06a
 IMAGE = "${CATALYST_IMAGE:?the attested image digest}"
 SECRET_FILES = ("secret_key", "verification_key", "verification_fallback_keys", "admin_password", "owner_password", "app_password",
                 "retention_password", "backup_password", "fetcher_password")
+PRODUCTION_SECRET_FILES = (*SECRET_FILES, "mail_password")  # 9kg.79: the v2 mailbox, for the worker and post-restore
+# 9kg.79: the mail host settings, given only to the processes on the `mail` network.
+MAIL_ENV = {
+    "CATALYST_MAIL_HOST": "${CATALYST_MAIL_HOST:?the production mail host}",
+    "CATALYST_MAIL_PORT": "${CATALYST_MAIL_PORT:?the mail host's submission port}",
+    "CATALYST_MAIL_USER": "${CATALYST_MAIL_USER:?the v2 mailbox login}",
+    "CATALYST_MAIL_SENT_FOLDER": "${CATALYST_MAIL_SENT_FOLDER:?the v2 mailbox's Sent folder}",
+}
 STAFF_PORT = 8444
 PUBLIC_PORT = 8443
 
@@ -195,6 +210,21 @@ def definition(env: str = "staging") -> dict:
     for service in (backup, restore):
         service["restart"] = "no"
         service["profiles"] = ["ops"]
+    extra = {}
+    if env == "production":
+        # 9kg.79: the worker alone among the long-running processes reaches the mail host.
+        worker["networks"] = ["backend", "mail"]
+        worker["environment"].update(MAIL_ENV)
+        worker["secrets"] = [*worker["secrets"], mount("mail_password")]
+        # The post-restore step (owner-run, the reconcile kind): the Sent-folder read only, never SMTP (RD-1), with the
+        # owner's login and no administrator password; `restore` keeps the administrator password and no route out.
+        post = make(["python", "manage.py", "catalyst_post_restore", "--help"], "catalyst_owner",
+                    [*keys, mount("owner_password", "db_password"), mount("mail_password")], process_role="reconcile",
+                    volumes=["catalyst-custody:/var/lib/catalyst/custody", EFFECTS], networks=("backend", "mail"),
+                    depends={"db": {"condition": "service_healthy"}})
+        post["environment"].update(MAIL_ENV)
+        post["restart"], post["profiles"] = "no", ["ops"]
+        extra["post-restore"] = post
     static = make(["sh", "-c", "cp -a /app/static/. /srv/static/"], "catalyst_app", [],
                       volumes=["catalyst-static:/srv/static"], networks=())
     static["restart"] = "no"
@@ -224,6 +254,7 @@ def definition(env: str = "staging") -> dict:
             "collect-static": static,
             "backup": backup,
             "restore": restore,
+            **extra,
             "web": web,
             "worker": worker,
             "fetcher": fetcher,
@@ -260,14 +291,16 @@ def definition(env: str = "staging") -> dict:
                 "restart": "unless-stopped",
             },
         },
-        "networks": {"backend": {"internal": True}, "fetch": {"internal": True}, "edge": {}, "egress": {}},
+        "networks": {"backend": {"internal": True}, "fetch": {"internal": True}, "edge": {}, "egress": {},
+                     **({"mail": {}} if env == "production" else {})},
         "volumes": {**{name: {} for name in ("catalyst-db", "catalyst-run", "catalyst-static", "catalyst-mail",
                                              "catalyst-backups", "catalyst-custody", "catalyst-effects")},
                     # Production's journal is the restore's evidence: an external volume the operator creates, which
                     # `docker compose down -v` cannot remove (032 section 3.3; review of PR #118).
                     **({"catalyst-effects": {"external": True, "name": "catalyst-production-effects"}}
                        if env == "production" else {})},
-        "secrets": {name: {"file": f"${{CATALYST_{env.upper()}_SECRETS:?}}/{name}"} for name in SECRET_FILES},
+        "secrets": {name: {"file": f"${{CATALYST_{env.upper()}_SECRETS:?}}/{name}"}
+                    for name in (PRODUCTION_SECRET_FILES if env == "production" else SECRET_FILES)},
     }
 
 

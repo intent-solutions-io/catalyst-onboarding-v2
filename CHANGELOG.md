@@ -195,6 +195,10 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   finished by running it again. `--retire-old-key` checks that no key file is still under the old key, then journals
   its retirement, so a remnant of an erased document's wrapped key has no key left that opens it. The next key is
   refused by every process but the owner-run rotation
+- The production mail route (bead `9kg.79`; `026` section 18): in `deploy/production/compose.yaml` the worker and a
+  new owner-run `post-restore` service alone join a non-internal `mail` network and hold the mail host settings and
+  the `mail_password` secret; the post-restore step runs there, so `restore`, which holds the administrator password,
+  never gets a route out. Staging is unchanged
 - Production admitted in code (bead `9kg.31.11`; `026` section 18): the guards admit `production` with every live
   refusal in force (the mail allow-list and pins, the journal ship-lag threshold, custody and backup refused while
   the owner's decisions are open) and keep model advice, evidence fetching, the agreement provider and the

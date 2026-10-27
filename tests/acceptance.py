@@ -1718,6 +1718,9 @@ P6_SUPPORTING = {
         "test_staging_compose::test_9kg_31_11_the_committed_production_file_is_exactly_the_rendering",
         "test_staging_compose::test_9kg_31_11_production_differs_from_staging_only_in_the_reviewed_inputs",
     ],
+    "9kg.79 in production only the worker and the post-restore step have a route to the mail host (026)": [
+        "test_staging_compose::test_9kg_79_only_the_worker_and_the_post_restore_step_reach_the_mail_host",
+    ],
     "9kg.62 every effect a restore cannot undo is classified, and an unclassified one or a new outward module fails (029)": [
         "test_effect_registry::test_9kg62_every_function_with_an_effect_is_registered_and_no_registration_is_stale",
         "test_effect_registry::test_9kg62_each_class_matches_what_the_function_does",
