@@ -182,6 +182,32 @@ def load_deny(path: str) -> tuple:
     return names if len(names) <= DENY_NAMES_LIMIT else ()  # more names than that is malformed
 
 
+def deny_file_state(path: str) -> str:
+    """`loaded` (at least one valid name), `empty` (a readable file of blank lines and comments only) or `broken`
+    (missing, unreadable, oversized, malformed or too long). The health check alone uses it (9kg.78.2): every state
+    but `loaded` already refuses every fetch."""
+    if load_deny(path):
+        return "loaded"
+    try:
+        with open(path, "rb") as handle:
+            raw = handle.read(DENY_FILE_LIMIT + 1)
+        text = raw.decode("ascii")
+    except (OSError, UnicodeDecodeError, TypeError):
+        return "broken"
+    if len(raw) > DENY_FILE_LIMIT:
+        return "broken"
+    return "empty" if all(not line.split("#", 1)[0].strip() for line in text.splitlines()) else "broken"
+
+
+def check(environ=os.environ) -> int:
+    """The container healthcheck: 0 while the deny list as mounted loads, or while it is intentionally empty on a
+    stack that declares fetching disabled (CATALYST_EGRESS_FETCHING=disabled: every fetch is refused, as intended);
+    1 otherwise. It never prints the file or a name."""
+    state = deny_file_state(environ.get("CATALYST_EGRESS_DENY_FILE", ""))
+    disabled = environ.get("CATALYST_EGRESS_FETCHING", "") == "disabled"
+    return 0 if state == "loaded" or (state == "empty" and disabled) else 1
+
+
 def canonical(ip: str) -> str:
     """One spelling per address: the zone dropped and an IPv4-mapped IPv6 address unwrapped, so `::ffff:a.b.c.d`, its
     hex form and `a.b.c.d` compare equal. Anything that is not an address is ""."""
@@ -353,8 +379,7 @@ def serve(listen: str, policy: Policy, limit: int = 16, ready: threading.Event |
 
 
 if __name__ == "__main__" and sys.argv[1:] == ["--check"]:
-    # The container healthcheck: the deny list as mounted now loads (it never prints the file or a name).
-    sys.exit(0 if Policy().deny else 1)
+    sys.exit(check())
 elif __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
     serve(os.environ.get("CATALYST_EGRESS_LISTEN", "0.0.0.0:3128"), Policy())

@@ -520,3 +520,24 @@ def test_9kg39_the_staging_by_address_checks_are_not_run_without_public_dns_neve
     out = subprocess.run(["bash", "-c", harness], env={"PATH": f"{tmp_path}:/usr/bin:/bin"}, capture_output=True,
                          text=True).stdout
     assert out.count("NOT RUN TEST-P6-28") == 2 and "CHECKED" not in out and "fail=0" in out
+
+
+def test_9kg_78_2_an_intentionally_empty_list_is_healthy_only_where_fetching_is_disabled(tmp_path):
+    empty, comments, broken, good = (tmp_path / name for name in ("empty", "comments", "broken", "good"))
+    empty.write_text("")
+    comments.write_text("# fetching is disabled in production\n\n   \n")
+    broken.write_text("prod-a.example.test\n0x7f.0x0.0x0.0x1\n")
+    good.write_text("prod-a.example.test\n")
+    states = {path.name: egress.deny_file_state(str(path)) for path in (empty, comments, broken, good)}
+    assert states == {"empty": "empty", "comments": "empty", "broken": "broken", "good": "loaded"}
+    assert egress.deny_file_state(str(tmp_path / "missing")) == egress.deny_file_state("") == "broken"
+    (tmp_path / "big").write_bytes(b"#" * (egress.DENY_FILE_LIMIT + 1))
+    assert egress.deny_file_state(str(tmp_path / "big")) == "broken"
+    disabled = {"CATALYST_EGRESS_FETCHING": "disabled"}
+    for path, enabled_rc, disabled_rc in ((good, 0, 0), (empty, 1, 0), (comments, 1, 0), (broken, 1, 1),
+                                          (tmp_path / "missing", 1, 1)):
+        assert egress.check({"CATALYST_EGRESS_DENY_FILE": str(path)}) == enabled_rc, path.name
+        assert egress.check({"CATALYST_EGRESS_DENY_FILE": str(path), **disabled}) == disabled_rc, path.name
+    assert egress.check({"CATALYST_EGRESS_DENY_FILE": str(empty), "CATALYST_EGRESS_FETCHING": "Disabled"}) == 1
+    # An empty list still refuses every fetch: the health check changes, the policy does not.
+    assert egress.load_deny(str(empty)) == () and egress.load_deny(str(comments)) == ()

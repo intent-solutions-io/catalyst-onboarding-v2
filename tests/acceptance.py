@@ -1738,6 +1738,10 @@ P6_SUPPORTING = {
     "9kg.79 in production only the worker and the post-restore step have a route to the mail host (026)": [
         "test_staging_compose::test_9kg_79_only_the_worker_and_the_post_restore_step_reach_the_mail_host",
     ],
+    "9kg.78.2 the production stack ships the journal off the host and its egress check passes on an intentionally empty list (026)": [
+        "test_staging_compose::test_9kg_78_2_the_journal_ship_service_reaches_only_the_journal_and_its_destination",
+        "test_egress::test_9kg_78_2_an_intentionally_empty_list_is_healthy_only_where_fetching_is_disabled",
+    ],
     "9kg.62 every effect a restore cannot undo is classified, and an unclassified one or a new outward module fails (029)": [
         "test_effect_registry::test_9kg62_every_function_with_an_effect_is_registered_and_no_registration_is_stale",
         "test_effect_registry::test_9kg62_each_class_matches_what_the_function_does",

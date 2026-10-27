@@ -183,7 +183,8 @@ def _compose_environment(service: str) -> dict:
             "CATALYST_EMAIL_FILE_PATH": None, "CATALYST_ALLOWED_HOSTS": None, "CATALYST_LOCAL_HOSTS": None, **filled}
 
 
-@pytest.mark.parametrize("service", ["web", "worker", "fetcher", "migrate", "backup", "restore", "post-restore"])
+@pytest.mark.parametrize("service", ["web", "worker", "fetcher", "migrate", "backup", "restore", "post-restore",
+                                     "journal-ship"])
 def test_9kg_31_11_each_production_service_starts_with_its_rendered_environment(service):
     environment = _compose_environment(service)
     assert environment["CATALYST_ENV"] == "production"
