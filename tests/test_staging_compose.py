@@ -174,7 +174,7 @@ def test_9kg_31_11_production_differs_from_staging_only_in_the_reviewed_inputs()
             "CATALYST_MAIL_DENIED_USER_SHA256", "CATALYST_SEND_EVIDENCE_SOURCE", "CATALYST_JOURNAL_SHIP_LAG_SECONDS",
             "CATALYST_FROM_EMAIL", "CATALYST_HEALTH_AGED_WAITS_PAGE", "CATALYST_HEALTH_PENDING_AGE_SECONDS")
     mail_route = ({"/networks/mail", "/services/post-restore", "/services/worker/networks", "/services/worker/secrets",
-                   "/secrets/mail_password"}
+                   "/secrets/mail_password", "/services/journal-ship", "/services/egress/environment/CATALYST_EGRESS_FETCHING"}
                   | {f"/services/worker/environment/{key}" for key in module.MAIL_ENV})  # 9kg.79
     expected = ({"/name", "/services/egress/volumes", "/volumes/catalyst-effects/external", "/volumes/catalyst-effects/name"}
                 | mail_route
@@ -227,3 +227,19 @@ def test_9kg_79_only_the_worker_and_the_post_restore_step_reach_the_mail_host():
     assert "admin_password" not in {s["source"] for s in post["secrets"]}
     assert "admin_password" in {s["source"] for s in restore["secrets"]} and restore["networks"] == ["backend"]
     assert services["web"]["networks"] == ["backend"] and services["fetcher"]["networks"] == ["backend", "fetch"]
+
+
+def test_9kg_78_2_the_journal_ship_service_reaches_only_the_journal_and_its_destination():
+    module = renderer()
+    services = module.definition("production")["services"]
+    ship = services["journal-ship"]
+    assert ship["command"] == ["python", "manage.py", "catalyst_journal_ship", "--to", "/var/lib/catalyst/ship"]
+    assert ship["network_mode"] == "none" and "networks" not in ship  # it never connects to anything
+    assert ship["volumes"] == ["catalyst-effects:/var/lib/catalyst/effects",
+                               "${CATALYST_JOURNAL_SHIP_DIR:?the off-host journal destination}:/var/lib/catalyst/ship"]
+    assert {s["source"] for s in ship["secrets"]} == {"secret_key", "verification_key", "verification_fallback_keys",
+                                                      "fetcher_password"}  # the least-privileged login, never used
+    assert ship["profiles"] == ["ops"] and ship["restart"] == "no"
+    assert services["egress"]["environment"]["CATALYST_EGRESS_FETCHING"] == "disabled"
+    staging = module.definition("staging")["services"]
+    assert "journal-ship" not in staging and "CATALYST_EGRESS_FETCHING" not in staging["egress"]["environment"]
