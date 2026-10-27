@@ -362,8 +362,11 @@ screen shows its age (`9kg.41`); the stage, item and pause classes are counted b
     `correspondence.transport`; the review supersedes every live link they carry (`close_outstanding_links`);
   - an envelope created after the backup for an agreement the restored database does not hold was read by
     nothing, so a restore could send the signer a second envelope. Built 2026-10-27 (`9kg.76`): the envelope read
-    lists each Catalyst template back to an hour before the backup's start and opens a `restore_effect_envelope` item
-    for each Catalyst-keyed envelope no restored row names; a listing cut short by the page limit refuses the lift;
+    lists the team's documents from every template back to an hour before the backup's start and opens a
+    `restore_effect_envelope` item, keyed by the envelope id, for each Catalyst-keyed envelope no restored row names.
+    The listing fails closed: it ends only on a short page or past the floor, checks that creation times never
+    increase, and a page limit reached, an order not kept or an unconfigured provider where agreements were used
+    refuses the lift;
   - a restrictive `prepare` that cannot be written does not stop its effect: the failure is logged, counted and
     refused at readiness; only the erasure and custody records refuse their effect.
 - **Custody** (`9kg.34`, built 2026-10-24; section 6.2.2 and `026` section 16): every custody document is sealed

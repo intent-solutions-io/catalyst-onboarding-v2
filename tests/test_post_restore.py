@@ -737,11 +737,11 @@ def test_9kg_33_provider_reads_report_moved_envelopes_and_unexpected_mailboxes_o
 
     opener = step.EffectOpener(None)
     app, request = approved(pv, monkeypatch)
-    assert agreements_restore.read_envelopes(None, opener) == {"status": "ok", "checked": 2, "items": 0, "unknown": 0}
+    assert agreements_restore.read_envelopes(None, opener) == {"status": "ok", "checked": 2, "items": 0, "unknown": 0, "unknown_envelopes": []}
     assert provisioning_restore.read_mailboxes(opener) == {"status": "ok", "checked": 1, "items": 0}
     instance = nda(app)
     pv.fake.envelopes[instance.envelope_id]["status"] = "CANCELLED"  # cancelled at the provider after the backup
-    assert agreements_restore.read_envelopes(None, opener) == {"status": "ok", "checked": 2, "items": 1, "unknown": 0}
+    assert agreements_restore.read_envelopes(None, opener) == {"status": "ok", "checked": 2, "items": 1, "unknown": 0, "unknown_envelopes": []}
     [item] = StaffItem.objects.filter(reason_code="restore_effect_envelope", status="open")
     assert item.application == app and item.dedupe_key == f"agreement:{instance.public_id}"
     assert agreements_restore.read_envelopes(None, opener)["items"] == 0  # already open: opened once
@@ -759,7 +759,7 @@ def test_9kg_33_provider_reads_report_moved_envelopes_and_unexpected_mailboxes_o
 
     resolve_item(item, code="owner_resolved_after_restore", actor_ref="owner:catalyst_post_restore", note="Settled on the screen.")
     later = step.EffectOpener(timezone.now() - timedelta(hours=1))
-    assert agreements_restore.read_envelopes(None, later) == {"status": "ok", "checked": 2, "items": 0, "unknown": 0}
+    assert agreements_restore.read_envelopes(None, later) == {"status": "ok", "checked": 2, "items": 0, "unknown": 0, "unknown_envelopes": []}
     assert not StaffItem.objects.filter(reason_code="restore_effect_envelope", status="open").exists()
 
 
@@ -774,7 +774,6 @@ def _late_envelope(pv, instance, external_id, email=None):
 
 
 def test_9kg_76_an_envelope_created_for_an_agreement_the_restore_dropped_opens_an_item(pv, monkeypatch):
-    import hashlib
     import secrets
 
     from agreements import restore as agreements_restore
@@ -786,14 +785,16 @@ def test_9kg_76_an_envelope_created_for_an_agreement_the_restore_dropped_opens_a
     # Not Catalyst's (another writer's key shape) and Catalyst's own restored keys are never reported.
     _late_envelope(pv, instance, "legacy-envelope-key")
     _late_envelope(pv, instance, instance.external_key)
-    assert agreements_restore.read_envelopes(None, opener) == {"status": "ok", "checked": 2, "items": 0, "unknown": 0}
+    assert agreements_restore.read_envelopes(None, opener) == {
+        "status": "ok", "checked": 2, "items": 0, "unknown": 0, "unknown_envelopes": []}
     late = _late_envelope(pv, instance, f"ag_{secrets.token_hex(16)}")  # its instance was created after the backup
-    assert agreements_restore.read_envelopes(None, opener) == {"status": "ok", "checked": 2, "items": 1, "unknown": 1}
-    digest = hashlib.sha256(late["id"].encode()).hexdigest()[:32]
-    [item] = StaffItem.objects.filter(reason_code="restore_effect_envelope", dedupe_key=f"unknown_envelope:{digest}")
+    assert agreements_restore.read_envelopes(None, opener) == {
+        "status": "ok", "checked": 2, "items": 1, "unknown": 1, "unknown_envelopes": [late["id"]]}
+    # Keyed by the envelope id, so the owner can look it up at Documenso (review of PR #119); never an address.
+    [item] = StaffItem.objects.filter(reason_code="restore_effect_envelope", dedupe_key=f"unknown_envelope:{late['id']}")
     assert item.application == app  # the signer is this applicant's verified address
     [event] = ApplicationEvent.objects.filter(application=app, kind="restore_effect_unknown_envelope")
-    assert event.data == {"envelope_id_sha256": digest} and late["id"] not in json.dumps(event.data)
+    assert event.data == {"envelope_id": late["id"]} and "@" not in json.dumps(event.data)
     again = agreements_restore.read_envelopes(None, opener)
     assert again["unknown"] == 1 and again["items"] == 0  # opened once
     # An envelope from before the backup's start (less the hour's margin) is the backup's own business, not an effect.
@@ -801,11 +802,15 @@ def test_9kg_76_an_envelope_created_for_an_agreement_the_restore_dropped_opens_a
     # A signer who is no applicant: the item opens without an application.
     stranger = _late_envelope(pv, instance, f"ag_{secrets.token_hex(16)}", email="stranger@example.test")
     assert agreements_restore.read_envelopes(None, opener)["items"] == 1
-    digest = hashlib.sha256(stranger["id"].encode()).hexdigest()[:32]
-    assert StaffItem.objects.get(dedupe_key=f"unknown_envelope:{digest}").application is None
+    assert StaffItem.objects.get(dedupe_key=f"unknown_envelope:{stranger['id']}").application is None
+    # A template the restored tables do not know (approved after the backup) is listed too: the listing is team-wide.
+    ref, _, slots = pv.fake.template(ref="envelope_template_new", number=999, slot=7999)
+    newer = pv.fake.add_envelope(template_ref=ref, external_id=f"ag_{secrets.token_hex(16)}",
+                                 recipients=[{"id": 7999, "email": "stranger@example.test"}], status="DRAFT")
+    assert newer["id"] in agreements_restore.read_envelopes(None, opener)["unknown_envelopes"]
 
 
-def test_9kg_76_a_listing_cut_short_by_the_page_limit_refuses_the_lift(pv, monkeypatch, settings):
+def test_9kg_76_the_listing_fails_closed(pv, monkeypatch, settings):
     import secrets
 
     from agreements import restore as agreements_restore
@@ -813,23 +818,42 @@ def test_9kg_76_a_listing_cut_short_by_the_page_limit_refuses_the_lift(pv, monke
     opener = step.EffectOpener(None)
     app, _ = approved(pv, monkeypatch)
     instance = nda(app)
-    for _ in range(3):
-        _late_envelope(pv, instance, f"ag_{secrets.token_hex(16)}")
+    late = [_late_envelope(pv, instance, f"ag_{secrets.token_hex(16)}")["id"] for _ in range(3)]
     settings.CATALYST_AGREEMENT_LIST_PAGE_SIZE, settings.CATALYST_AGREEMENT_LIST_PAGES = 1, 2
     result = agreements_restore.read_envelopes(None, opener)
     assert result["status"] == "incomplete:listing_limit" and result["unknown"] == 2  # what it saw is still reported
-    settings.CATALYST_AGREEMENT_LIST_PAGES = 10
+    settings.CATALYST_AGREEMENT_LIST_PAGES = 20
     assert agreements_restore.read_envelopes(None, opener)["status"] == "ok"
+    # A provider that omits the page count: the listing ends only on a short page, so nothing is skipped.
+    pv.fake.list_omit_total_pages = True
+    result = agreements_restore.read_envelopes(None, opener)
+    assert result["status"] == "ok" and set(late) <= set(result["unknown_envelopes"])
+    pv.fake.list_omit_total_pages = False
+    # A provider that ignores the requested order: the floor would prove nothing, so the listing is incomplete.
+    pv.fake.list_ascending = True
+    settings.CATALYST_AGREEMENT_LIST_PAGE_SIZE = 100
+    assert agreements_restore.read_envelopes(timezone.now() - timedelta(minutes=1), opener)["status"] == "incomplete:listing_order"
+    pv.fake.list_ascending = False
     pv.fake.fault("GET /envelope", ("drop_before",))
     assert agreements_restore.read_envelopes(None, opener)["status"].startswith("unreachable:")
 
 
-def test_9kg_76_no_provider_and_nothing_to_read_is_not_a_refusal(ready, settings):
+def test_9kg_76_no_provider_passes_only_where_agreements_were_never_used(ready, settings):
     from agreements import restore as agreements_restore
+    from agreements.models import AgreementTemplateVersion
 
     settings.CATALYST_AGREEMENT_PROVIDER_URL = ""
+    assert not AgreementTemplateVersion.objects.exists()
     assert agreements_restore.read_envelopes(None, step.EffectOpener(None)) == {
-        "status": "ok", "checked": 0, "items": 0, "unknown": 0}
+        "status": "ok", "checked": 0, "items": 0, "unknown": 0, "unknown_envelopes": []}
+
+
+def test_9kg_76_no_provider_refuses_once_agreements_were_used(pv, monkeypatch, settings):
+    from agreements import restore as agreements_restore
+
+    approved(pv, monkeypatch)
+    settings.CATALYST_AGREEMENT_PROVIDER_URL = ""
+    assert agreements_restore.read_envelopes(None, step.EffectOpener(None))["status"] == "not_configured"
 
 
 def test_9kg_33_the_post_restore_step_runs_as_the_reconcile_kind_and_never_as_a_sender(p2, tmp_path):

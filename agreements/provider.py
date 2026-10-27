@@ -323,6 +323,17 @@ def find(template_number: int, page: int) -> tuple[list[Envelope], int]:
     return [envelope(e) for e in data["data"]], pages if isinstance(pages, int) and not isinstance(pages, bool) else 1
 
 
+def find_recent(page: int) -> list[Envelope]:
+    """One page of the team's documents, newest first, from every template (9kg.76: the post-restore listing). The page
+    count is not returned: a caller that must be complete stops only on a short page or on a date it can check."""
+    query = {"type": "DOCUMENT", "orderByColumn": "createdAt", "orderByDirection": "desc", "page": page,
+             "perPage": settings.CATALYST_AGREEMENT_LIST_PAGE_SIZE}
+    data = _json(exchange("GET", "/envelope", query=query))
+    if not isinstance(data, dict) or not isinstance(data.get("data"), list):
+        raise ProviderError("response_unreadable", sent=True, status=200)
+    return [envelope(e) for e in data["data"]]
+
+
 def cancel(envelope_id: str) -> None:
     body = json.dumps({"envelopeId": envelope_id, "reason": CANCEL_REASON}).encode()
     exchange("POST", "/envelope/cancel", body=body, content_type="application/json")
