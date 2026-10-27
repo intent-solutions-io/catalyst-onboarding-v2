@@ -48,7 +48,7 @@ PRODUCTION = {
     "CATALYST_MAIL_USER_SHA256": __import__("hashlib").sha256(b"v2-synthetic@example.test").hexdigest(),
     "CATALYST_MAIL_DENIED_USER_SHA256": __import__("hashlib").sha256(b"legacy-synthetic@example.test").hexdigest(),
     "CATALYST_SEND_EVIDENCE_SOURCE": "correspondence.sent_reader.SentFolderSource",
-    "CATALYST_JOURNAL_SHIP_LAG_SECONDS": "900",
+    "CATALYST_JOURNAL_SHIP_LAG_SECONDS": "900", "CATALYST_FROM_EMAIL": "onboarding@catalyst-v2.example.test",
 }
 WSGI = [sys.executable, "-c", "import config.wsgi"]
 
@@ -92,7 +92,7 @@ def test_9kg_31_11_production_starts_only_fully_configured():
     assert bare.returncode != 0 and "is not allowed; use one of" not in bare.stderr
     for expected in ("CATALYST_SECRETS_DIR must be an absolute path", "CATALYST_STAFF_HOST is required",
                      "must name the production mail host", "must pin the v2 mailbox login",
-                     "must be https on the dedicated v2 host name"):
+                     "must be exactly https://<the dedicated v2 host name>"):
         assert expected in bare.stderr, expected
 
 
@@ -117,8 +117,11 @@ def test_9kg_31_11_production_refuses_each_missing_setting_by_name(name, message
     ({"CATALYST_SECRETS_DIR": __import__("tempfile").mkdtemp(prefix="catalyst-empty-secrets-")},
      "secret CATALYST_SECRET_KEY is missing from CATALYST_SECRETS_DIR"),
     ({"CATALYST_PUBLIC_BASE_URL": "https://learn.intentsolutions.io"}, "GATE-CUTOVER"),
-    ({"CATALYST_ALLOWED_HOSTS": "*"}, "wildcard"),
+    ({"CATALYST_ALLOWED_HOSTS": "*"}, "ALLOWED_HOSTS may hold only"),
+    ({"CATALYST_PUBLIC_BASE_URL": "https://learn.intentsolutions.io\\@catalyst-v2.example.test"}, "must be exactly https://"),
     ({"CATALYST_EMAIL_BACKEND": "django.core.mail.backends.console.EmailBackend"}, "console mail backend is not allowed in production"),
+    ({"CATALYST_EMAIL_BACKEND": "django.core.mail.backends.filebased.EmailBackend"}, "EMAIL_BACKEND must be config.mail.RefusingEmailBackend"),
+    ({"CATALYST_FROM_EMAIL": None}, "CATALYST_FROM_EMAIL must be the v2 sender address"),
     ({"CATALYST_EMAIL_BACKEND": "django.core.mail.backends.smtp.EmailBackend"}, "not a local sink backend"),
     ({"CATALYST_ASSESSMENT_MODEL": "test"}, "CATALYST_ASSESSMENT_MODEL may not be set from the environment"),
     ({"MINIMAX_API_KEY": "synthetic-not-a-key"}, "MINIMAX_API_KEY"),
@@ -139,6 +142,52 @@ def test_required_setting_missing_refuses_to_start(missing):
     assert f"environment variable {missing} is required" in result.stderr
 
 
+# Release-operations review of PR #118: the hand-built PRODUCTION dict above is not the compose file. Each Django
+# service of deploy/production/compose.yaml starts with its own rendered environment, the host's inputs filled in.
+COMPOSE_INPUTS = {
+    "CATALYST_PUBLIC_HOST": "catalyst-v2.example.test", "CATALYST_STAFF_HOST": "staff-v2.example.test",
+    "CATALYST_CHALLENGE_LIFETIME_SECONDS": "3600", "CATALYST_MAIL_ALLOWED_HOSTS": "mail.example.test",
+    "CATALYST_MAIL_USER_SHA256": PRODUCTION["CATALYST_MAIL_USER_SHA256"],
+    "CATALYST_MAIL_DENIED_USER_SHA256": PRODUCTION["CATALYST_MAIL_DENIED_USER_SHA256"],
+    "CATALYST_JOURNAL_SHIP_LAG_SECONDS": "900", "CATALYST_FROM_EMAIL": "onboarding@catalyst-v2.example.test",
+    "CATALYST_HEALTH_AGED_WAITS_PAGE": "replies_awaiting_processing", "CATALYST_HEALTH_PENDING_AGE_SECONDS": "3600",
+}
+
+
+def _compose_environment(service: str) -> dict:
+    import json
+    import re
+
+    text = (ROOT / "deploy" / "production" / "compose.yaml").read_text()
+    environment = json.loads(text.split("\n", 2)[2])["services"][service]["environment"]
+
+    def fill(value: str) -> str:
+        def one(match):
+            name, default = match.group(1), match.group(3)
+            if name in COMPOSE_INPUTS:
+                return COMPOSE_INPUTS[name]
+            assert default is not None, f"{service}: no input for required {name}"
+            return default
+        return re.sub(r"\$\{(\w+)(:\?[^}]*|:-([^}]*))?\}", one, value)
+
+    filled = {name: fill(value) for name, value in environment.items()}
+    # The host mounts: the secret files at /run/secrets and the journal volume, stood in for by local directories.
+    filled["CATALYST_SECRETS_DIR"] = STAGING_SECRETS
+    if filled["CATALYST_EFFECT_JOURNAL_DIR"] == "/var/lib/catalyst/effects":
+        filled["CATALYST_EFFECT_JOURNAL_DIR"] = PRODUCTION["CATALYST_EFFECT_JOURNAL_DIR"]
+    # Nothing the test process carries may leak in: the compose environment is the whole configuration.
+    return {**{name: None for name, value in PRODUCTION.items() if value is None}, "CATALYST_EMAIL_BACKEND": None,
+            "CATALYST_EMAIL_FILE_PATH": None, "CATALYST_ALLOWED_HOSTS": None, "CATALYST_LOCAL_HOSTS": None, **filled}
+
+
+@pytest.mark.parametrize("service", ["web", "worker", "fetcher", "migrate", "backup", "restore"])
+def test_9kg_31_11_each_production_service_starts_with_its_rendered_environment(service):
+    environment = _compose_environment(service)
+    assert environment["CATALYST_ENV"] == "production"
+    result = run(CHECK, **environment)
+    assert result.returncode == 0, result.stderr
+
+
 def test_unreachable_database_fails_loudly_when_a_command_needs_it():
     # `manage.py check --database default` opened no connection here and exited 0 with the database
     # unreachable, so it is not a readiness probe. A command that must read the database fails clearly.
@@ -149,7 +198,8 @@ def test_unreachable_database_fails_loudly_when_a_command_needs_it():
 
 @pytest.mark.parametrize(
     ("environment", "backend"),
-    [("test", "locmem"), ("development", "console"), ("staging", "filebased"), ("production", "filebased")],
+    [("test", "django.core.mail.backends.locmem.EmailBackend"), ("development", "django.core.mail.backends.console.EmailBackend"),
+     ("staging", "django.core.mail.backends.filebased.EmailBackend"), ("production", "config.mail.RefusingEmailBackend")],
 )
 def test_configured_default_mail_backend_is_a_local_sink(environment, backend):
     probe = "from django.conf import settings; print(settings.EMAIL_BACKEND)"
@@ -159,7 +209,7 @@ def test_configured_default_mail_backend_is_a_local_sink(environment, backend):
         **{**extra, "CATALYST_ENV": environment, "CATALYST_EMAIL_BACKEND": None},
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == f"django.core.mail.backends.{backend}.EmailBackend"
+    assert result.stdout.strip() == backend
 
 
 def test_image_digests_match_between_compose_and_ci():

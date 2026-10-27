@@ -22,8 +22,9 @@ SECRET_ENV_NAMES = ("CATALYST_SECRET_KEY", "CATALYST_VERIFICATION_KEY", "CATALYS
 # Environments Catalyst may run in. `staging` (026 P6-D-2, D-49) is synthetic like `test`: the same fakes under the
 # same strict rules, never a real provider. `production` (9kg.31.11, 026 section 18) is admitted in code with every
 # live refusal in force: it may start, but it reaches no provider the guards below do not name, holds no model, no
-# evidence fetching, no agreement provider and no provisioning adapter, and backs up, stores custody or serves a
-# wording only once the owner's decisions are recorded. Starting it on a host is a separate, owner-approved act.
+# fetchable evidence host (the fetcher runs and refuses every host), no agreement provider and no provisioning adapter,
+# and backs up, stores custody or serves a wording only once the owner's decisions are recorded. Starting it on a host
+# is a separate, owner-approved act.
 ALLOWED_ENVIRONMENTS = frozenset({"development", "test", "staging", "production"})
 # Environments that are deployments: secrets from files, https behind the proxy, a journal, a staff host.
 DEPLOYED_ENVIRONMENTS = frozenset({"staging", "production"})
@@ -45,11 +46,15 @@ DRAFT_WORDING_ENVIRONMENTS = frozenset({"development", "test", "staging"})
 def draft_wording_allowed(environment: str) -> bool:
     return environment in DRAFT_WORDING_ENVIRONMENTS
 
+# 9kg.31.11: production's Django mailer. It refuses every message, so the three mails it would send (confirmation, setup,
+# withdrawal) fail visibly instead of landing in a file with live links or reporting a delivery that did not happen.
+REFUSING_EMAIL_BACKEND = "config.mail.RefusingEmailBackend"
 # Mail backends that never leave the process or the local disk.
 SINK_EMAIL_BACKENDS = frozenset({
     "django.core.mail.backends.locmem.EmailBackend",
     "django.core.mail.backends.console.EmailBackend",
     "django.core.mail.backends.filebased.EmailBackend",
+    REFUSING_EMAIL_BACKEND,
 })
 
 # Catalyst's own providers (D-04 to D-08): any variable with these prefixes is refused.
@@ -91,7 +96,7 @@ def provider_problems(email_backend: str, environ: Mapping[str, str]) -> list[st
     """In every allowed environment, production included, Django's mailer is a local sink and no provider credential
     is in the environment (REQ-022, D-10). Applicant mail in production leaves only through `correspondence.transport`
     to an allow-listed host (mail_problems); the mails Django's mailer sends (the contact confirmation, the password
-    setup and the withdrawal link) reach the file sink until their live path is built (9kg.77)."""
+    setup and the withdrawal link) are refused in production until their live path is built (9kg.77)."""
     problems = []
     if email_backend not in SINK_EMAIL_BACKENDS:
         problems.append(f"EMAIL_BACKEND {email_backend!r} is not a local sink backend")
@@ -433,31 +438,56 @@ def _production_host(host: str) -> bool:
     return any(host == domain or host.endswith("." + domain) for domain in PRODUCTION_DOMAINS)
 
 
+def _live_host(host: str) -> bool:
+    """A plain lower-case DNS name with a letter in its last label: no port, no wildcard, no address, no look-alike."""
+    return host.isascii() and bool(HOST_NAME.fullmatch(host)) and not is_loopback_literal(host)
+
+
 def live_problems(settings) -> list[str]:
-    """9kg.31.11 (029 sections 4.1, 7 and 13; the owner directive of 2026-10-26): the rails a live environment adds.
-    Intake stays invitation-only (open intake is the public cutover, separately authorized); the public base URL is
-    https on a named host; and neither it, the staff host nor ALLOWED_HOSTS may be a wildcard or the learning site's
-    host (the pilot runs on a dedicated v2 host name)."""
+    """9kg.31.11 (029 sections 4.1, 7 and 13; the owner directive of 2026-10-26): the rails a live environment adds,
+    failing closed (security review of PR #118: a deny-list of bad hosts let `\\@`, percent-encoding and ports past).
+
+    - Intake stays invitation-only: open intake is the public cutover, separately authorized.
+    - The public base URL is exactly `https://<host>`: no user part, port, path, query or fragment, and nothing a
+      browser could read differently from Python (a backslash, a percent sign, white space).
+    - The public host and the staff host are distinct plain DNS names, never the learning site's host, the apex of
+      a production domain or its `www` name (the pilot runs on a dedicated v2 host; moving Learn is GATE-CUTOVER).
+    - ALLOWED_HOSTS is exactly those two plus CATALYST_LOCAL_HOSTS, so nothing else is answered for.
+    - Django's own mailer refuses (REFUSING_EMAIL_BACKEND) until its live path is built (9kg.77), and the sender
+      address is a real one, never the synthetic default."""
     if getattr(settings, "CATALYST_ENV", "") not in LIVE_ENVIRONMENTS:
         return []
     problems = []
     if getattr(settings, "CATALYST_INTAKE_MODE", None) != "invitation":
         problems.append("CATALYST_INTAKE_MODE must be 'invitation' in a live environment (open intake is the public cutover)")
-    base = getattr(settings, "CATALYST_PUBLIC_BASE_URL", "") or ""
-    public = (urlsplit(base).hostname or "") if base.startswith("https://") else ""
-    if not public:
-        problems.append("CATALYST_PUBLIC_BASE_URL must be https on the dedicated v2 host name in a live environment")
-    hosts = [public, getattr(settings, "CATALYST_STAFF_HOST", "") or "", *(getattr(settings, "ALLOWED_HOSTS", []) or [])]
-    for host in hosts:
-        raw = host.strip().lower()
-        name = raw.rstrip(".")
-        if not raw:
-            continue
-        if raw in ("*", ".") or raw.startswith(".") or not raw.isascii():
-            problems.append(f"a live environment may not answer for {host!r} (a wildcard, a domain pattern or a look-alike)")
-        elif any(name == learn or name.endswith("." + learn) for learn in LEARN_HOSTS):
-            problems.append(f"a live environment may not answer for or link to {host!r}: the pilot runs on the dedicated "
-                            "v2 host (moving Learn is GATE-CUTOVER)")
+    base = str(getattr(settings, "CATALYST_PUBLIC_BASE_URL", "") or "")
+    match = re.fullmatch(r"https://([^/?#@\\%\s:]+)", base)
+    public = match.group(1) if match else ""
+    if not match or not _live_host(public):
+        problems.append("CATALYST_PUBLIC_BASE_URL must be exactly https://<the dedicated v2 host name> in a live environment")
+    staff = str(getattr(settings, "CATALYST_STAFF_HOST", "") or "")
+    if staff and not _live_host(staff):
+        problems.append("CATALYST_STAFF_HOST must be a plain lower-case host name in a live environment")
+    if public and staff and public == staff:
+        problems.append("CATALYST_STAFF_HOST must differ from the public host")
+    for name, host in (("CATALYST_PUBLIC_BASE_URL", public), ("CATALYST_STAFF_HOST", staff)):
+        if any(host == learn or host.endswith("." + learn) for learn in LEARN_HOSTS):
+            problems.append(f"{name} may not be the learning site's host: the pilot runs on the dedicated v2 host "
+                            "(moving Learn is GATE-CUTOVER)")
+        elif host in PRODUCTION_DOMAINS or any(host == f"www.{domain}" for domain in PRODUCTION_DOMAINS):
+            problems.append(f"{name} may not be a production domain's apex or www name (a dedicated v2 host only)")
+    local = [str(h) for h in (getattr(settings, "CATALYST_LOCAL_HOSTS", []) or [])]
+    expected = {h for h in (public, staff, *local) if h}
+    extra = sorted(h for h in (getattr(settings, "ALLOWED_HOSTS", []) or []) if h not in expected)
+    if extra:
+        problems.append(f"ALLOWED_HOSTS may hold only the public, staff and local hosts in a live environment, not {extra}")
+    if getattr(settings, "EMAIL_BACKEND", "") != REFUSING_EMAIL_BACKEND:
+        problems.append(f"EMAIL_BACKEND must be {REFUSING_EMAIL_BACKEND} in a live environment until Django's mails "
+                        "have their live path (9kg.77)")
+    sender = str(getattr(settings, "DEFAULT_FROM_EMAIL", "") or "").lower()
+    domain = sender.rpartition("@")[2]
+    if not domain or not _live_host(domain) or domain.endswith((".invalid", ".example")) or domain.startswith("example."):
+        problems.append("CATALYST_FROM_EMAIL must be the v2 sender address in a live environment, not a synthetic one")
     return problems
 
 

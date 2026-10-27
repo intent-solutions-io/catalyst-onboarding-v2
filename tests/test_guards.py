@@ -70,7 +70,7 @@ def test_all_problems_combines_every_rule():
                      "must be the Sent-folder reader", "CATALYST_STAFF_HOST is required",
                      "CATALYST_WORKER_HEARTBEAT_FILE must be", "CATALYST_SECRETS_DIR must be",
                      "CATALYST_EFFECT_JOURNAL_DIR must be", "must be 'invitation' in a live environment",
-                     "must be https on the dedicated v2 host name"):
+                     "must be exactly https://<the dedicated v2 host name>"):
         assert any(expected in p for p in problems), expected
     assert not any("is not allowed; use one of" in p for p in problems)
 
@@ -371,7 +371,8 @@ def production(**overrides):
     values = dict(CATALYST_ENV="production", CATALYST_INTAKE_MODE="invitation",
                   CATALYST_PUBLIC_BASE_URL="https://catalyst-v2.example.test", CATALYST_STAFF_HOST="staff-v2.example.test",
                   ALLOWED_HOSTS=["catalyst-v2.example.test", "staff-v2.example.test", "localhost"],
-                  EMAIL_BACKEND="django.core.mail.backends.filebased.EmailBackend", EMAIL_FILE_PATH="/var/lib/catalyst/mail")
+                  CATALYST_LOCAL_HOSTS=["localhost"], EMAIL_BACKEND=guards.REFUSING_EMAIL_BACKEND,
+                  EMAIL_FILE_PATH="/var/lib/catalyst/mail", DEFAULT_FROM_EMAIL="onboarding@catalyst-v2.example.test")
     return SimpleNamespace(**{**values, **overrides})
 
 
@@ -410,27 +411,57 @@ def test_9kg_31_11_production_keeps_model_advice_fetching_agreements_and_provisi
 def test_9kg_31_11_production_runs_invitation_only_on_its_own_host():
     assert guards.live_problems(production()) == []
     assert any("must be 'invitation'" in p for p in guards.live_problems(production(CATALYST_INTAKE_MODE="open")))
-    for base in ("", "http://catalyst-v2.example.test", "https://"):
-        assert any("must be https on the dedicated v2 host" in p
+    # Fail closed (security review of PR #118): exactly https://<host>, nothing a browser could read differently.
+    for base in ("", "http://catalyst-v2.example.test", "https://", "https://catalyst-v2.example.test/",
+                 "https://catalyst-v2.example.test:443", "https://u@catalyst-v2.example.test",
+                 "https://learn.intentsolutions.io\\@catalyst-v2.example.test", "https://learn%2eintentsolutions.io",
+                 "https://catalyst-v2.example.test ", "https://Catalyst-v2.example.test", "https://127.0.0.1",
+                 "https://*.example.test", "https://catalyst-v2.example.test?x", "https://catalyst-v2.example.test#x"):
+        assert any("must be exactly https://" in p
                    for p in guards.live_problems(production(CATALYST_PUBLIC_BASE_URL=base))), base
-    for learn in ("learn.intentsolutions.io", "LEARN.intentsolutions.io.", "x.learn.intentsolutions.io"):
-        for field in ("CATALYST_PUBLIC_BASE_URL", "CATALYST_STAFF_HOST", "ALLOWED_HOSTS"):
-            value = {"CATALYST_PUBLIC_BASE_URL": f"https://{learn}", "CATALYST_STAFF_HOST": learn,
-                     "ALLOWED_HOSTS": ["catalyst-v2.example.test", learn]}[field]
-            assert any("GATE-CUTOVER" in p for p in guards.live_problems(production(**{field: value}))), (learn, field)
-    for wild in ("*", ".", ".example.test", "cat\u2024alyst.example.test"):
-        assert any("wildcard" in p for p in guards.live_problems(production(ALLOWED_HOSTS=[wild]))), wild
+    for host in ("learn.intentsolutions.io", "x.learn.intentsolutions.io"):
+        assert any("GATE-CUTOVER" in p for p in guards.live_problems(production(CATALYST_PUBLIC_BASE_URL=f"https://{host}")))
+        assert any("GATE-CUTOVER" in p for p in guards.live_problems(production(CATALYST_STAFF_HOST=host)))
+    for host in ("intentsolutions.io", "www.intentsolutions.io"):
+        assert any("apex or www" in p for p in guards.live_problems(production(CATALYST_PUBLIC_BASE_URL=f"https://{host}")))
+    for staff in ("LEARN.intentsolutions.io.", "staff-v2.example.test:443", "*", ".example.test", "*.", "127.0.0.1"):
+        assert any("CATALYST_STAFF_HOST must be a plain" in p for p in guards.live_problems(production(CATALYST_STAFF_HOST=staff))), staff
+    assert any("must differ from the public host" in p
+               for p in guards.live_problems(production(CATALYST_STAFF_HOST="catalyst-v2.example.test")))
+    # ALLOWED_HOSTS is exactly the public, staff and local hosts: anything else is refused by name.
+    for extra in ("*", ".example.test", "learn.intentsolutions.io", "learn.intentsolutions.io:443", "other.example.test"):
+        hosts = ["catalyst-v2.example.test", "staff-v2.example.test", "localhost", extra]
+        assert any("ALLOWED_HOSTS may hold only" in p and repr(extra) in p
+                   for p in guards.live_problems(production(ALLOWED_HOSTS=hosts))), extra
     # Staging is not a live environment: these rails are production's own (staging has its own host rules).
     assert guards.live_problems(SimpleNamespace(CATALYST_ENV="staging", CATALYST_INTAKE_MODE="open")) == []
 
 
-def test_9kg_31_11_production_never_prints_mail_and_keeps_its_sink_private():
+def test_9kg_31_11_production_refuses_django_mail_and_never_prints_it():
+    # Security review of PR #118: a file sink would keep live links and addresses on disk and report a delivery that
+    # never happened, so production's Django mailer refuses (9kg.77 builds the live path).
+    for backend in ("django.core.mail.backends.filebased.EmailBackend", "django.core.mail.backends.locmem.EmailBackend"):
+        assert any("EMAIL_BACKEND must be config.mail.RefusingEmailBackend" in p
+                   for p in guards.live_problems(production(EMAIL_BACKEND=backend))), backend
     console = production(EMAIL_BACKEND="django.core.mail.backends.console.EmailBackend")
     console.CATALYST_MAIL_TLS, console.CATALYST_MAIL_HOST = "starttls", ""
     assert any("console mail backend is not allowed in production" in p for p in guards.mail_problems(console))
-    relative = production(EMAIL_FILE_PATH="mail")
-    relative.CATALYST_MAIL_TLS, relative.CATALYST_MAIL_HOST = "starttls", ""
-    assert any("production's file mail sink needs an absolute EMAIL_FILE_PATH" in p for p in guards.mail_problems(relative))
+    for sender in ("onboarding@example.invalid", "", "onboarding", "a@example.com", "a@x.example", "a@127.0.0.1"):
+        assert any("CATALYST_FROM_EMAIL must be the v2 sender" in p
+                   for p in guards.live_problems(production(DEFAULT_FROM_EMAIL=sender))), sender
+    assert guards.REFUSING_EMAIL_BACKEND in guards.SINK_EMAIL_BACKENDS  # it never leaves the process
+
+
+def test_9kg_31_11_the_refusing_backend_refuses_every_message_and_writes_nothing():
+    from django.core.mail import EmailMessage, get_connection
+
+    from config import mail
+
+    connection = get_connection(guards.REFUSING_EMAIL_BACKEND)
+    assert connection.send_messages([]) == 0
+    with pytest.raises(mail.MailRefused, match="django_mail_has_no_live_path"):
+        EmailMessage(subject="s", body="https://link.example.test/secret-token", to=["a@example.test"],
+                     connection=connection).send(fail_silently=False)
 
 
 def test_9kg_31_11_production_is_a_deployment_for_every_deployment_rule():

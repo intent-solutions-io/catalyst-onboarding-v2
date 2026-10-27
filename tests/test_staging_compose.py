@@ -171,8 +171,9 @@ def test_9kg_31_11_production_differs_from_staging_only_in_the_reviewed_inputs()
     staging, production = module.definition("staging"), module.definition("production")
     django = ("web", "worker", "fetcher", "migrate", "backup", "restore")  # the processes that load the settings
     live = ("CATALYST_CHALLENGE_LIFETIME_SECONDS", "CATALYST_MAIL_ALLOWED_HOSTS", "CATALYST_MAIL_USER_SHA256",
-            "CATALYST_MAIL_DENIED_USER_SHA256", "CATALYST_SEND_EVIDENCE_SOURCE", "CATALYST_JOURNAL_SHIP_LAG_SECONDS")
-    expected = ({"/name", "/services/egress/volumes"}
+            "CATALYST_MAIL_DENIED_USER_SHA256", "CATALYST_SEND_EVIDENCE_SOURCE", "CATALYST_JOURNAL_SHIP_LAG_SECONDS",
+            "CATALYST_FROM_EMAIL", "CATALYST_HEALTH_AGED_WAITS_PAGE", "CATALYST_HEALTH_PENDING_AGE_SECONDS")
+    expected = ({"/name", "/services/egress/volumes", "/volumes/catalyst-effects/external", "/volumes/catalyst-effects/name"}
                 | {f"/secrets/{name}/file" for name in module.SECRET_FILES}
                 | {f"/services/{name}/environment/CATALYST_ENV" for name in CATALYST}
                 | {f"/services/{name}/environment/{key}" for name in django for key in live})
@@ -189,6 +190,8 @@ def test_9kg_31_11_production_differs_from_staging_only_in_the_reviewed_inputs()
     assert production["services"]["egress"]["volumes"] == [
         "${CATALYST_EGRESS_DENY_FILE:?the operator-supplied deny list}:/etc/catalyst/egress-deny:ro"]
     assert all(s["file"].startswith("${CATALYST_PRODUCTION_SECRETS:?}/") for s in production["secrets"].values())
+    # The journal is the restore's evidence: `down -v` cannot remove an external volume (032 section 3.3).
+    assert production["volumes"]["catalyst-effects"] == {"external": True, "name": "catalyst-production-effects"}
     assert module.SENT_FOLDER_SOURCE == guards.SENT_FOLDER_SOURCE  # the renderer runs without Django, so it keeps a copy
     try:
         module.definition("prod")

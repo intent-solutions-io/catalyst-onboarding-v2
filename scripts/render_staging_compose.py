@@ -9,8 +9,9 @@ while a committed file and its rendering differ.
 Production is the same definition with these inputs, and only these (a test pins the difference): `CATALYST_ENV`, the
 project name, the secrets directory variable, the owner's challenge lifetime (no synthetic default, POL-02), the live
 mail rules every process checks at start-up (the allow-listed mail host, the pinned v2 login, the denied first-generation
-login, the Sent-folder evidence source; 9kg.49), the journal's ship-lag threshold (9kg.60), and the egress deny list,
-which the operator supplies instead of the committed synthetic one (9kg.39). Starting it on a host is the owner's go.
+login, the Sent-folder evidence source; 9kg.49), the journal's ship-lag threshold (9kg.60), the sender address and
+the paging values (no defaults), the egress deny list, which the operator supplies instead of the committed synthetic
+one (9kg.39), and the effect journal on an external volume. Starting it on a host is the owner's go.
 
 The rules the definition encodes (each pinned by a test):
 - **Secrets are files, never environment.** Each process kind mounts only its own secrets, read-only, under
@@ -18,7 +19,7 @@ The rules the definition encodes (each pinned by a test):
   each process sees is its own role's: the application role for web and worker, the fetcher role for the fetcher,
   the owner for migrate. The admin bootstrap password reaches only the database and the operator-run provisioning.
 - **Every Catalyst container** runs as 10001, with a read-only root, every capability dropped, no new privileges,
-  tmpfs at /tmp and /dev/shm, `CATALYST_ENV=staging` fixed, and a fixed command (no GUNICORN_CMD_ARGS).
+  tmpfs at /tmp and /dev/shm, `CATALYST_ENV` fixed per definition, and a fixed command (no GUNICORN_CMD_ARGS).
 - **The web socket** lives on a volume shared only with the proxy, which joins group 10001 to reach the 0660 socket.
 - **The proxy** runs as 10001 on high container ports with the socket volume read-only, keeping only the bind
   capability its binary's file capability needs in order to run.
@@ -91,6 +92,11 @@ PRODUCTION_ENV = {
     "CATALYST_MAIL_DENIED_USER_SHA256": "${CATALYST_MAIL_DENIED_USER_SHA256:?the first-generation mailbox digest}",
     "CATALYST_SEND_EVIDENCE_SOURCE": SENT_FOLDER_SOURCE,
     "CATALYST_JOURNAL_SHIP_LAG_SECONDS": "${CATALYST_JOURNAL_SHIP_LAG_SECONDS:?the journal ship-lag threshold}",
+    # Owner values with no synthetic default in production (review of PR #118): the v2 sender address and the
+    # paging values (211.7.2).
+    "CATALYST_FROM_EMAIL": "${CATALYST_FROM_EMAIL:?the v2 sender address}",
+    "CATALYST_HEALTH_AGED_WAITS_PAGE": "${CATALYST_HEALTH_AGED_WAITS_PAGE:?the owner's page list (211.7.2)}",
+    "CATALYST_HEALTH_PENDING_AGE_SECONDS": "${CATALYST_HEALTH_PENDING_AGE_SECONDS:?the owner's pending-age target (211.7.2)}",
 }
 
 
@@ -255,8 +261,12 @@ def definition(env: str = "staging") -> dict:
             },
         },
         "networks": {"backend": {"internal": True}, "fetch": {"internal": True}, "edge": {}, "egress": {}},
-        "volumes": {name: {} for name in ("catalyst-db", "catalyst-run", "catalyst-static", "catalyst-mail",
-                                          "catalyst-backups", "catalyst-custody", "catalyst-effects")},
+        "volumes": {**{name: {} for name in ("catalyst-db", "catalyst-run", "catalyst-static", "catalyst-mail",
+                                             "catalyst-backups", "catalyst-custody", "catalyst-effects")},
+                    # Production's journal is the restore's evidence: an external volume the operator creates, which
+                    # `docker compose down -v` cannot remove (032 section 3.3; review of PR #118).
+                    **({"catalyst-effects": {"external": True, "name": "catalyst-production-effects"}}
+                       if env == "production" else {})},
         "secrets": {name: {"file": f"${{CATALYST_{env.upper()}_SECRETS:?}}/{name}"} for name in SECRET_FILES},
     }
 

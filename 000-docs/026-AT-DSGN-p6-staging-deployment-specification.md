@@ -2467,27 +2467,47 @@ production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
   non-synthetic environment: model advice (`CATALYST_ASSESSMENT_MODEL` is `none`), evidence fetching (no fetchable
   host, fixture or trust store), the agreement provider and the provisioning adapter (every setting refused), and
   every provider credential in the environment.
-- **New live rails** (`config.guards.live_problems`): intake stays invitation-only (open intake is the public
-  cutover); the public base URL is https on a named host; and neither it, the staff host nor `ALLOWED_HOSTS` may be a
-  wildcard, a domain pattern, a look-alike or the learning site's host (the pilot runs on the dedicated v2 host;
-  moving Learn is GATE-CUTOVER).
-- **Mail.** Django's mailer is a private file sink in production as in staging; the console backend is refused in
-  both. Applicant mail in production leaves only through `correspondence.transport` to the allow-listed host. The
-  three mails Django's mailer sends (contact confirmation, password setup, withdrawal link) reach the sink until
-  their live path is built (`9kg.77`, required before real intake, not for the dark deploy).
+- **New live rails** (`config.guards.live_problems`), failing closed after the PR #118 security review:
+  - intake stays invitation-only (open intake is the public cutover);
+  - the public base URL is exactly `https://<host>`, with no user part, port, path, query, fragment, backslash,
+    percent sign or white space;
+  - the public and staff hosts are distinct plain lower-case DNS names, never the learning site's host (moving Learn
+    is GATE-CUTOVER) and never a production domain's apex or `www` name;
+  - `ALLOWED_HOSTS` holds exactly those two and `CATALYST_LOCAL_HOSTS`;
+  - the sender address (`CATALYST_FROM_EMAIL`) is set and is not the synthetic default.
+- **Mail.** Applicant mail in production leaves only through `correspondence.transport` to the allow-listed host.
+  Production's Django mailer is `config.mail.RefusingEmailBackend`: the three mails it sends (contact confirmation,
+  password setup, withdrawal link) fail and take each sender's failure path, so no live link or address is written
+  to disk and no delivery is recorded that did not happen. Their live path is `9kg.77` (required before real intake,
+  not for the dark deploy). The console backend is refused in every deployment.
 - **Roles.** `scripts/provision_db_roles.py` admits production with staging's rules: passwords from files only, the
   database taken over by the owner role, grants read back.
 - **Stack.** `scripts/render_staging_compose.py` renders `deploy/production/compose.yaml` from the staging
   definition; `scripts/render_caddyfile.py` writes the same Caddyfile beside it. A test pins the difference to these
   inputs: `CATALYST_ENV`, the project name, the secrets directory variable (`CATALYST_PRODUCTION_SECRETS`), the
-  owner's challenge lifetime (no default, POL-02), the live mail rules and the ship-lag threshold (no defaults), and
-  the operator-supplied egress deny list.
+  owner's challenge lifetime (no default, POL-02), the live mail rules, the ship-lag threshold, the sender address
+  and the paging values (no defaults, `211.7.2`), the operator-supplied egress deny list, and the effect journal on
+  an external volume (`catalyst-production-effects`), which `docker compose down -v` cannot remove. A second test
+  starts each of the six Django services (web, worker, fetcher, migrate, backup, restore) with its rendered
+  environment and the host's inputs filled in.
 
-**Limits.** The production stack is the staging topology: an in-stack proxy publishing on an address the host names.
-Whether the host's proxy fronts it, the `erase` and `custody` services and the external journal volume of `032`
-section 3.2, the custody key mounts and the erasure key are host-preparation work (`9kg.28`) or wait on the owner's
-decisions (`211.7.1`, `211.7.9`). No live adapter exists for Documenso or MXroute; their canaries need a reviewed
-guard amendment first (`9kg.31.2`, `9kg.31.3`).
+**Limits** (the PR #118 reviews):
+
+- **Topology.** The production stack is the staging topology: an in-stack proxy with Caddy's internal CA
+  (`tls internal`, a per-start CA in tmpfs), publishing on addresses the host names. That serves a dark deploy reached
+  only by the operator; it is not usable by applicants. Whether the host's proxy fronts the stack or the in-stack
+  proxy gets a public certificate is the owner's topology decision with the host preparation (`9kg.28`). The
+  refusal of an all-interfaces publish address is also a host preflight item there; the compose file only says so.
+- **Owned elsewhere.** The `erase` and `custody` services of `032` section 3.2, the custody key mounts and the
+  erasure key wait on the owner's decisions (`211.7.1`, `211.7.9`). The drills, the stack check and the deploy
+  adapters still name the staging stack, and the journal-ship service does not exist yet (`9kg.78`, required for the
+  dark deploy). The `restore` service holds the administrator password, so it must never be given a mail route
+  beyond the IMAP Sent read.
+- **No live adapters.** None exists for Documenso or MXroute; their canaries need a reviewed guard amendment first
+  (`9kg.31.2`, `9kg.31.3`).
+- **Expected red at the dark deploy.** Health reports the undecided erasure registry (the backup refuses) and the
+  unapproved notice wordings until the owner records POL-10 and the wordings. `9kg.31.5` records these as expected,
+  or POL-10 is settled first (`031` section 8, item 1).
 
 Tests: `tests/test_guards.py`, `tests/test_startup.py`, `tests/test_db_roles.py`, `tests/test_staging_compose.py`,
 `tests/test_staging_proxy.py` (`9kg.31.11` in `tests/acceptance.py` P6_SUPPORTING).

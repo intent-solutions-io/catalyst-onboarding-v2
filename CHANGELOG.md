@@ -198,9 +198,12 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 - Production admitted in code (bead `9kg.31.11`; `026` section 18): the guards admit `production` with every live
   refusal in force (the mail allow-list and pins, the journal ship-lag threshold, custody and backup refused while
   the owner's decisions are open) and keep model advice, evidence fetching, the agreement provider and the
-  provisioning adapter off. Production also runs invitation-only, on https, on a dedicated host that is never the
-  learning site's, and never prints mail. `deploy/production/compose.yaml` is rendered from the staging definition and
-  differs only in reviewed inputs (a test pins the list). Starting it on a host is a separate, owner-approved act
+  provisioning adapter off. Production also runs invitation-only, on exactly `https://<a dedicated host>` that is
+  never the learning site's, answers for no other host, and refuses Django's own mails (`config.mail`) until their
+  live path exists (`9kg.77`), so no live link is written to disk. `deploy/production/compose.yaml` is rendered from
+  the staging definition and differs only in reviewed inputs (a test pins the list), with the effect journal on an
+  external volume; each production service starts with its rendered environment. Starting it on a host is a
+  separate, owner-approved act
 - The effect registry (bead `9kg.62`; `029` section 6.2): `workflow/effects.py` classifies each function that
   performs an effect a restore cannot undo in seven families (journal, SMTP, Django mail, Documenso, MXroute, IMAP,
   model), naming the function that covers each one. `tests/test_effect_registry.py` finds those calls in the source
