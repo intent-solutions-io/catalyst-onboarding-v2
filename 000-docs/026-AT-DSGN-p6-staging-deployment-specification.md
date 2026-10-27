@@ -2523,8 +2523,12 @@ production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
   owner's invitation are refused until real, non-synthetic wording is approved (503 and `data_notice_*`); no
   applicant means no held action. Five checks are NOT RUN with their reason: the worker's outside reach (its limit
   is the host firewall) and the four intake and confirmation steps (they wait for the owner's wording and a
-  delivered mail, the mail canary `9kg.31.1`). It refuses to run where a `catalyst-production-effects` volume
-  already exists. First runs: staging 140 PASS, 0 FAIL, 0 NOT RUN; production 138 PASS, 0 FAIL, 5 NOT RUN. The
+  delivered mail, the mail canary `9kg.31.1`). It runs only against a local Docker daemon that holds no
+  `catalyst-production` project and no `catalyst-production-effects` volume, and removes only the volume it created.
+  The production run ends with a summary that keeps apart the applicant journey (not demonstrated), the protective
+  refusals, the structural checks, host and provider evidence (none: this is the dev box) and each NOT RUN with the
+  task that completes it. Runs of 2026-10-27 at the PR head: staging 140 PASS, 0 FAIL, 0 NOT RUN; production 138 PASS
+  (2 protective refusals, 136 structural), 0 FAIL, 5 NOT RUN. A refusal is never counted as the journey. The
   restore, deploy and alert drills against production are `9kg.78.4`: the first two take a production backup, which
   refuses until POL-10 is recorded.
 

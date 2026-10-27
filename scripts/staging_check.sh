@@ -11,6 +11,11 @@
 # production definition differs on purpose, its own checks run instead: the worker is on the mail network; Django's
 # mails go to the transport, which has no reachable mail host here, so the verification send fails visibly and the
 # confirmation steps are NOT RUN (a delivered mail is the mail canary's, 9kg.31.1).
+#
+# A production run is a structural check of the definition, not a deployment: it ends with a summary that keeps the
+# successful applicant journey, the protective refusals, the structural checks, host and provider evidence (none here)
+# and every NOT RUN apart. It runs only against a local Docker daemon that holds no `catalyst-production` project, and
+# it creates and removes only resources of its own.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -18,7 +23,8 @@ stack="${CATALYST_STACK_ENV:-staging}"
 project="catalyst-$stack-check-$$"
 work="$(mktemp -d)"
 secrets="$work/secrets"
-fail=0
+fail=0 passed=0 failed=0 refusals=0 created_effects=0
+skipped=()
 case "$stack" in
   staging)
     public=catalyst.staging.test staffh=staff.staging.test other=other.staging.test
@@ -26,6 +32,17 @@ case "$stack" in
     secret_names="secret_key verification_key admin_password owner_password app_password retention_password backup_password fetcher_password" ;;
   production)
     public=catalyst-v2.production-check.test staffh=staff-v2.production-check.test other=other.production-check.test
+    # Dev box only, and only resources this run creates. A remote daemon (DOCKER_HOST, a context) could be the real
+    # host; a `catalyst-production` project or its external journal volume means the real stack is on this daemon.
+    endpoint="$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)"
+    case "${DOCKER_HOST:-$endpoint}" in
+      unix://*) ;;
+      *) echo "staging_check: the Docker daemon is not local (${DOCKER_HOST:-$endpoint}); refusing (dev box only)" >&2; exit 2 ;;
+    esac
+    if [ -n "$(docker ps -aq --filter label=com.docker.compose.project=catalyst-production)" ] \
+       || [ -n "$(docker volume ls -q --filter label=com.docker.compose.project=catalyst-production)" ]; then
+      echo "staging_check: a catalyst-production project exists on this daemon; refusing (dev box only)" >&2; exit 2
+    fi
     # The journal volume is external in production: never touch one this run did not create (a real one on this host).
     if docker volume inspect catalyst-production-effects >/dev/null 2>&1; then
       echo "staging_check: the volume catalyst-production-effects exists on this host; refusing (dev box only)" >&2; exit 2
@@ -41,7 +58,7 @@ case "$stack" in
       CATALYST_HEALTH_AGED_WAITS_PAGE=replies_awaiting_processing CATALYST_HEALTH_PENDING_AGE_SECONDS=3600 \
       CATALYST_EGRESS_DENY_FILE="$PWD/deploy/staging/egress-deny" CATALYST_JOURNAL_SHIP_DIR="$work/ship"
     secret_names="secret_key verification_key admin_password owner_password app_password retention_password backup_password fetcher_password mail_password"
-    docker volume create catalyst-production-effects >/dev/null ;;
+    docker volume create catalyst-production-effects >/dev/null && created_effects=1 ;;
   *) echo "CATALYST_STACK_ENV must be staging or production" >&2; exit 2 ;;
 esac
 # The request form answers 200 in staging (a marked draft wording may be shown there) and 503 in production, where the
@@ -57,7 +74,7 @@ compose=(docker compose --project-name "$project" -f "deploy/$stack/compose.yaml
 cleanup() {
   if [ "${KEEP:-}" != 1 ]; then
     "${compose[@]}" --profile provision down -v --remove-orphans >/dev/null 2>&1 || true
-    [ "$stack" = production ] && docker volume rm catalyst-production-effects >/dev/null 2>&1 || true  # this run's own
+    [ "$created_effects" = 1 ] && docker volume rm catalyst-production-effects >/dev/null 2>&1 || true  # this run's own
     docker image rm "$CATALYST_IMAGE" >/dev/null 2>&1 || true
     rm -rf "$work"
   else
@@ -68,7 +85,15 @@ trap cleanup EXIT
 
 check() {  # check <name> <command...>
   local name="$1"; shift
-  if "$@"; then echo "PASS $name"; else echo "FAIL $name"; fail=1; fi
+  if "$@"; then echo "PASS $name"; passed=$((passed + 1)); else echo "FAIL $name"; fail=1; failed=$((failed + 1)); fi
+}
+refusal() {  # refusal <name> <command...>: a protective check (something is refused); never applicant success
+  local name="$1" before="$passed"; shift
+  check "REFUSAL $name" "$@"
+  [ "$passed" = "$before" ] || refusals=$((refusals + 1))
+}
+not_run() {  # not_run <name and reason>: an applicable check this run cannot make; never a PASS
+  echo "NOT RUN $1"; skipped+=("$1")
 }
 
 # Synthetic, random, never reused: each value is also a sentinel the checks search for.
@@ -255,7 +280,7 @@ for service in web worker fetcher; do
   if [ "$stack" = production ] && [ "$service" = worker ]; then
     # 9kg.79: the production worker's mail route is not internal; the host firewall limits it to the mail host (9kg.28),
     # which this dev-box run cannot show, so reaching outside is neither required nor refused here.
-    echo "NOT RUN TEST-P6-28 worker reaches nothing outside (production: the mail route; its limit is the host firewall)"
+    not_run "TEST-P6-28 worker reaches nothing outside but the mail host (production: its limit is the host firewall; completed at host preparation, 9kg.28)"
     continue
   fi
   check "TEST-P6-28 $service reaches nothing outside (refused, not errored)" test "$(probe "$service" "socket.create_connection(('1.1.1.1',443),3)")" = 42
@@ -312,7 +337,7 @@ for authority in 1.1.1.1.nip.io:443 1.0.0.1.nip.io:443; do
   if public_dns; then
     check "$name" test "$(via_proxy_settled "$authority")" = "403 address_denied"
   else
-    echo "NOT RUN $name (public DNS unreachable from the egress proxy)"
+    not_run "$name (public DNS unreachable from the egress proxy)"
   fi
 done
 check "TEST-P6-28 only the egress proxy holds the deny list" bash -c '! docker exec "$1" test -e /etc/catalyst/egress-deny && docker exec "$2" test -r /etc/catalyst/egress-deny' _ "$("${compose[@]}" ps -q fetcher)" "$("${compose[@]}" ps -q egress)"
@@ -351,13 +376,13 @@ if [ "$stack" = staging ]; then
 else
   # Production: the data notice has no approved, non-synthetic wording, so the owner's invitation and the request form
   # are both refused (a live environment never shows a draft or a drill placeholder to a person; 9kg.52).
-  check "TEST-P6-27 production: an invitation is refused until the owner approves real wording" \
+  refusal "intake: an invitation is refused until the owner approves real wording" \
     bash -c "! \"\$@\" 2>&1 | grep -q '\"issued\": true' && \"\$@\" 2>&1 | grep -q 'data_notice'" _ "${compose[@]}" run --rm --no-deps -T migrate \
     python manage.py catalyst_invite dark-deploy@example.test --issued-by "production check" --note "dark deploy, TEST-P6-27"
-  check "TEST-P6-27 production: the request form is withheld (503)" test "$(code $public 127.0.0.1 18443 /request-access/)" = 503
+  refusal "intake: the request form is withheld (503)" test "$(code $public 127.0.0.1 18443 /request-access/)" = 503
   for name in "an applicant is accepted through the form" "the verification mail reached the private file sink, not a provider" \
               "the confirmation page offered its form" "the applicant confirms (200, and the confirmed page's own sentence)"; do
-    echo "NOT RUN TEST-P6-27 $name (production: intake waits for the owner's real wording; mail delivery is the mail canary, 9kg.31.1)"
+    not_run "TEST-P6-27 $name (production: needs approved wording, 211.7.7 and 211.7.4, then a delivered mail and a confirmation on the host, the mail canary 9kg.31.1)"
   done
 fi
 sleep 3  # the worker loop has had its turn: anything not held would have started
@@ -438,4 +463,14 @@ for service in web worker fetcher egress proxy db; do
     "! docker inspect --format '{{range .Mounts}}{{.Source}} {{.Destination}}{{println}}{{end}}' '$id' | grep -qE 'custody-keys|custody_wrapping_key'"
 done
 
+if [ "$stack" = production ]; then
+  # Kept apart on purpose (owner, 2026-10-27): a refusal is not the journey, and this dev box is not the host.
+  echo "SUMMARY production definition on this dev box, synthetic inputs (a structural check, not a deployment)"
+  echo "SUMMARY applicant journey demonstrated: no (intake, verification mail, confirmation page and confirmation are NOT RUN)"
+  echo "SUMMARY protective refusals passed: $refusals (intake refused while the wording is unapproved)"
+  echo "SUMMARY configuration and structural checks passed: $((passed - refusals)) (includes the stack's own path, network and egress refusals)"
+  echo "SUMMARY host and provider evidence: none (no host firewall, real certificate, mail host, provider or off-host journal destination here)"
+  echo "SUMMARY failed: $failed; NOT RUN: ${#skipped[@]}"
+  for item in "${skipped[@]}"; do echo "SUMMARY NOT RUN $item"; done
+fi
 exit "$fail"

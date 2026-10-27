@@ -255,3 +255,48 @@ def test_9kg_78_3_the_stack_check_takes_only_a_known_stack():
     # A real production journal volume on the host is never touched: the run refuses before creating its own.
     assert text.index("docker volume inspect catalyst-production-effects") < text.index("docker volume create")
     assert 'compose=(docker compose --project-name "$project" -f "deploy/$stack/compose.yaml")' in text
+
+
+def test_9kg_78_3_the_production_check_runs_only_on_a_local_daemon_without_the_real_stack(tmp_path):
+    """The production run is confined to resources it creates: a remote daemon, or a `catalyst-production` project on
+    this one, is refused before anything is created; only a volume this run created is removed (owner, 2026-10-27)."""
+    import subprocess
+
+    log = tmp_path / "docker.log"
+
+    def run(context: str, project_ids: str):
+        fake = tmp_path / "docker"
+        fake.write_text(f"""#!/bin/sh
+echo "$*" >> {log}
+case "$*" in
+  "context inspect"*) echo "{context}" ;;
+  *"label=com.docker.compose.project=catalyst-production"*) printf '%s' "{project_ids}" ;;
+  "volume inspect"*) exit 1 ;;
+esac
+exit 0
+""")
+        fake.chmod(0o755)
+        log.write_text("")
+        return subprocess.run(["bash", str(ROOT / "scripts" / "staging_check.sh")], cwd=ROOT, capture_output=True,
+                              text=True, timeout=60,
+                              env={"PATH": f"{tmp_path}:/usr/bin:/bin", "CATALYST_STACK_ENV": "production"})
+
+    remote = run("tcp://192.0.2.1:2376", "")
+    assert remote.returncode == 2 and "is not local" in remote.stderr
+    real = run("unix:///var/run/docker.sock", "abc123")
+    assert real.returncode == 2 and "catalyst-production project exists" in real.stderr
+    calls = log.read_text().splitlines()
+    assert not [c for c in calls if c.startswith(("volume create", "compose", "build", "run"))]
+    text = (ROOT / "scripts" / "staging_check.sh").read_text()
+    assert '[ "$created_effects" = 1 ] && docker volume rm catalyst-production-effects' in text
+
+
+def test_9kg_78_3_the_production_check_never_counts_a_refusal_as_the_applicant_journey():
+    """In production the intake steps are refusals or NOT RUN, never an applicant-success PASS, and the summary keeps
+    the journey, the refusals, the structural checks, host evidence and NOT RUN apart (owner, 2026-10-27)."""
+    text = (ROOT / "scripts" / "staging_check.sh").read_text()
+    branch = text[text.index('else\n  # Production: the data notice'):text.index("\nfi\n", text.index('else\n  # Production: the data notice'))]
+    assert 'check "TEST-P6-27' not in branch and branch.count('refusal "intake:') == 2 and "not_run " in branch
+    for line in ("applicant journey demonstrated: no", "protective refusals passed:",
+                 "configuration and structural checks passed:", "host and provider evidence: none", "NOT RUN: ${#skipped[@]}"):
+        assert line in text

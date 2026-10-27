@@ -511,10 +511,11 @@ def test_9kg39_the_staging_by_address_checks_are_not_run_without_public_dns_neve
     start = script.index("public_dns() {")
     loop = script.index("for authority in 1.1.1.1.nip.io", start)
     block = script[start:script.index("\ndone\n", loop) + 6]
-    assert block.count('"403 address_denied"') == 1 and "NOT RUN" in block
+    assert block.count('"403 address_denied"') == 1 and "not_run " in block
     (tmp_path / "docker").write_text("#!/bin/sh\nexit 1\n")
     (tmp_path / "docker").chmod(0o755)
-    harness = ("set -u; fail=0; compose=(true); sleep() { :; }; check() { echo \"CHECKED $1\"; }; via_proxy_settled() { echo x; }\n"
+    harness = ("set -u; fail=0; skipped=(); compose=(true); sleep() { :; }; check() { echo \"CHECKED $1\"; }; via_proxy_settled() { echo x; }\n"
+               "not_run() { echo \"NOT RUN $1\"; skipped+=(\"$1\"); }\n"
                + block + "\necho fail=$fail\n")
     import subprocess
     out = subprocess.run(["bash", "-c", harness], env={"PATH": f"{tmp_path}:/usr/bin:/bin"}, capture_output=True,
