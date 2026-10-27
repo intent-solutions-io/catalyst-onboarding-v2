@@ -90,7 +90,7 @@ cleanup() {
     rm -rf "$work"
   else
     echo "kept: project $project, secrets $secrets"
-    [ "$created_effects" = 1 ] && echo "kept: volume catalyst-production-effects (remove it with docker volume rm)"
+    if [ "$created_effects" = 1 ]; then echo "kept: volume catalyst-production-effects (remove it with docker volume rm)"; fi
   fi
 }
 trap cleanup EXIT
@@ -403,7 +403,7 @@ else
     "$(code $public 127.0.0.1 18443 /request-access/)" "$(socket_get /readyz)" "$("${compose[@]}" ps -q web)"
   for name in "an applicant is accepted through the form" "the verification mail reached the private file sink, not a provider" \
               "the confirmation page offered its form" "the applicant confirms (200, and the confirmed page's own sentence)"; do
-    not_run "TEST-P6-27 $name (production: needs approved wording, 211.7.7 and 211.7.4, then a delivered mail and a confirmation on the host, the mail canary 9kg.31.1)"
+    not_run "TEST-P6-27 $name (production: needs approved wording, 031 item 16, and the approvable verification mail, 9kg.80, then a delivered mail and a confirmation on the host, the mail canary 9kg.31.1)"
   done
 fi
 sleep 3  # the worker loop has had its turn: anything not held would have started

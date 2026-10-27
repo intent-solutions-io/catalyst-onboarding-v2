@@ -328,3 +328,19 @@ def test_9kg_78_3_the_production_check_never_counts_a_refusal_as_the_applicant_j
     for line in ("applicant journey demonstrated: no", "protective refusals passed:",
                  "configuration and structural checks passed:", "host and provider evidence: none", "NOT RUN: ${#skipped[@]}"):
         assert line in text
+
+
+def test_9kg_78_3_a_kept_stack_still_exits_with_the_checks_status(tmp_path):
+    """KEEP=1: the clean-up trap must not turn a passing run into exit 1 (PR #124 re-review), and a kept production
+    run names the external journal volume it leaves behind."""
+    import subprocess
+
+    text = (ROOT / "scripts" / "staging_check.sh").read_text()
+    functions = text[text.index("ours() {"):text.index("trap cleanup EXIT")]
+    for created, named in (("0", False), ("1", True)):
+        script = (f"set -euo pipefail; KEEP=1 project=p secrets=s created_effects={created} fail=0\n" + functions
+                  + "trap cleanup EXIT\nexit \"$fail\"\n")
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30,
+                                env={"PATH": "/usr/bin:/bin"})
+        assert result.returncode == 0, (created, result.stdout, result.stderr)
+        assert ("kept: volume catalyst-production-effects" in result.stdout) == named
