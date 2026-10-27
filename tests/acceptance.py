@@ -1724,6 +1724,10 @@ P6_SUPPORTING = {
         "test_django_mail::test_9kg_77_one_recipient_only_and_nothing_sent_otherwise",
         "test_django_mail::test_9kg_77_no_mail_host_means_no_send",
         "test_django_mail::test_9kg_77_the_transport_backend_is_admitted_only_in_a_live_environment",
+        "test_django_mail::test_9kg_77_one_message_per_call_and_no_cc_header",
+        "test_django_mail::test_9kg_77_the_envelope_recipient_is_the_one_to_address",
+        "test_django_mail::test_9kg_77_in_production_only_the_web_and_worker_kinds_send",
+        "test_django_mail::test_9kg_77_in_production_an_unpinned_login_or_a_non_global_peer_is_refused",
     ],
     "9kg.62 every effect a restore cannot undo is classified, and an unclassified one or a new outward module fails (029)": [
         "test_effect_registry::test_9kg62_every_function_with_an_effect_is_registered_and_no_registration_is_stale",

@@ -7,6 +7,7 @@ takes its failure path. The loopback scripted server stands in for the mail host
 """
 
 import email
+import email.utils
 
 import pytest
 from django.core.mail import EmailMessage, get_connection
@@ -69,3 +70,56 @@ def test_9kg_77_the_transport_backend_is_admitted_only_in_a_live_environment():
     assert guards.provider_problems(guards.TRANSPORT_EMAIL_BACKEND, {}, "production") == []
     # Django's own SMTP backend never: it bypasses the allow-list, the pin and the peer check.
     assert guards.provider_problems("django.core.mail.backends.smtp.EmailBackend", {}, "production")
+
+
+def test_9kg_77_one_message_per_call_and_no_cc_header(p2):
+    connection = get_connection(guards.TRANSPORT_EMAIL_BACKEND)
+    with pytest.raises(mail.MailRefused, match="one_message_per_call"):
+        connection.send_messages([message(connection), message(connection)])
+    with pytest.raises(mail.MailRefused, match="one_recipient_only"):
+        message(connection, headers={"Cc": "c@example.test"}).send(fail_silently=False)
+    with pytest.raises(Exception, match="newline|Header values"):  # Django refuses a line break before any send
+        message(connection, subject="Hi\r\nBcc: e@example.test").send(fail_silently=False)
+    assert p2.server.messages == [] and p2.server.connections == 0
+
+
+def test_9kg_77_the_envelope_recipient_is_the_one_to_address(p2):
+    connection = get_connection(guards.TRANSPORT_EMAIL_BACKEND)
+    assert message(connection, to=['"Ada Example" <ada@example.test>']).send(fail_silently=False) == 1
+    [sent] = p2.server.messages
+    assert sent["rcpts"] == ["ada@example.test"]
+    assert email.utils.parseaddr(email.message_from_bytes(sent["data"])["To"])[1] == "ada@example.test"
+
+
+@pytest.mark.parametrize("kind", ["management", "reconcile"])
+def test_9kg_77_in_production_only_the_web_and_worker_kinds_send(p2, monkeypatch, settings, kind):
+    from config import runtime
+
+    # A live environment, as the transport sees it at use time: an allow-listed host and the pinned v2 login.
+    settings.CATALYST_ENV = "production"
+    settings.CATALYST_MAIL_HOST, settings.CATALYST_MAIL_ALLOWED_HOSTS = "localhost", ["localhost"]
+    settings.CATALYST_MAIL_USER = "v2-synthetic@example.test"
+    settings.CATALYST_MAIL_USER_SHA256 = guards.user_digest(settings.CATALYST_MAIL_USER)
+    monkeypatch.setitem(runtime._declared, "kind", kind)
+    with pytest.raises(mail.MailRefused, match="transport_blocked:connect"):
+        message(get_connection(guards.TRANSPORT_EMAIL_BACKEND)).send(fail_silently=False)
+    assert p2.server.connections == 0  # refused before connecting
+
+
+def test_9kg_77_in_production_an_unpinned_login_or_a_non_global_peer_is_refused(p2, monkeypatch, settings):
+    from config import runtime
+
+    settings.CATALYST_ENV = "production"
+    settings.CATALYST_MAIL_HOST, settings.CATALYST_MAIL_ALLOWED_HOSTS = "localhost", ["localhost"]
+    settings.CATALYST_MAIL_USER = "v2-synthetic@example.test"
+    settings.CATALYST_MAIL_USER_SHA256 = guards.user_digest("someone-else@example.test")
+    monkeypatch.setitem(runtime._declared, "kind", "worker")
+    with pytest.raises(mail.MailRefused, match="transport_blocked:connect"):
+        message(get_connection(guards.TRANSPORT_EMAIL_BACKEND)).send(fail_silently=False)
+    assert p2.server.connections == 0
+    # Pinned, but the host resolves to loopback: the live peer check wants a global address and refuses before any
+    # command that could carry a credential.
+    settings.CATALYST_MAIL_USER_SHA256 = guards.user_digest(settings.CATALYST_MAIL_USER)
+    with pytest.raises(mail.MailRefused, match="transport_blocked"):
+        message(get_connection(guards.TRANSPORT_EMAIL_BACKEND)).send(fail_silently=False)
+    assert p2.server.messages == [] and not any(c.startswith(("MAIL", "AUTH")) for c in p2.server.commands)
