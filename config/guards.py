@@ -46,9 +46,11 @@ DRAFT_WORDING_ENVIRONMENTS = frozenset({"development", "test", "staging"})
 def draft_wording_allowed(environment: str) -> bool:
     return environment in DRAFT_WORDING_ENVIRONMENTS
 
-# 9kg.31.11: production's Django mailer. It refuses every message, so the three mails it would send (confirmation, setup,
-# withdrawal) fail visibly instead of landing in a file with live links or reporting a delivery that did not happen.
+# Production's Django mailer (config.mail): the transport backend (9kg.77), which sends through correspondence.transport
+# only, or the refusing one, an explicit hold. Never a file or console sink with live links, never Django's SMTP backend.
 REFUSING_EMAIL_BACKEND = "config.mail.RefusingEmailBackend"
+TRANSPORT_EMAIL_BACKEND = "config.mail.TransportEmailBackend"
+LIVE_EMAIL_BACKENDS = (TRANSPORT_EMAIL_BACKEND, REFUSING_EMAIL_BACKEND)
 # Mail backends that never leave the process or the local disk.
 SINK_EMAIL_BACKENDS = frozenset({
     "django.core.mail.backends.locmem.EmailBackend",
@@ -92,13 +94,13 @@ def environment_problems(environment: str) -> list[str]:
     return []
 
 
-def provider_problems(email_backend: str, environ: Mapping[str, str]) -> list[str]:
-    """In every allowed environment, production included, Django's mailer is a local sink and no provider credential
-    is in the environment (REQ-022, D-10). Applicant mail in production leaves only through `correspondence.transport`
-    to an allow-listed host (mail_problems); the mails Django's mailer sends (the contact confirmation, the password
-    setup and the withdrawal link) are refused in production until their live path is built (9kg.77)."""
+def provider_problems(email_backend: str, environ: Mapping[str, str], environment: str = "") -> list[str]:
+    """No provider credential is in the environment, anywhere (REQ-022, D-10). Django's mailer is a local sink in every
+    environment but a live one, where it may also be the transport backend (9kg.77): applicant mail in production
+    leaves only through `correspondence.transport` to an allow-listed host (mail_problems)."""
     problems = []
-    if email_backend not in SINK_EMAIL_BACKENDS:
+    if email_backend not in SINK_EMAIL_BACKENDS and not (
+            environment in LIVE_ENVIRONMENTS and email_backend == TRANSPORT_EMAIL_BACKEND):
         problems.append(f"EMAIL_BACKEND {email_backend!r} is not a local sink backend")
     leaked = sorted(
         name for name in environ if name.startswith(PROVIDER_ENV_PREFIXES) or name in PROVIDER_ENV_NAMES
@@ -453,7 +455,7 @@ def live_problems(settings) -> list[str]:
     - The public host and the staff host are distinct plain DNS names, never the learning site's host, the apex of
       a production domain or its `www` name (the pilot runs on a dedicated v2 host; moving Learn is GATE-CUTOVER).
     - ALLOWED_HOSTS is exactly those two plus CATALYST_LOCAL_HOSTS, so nothing else is answered for.
-    - Django's own mailer refuses (REFUSING_EMAIL_BACKEND) until its live path is built (9kg.77), and the sender
+    - Django's own mailer is the transport backend or the refusing hold (LIVE_EMAIL_BACKENDS), and the sender
       address is a real one, never the synthetic default."""
     if getattr(settings, "CATALYST_ENV", "") not in LIVE_ENVIRONMENTS:
         return []
@@ -481,9 +483,9 @@ def live_problems(settings) -> list[str]:
     extra = sorted(h for h in (getattr(settings, "ALLOWED_HOSTS", []) or []) if h not in expected)
     if extra:
         problems.append(f"ALLOWED_HOSTS may hold only the public, staff and local hosts in a live environment, not {extra}")
-    if getattr(settings, "EMAIL_BACKEND", "") != REFUSING_EMAIL_BACKEND:
-        problems.append(f"EMAIL_BACKEND must be {REFUSING_EMAIL_BACKEND} in a live environment until Django's mails "
-                        "have their live path (9kg.77)")
+    if getattr(settings, "EMAIL_BACKEND", "") not in LIVE_EMAIL_BACKENDS:
+        problems.append(f"EMAIL_BACKEND must be {TRANSPORT_EMAIL_BACKEND} (or the {REFUSING_EMAIL_BACKEND} hold) "
+                        "in a live environment")
     sender = str(getattr(settings, "DEFAULT_FROM_EMAIL", "") or "").lower()
     domain = sender.rpartition("@")[2]
     if not domain or not _live_host(domain) or domain.endswith((".invalid", ".example")) or domain.startswith("example."):
@@ -714,7 +716,7 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return (
         database_problems(settings.DATABASES)
         + environment_problems(settings.CATALYST_ENV)
-        + provider_problems(settings.EMAIL_BACKEND, environ)
+        + provider_problems(settings.EMAIL_BACKEND, environ, settings.CATALYST_ENV)
         + mail_problems(settings)
         + dispatch_problems(settings, environ)
         + evidence_problems(settings, environ)

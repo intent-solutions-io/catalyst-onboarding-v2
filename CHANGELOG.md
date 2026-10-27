@@ -195,6 +195,10 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   finished by running it again. `--retire-old-key` checks that no key file is still under the old key, then journals
   its retirement, so a remnant of an erased document's wrapped key has no key left that opens it. The next key is
   refused by every process but the owner-run rotation
+- Django's own mails in production (bead `9kg.77`; `026` section 18): the contact confirmation, the password setup
+  and the withdrawal link go through `correspondence.transport`, the one SMTP path, by `config.mail.TransportEmailBackend`
+  (one recipient, no copies; anything but acceptance raises, so each sender takes its failure path). The refusing
+  backend stays admitted as the owner's hold; the transport backend is refused outside a live environment
 - Production admitted in code (bead `9kg.31.11`; `026` section 18): the guards admit `production` with every live
   refusal in force (the mail allow-list and pins, the journal ship-lag threshold, custody and backup refused while
   the owner's decisions are open) and keep model advice, evidence fetching, the agreement provider and the
