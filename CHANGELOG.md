@@ -199,6 +199,9 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   and the withdrawal link go through `correspondence.transport`, the one SMTP path, by `config.mail.TransportEmailBackend`
   (one recipient, no copies; anything but acceptance raises, so each sender takes its failure path). The refusing
   backend stays admitted as the owner's hold; the transport backend is refused outside a live environment
+- Journal shipping in production (bead `9kg.78.2`; `026` section 18): an owner-run `journal-ship` service with no
+  network copies the effect journal to the host's off-host destination, and production's egress health check passes
+  on an intentionally empty deny list while still failing on a broken one
 - The production mail route (bead `9kg.79`; `026` section 18): in `deploy/production/compose.yaml` the worker and a
   new owner-run `post-restore` service alone join a non-internal `mail` network and hold the mail host settings and
   the `mail_password` secret; the post-restore step runs there, so `restore`, which holds the administrator password,

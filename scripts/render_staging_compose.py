@@ -230,6 +230,21 @@ def definition(env: str = "staging") -> dict:
         post["environment"].update(MAIL_ENV)
         post["restart"], post["profiles"] = "no", ["ops"]
         extra["post-restore"] = post
+        # 9kg.78.2 (032 section 3.5; 9kg.60): the off-host copy of the effect journal, run by a host timer
+        # (`docker compose --profile ops run --rm journal-ship`). It reads the journal and records the shipped head
+        # beside it, so the journal is mounted read-write; the destination is the host's off-host mount. It never
+        # connects to the database: no network at all, and the least-privileged login only because settings need one.
+        ship = make(["python", "manage.py", "catalyst_journal_ship", "--to", "/var/lib/catalyst/ship"], "catalyst_fetcher",
+                    [*keys, mount("fetcher_password", "db_password")],
+                    volumes=[EFFECTS, "${CATALYST_JOURNAL_SHIP_DIR:?the off-host journal destination}:/var/lib/catalyst/ship"],
+                    networks=())
+        del ship["networks"]
+        ship["network_mode"] = "none"
+        ship["restart"], ship["profiles"] = "no", ["ops"]
+        extra["journal-ship"] = ship
+        # 9kg.78.2: fetching is disabled in production, so an empty deny list is the intended state; the health check
+        # passes on it there and still fails on a broken one (assessments.egress.check).
+        egress["environment"]["CATALYST_EGRESS_FETCHING"] = "disabled"
     static = make(["sh", "-c", "cp -a /app/static/. /srv/static/"], "catalyst_app", [],
                       volumes=["catalyst-static:/srv/static"], networks=())
     static["restart"] = "no"

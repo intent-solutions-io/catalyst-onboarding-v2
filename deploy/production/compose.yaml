@@ -486,6 +486,81 @@
         "ops"
       ]
     },
+    "journal-ship": {
+      "image": "${CATALYST_IMAGE:?the attested image digest}",
+      "user": "10001:10001",
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "tmpfs": [
+        "/tmp:mode=1777,size=64m",
+        "/dev/shm:mode=1777,size=64m"
+      ],
+      "environment": {
+        "CATALYST_ENV": "production",
+        "CATALYST_SECRETS_DIR": "/run/secrets",
+        "CATALYST_DB_HOST": "db",
+        "CATALYST_DB_PORT": "5432",
+        "CATALYST_DB_NAME": "catalyst",
+        "CATALYST_PUBLIC_BASE_URL": "https://${CATALYST_PUBLIC_HOST:?}",
+        "CATALYST_ALLOWED_HOSTS": "${CATALYST_PUBLIC_HOST:?},${CATALYST_STAFF_HOST:?},localhost",
+        "CATALYST_STAFF_HOST": "${CATALYST_STAFF_HOST:?}",
+        "CATALYST_LOCAL_HOSTS": "localhost",
+        "CATALYST_CHALLENGE_LIFETIME_SECONDS": "${CATALYST_CHALLENGE_LIFETIME_SECONDS:?the owner's POL-02 link lifetime}",
+        "CATALYST_EMAIL_FILE_PATH": "/var/lib/catalyst/mail",
+        "CATALYST_WORKER_HEARTBEAT_FILE": "/tmp/catalyst-worker.beat",
+        "CATALYST_EFFECT_JOURNAL_DIR": "/var/lib/catalyst/effects",
+        "CATALYST_QUALIFICATION_AUTHORITY": "${CATALYST_QUALIFICATION_AUTHORITY:-}",
+        "CATALYST_VERIFICATION_RESEND_LIMIT": "${CATALYST_VERIFICATION_RESEND_LIMIT:-3}",
+        "CATALYST_HEALTH_AGED_WAITS_PAGE": "${CATALYST_HEALTH_AGED_WAITS_PAGE:?the owner's page list (211.7.2)}",
+        "CATALYST_HEALTH_PENDING_AGE_SECONDS": "${CATALYST_HEALTH_PENDING_AGE_SECONDS:?the owner's pending-age target (211.7.2)}",
+        "CATALYST_MAIL_ALLOWED_HOSTS": "${CATALYST_MAIL_ALLOWED_HOSTS:?the production mail host}",
+        "CATALYST_MAIL_USER_SHA256": "${CATALYST_MAIL_USER_SHA256:?the pinned v2 mailbox login digest}",
+        "CATALYST_MAIL_DENIED_USER_SHA256": "${CATALYST_MAIL_DENIED_USER_SHA256:?the first-generation mailbox digest}",
+        "CATALYST_SEND_EVIDENCE_SOURCE": "correspondence.sent_reader.SentFolderSource",
+        "CATALYST_JOURNAL_SHIP_LAG_SECONDS": "${CATALYST_JOURNAL_SHIP_LAG_SECONDS:?the journal ship-lag threshold}",
+        "CATALYST_FROM_EMAIL": "${CATALYST_FROM_EMAIL:?the v2 sender address}",
+        "CATALYST_DB_USER": "catalyst_fetcher"
+      },
+      "secrets": [
+        {
+          "source": "secret_key",
+          "target": "secret_key"
+        },
+        {
+          "source": "verification_key",
+          "target": "verification_key"
+        },
+        {
+          "source": "verification_fallback_keys",
+          "target": "verification_fallback_keys"
+        },
+        {
+          "source": "fetcher_password",
+          "target": "db_password"
+        }
+      ],
+      "command": [
+        "python",
+        "manage.py",
+        "catalyst_journal_ship",
+        "--to",
+        "/var/lib/catalyst/ship"
+      ],
+      "restart": "no",
+      "volumes": [
+        "catalyst-effects:/var/lib/catalyst/effects",
+        "${CATALYST_JOURNAL_SHIP_DIR:?the off-host journal destination}:/var/lib/catalyst/ship"
+      ],
+      "network_mode": "none",
+      "profiles": [
+        "ops"
+      ]
+    },
     "web": {
       "image": "${CATALYST_IMAGE:?the attested image digest}",
       "user": "10001:10001",
@@ -736,7 +811,8 @@
       "environment": {
         "CATALYST_ENV": "production",
         "CATALYST_EGRESS_LISTEN": "0.0.0.0:3128",
-        "CATALYST_EGRESS_DENY_FILE": "/etc/catalyst/egress-deny"
+        "CATALYST_EGRESS_DENY_FILE": "/etc/catalyst/egress-deny",
+        "CATALYST_EGRESS_FETCHING": "disabled"
       },
       "command": [
         "python",

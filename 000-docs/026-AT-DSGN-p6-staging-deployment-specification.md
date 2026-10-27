@@ -2504,6 +2504,15 @@ production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
   Documenso's route is a separate decision with its canary (`9kg.31.2`). A test pins which services hold the route
   and the secret; the staging definition is unchanged.
 
+- **Journal shipping and the egress check** (`9kg.78.2`, 2026-10-27). Production adds an owner-run `journal-ship`
+  service (profile `ops`, run by a host timer): `catalyst_journal_ship --to /var/lib/catalyst/ship`, with the journal
+  mounted read-write (the shipped head is recorded beside it) and the host's off-host destination
+  (`CATALYST_JOURNAL_SHIP_DIR`, no default) as its only other mount. It has no network at all, and holds the
+  least-privileged database login only because the settings need one. Production's egress service declares
+  `CATALYST_EGRESS_FETCHING=disabled`, so its health check passes on an intentionally empty deny list (blank lines and
+  comments only) and still fails on a missing, unreadable or malformed one; the policy itself still refuses every
+  fetch on an empty list (`assessments.egress.deny_file_state`, `check`).
+
 - **Adapters** (`9kg.78.1`, 2026-10-27). The deploy adapters take `CATALYST_STACK_ENV` (`staging`, the default,
   or `production`; anything else exits 2 before anything runs). Every alert names the stack (`catalyst
   production: <codes>`). The outside-in probes of the public form pass `-k` for staging's internal CA only; every
@@ -2518,9 +2527,9 @@ production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
   proxy gets a public certificate is the owner's topology decision with the host preparation (`9kg.28`). The
   refusal of an all-interfaces publish address is also a host preflight item there; the compose file only says so.
 - **Owned elsewhere.** The `erase` and `custody` services of `032` section 3.2, the custody key mounts and the
-  erasure key wait on the owner's decisions (`211.7.1`, `211.7.9`). The drills, the stack check and the deploy
-  adapters still name the staging stack, and the journal-ship service does not exist yet (`9kg.78`, required for the
-  dark deploy). The `restore` service holds the administrator password, so it has no route out (`9kg.79`).
+  erasure key wait on the owner's decisions (`211.7.1`, `211.7.9`). The drills and the stack check still name the
+  staging stack (`9kg.78.3`, required for the dark deploy). The `restore` service holds the administrator password,
+  so it has no route out (`9kg.79`).
 - **No live adapters.** None exists for Documenso or MXroute; their canaries need a reviewed guard amendment first
   (`9kg.31.2`, `9kg.31.3`).
 - **Expected red at the dark deploy.** Health reports the undecided erasure registry (the backup refuses) and the
