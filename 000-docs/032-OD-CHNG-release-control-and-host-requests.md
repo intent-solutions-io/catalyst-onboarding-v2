@@ -45,48 +45,73 @@ of 2026-10-23). Only a GitHub ruleset and a protected environment are enforced b
 
 ### 1.3 Owner-run actions, in order
 
-Preconditions: the owner's own GitHub credentials in the owner's own terminal; no agent session holds owner
-credentials at the time; no deploy credential exists yet. **Not met today (readback of 2026-10-27, section 1.8):**
-agent sessions on the dev box use the owner's own `gh` login, a classic token with the `repo`, `workflow` and
-`delete_repo` scopes and administrator permission on this repository, stored in the dev-box user's `gh`
-configuration that every session can read. So the privilege boundary is not a token setting alone: the owner's
-administrator credential must not stay readable by the dev-box user that agent sessions run as. Step 0 therefore
-comes first.
+Preconditions: the owner's own GitHub credentials in the owner's own terminal; no agent session running while the
+owner acts; no deploy credential exists yet. **Not met today (readback of 2026-10-27, section 1.8):** agent sessions
+on the dev box use the owner's own `gh` login, a classic token with the `repo`, `workflow` and `delete_repo` scopes
+and administrator permission on this repository, which every session can read. The privilege boundary is therefore
+not a token setting alone: every GitHub credential the agent's operating-system user can read must lose
+administrator rights on this repository (step 3).
 
-0. **The privilege boundary (owner).** Issue a fine-grained token for agent sessions, limited to this repository:
+`REPO` is always passed explicitly to the script, for this repository as well. Every `gh` command names its target
+with `--repo`. Every push in section 1.6 runs from a fresh clone of the disposable repository whose `origin` was
+checked first.
+
+**Emergency bypass (written into `009` section 5.5 before step 2).** The bypass list is empty, so nobody can merge
+around a check that never reports. The escape is the owner, as administrator, setting the ruleset's enforcement to
+`disabled` (never deleting it), doing the one change, setting it back to `active`, re-reading R2 and R3, and recording
+the reason within a day. That is the only sanctioned path.
+
+1. **Stop every agent session** on the dev box. None runs again until step 3 is done.
+2. **Protect this repository first** (settings only; it touches no history, and from here on a mistaken push or merge
+   against `main` is refused). Dry run: `REPO=<this repository> EXPECTED_LOGIN=<owner login>
+   scripts/apply-github-protections.sh`. Then the same with `--apply`. It creates or updates the ruleset, upserts the
+   environment and its `main` branch policy, reads back and asserts: bypass actors 0, enforcement active, the
+   required checks exactly as intended, the deployment branch policy exactly `main`, and the five rule types
+   effective on `main`. A failed assertion exits non-zero: stop and fix.
+3. **The privilege boundary (owner).** Issue a fine-grained token for agent sessions, limited to this repository:
    contents and pull requests read and write; checks, commit statuses, actions and metadata read. No administration,
-   environments, secrets, variables, deployments or webhooks, and no `delete_repo` scope. Pushing a change to
-   `.github/workflows/` also needs the workflows permission. Either grant it and record the residual, or have the
-   owner push workflow changes. Give the token to agent sessions only (for example `GH_TOKEN` in their environment).
-   Then remove the owner's classic login from the dev-box user (`gh auth logout`) and run steps 1 to 7 from a machine
-   or account the agent cannot read. Done when R11 under the agent's token reads `admin` false and `maintain` false.
-   Record the token's expiry, never its value. Removing the classic login affects every repository agent sessions
-   work on from the dev box, not only this one. The alternative with the same effect is to run agent sessions as a
-   separate operating-system user that cannot read the owner's `gh` configuration (owner's choice). Until step 0 is
-   done, no agent session runs any `gh` or `git` command
-   that changes repository settings, and the owner runs nothing below while an agent session is running.
+   environments, secrets, variables, deployments or webhooks. Pushing a change to `.github/workflows/` also needs the
+   workflows permission: either grant it and record the residual, or have the owner push workflow changes. Then
+   inventory and remove or neutralize every other GitHub credential the agent's operating-system user can read:
+   - the `gh` login (`gh auth logout`);
+   - SSH keys registered to the owner's account (an SSH push authenticates as the owner);
+   - `GH_TOKEN` or `GITHUB_TOKEN` in shell profiles or agent settings;
+   - git credential stores;
+   - any token in an encrypted file the dev-box key can decrypt. Read that token's permission on this repository
+     (R11 under it, never printing it). An administrator token there breaks the boundary, and the remedy is the
+     owner's call.
 
-1. **Dry run.** `EXPECTED_LOGIN=<owner login> scripts/apply-github-protections.sh`. It prints the identity, the admin
-   right, the current state and the ruleset and environment it would send. Nothing is changed.
-2. **Prove the definition on the disposable repository** (section 1.6): create it, apply with
-   `REPO=<org>/<disposable> ... --apply`, then run probes P1 to P6 there. Stop on any probe that is not refused.
-3. **Apply to this repository.** `EXPECTED_LOGIN=<owner login> scripts/apply-github-protections.sh --apply`. It creates
-   or updates the ruleset, upserts the environment and its `main` branch policy, reads back and asserts: bypass actors
-   0, enforcement active, the required checks exactly as intended, the deployment branch policy exactly `main`, and
-   the five rule types effective on `main`. A failed assertion exits non-zero: fix before anything else. Then run the
-   equivalence check of section 1.6 against the disposable repository.
-4. **The merge-guard registration** (outside this repository): name both required checks. Confirm with probe P0.
-5. **The image scan (`9kg.36`).** Re-run step 2 on the disposable repository and step 3 here with `--with-scan`, then
-   add "Build and scan the image" to the merge-guard registration. The image workflow has no path filter, so the job
-   reports on every pull request, docs-only included (`009` section 5.5's rule). Run probes P7 and P8 here.
-6. **Record.** Paste the readback, the equivalence comparison and each probe's result into section 1.8, and through a
-   docs pull request into `009` section 5.5, with the emergency-bypass procedure. Update the header comment of
-   `.github/workflows/image.yml`, which still says "Not a required check". Delete the disposable repository.
-7. **Only then** may a deploy credential be created, bound to the `release` environment claim and the `main` ref
+   Running agent sessions as a separate operating-system user that can read none of these has the same effect. Either
+   way it reaches every repository the dev box works on, not only this one. **Done when** R11 under the agent's token
+   reads `admin` false and `maintain` false, and `ssh -T git@github.com` as the agent's user does not authenticate as
+   the owner. Record the token's expiry, never its value. **Residuals, recorded, not fixed here:** `contents: write`
+   lets an agent create tags and releases and push or delete branches other than `main`, and no tag ruleset exists.
+4. **Prove the definition on the disposable repository** (section 1.6). Create it, clone it fresh into an empty
+   directory, check that `git remote get-url origin` names it, then apply with `REPO=<org>/<disposable>
+   EXPECTED_LOGIN=<owner login> scripts/apply-github-protections.sh --apply`. Run the equivalence check against this
+   repository **before any probe**, then probes P1 to P6 there.
+5. **The merge-guard registration** (outside this repository): name both required checks. Confirm with probe P0.
+6. **The image scan (`9kg.36`).** Re-apply with `--with-scan` here, then on the disposable repository. Repeat the
+   equivalence check, then add "Build and scan the image" to the merge-guard registration. The image workflow has no
+   path filter, so the job reports on every pull request, docs-only included (`009` section 5.5's rule). Run probes P7
+   and P8 here, and P1 again on the disposable repository.
+7. **Record.** Paste the readback, the equivalence comparisons and each probe's result into section 1.8, and through
+   a docs pull request into `009` section 5.5. Update the header comment of `.github/workflows/image.yml`, which still
+   says "Not a required check". Close the probe pull requests and delete the disposable repository.
+8. **Only then** may a deploy credential be created, bound to the `release` environment claim and the `main` ref
    (section 1.2), as part of host preparation under its own go.
 
-Stop conditions for the whole procedure: R11 still reads `admin` true for the agent's token; any equivalence
-difference; any probe not refused; any readback assertion failing; any prompt to dispatch `release.yml`.
+Stop conditions for the whole procedure:
+
+- any readback assertion failing, here or on the disposable repository;
+- R11, or the SSH test, still showing owner rights for the agent's user;
+- any equivalence difference;
+- a probe whose remote or `--repo` is not the disposable repository;
+- any probe not refused;
+- any prompt to dispatch `release.yml`.
+
+R4 unreadable (the current token lacks `admin:org`; organization rulesets may not exist on the organization's
+current plan) is recorded as NOT RUN (scope) with that limit, not as a pass.
 
 ### 1.4 Effective-rule readback (read-only)
 
@@ -142,13 +167,13 @@ A probe that is not run is reported NOT RUN, never PASS.
 **The disposable repository (owner).** Create a new **public** repository in the same organization, because
 rulesets and environment reviewers on a private repository need a paid plan and would not be equivalent. Give it a
 throwaway name, recorded in the private operations record. It holds one commit: a README and one workflow,
-`probe.yml`. That workflow has two jobs on `pull_request`, named exactly "Markdown lint and doc index check" and
-"Runtime checks (Python 3.14.8, PostgreSQL 16.15)". Each runs a single `sleep`, then `exit 0`, or `exit 1` when
-the pull request carries a `fail` label. The repository has no secrets, variables, deploy keys, webhooks, release
-workflow or other collaborators. Apply the same definition with
-`REPO=<org>/<disposable> EXPECTED_LOGIN=<owner login> scripts/apply-github-protections.sh --apply`.
+`probe.yml`. That workflow runs on `pull_request` with the types `opened`, `synchronize`, `reopened` and `labeled`, and
+has three jobs, named exactly "Markdown lint and doc index check", "Runtime checks (Python 3.14.8, PostgreSQL
+16.15)" and "Build and scan the image". Each runs a single `sleep`, then `exit 0`, or `exit 1` when the pull request
+carries a `fail` label. The third job is there so that the `--with-scan` contract also reports. The repository has no secrets, variables, deploy keys, webhooks, release
+workflow or other collaborators. Apply the same definition as step 4 of section 1.3 says.
 
-**Equivalence check before any probe (read-only).** Read R2, R3, R6 and R7 on both repositories. Compare them after
+**Equivalence check before any probe (read-only; repeated after every apply).** Read R2, R3, R6 and R7 on both repositories. Compare them after
 removing ids, URLs, timestamps and the `source` field. The rule types, parameters, required checks with their
 integration id, bypass list, environment protection rules and branch policies must be identical. If anything
 differs, stop: probes on the disposable repository prove nothing about this one.
@@ -167,6 +192,10 @@ differs, stop: probes on the disposable repository prove nothing about this one.
 | P6 | disposable | a pull request labelled `fail`, so a required check fails; then P1's merge | refused: a required check failed | stop; fix the definition |
 | P7 | this repository | (`9kg.36`) a **draft** pull request adding one package version with a known, fixable high finding to the image. Never merged; no merge command is run against it | "Build and scan the image" fails, and `safe-merge --dry-run` refuses | the scan does not fail: re-run step 6 of section 1.3. The pull request is closed unmerged either way |
 | P8 | this repository | (`9kg.36`) a **draft** docs-only pull request, never merged | every required check reports, the scan included | a check that does not report would block every docs pull request: fix the workflow trigger |
+
+Every probe on the disposable repository runs from its fresh clone after `git remote get-url origin` was checked,
+and every `gh` command in it carries `--repo <org>/<disposable>`. Because this repository is protected first (step 2),
+a probe aimed at the wrong target is refused here too. That is a backstop, not the plan.
 
 **What this evidence covers, and what it does not.** The disposable probes show that GitHub enforces this ruleset
 and environment definition for the owner's identity in this organization. They do not show it on this repository.
