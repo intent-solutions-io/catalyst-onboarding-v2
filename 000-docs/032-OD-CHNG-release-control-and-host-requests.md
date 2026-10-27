@@ -223,10 +223,11 @@ Host preparation starts only when all of these hold:
 2. The coexistence decision is recorded as final on the preflight's evidence (`211.7.3`), and the staff devices and
    holders are recorded privately (`211.7.5`).
 3. The protections' readback passed and the scoped agent token is in force (section 1).
-4. **Repository work not yet done:** a production stack definition (the staging renderer hard-codes `staging`; `9kg.28`
-   asks for production configuration with no staging defaults) and a reviewed release that admits `production` with
-   its provider settings (`031` section 8, item 3). Both are repo-only, under bead `9kg.31.11` (filed 2026-10-26);
-   the dark deploy `9kg.31.5` depends on it.
+4. **Repository work:** a production stack definition and a reviewed release that admits `production` (`031`
+   section 8, item 3), bead `9kg.31.11`. Built 2026-10-27 (`026` section 18): production is admitted with every live
+   refusal, and `deploy/production/compose.yaml` is the staging definition with reviewed inputs only. Its provider
+   settings (Documenso, MXroute) still need a guard amendment before their canaries, and the three Django-mailer
+   mails need their live path (`9kg.77`) before real intake.
 5. Values the configuration needs before start-up: the challenge lifetime (required at start-up), the custody rows
    (`031` section 3) for the custody mounts, and the erasure registry before the first production backup (`031`
    section 8, item 1).
@@ -388,7 +389,7 @@ From `9kg.28`'s acceptance, plus the custody and erasure items added since:
 | The P6-D-8 exception record for the database data directory | step 1 | the estate's filesystem standard (owner) |
 | Port allocations from the estate inventory | step 3 | H4 (owner) |
 | The egress deny list's supplier and rotation | step 3 (the list may stay empty while fetching is disabled) | INPUT |
-| The production stack definition and the release admitting `production` | step 3 | repo-only work with no bead yet |
+| The production stack definition and the release admitting `production` | step 3 | built (`9kg.31.11`, `026` section 18) |
 | The challenge lifetime and the page list | step 3 and step 6 | `211.7.7`, `211.7.2` |
 | The erasure registry decision | the first production backup | `211.7.1` |
 | The v2 mailbox and its credentials, and the Documenso team, token and webhook secrets | the canaries (D), not this step | `211.7.3`, `211.7.4` |

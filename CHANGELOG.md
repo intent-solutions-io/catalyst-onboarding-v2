@@ -195,6 +195,15 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   finished by running it again. `--retire-old-key` checks that no key file is still under the old key, then journals
   its retirement, so a remnant of an erased document's wrapped key has no key left that opens it. The next key is
   refused by every process but the owner-run rotation
+- Production admitted in code (bead `9kg.31.11`; `026` section 18): the guards admit `production` with every live
+  refusal in force (the mail allow-list and pins, the journal ship-lag threshold, custody and backup refused while
+  the owner's decisions are open) and keep model advice, evidence fetching, the agreement provider and the
+  provisioning adapter off. Production also runs invitation-only, on exactly `https://<a dedicated host>` that is
+  never the learning site's, answers for no other host, and refuses Django's own mails (`config.mail`) until their
+  live path exists (`9kg.77`), so no live link is written to disk. `deploy/production/compose.yaml` is rendered from
+  the staging definition and differs only in reviewed inputs (a test pins the list), with the effect journal on an
+  external volume; each production service starts with its rendered environment. Starting it on a host is a
+  separate, owner-approved act
 - Envelopes created after the backup (bead `9kg.76`; `029` section 6.2): after a restore the envelope read also
   lists each Catalyst template at Documenso back to an hour before the backup's start and opens a
   `restore_effect_envelope` item for every Catalyst-keyed envelope that no restored agreement or attempt names, so the

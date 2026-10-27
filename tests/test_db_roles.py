@@ -840,8 +840,15 @@ def test_6b6_staging_provisioning_takes_passwords_only_from_files(tmp_path):
     assert refused_env.returncode != 0 and "CATALYST_DB_APP_PASSWORD may not be in the environment in staging" in output
     missing = run(script, **env)
     assert missing.returncode != 0 and "owner_password cannot be read" in missing.stderr + missing.stdout
-    production = run(script, CATALYST_ENV="production")
-    assert production.returncode == 2 and "only for CATALYST_ENV in development, test, staging" in production.stderr
+    # 9kg.31.11: production is admitted with staging's rules: files only, never the environment, never anywhere else.
+    production = run(script, **{**env, "CATALYST_ENV": "production", "CATALYST_DB_APP_PASSWORD": "in-the-env"})
+    assert production.returncode != 0
+    assert "CATALYST_DB_APP_PASSWORD may not be in the environment in production" in production.stderr + production.stdout
+    no_dir = run(script, **{**env, "CATALYST_ENV": "production", "CATALYST_SECRETS_DIR": "relative"})
+    assert no_dir.returncode != 0 and "production needs CATALYST_SECRETS_DIR" in no_dir.stderr + no_dir.stdout
+    for other in ("prod", "live", "Production"):
+        refused = run(script, CATALYST_ENV=other)
+        assert refused.returncode == 2 and "only for CATALYST_ENV in development, test, staging, production" in refused.stderr
 
 
 def test_6b6_staging_provisioning_succeeds_from_files_and_stores_only_password_hashes(tmp_path):
