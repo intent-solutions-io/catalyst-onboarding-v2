@@ -437,11 +437,11 @@ def test_9kg_31_11_production_runs_invitation_only_on_its_own_host():
     assert guards.live_problems(SimpleNamespace(CATALYST_ENV="staging", CATALYST_INTAKE_MODE="open")) == []
 
 
-def test_9kg_31_11_production_refuses_django_mail_and_never_prints_it():
+def test_9kg_31_11_production_never_sinks_or_prints_django_mail():
     # Security review of PR #118: a file sink would keep live links and addresses on disk and report a delivery that
     # never happened, so production's Django mailer refuses (9kg.77 builds the live path).
     for backend in ("django.core.mail.backends.filebased.EmailBackend", "django.core.mail.backends.locmem.EmailBackend"):
-        assert any("EMAIL_BACKEND must be config.mail.RefusingEmailBackend" in p
+        assert any("EMAIL_BACKEND must be config.mail.TransportEmailBackend" in p
                    for p in guards.live_problems(production(EMAIL_BACKEND=backend))), backend
     console = production(EMAIL_BACKEND="django.core.mail.backends.console.EmailBackend")
     console.CATALYST_MAIL_TLS, console.CATALYST_MAIL_HOST = "starttls", ""
@@ -450,6 +450,9 @@ def test_9kg_31_11_production_refuses_django_mail_and_never_prints_it():
         assert any("CATALYST_FROM_EMAIL must be the v2 sender" in p
                    for p in guards.live_problems(production(DEFAULT_FROM_EMAIL=sender))), sender
     assert guards.REFUSING_EMAIL_BACKEND in guards.SINK_EMAIL_BACKENDS  # it never leaves the process
+    # 9kg.77: the transport backend is production's default; the refusing one stays admitted as the owner's hold.
+    for backend in guards.LIVE_EMAIL_BACKENDS:
+        assert not any("EMAIL_BACKEND must be" in p for p in guards.live_problems(production(EMAIL_BACKEND=backend)))
 
 
 def test_9kg_31_11_the_refusing_backend_refuses_every_message_and_writes_nothing():
@@ -459,7 +462,7 @@ def test_9kg_31_11_the_refusing_backend_refuses_every_message_and_writes_nothing
 
     connection = get_connection(guards.REFUSING_EMAIL_BACKEND)
     assert connection.send_messages([]) == 0
-    with pytest.raises(mail.MailRefused, match="django_mail_has_no_live_path"):
+    with pytest.raises(mail.MailRefused, match="django_mail_held"):
         EmailMessage(subject="s", body="https://link.example.test/secret-token", to=["a@example.test"],
                      connection=connection).send(fail_silently=False)
 

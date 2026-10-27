@@ -2476,10 +2476,12 @@ production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
   - `ALLOWED_HOSTS` holds exactly those two and `CATALYST_LOCAL_HOSTS`;
   - the sender address (`CATALYST_FROM_EMAIL`) is set and is not the synthetic default.
 - **Mail.** Applicant mail in production leaves only through `correspondence.transport` to the allow-listed host.
-  Production's Django mailer is `config.mail.RefusingEmailBackend`: the three mails it sends (contact confirmation,
-  password setup, withdrawal link) fail and take each sender's failure path, so no live link or address is written
-  to disk and no delivery is recorded that did not happen. Their live path is `9kg.77` (required before real intake,
-  not for the dark deploy). The console backend is refused in every deployment.
+  Django's own mails (contact confirmation, password setup, withdrawal link) use `config.mail.TransportEmailBackend`
+  in production (`9kg.77`, 2026-10-27): each message goes through the same transport, with its allow-list, pinned
+  login, verified TLS, peer check and web-and-worker rule, one recipient and no copies, and any outcome but
+  `accepted_by_server` raises so the sender takes its failure path (`MailUncertain` when the server may have accepted
+  it). `config.mail.RefusingEmailBackend` stays admitted as the owner's hold. No file or console sink, and not
+  Django's own SMTP backend, is ever admitted in production, so no live link or address is written to disk.
 - **Roles.** `scripts/provision_db_roles.py` admits production with staging's rules: passwords from files only, the
   database taken over by the owner role, grants read back.
 - **Stack.** `scripts/render_staging_compose.py` renders `deploy/production/compose.yaml` from the staging

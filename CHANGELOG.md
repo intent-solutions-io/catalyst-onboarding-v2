@@ -195,6 +195,10 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   finished by running it again. `--retire-old-key` checks that no key file is still under the old key, then journals
   its retirement, so a remnant of an erased document's wrapped key has no key left that opens it. The next key is
   refused by every process but the owner-run rotation
+- Django's own mails in production (bead `9kg.77`; `026` section 18): the contact confirmation, the password setup
+  and the withdrawal link go through `correspondence.transport`, the one SMTP path, by `config.mail.TransportEmailBackend`
+  (one recipient, no copies; anything but acceptance raises, so each sender takes its failure path). The refusing
+  backend stays admitted as the owner's hold; the transport backend is refused outside a live environment
 - The production mail route (bead `9kg.79`; `026` section 18): in `deploy/production/compose.yaml` the worker and a
   new owner-run `post-restore` service alone join a non-internal `mail` network and hold the mail host settings and
   the `mail_password` secret; the post-restore step runs there, so `restore`, which holds the administrator password,
@@ -208,6 +212,12 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   the staging definition and differs only in reviewed inputs (a test pins the list), with the effect journal on an
   external volume; each production service starts with its rendered environment. Starting it on a host is a
   separate, owner-approved act
+- Envelopes created after the backup (bead `9kg.76`; `029` section 6.2): after a restore the envelope read also
+  lists the team's documents at Documenso, from every template, back to an hour before the backup's start, and opens a
+  `restore_effect_envelope` item (keyed by the envelope id, which the report lists) for every Catalyst-keyed envelope
+  that no restored agreement or attempt names, so the restored system cannot send a signer a second envelope
+  unnoticed. The listing fails closed: a page limit reached, an order the provider did not keep, or an unconfigured
+  provider where agreements were used refuses the lift
 - The effect registry (bead `9kg.62`; `029` section 6.2): `workflow/effects.py` classifies each function that
   performs an effect a restore cannot undo in seven families (journal, SMTP, Django mail, Documenso, MXroute, IMAP,
   model), naming the function that covers each one. `tests/test_effect_registry.py` finds those calls in the source
