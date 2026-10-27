@@ -2522,8 +2522,8 @@ production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
   that instead: the worker alone is on the mail network and holds the mail password; the request form and the
   owner's invitation are refused until real, non-synthetic wording is approved (503 and `data_notice_*`); no
   applicant means no held action. Five checks are NOT RUN with their reason: the worker's outside reach (its limit
-  is the host firewall) and the four intake and confirmation steps (they wait for the owner's wording and a
-  delivered mail, the mail canary `9kg.31.1`). It runs only against a local Docker daemon that holds no
+  is the host firewall) and the four intake and confirmation steps (they wait for the owner's wording, the
+  approvable verification mail `9kg.80`, and a delivered mail, the mail canary `9kg.31.1`). It runs only against a local Docker daemon that holds no
   `catalyst-production` project and no `catalyst-production-effects` volume, and removes only the volume it created.
   The production run ends with a summary that keeps apart the applicant journey (not demonstrated), the protective
   refusals, the structural checks, host and provider evidence (none: this is the dev box) and each NOT RUN with the
@@ -2531,6 +2531,15 @@ production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
   (2 protective refusals, 136 structural), 0 FAIL, 5 NOT RUN. A refusal is never counted as the journey. The
   restore, deploy and alert drills against production are `9kg.78.4`: the first two take a production backup, which
   refuses until POL-10 is recorded.
+
+- **Adapters** (`9kg.78.1`, 2026-10-27). The deploy adapters require `CATALYST_STACK_ENV` (`staging` or
+  `production`; unset, empty or anything else exits 2 before any alert, marker or probe, so a host that lost the
+  setting never falls back to staging's `-k`). The staging drills set it. Every alert names the stack (`catalyst
+  production: <codes>`). The outside-in probes of the public form pass `-q` first (no `.curlrc` is read) and `-k`
+  for staging's internal CA only; production verifies the certificate against the system store, or against
+  `CATALYST_PROBE_CA_FILE` when the host names one, with `CURL_CA_BUNDLE`, `SSL_CERT_FILE` and `SSL_CERT_DIR`
+  cleared for the probe alone, not for the notify command (`deploy/staging/adapters/stack.sh`). This is the probe's code; that the host's certificate verifies is
+  host evidence (`9kg.28`, `9kg.31.5`).
 
 **Limits** (the PR #118 reviews):
 

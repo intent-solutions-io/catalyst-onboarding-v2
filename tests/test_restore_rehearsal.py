@@ -185,7 +185,7 @@ def test_9kg_7_backup_restore_elsewhere_and_verify_rows_files_roles_and_triggers
         assert report["ok"] and report["orphans"] == [orphan.name] and orphan.exists()  # reported, never deleted
         (restored / first).unlink()
         data = (restored / second).read_bytes()
-        (restored / second).write_bytes(data[:-1] + b"X")
+        (restored / second).write_bytes(data[:-1] + bytes([data[-1] ^ 0xFF]))  # always a change (an "X" was a no-op 1 in 256)
         result = verify(restore_db, restored)
         report = json.loads(result.stdout.strip().splitlines()[-1])
         assert result.returncode == 1 and not report["ok"]

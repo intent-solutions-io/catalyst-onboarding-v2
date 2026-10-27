@@ -228,7 +228,7 @@ esac
     python = os.path.dirname(sys.executable)
     env = {"PATH": f"{stubs}:{python}:/usr/bin:/bin", "CATALYST_DEPLOY_STATE": str(state), "CATALYST_DEPLOY_ID": "deploy-1",
            "CATALYST_COMPOSE_PROJECT": "p", "CATALYST_COMPOSE_FILE": "f", "CATALYST_SMOKE_SETTLE": "0",
-           "CATALYST_SMOKE_SECONDS": "2"}
+           "CATALYST_SMOKE_SECONDS": "2", "CATALYST_STACK_ENV": "staging"}
     result = subprocess.run(["bash", str(ADAPTERS / "receipt.sh")], env=env, capture_output=True, text=True, timeout=60)
     receipts = sorted(p.name for p in (state / "receipts").iterdir()) if (state / "receipts").exists() else []
     return result, receipts, state, backup

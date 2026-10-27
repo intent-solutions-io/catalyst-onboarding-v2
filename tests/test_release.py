@@ -289,15 +289,15 @@ def test_9kg_38_the_drill_reverts_n_plus_one_to_n_on_the_expanded_schema_and_ref
     forward-only, as the drill's does), and the script reverts through the wrapper with the data checked."""
     for app in release.APPS:
         (tmp_path / app / "migrations").mkdir(parents=True)
-    (tmp_path / "workflow" / "migrations" / "0006_expand.py").write_text(drill_migration("expand_migration"))
-    (tmp_path / "workflow" / "migrations" / "0007_contract.py").write_text(drill_migration("contract_migration"))
-    assert release.contracting(tmp_path, baseline={}) == {"workflow.0007_contract": ["RemoveField"]}
+    (tmp_path / "workflow" / "migrations" / "0007_expand.py").write_text(drill_migration("expand_migration"))
+    (tmp_path / "workflow" / "migrations" / "0008_contract.py").write_text(drill_migration("contract_migration"))
+    assert release.contracting(tmp_path, baseline={}) == {"workflow.0008_contract": ["RemoveField"]}
     drill = (ROOT / "scripts" / "deploy_drill.sh").read_text()
     steps = [drill.index(s) for s in (
         'wrapper "$expand"', 'op revert-to-n', '"$adapters/predeploy.sh" "$n"', 'wrapper "$n"',
-        '"$adapters/smoke.sh"\ncheck "the schema was not rolled back', 'FORWARD_ONLY: frozenset[str] = frozenset({\\"workflow.0007_contract\\"})',
+        '"$adapters/smoke.sh"\ncheck "the schema was not rolled back', 'FORWARD_ONLY: frozenset[str] = frozenset({\\"workflow.0008_contract\\"})',
         'wrapper "$contract"', 'op revert-across-contract', 'wrapper "$expand"; rc=$?\ncheck "a revert across a forward-only migration is refused',
-        'workflow.0007_contract.*restore instead')]
+        'workflow.0008_contract.*restore instead')]
     assert steps == sorted(steps)  # N+1 promoted, reverted to N through the wrapper, then the contract revert refused
     assert drill.count("submit n-") == 3 and '"$(applications)" = "$count"' in drill  # the data is checked, not assumed
     # 9kg.63: intake is invitation-only (9kg.43), so every submission is preceded by the owner's invitation, issued by
@@ -327,3 +327,15 @@ def test_6b10_the_image_workflow_attests_only_main_and_pushes_nowhere():
     # The private copy is the one verified and the one loaded (no swap between them); no unattested id file is trusted.
     assert 'gh attestation verify "$tar"' in verify and 'docker load -i "$tar"' in verify and 'tar="$private/image.tar"' in verify
     assert "catalyst-image.id" not in verify
+
+
+def test_9kg_78_1_the_deploy_drill_builds_on_the_workflow_apps_newest_migration():
+    """The drill's synthetic migrations extend the workflow app's real leaf. When PR #103 added 0006 the drill still
+    built on 0005, so every release after it hit "conflicting migrations" and 15 drill checks failed unseen until a
+    run on 2026-10-27; this pins the base so the next workflow migration fails here, in CI, instead."""
+    numbered = sorted(p.stem for p in (ROOT / "workflow" / "migrations").glob("[0-9][0-9][0-9][0-9]_*.py"))
+    leaf, following = numbered[-1], int(numbered[-1][:4]) + 1
+    drill = (ROOT / "scripts" / "deploy_drill.sh").read_text()
+    assert drill.count(f'dependencies = [("workflow", "{leaf}")]') == 2  # the failing migration and the expand
+    for name in (f"{following:04d}_drill", f"{following:04d}_expand", f"{following + 1:04d}_contract"):
+        assert f"/app/workflow/migrations/{name}.py" in drill, name
