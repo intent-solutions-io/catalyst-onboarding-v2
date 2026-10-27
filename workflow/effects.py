@@ -79,8 +79,8 @@ REGISTRY = {
     "agreements.completion:CancelAgreement.call": {
         "documenso": Site(PROVIDER_READ, "a restored instance's envelope is read by id; a cancel shows", by=READ_ENVELOPES)},
     "agreements.handlers:CreateAgreement.call": {
-        "documenso": Site(PROVIDER_READ, "a restored instance's envelope is read by id, or found by its external key",
-                          by=READ_ENVELOPES, gap="9kg.76")},  # an instance created after the backup is not read
+        "documenso": Site(PROVIDER_READ, "read by id or key; one for a dropped instance is found by the template listing",
+                          by=READ_ENVELOPES)},  # 9kg.76: Catalyst-keyed envelopes no restored row names open an item
     "agreements.handlers:DistributeAgreement.call": {
         "documenso": Site(CHECKED_BEFORE, "re-reads the envelope and skips one already PENDING",
                           by="agreements.handlers:DistributeAgreement.call")},

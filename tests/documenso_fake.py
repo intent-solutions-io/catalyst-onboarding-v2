@@ -45,6 +45,8 @@ class FakeDocumenso:
         # the cancellation email on cancel unless `documentDeleted` is off, the completed copy on completion.
         self.emails = []
         self._lock, self._n, self.clock = threading.Lock(), 0, 0
+        # 9kg.76 review: a provider that ignores the requested order, or omits the page count, must not read as complete.
+        self.list_ascending, self.list_omit_total_pages = False, False
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -237,12 +239,18 @@ class FakeDocumenso:
             return 200, {"success": True}, json_
         if method == "GET" and route == BASE + "/envelope":
             query = {k: v[0] for k, v in parse_qs(urlsplit(path).query).items()}
-            rows = [e for e in reversed(list(self.envelopes.values()))
-                    if str(e["templateId"]) == query.get("templateId") and e["type"] == query.get("type", "DOCUMENT")]
+            rows = [e for e in reversed(list(self.envelopes.values()))  # newest first; templateId filters when given
+                    if ("templateId" not in query or str(e["templateId"]) == query["templateId"])
+                    and e["type"] == query.get("type", "DOCUMENT")]
+            if self.list_ascending:
+                rows.reverse()
             per, page = int(query.get("perPage", 10)), int(query.get("page", 1))
             pages = max(1, -(-len(rows) // per))
-            return 200, {"data": rows[(page - 1) * per:page * per], "count": len(rows), "currentPage": page,
-                         "perPage": per, "totalPages": pages}, json_
+            body = {"data": rows[(page - 1) * per:page * per], "count": len(rows), "currentPage": page, "perPage": per,
+                    "totalPages": pages}
+            if self.list_omit_total_pages:
+                del body["totalPages"]
+            return 200, body, json_
         if method == "GET" and route.startswith(BASE + "/envelope/item/") and route.endswith("/download"):
             status, content_type, data = self.download
             return status, data, content_type

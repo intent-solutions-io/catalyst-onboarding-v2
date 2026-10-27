@@ -1718,6 +1718,12 @@ P6_SUPPORTING = {
         "test_staging_compose::test_9kg_31_11_the_committed_production_file_is_exactly_the_rendering",
         "test_staging_compose::test_9kg_31_11_production_differs_from_staging_only_in_the_reviewed_inputs",
     ],
+    "9kg.76 an envelope created after the backup for an agreement the restore dropped opens an item, and an incomplete listing refuses the lift (029)": [
+        "test_post_restore::test_9kg_76_an_envelope_created_for_an_agreement_the_restore_dropped_opens_an_item",
+        "test_post_restore::test_9kg_76_the_listing_fails_closed",
+        "test_post_restore::test_9kg_76_no_provider_passes_only_where_agreements_were_never_used",
+        "test_post_restore::test_9kg_76_no_provider_refuses_once_agreements_were_used",
+    ],
     "9kg.77 the confirmation, setup and withdrawal mails leave production only through the pinned transport (026)": [
         "test_django_mail::test_9kg_77_a_message_leaves_through_the_transport_with_crlf_and_one_recipient",
         "test_django_mail::test_9kg_77_anything_but_acceptance_raises_so_the_sender_takes_its_failure_path",
