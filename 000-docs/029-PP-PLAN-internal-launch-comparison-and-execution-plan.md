@@ -360,8 +360,10 @@ screen shows its age (`9kg.41`); the stage, item and pause classes are counted b
     (`config/post_restore.py`, step 4);
   - the contact-confirmation, password-setup and withdrawal mails go through Django's mailer, not
     `correspondence.transport`; the review supersedes every live link they carry (`close_outstanding_links`);
-  - an envelope created after the backup for an agreement the restored database does not hold is read by nothing,
-    so a restore could send the signer a second envelope (`9kg.76`, required before the go/no-go);
+  - an envelope created after the backup for an agreement the restored database does not hold was read by
+    nothing, so a restore could send the signer a second envelope. Built 2026-10-27 (`9kg.76`): the envelope read
+    lists each Catalyst template back to an hour before the backup's start and opens a `restore_effect_envelope` item
+    for each Catalyst-keyed envelope no restored row names; a listing cut short by the page limit refuses the lift;
   - a restrictive `prepare` that cannot be written does not stop its effect: the failure is logged, counted and
     refused at readiness; only the erasure and custody records refuse their effect.
 - **Custody** (`9kg.34`, built 2026-10-24; section 6.2.2 and `026` section 16): every custody document is sealed

@@ -1703,6 +1703,11 @@ P6_SUPPORTING = {
         "test_journal_shipping::test_9kg_60_a_rebaseline_keeps_the_old_copy_and_starts_a_new_one",
         "test_journal_shipping::test_9kg_60_a_dead_timer_and_an_unreadable_record_page_under_their_own_codes",
     ],
+    "9kg.76 an envelope created after the backup for an agreement the restore dropped opens an item, and an incomplete listing refuses the lift (029)": [
+        "test_post_restore::test_9kg_76_an_envelope_created_for_an_agreement_the_restore_dropped_opens_an_item",
+        "test_post_restore::test_9kg_76_a_listing_cut_short_by_the_page_limit_refuses_the_lift",
+        "test_post_restore::test_9kg_76_no_provider_and_nothing_to_read_is_not_a_refusal",
+    ],
     "9kg.62 every effect a restore cannot undo is classified, and an unclassified one or a new outward module fails (029)": [
         "test_effect_registry::test_9kg62_every_function_with_an_effect_is_registered_and_no_registration_is_stale",
         "test_effect_registry::test_9kg62_each_class_matches_what_the_function_does",

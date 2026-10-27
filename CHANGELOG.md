@@ -195,6 +195,11 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   finished by running it again. `--retire-old-key` checks that no key file is still under the old key, then journals
   its retirement, so a remnant of an erased document's wrapped key has no key left that opens it. The next key is
   refused by every process but the owner-run rotation
+- Envelopes created after the backup (bead `9kg.76`; `029` section 6.2): after a restore the envelope read also
+  lists each Catalyst template at Documenso back to an hour before the backup's start and opens a
+  `restore_effect_envelope` item for every Catalyst-keyed envelope that no restored agreement or attempt names, so the
+  restored system cannot send a signer a second envelope unnoticed; a listing cut short by the page limit refuses the
+  lift
 - The effect registry (bead `9kg.62`; `029` section 6.2): `workflow/effects.py` classifies each function that
   performs an effect a restore cannot undo in seven families (journal, SMTP, Django mail, Documenso, MXroute, IMAP,
   model), naming the function that covers each one. `tests/test_effect_registry.py` finds those calls in the source
