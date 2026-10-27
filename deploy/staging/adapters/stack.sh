@@ -5,13 +5,14 @@
 # and an alert never carries a stack name nobody reviewed (PR #122 review). PROBE_TLS holds curl's leading arguments for
 # the outside-in probe of the public form, and callers pass it first: -q, so no .curlrc of the timer's user can add
 # `insecure`; then -k for staging's internal CA only. Production verifies the certificate against the system store, or
-# against CATALYST_PROBE_CA_FILE when the host names one; the CA variables of the environment are cleared there, so
-# that file is the only way to change what is trusted.
+# against CATALYST_PROBE_CA_FILE when the host names one. PROBE_ENV clears the environment's CA variables for the probe
+# alone (not for the notify command, which may need them), so that file is the only way to change what the probe
+# trusts. Callers run "${PROBE_ENV[@]}" curl "${PROBE_TLS[@]}" ...
 STACK="${CATALYST_STACK_ENV:-}"
 case "$STACK" in
-  staging) PROBE_TLS=(-q -k) ;;
+  staging) PROBE_ENV=() PROBE_TLS=(-q -k) ;;
   production)
-    unset CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR
+    PROBE_ENV=(env -u CURL_CA_BUNDLE -u SSL_CERT_FILE -u SSL_CERT_DIR)
     PROBE_TLS=(-q ${CATALYST_PROBE_CA_FILE:+--cacert "$CATALYST_PROBE_CA_FILE"}) ;;
   *) echo "CATALYST_STACK_ENV must be set to staging or production" >&2; exit 2 ;;
 esac

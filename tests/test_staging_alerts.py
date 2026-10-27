@@ -17,7 +17,7 @@ def test_6b12_an_alert_carries_signal_codes_and_nothing_else():
     assert 'safe+=("health.unrecognised_signal")' in health
     # The message is the codes, never the report itself; the stack name comes from a fixed list (stack.sh, 9kg.78.1).
     assert '"catalyst ${STACK}: ${safe[*]}"' in health
-    assert "staging) PROBE_TLS" in (ADAPTERS / "stack.sh").read_text() and "*) echo" in (ADAPTERS / "stack.sh").read_text()
+    assert "staging) PROBE_ENV=() PROBE_TLS=(-q -k)" in (ADAPTERS / "stack.sh").read_text() and "*) echo" in (ADAPTERS / "stack.sh").read_text()
     assert "CATALYST_NOTIFY_CMD:?" in health and "CATALYST_HEALTH_STATE:?" in health
 
 
@@ -189,17 +189,28 @@ def test_9kg_78_1_the_probe_verifies_tls_outside_staging(tmp_path):
     for script in ADAPTERS.glob("*.sh"):  # every curl takes its TLS arguments from stack.sh, first
         text = script.read_text()
         calls = [line for line in text.splitlines() if "curl " in line and not line.lstrip().startswith("#")]
-        assert all('curl "${PROBE_TLS[@]}"' in line for line in calls), script.name
+        assert all('"${PROBE_ENV[@]}" curl "${PROBE_TLS[@]}"' in line for line in calls), script.name
 
 
 def test_9kg_78_1_production_clears_the_environment_ca_overrides(tmp_path):
-    """Only CATALYST_PROBE_CA_FILE may change what production trusts: CURL_CA_BUNDLE and the OpenSSL variables are
-    cleared by stack.sh before the probe runs."""
-    out = subprocess.run(["bash", "-c", f'source "{ADAPTERS}/stack.sh"; echo "${{CURL_CA_BUNDLE-unset}} '
-                          '${SSL_CERT_FILE-unset} ${SSL_CERT_DIR-unset}"'], capture_output=True, text=True,
-                         env={"PATH": "/usr/bin:/bin", "CATALYST_STACK_ENV": "production", "CURL_CA_BUNDLE": "/x",
-                              "SSL_CERT_FILE": "/y", "SSL_CERT_DIR": "/z"}).stdout
-    assert out.split() == ["unset", "unset", "unset"]
+    """Only CATALYST_PROBE_CA_FILE may change what production trusts: the probe's curl runs without CURL_CA_BUNDLE and
+    the OpenSSL variables, while the notify command keeps them (PR #122 re-review)."""
+    stubs = tmp_path / "bin"
+    stubs.mkdir()
+    seen = tmp_path / "seen"
+    (stubs / "curl").write_text(f"#!/bin/sh\necho \"curl ${{CURL_CA_BUNDLE-unset}} ${{SSL_CERT_FILE-unset}} "
+                                f"${{SSL_CERT_DIR-unset}}\" >> {seen}\nprintf 000\n")
+    (stubs / "curl").chmod(0o755)
+    notify = f"echo notify ${{CURL_CA_BUNDLE-unset}} >> {seen}; true"
+    script = (f'set -euo pipefail; source "{ADAPTERS}/stack.sh"\n'
+              '"${PROBE_ENV[@]}" curl "${PROBE_TLS[@]}" -s https://catalyst.example.test/ >/dev/null\n'
+              'bash -c "$CATALYST_NOTIFY_CMD"\n')
+    for stack, probe in (("production", "curl unset unset unset"), ("staging", "curl /x /y /z")):
+        seen.unlink(missing_ok=True)
+        subprocess.run(["bash", "-c", script], check=True, timeout=30,
+                       env={"PATH": f"{stubs}:/usr/bin:/bin", "CATALYST_STACK_ENV": stack, "CURL_CA_BUNDLE": "/x",
+                            "SSL_CERT_FILE": "/y", "SSL_CERT_DIR": "/z", "CATALYST_NOTIFY_CMD": notify})
+        assert seen.read_text().splitlines() == [probe, "notify /x"], stack
 
 
 def test_9kg_78_1_the_smoke_gate_probes_the_public_form_with_the_stack_tls(tmp_path):

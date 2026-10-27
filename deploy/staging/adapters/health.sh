@@ -43,7 +43,7 @@ if [ -n "${CATALYST_DRILL_RECEIPTS:-}" ] && [ "$(newest_age "$CATALYST_DRILL_REC
   codes+=("restore_drill.overdue")
 fi
 if [ -n "${CATALYST_SMOKE_URL:-}" ]; then
-  code="$(curl "${PROBE_TLS[@]}" -s -o /dev/null -w '%{http_code}' --max-time 10 ${CATALYST_SMOKE_RESOLVE:+--resolve "$CATALYST_SMOKE_RESOLVE"} "$CATALYST_SMOKE_URL" || true)"
+  code="$("${PROBE_ENV[@]}" curl "${PROBE_TLS[@]}" -s -o /dev/null -w '%{http_code}' --max-time 10 ${CATALYST_SMOKE_RESOLVE:+--resolve "$CATALYST_SMOKE_RESOLVE"} "$CATALYST_SMOKE_URL" || true)"
   [ "$code" = 200 ] || codes+=("probe.public_form_unreachable")
 fi
 safe=()

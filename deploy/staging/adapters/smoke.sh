@@ -46,6 +46,6 @@ sys.exit(1 if problems else 0)
 PY
 compose exec -T web python manage.py check --deploy --fail-level WARNING >/dev/null 2>&1 || fail "check --deploy is not clean"
 if [ -n "${CATALYST_SMOKE_URL:-}" ]; then
-  code="$(curl "${PROBE_TLS[@]}" -s -o /dev/null -w '%{http_code}' --max-time 10 ${CATALYST_SMOKE_RESOLVE:+--resolve "$CATALYST_SMOKE_RESOLVE"} "$CATALYST_SMOKE_URL" || true)"
+  code="$("${PROBE_ENV[@]}" curl "${PROBE_TLS[@]}" -s -o /dev/null -w '%{http_code}' --max-time 10 ${CATALYST_SMOKE_RESOLVE:+--resolve "$CATALYST_SMOKE_RESOLVE"} "$CATALYST_SMOKE_URL" || true)"
   [ "$code" = 200 ] || fail "the public form answered $code through the proxy"
 fi

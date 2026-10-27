@@ -1748,6 +1748,7 @@ P6_SUPPORTING = {
         "test_staging_alerts::test_9kg_78_1_the_smoke_gate_probes_the_public_form_with_the_stack_tls",
         "test_staging_alerts::test_9kg_78_1_the_probe_verifies_tls_outside_staging",
         "test_staging_alerts::test_9kg_78_1_the_sweep_names_the_stack",
+        "test_release::test_9kg_78_1_the_deploy_drill_builds_on_the_workflow_apps_newest_migration",
     ],
     "9kg.62 every effect a restore cannot undo is classified, and an unclassified one or a new outward module fails (029)": [
         "test_effect_registry::test_9kg62_every_function_with_an_effect_is_registered_and_no_registration_is_stale",
