@@ -204,6 +204,12 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   the staging definition and differs only in reviewed inputs (a test pins the list), with the effect journal on an
   external volume; each production service starts with its rendered environment. Starting it on a host is a
   separate, owner-approved act
+- Envelopes created after the backup (bead `9kg.76`; `029` section 6.2): after a restore the envelope read also
+  lists the team's documents at Documenso, from every template, back to an hour before the backup's start, and opens a
+  `restore_effect_envelope` item (keyed by the envelope id, which the report lists) for every Catalyst-keyed envelope
+  that no restored agreement or attempt names, so the restored system cannot send a signer a second envelope
+  unnoticed. The listing fails closed: a page limit reached, an order the provider did not keep, or an unconfigured
+  provider where agreements were used refuses the lift
 - The effect registry (bead `9kg.62`; `029` section 6.2): `workflow/effects.py` classifies each function that
   performs an effect a restore cannot undo in seven families (journal, SMTP, Django mail, Documenso, MXroute, IMAP,
   model), naming the function that covers each one. `tests/test_effect_registry.py` finds those calls in the source
