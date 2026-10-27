@@ -77,14 +77,19 @@ the reason within a day. That is the only sanctioned path.
    - SSH keys registered to the owner's account (an SSH push authenticates as the owner);
    - `GH_TOKEN` or `GITHUB_TOKEN` in shell profiles or agent settings;
    - git credential stores;
-   - any token in an encrypted file the dev-box key can decrypt. Read that token's permission on this repository
-     (R11 under it, never printing it). An administrator token there breaks the boundary, and the remedy is the
-     owner's call.
+   - any token in an encrypted file the dev-box key can decrypt. The owner reads that token's permission on this
+     repository (R11 under it, never printing it). If it reads `admin` or `maintain` true, the owner either
+     neutralizes it or records an explicit acceptance of that residual in section 1.8; step 8 waits for that record.
 
    Running agent sessions as a separate operating-system user that can read none of these has the same effect. Either
-   way it reaches every repository the dev box works on, not only this one. **Done when** R11 under the agent's token
-   reads `admin` false and `maintain` false, and `ssh -T git@github.com` as the agent's user does not authenticate as
-   the owner. Record the token's expiry, never its value. **Residuals, recorded, not fixed here:** `contents: write`
+   way it reaches every repository the dev box works on, not only this one. **Done when** all of these hold:
+   - R11 under the agent's token reads `admin` false and `maintain` false;
+   - for each SSH key the agent's user can read, `ssh -i <key> -T git@github.com` does not authenticate as the owner;
+   - R11 under each other readable token reads `admin` false, or its acceptance is recorded.
+
+   From this step on, the owner's administrator login never returns to the dev-box user: steps 4 to 8 run from a
+   machine or account the agent's user cannot read. If the owner logs in on the dev box anyway, they log out before
+   any agent session starts, and repeat this step's checks. Record the token's expiry, never its value. **Residuals, recorded, not fixed here:** `contents: write`
    lets an agent create tags and releases and push or delete branches other than `main`, and no tag ruleset exists.
 4. **Prove the definition on the disposable repository** (section 1.6). Create it, clone it fresh into an empty
    directory, check that `git remote get-url origin` names it, then apply with `REPO=<org>/<disposable>
@@ -104,7 +109,8 @@ the reason within a day. That is the only sanctioned path.
 Stop conditions for the whole procedure:
 
 - any readback assertion failing, here or on the disposable repository;
-- R11, or the SSH test, still showing owner rights for the agent's user;
+- R11 under any token the agent's user can read, or the SSH test for any of its keys, still showing owner rights,
+  with no recorded acceptance;
 - any equivalence difference;
 - a probe whose remote or `--repo` is not the disposable repository;
 - any probe not refused;
