@@ -4,7 +4,7 @@
 # with no restart; the worker's and the fetcher's heartbeats are fresh; no migration is pending; the commit inside the
 # image is its label's, and, when the serving image is the deploy operation's target, its label is the approved commit
 # (a revert names none: it returns to what was recorded); `check --deploy` is clean; and, when configured, the public
-# form answers through the proxy (curl -k: staging's internal CA). Everything the deployment receipt compares is
+# form answers through the proxy (curl -k for staging's internal CA only; every other stack verifies TLS, 9kg.78.1). Everything the deployment receipt compares is
 # decided here, before promotion (9kg.37): the receipt is the record of a gate that already passed.
 source "$(dirname "$0")/lib.sh"
 expected="$(<"$POINTER")"
@@ -46,6 +46,6 @@ sys.exit(1 if problems else 0)
 PY
 compose exec -T web python manage.py check --deploy --fail-level WARNING >/dev/null 2>&1 || fail "check --deploy is not clean"
 if [ -n "${CATALYST_SMOKE_URL:-}" ]; then
-  code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 ${CATALYST_SMOKE_RESOLVE:+--resolve "$CATALYST_SMOKE_RESOLVE"} "$CATALYST_SMOKE_URL" || true)"
+  code="$(curl -s "${PROBE_TLS[@]}" -o /dev/null -w '%{http_code}' --max-time 10 ${CATALYST_SMOKE_RESOLVE:+--resolve "$CATALYST_SMOKE_RESOLVE"} "$CATALYST_SMOKE_URL" || true)"
   [ "$code" = 200 ] || fail "the public form answered $code through the proxy"
 fi

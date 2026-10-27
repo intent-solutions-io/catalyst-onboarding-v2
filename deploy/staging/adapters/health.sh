@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The staging health check (026 section 7; 6B.12), run by a host timer every five minutes. It runs catalyst_health in
+# The stack's health check (026 section 7; 6B.12; the stack named by CATALYST_STACK_ENV, 9kg.78.1), run by a host timer every five minutes. It runs catalyst_health in
 # the worker container (which holds the heartbeat), probes the public form from outside, and hands any finding to
 # "$CATALYST_NOTIFY_CMD <level> <message>" (the host wires that to the estate alert floor; Buzz delivers high and
 # urgent). A message is built from signal codes alone, each matching ^[a-z_]+\.[a-z_]+$, so no content of any kind
@@ -43,7 +43,7 @@ if [ -n "${CATALYST_DRILL_RECEIPTS:-}" ] && [ "$(newest_age "$CATALYST_DRILL_REC
   codes+=("restore_drill.overdue")
 fi
 if [ -n "${CATALYST_SMOKE_URL:-}" ]; then
-  code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 ${CATALYST_SMOKE_RESOLVE:+--resolve "$CATALYST_SMOKE_RESOLVE"} "$CATALYST_SMOKE_URL" || true)"
+  code="$(curl -s "${PROBE_TLS[@]}" -o /dev/null -w '%{http_code}' --max-time 10 ${CATALYST_SMOKE_RESOLVE:+--resolve "$CATALYST_SMOKE_RESOLVE"} "$CATALYST_SMOKE_URL" || true)"
   [ "$code" = 200 ] || codes+=("probe.public_form_unreachable")
 fi
 safe=()
@@ -57,9 +57,9 @@ if [ "${#safe[@]}" -gt 0 ]; then
   for urgent in health.worker_unreachable health.check_failed worker.heartbeat_stale worker.heartbeat_missing; do
     [[ " ${safe[*]} " == *" $urgent "* ]] && level=urgent
   done
-  if bash -c "$CATALYST_NOTIFY_CMD \"\$1\" \"\$2\"" _ "$level" "catalyst staging: ${safe[*]}"; then status=1; else status=3; fi
+  if bash -c "$CATALYST_NOTIFY_CMD \"\$1\" \"\$2\"" _ "$level" "catalyst ${STACK}: ${safe[*]}"; then status=1; else status=3; fi
 elif [ -n "$previous" ]; then
-  bash -c "$CATALYST_NOTIFY_CMD \"\$1\" \"\$2\"" _ info "catalyst staging: recovered" || status=3
+  bash -c "$CATALYST_NOTIFY_CMD \"\$1\" \"\$2\"" _ info "catalyst ${STACK}: recovered" || status=3
 fi
 # The findings are recorded only once they were handed over, so a failed recovery note is retried next run.
 [ "$status" = 3 ] || printf '%s\n' "${safe[@]}" > "$CATALYST_HEALTH_STATE/last-findings"

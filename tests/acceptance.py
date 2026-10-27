@@ -1724,6 +1724,11 @@ P6_SUPPORTING = {
         "test_post_restore::test_9kg_76_no_provider_passes_only_where_agreements_were_never_used",
         "test_post_restore::test_9kg_76_no_provider_refuses_once_agreements_were_used",
     ],
+    "9kg.78.1 the deploy adapters name their stack in every alert and verify TLS outside staging (026)": [
+        "test_staging_alerts::test_9kg_78_1_alerts_name_the_stack_and_staging_stays_the_default",
+        "test_staging_alerts::test_9kg_78_1_the_probe_verifies_tls_outside_staging",
+        "test_staging_alerts::test_9kg_78_1_the_sweep_names_the_stack",
+    ],
     "9kg.62 every effect a restore cannot undo is classified, and an unclassified one or a new outward module fails (029)": [
         "test_effect_registry::test_9kg62_every_function_with_an_effect_is_registered_and_no_registration_is_stale",
         "test_effect_registry::test_9kg62_each_class_matches_what_the_function_does",

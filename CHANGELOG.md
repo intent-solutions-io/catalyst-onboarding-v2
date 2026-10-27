@@ -195,6 +195,9 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   finished by running it again. `--retire-old-key` checks that no key file is still under the old key, then journals
   its retirement, so a remnant of an erased document's wrapped key has no key left that opens it. The next key is
   refused by every process but the owner-run rotation
+- The deploy adapters name their stack (bead `9kg.78.1`; `026` section 18): `CATALYST_STACK_ENV` (`staging` or
+  `production`, nothing else) labels every alert, and outside staging the outside-in probes verify TLS instead of
+  passing `-k`
 - Production admitted in code (bead `9kg.31.11`; `026` section 18): the guards admit `production` with every live
   refusal in force (the mail allow-list and pins, the journal ship-lag threshold, custody and backup refused while
   the owner's decisions are open) and keep model advice, evidence fetching, the agreement provider and the

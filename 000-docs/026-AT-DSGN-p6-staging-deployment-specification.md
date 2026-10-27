@@ -2491,6 +2491,12 @@ production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
   starts each of the six Django services (web, worker, fetcher, migrate, backup, restore) with its rendered
   environment and the host's inputs filled in.
 
+- **Adapters** (`9kg.78.1`, 2026-10-27). The deploy adapters take `CATALYST_STACK_ENV` (`staging`, the default,
+  or `production`; anything else exits 2 before anything runs). Every alert names the stack (`catalyst
+  production: <codes>`). The outside-in probes of the public form pass `-k` for staging's internal CA only; every
+  other stack verifies the certificate, against `CATALYST_PROBE_CA_FILE` when the host names one (`deploy/staging/
+  adapters/stack.sh`).
+
 **Limits** (the PR #118 reviews):
 
 - **Topology.** The production stack is the staging topology: an in-stack proxy with Caddy's internal CA

@@ -15,7 +15,9 @@ def test_6b12_an_alert_carries_signal_codes_and_nothing_else():
     health = (ADAPTERS / "health.sh").read_text()
     assert '[[ "$c" =~ ^[a-z_]+\\.[a-z_]+$ ]]' in health  # every word is a code; anything else is replaced
     assert 'safe+=("health.unrecognised_signal")' in health
-    assert '"catalyst staging: ${safe[*]}"' in health  # the message is the codes, never the report itself
+    # The message is the codes, never the report itself; the stack name comes from a fixed list (stack.sh, 9kg.78.1).
+    assert '"catalyst ${STACK}: ${safe[*]}"' in health
+    assert "staging) PROBE_TLS" in (ADAPTERS / "stack.sh").read_text() and "*) echo" in (ADAPTERS / "stack.sh").read_text()
     assert "CATALYST_NOTIFY_CMD:?" in health and "CATALYST_HEALTH_STATE:?" in health
 
 
@@ -30,7 +32,7 @@ case "$*" in
   exec*) printf '%s' '{health_out}'; exit {health_rc} ;;
 esac
 """)
-    (stubs / "curl").write_text(f"#!/bin/sh\nprintf '%s' '{form}'\n")
+    (stubs / "curl").write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{tmp_path}/curl.args'\nprintf '%s' '{form}'\n")
     for stub in stubs.iterdir():
         stub.chmod(0o755)
     state, log = tmp_path / "health", tmp_path / "alerts.log"
@@ -135,3 +137,49 @@ def test_6b13_a_missing_or_empty_receipt_directory_counts_as_stale(tmp_path):
     extra = {"CATALYST_BACKUP_RECEIPTS": str(tmp_path / "missing"), "CATALYST_DRILL_RECEIPTS": str(tmp_path)}
     rc, alerts, _ = run_health(tmp_path, 0, '{"anomalies": []}', extra=extra)
     assert rc == 1 and alerts == "high catalyst staging: backup.stale restore_drill.overdue\n"
+
+
+# --- 9kg.78.1: the adapters name their stack and verify TLS outside staging -----------------------------------------
+
+def curl_args(tmp_path) -> str:
+    path = tmp_path / "curl.args"
+    text = path.read_text() if path.exists() else ""
+    if path.exists():
+        path.unlink()
+    return text
+
+
+def test_9kg_78_1_alerts_name_the_stack_and_staging_stays_the_default(tmp_path):
+    stale = '{"anomalies": ["worker.heartbeat_stale"]}'
+    rc, alerts, _ = run_health(tmp_path, 1, stale)
+    assert rc == 1 and alerts.startswith("urgent catalyst staging: ")
+    rc, alerts, _ = run_health(tmp_path, 1, stale, extra={"CATALYST_STACK_ENV": "production"})
+    assert rc == 1 and alerts == "urgent catalyst production: worker.heartbeat_stale\n"
+    (tmp_path / "health" / "health.ok").unlink()
+    rc, alerts, ok = run_health(tmp_path, 1, stale, extra={"CATALYST_STACK_ENV": "prod"})
+    assert rc == 2 and alerts == "" and not ok  # an unknown stack is refused before anything runs
+
+
+def test_9kg_78_1_the_probe_verifies_tls_outside_staging(tmp_path):
+    run_health(tmp_path, 0, "{}")
+    assert " -k " in f" {curl_args(tmp_path)} "  # staging's internal CA
+    run_health(tmp_path, 0, "{}", extra={"CATALYST_STACK_ENV": "production"})
+    args = f" {curl_args(tmp_path)} "
+    assert " -k " not in args and "--insecure" not in args and "--cacert" not in args
+    run_health(tmp_path, 0, "{}", extra={"CATALYST_STACK_ENV": "production", "CATALYST_PROBE_CA_FILE": "/etc/catalyst/proxy-ca.pem"})
+    args = f" {curl_args(tmp_path)} "
+    assert " -k " not in args and "--cacert /etc/catalyst/proxy-ca.pem" in args
+    for script in ("health.sh", "smoke.sh"):
+        assert "curl -sk" not in (ADAPTERS / script).read_text(), script  # TLS arguments come from stack.sh only
+
+
+def test_9kg_78_1_the_sweep_names_the_stack(tmp_path):
+    log = tmp_path / "alerts.log"
+    env = {"PATH": "/usr/bin:/bin", "CATALYST_HEALTH_STATE": str(tmp_path), "CATALYST_HEALTH_STALE_SECONDS": "60",
+           "CATALYST_NOTIFY_CMD": f"printf '%s %s\\n' >> {log}", "CATALYST_STACK_ENV": "production"}
+    result = subprocess.run(["bash", str(ADAPTERS / "sweep.sh")], env=env, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 1 and log.read_text() == "urgent catalyst production: health.check_stale\n"
+    env["CATALYST_STACK_ENV"] = "live"
+    log.unlink()
+    result = subprocess.run(["bash", str(ADAPTERS / "sweep.sh")], env=env, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 2 and not log.exists()
