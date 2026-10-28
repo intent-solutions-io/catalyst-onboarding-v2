@@ -475,6 +475,8 @@ Follow-up recorded on 2026-10-26 by the main session (the numbers are this secti
 - Item 10: `9kg.31.10` now depends on `oc4.7`, `f1u.2`, `.5`, `.6`, `.7` and `.8`, and on `9kg.71`, `oc4.8` and
   `9kg.74`.
 - The go/no-go `9kg.31.6` now also depends on `9kg.60` (the journal's off-host copy before real effects).
+- Recorded on 2026-10-28 (`033` section 4): item 3 is superseded, since `config/guards.py` now admits `production`; item 1's
+  second option is not available as built, since the pre-deploy step refuses to migrate without a backup.
 
 The items below are as found while drafting; the list above records what was done about each.
 
