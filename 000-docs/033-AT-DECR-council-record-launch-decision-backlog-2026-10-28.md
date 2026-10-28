@@ -7,7 +7,7 @@
 | Acting head of board | Claude Code, designated by the owner on 2026-10-28 ("get with the executive council ... and legal advisors") |
 | Council | the seven seats of `030`, plus two non-voting legal advisors (privacy and retention; agreements, notices and the employment boundary) |
 | Decisions | ten, adopted provisionally; owner ratification required; recorded as D-52 in `011` section 4 |
-| Status | PROVISIONAL (council-adopted, not owner-ratified). The legal advisors are not the company's counsel and nothing here is legal advice. |
+| Status | OWNER-RATIFIED 2026-10-28, with the two-wave launch adopted (section 13). Values marked for counsel stay provisional until counsel answers. The legal advisors are not the company's counsel and nothing here is legal advice. |
 | Inputs | `031` (the decision package), `030`, `032` sections 1 and 2, `029`, `011` section 4, the open 211.7.x beads, the proposed wording drafts of 2026-10-27 |
 | Pattern | ISEDC; the verbatim seat files and advisor memos are in the council session record on the owner's development host (not tracked) |
 | Classification | Public repository: roles, never people; no private hosts, paths, addresses or agreement text |
@@ -322,4 +322,13 @@ Signed as acting head of board, designated by the owner on 2026-10-28. The bindi
 
 ## 12. Provenance
 
-Derived from the council session's structured record (session header, ten questions, seven seat positions, two advisor memos, ten vote tallies, seven memos, five themes, the synthesis and the decision), kept with the council pattern on the owner's development host and backed up nightly.
+Derived from the council session's structured record (session header, ten questions, seven seat positions, two advisor memos, ten vote tallies, seven memos, five themes, the synthesis, the decision and the owner's ratification), kept with the council pattern on the owner's development host and backed up nightly.
+
+## 13. Owner ratification
+
+On 2026-10-28 the owner ratified this record ("ratified, two waves, send counsel the packet"):
+
+- Decisions 1 to 9 stand as recorded. Values the record sends to counsel (the R1 to R4 periods, the keyed hash, option (a) per member, the wording) stay provisional until counsel answers; the coded provisional lock keeps intake refused until then.
+- The two-wave launch (decision 10) is adopted. Wave 1: the owner plus members with both first-generation agreements on file, counsel clearing the reference, signing off; its go/no-go is `9kg.31.6`. Wave 2 adds signing after POL-09, the Documenso canary and counsel's Part B answers (`9kg.31.12`).
+- The counsel packet was authorized and sent the same day to the company's counsel, grouped as Part A (before wave 1), Part B (before wave 2) and Part C (before wider enrollment). The members' facts sheet by role and country follows from the owner.
+- Still held: wording approval, every host and provider go, and the go/no-go for each wave.
