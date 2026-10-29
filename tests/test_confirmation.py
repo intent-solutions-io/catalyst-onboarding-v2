@@ -80,7 +80,7 @@ def snapshot():
 
 
 def assert_private_headers(response):
-    assert response["Referrer-Policy"] == "no-referrer"
+    assert response["Referrer-Policy"] == "same-origin"
     assert "no-store" in response["Cache-Control"]
 
 
@@ -505,7 +505,7 @@ def test_redaction_rewrites_only_the_token():
 @pytest.mark.django_db
 def test_s1_08_responses_built_outside_the_view_are_private_too(monkeypatch):
     """CSRF 403, 405, the resolver's 404, the trailing-slash redirect (whose Location carries the token)
-    and a 500 are produced outside the view: the middleware still marks them no-store and no-referrer."""
+    and a 500 are produced outside the view: the middleware still marks them no-store and same-origin."""
     app = intake()
     link = link_for(app)
     path = path_of(link)
