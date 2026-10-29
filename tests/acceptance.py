@@ -1768,6 +1768,11 @@ P6_SUPPORTING = {
         "test_effect_registry::test_9kg62_lookalike_calls_are_not_effects",
         "test_effect_registry::test_9kg62_an_unreviewed_outward_module_is_found",
     ],
+    "9kg.85 a live environment holds the internal cohort to the trial: no decline, nothing rated, no required details (033)": [
+        "test_cohort_boundary::test_9kg_85_a_live_environment_refuses_every_cohort_decline_and_any_rated_criterion",
+        "test_cohort_boundary::test_9kg_85_the_decision_form_offers_no_decline_and_no_rating_in_a_live_environment",
+        "test_cohort_boundary::test_9kg_85_a_live_environment_refuses_required_details_and_the_quiet_hours_default_to_the_cohort_night",
+    ],
     "9kg.70 the custody key store's faults page under their own codes, an erased document's absent key never (026)": [
         "test_custody_health::test_9kg_70_a_healthy_store_raises_nothing_and_an_erased_document_is_counted_never_paged",
         "test_custody_health::test_9kg_70_each_fault_pages_under_its_own_code",
