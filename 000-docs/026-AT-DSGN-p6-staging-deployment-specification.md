@@ -2406,6 +2406,12 @@ hardened after the PR #102 security, release-operations and data reviews).**
   - an unconfigured store;
   - the health command exiting 1 and naming the code.
 
+### The production-host preflight (9kg.42, 2026-10-29)
+
+- **Record:** the private operations record, sha256 `bc25928665f34337ea8dccf7943bbf889a3a09e745ed90abda1d11a6e42f5aea`.
+  Read-only, items H1 to H17, 22 answered and 3 UNKNOWN (H11, H13, H14).
+- **Findings and consequences:** `032` section 2.3.
+
 ## 17. The aged-waits health part (9kg.51, 2026-10-23)
 
 `029` section 5.2 listed the waits with no bound once the first-generation owner notices retire: an application in
