@@ -1650,7 +1650,7 @@ P6_SUPPORTING = {
         "test_human_only::test_a_paused_application_under_the_suspension_is_refused_at_once_not_requeued",
     ],
     "9kg.32 the authorized erasure path, audited, retry-safe and recorded outside the backup (029 section 6.2)": [
-        "test_erasure::test_9kg_32_the_registry_ships_undecided_and_refuses_the_erasure_and_a_real_backup",
+        "test_erasure::test_9kg_32_an_undecided_registry_refuses_the_erasure_and_a_real_backup",
         "test_erasure::test_9kg_32_the_erasure_map_classifies_every_table_and_column_of_the_schema",
         "test_erasure::test_9kg_32_the_branch_is_in_every_guarded_function_once_and_the_installed_functions_match_the_map",
         "test_erasure::test_9kg_32_only_the_retention_role_may_execute_the_erase_function_and_nobody_but_the_owner_the_checker",
@@ -1774,6 +1774,16 @@ P6_SUPPORTING = {
         "test_verification_wording::test_9kg_80_a_live_environment_sends_nothing_unapproved_withholds_intake_and_sends_the_approved_version",
         "test_verification_wording::test_9kg_80_an_approved_synthetic_verification_mail_is_still_refused_in_a_live_environment",
     ],
+    "9kg.84 the provisional POL-10 values ship filled and lock real intake in a live environment until counsel answers (033)": [
+        "test_erasure_registry_lock::test_9kg_84_the_registry_ships_filled_with_the_provisional_values_and_locked",
+        "test_erasure_registry_lock::test_9kg_84_while_provisional_a_live_environment_takes_no_intake_and_issues_no_invitation",
+        "test_erasure_registry_lock::test_9kg_84_the_shipped_values_finish_an_interrupted_erasure_with_nothing_in_custody",
+    ],
+    "9kg.85 a live environment holds the internal cohort to the trial: no decline, nothing rated, no required details (033)": [
+        "test_cohort_boundary::test_9kg_85_a_live_environment_refuses_every_cohort_decline_and_any_rated_criterion",
+        "test_cohort_boundary::test_9kg_85_the_decision_form_offers_no_decline_and_no_rating_in_a_live_environment",
+        "test_cohort_boundary::test_9kg_85_a_live_environment_refuses_required_details_and_the_quiet_hours_default_to_the_cohort_night",
+    ],
     "9kg.70 the custody key store's faults page under their own codes, an erased document's absent key never (026)": [
         "test_custody_health::test_9kg_70_a_healthy_store_raises_nothing_and_an_erased_document_is_counted_never_paged",
         "test_custody_health::test_9kg_70_each_fault_pages_under_its_own_code",
@@ -1805,7 +1815,7 @@ P6_SUPPORTING = {
         "test_custody_encryption::test_9kg_34_a_restore_of_a_backup_taken_before_the_key_was_destroyed_cannot_open_the_document",
         "test_custody_encryption::test_9kg_34_key_recovery_rebuilds_a_lost_directory_from_its_copy_and_never_brings_back_a_destroyed_key",
         "test_custody_encryption::test_9kg_34_documents_stored_in_the_clear_are_sealed_by_the_operator_and_the_plaintext_is_removed",
-        "test_custody_encryption::test_9kg_34_the_registry_admits_destroy_key_for_signed_documents_only_and_ships_undecided",
+        "test_custody_encryption::test_9kg_34_the_registry_admits_destroy_key_for_signed_documents_only",
         "test_custody_encryption::test_9kg_34_the_erasure_destroys_the_subjects_custody_keys_under_destroy_key_and_records_it",
         "test_custody_encryption::test_9kg_34_under_retain_custody_is_reported_retained_and_a_later_destroy_key_reaches_the_tombstoned_subject",
         "test_custody_encryption::test_9kg_34_a_document_still_in_the_clear_refuses_destroy_key_before_any_record",

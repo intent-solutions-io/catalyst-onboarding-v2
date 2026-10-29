@@ -356,11 +356,12 @@ host's login shell is zsh and an unmatched glob aborted the read.
 | H3 | the first-generation stack runs as its own compose project (web, worker, database) beside the Documenso stack | coexistence as planned; v2 must use a separate project, database and ports |
 | H7 | the learning site sends `/request-access`, `/request-access/received`, `/signing/return` and `/setup/*` to the first-generation service, and redirects its own sign-in path to `/request-access` | confirms the R1 and R2 collisions: v2 cannot serve those paths on the learning site and stays on its dedicated entry point (D-51) |
 | H9 | log-filter modules are installed; **no rate-limit module** | the outer rate-limit layer needs a proxy module (a host change under `9kg.28`) or the application's own limits alone, which needs a decision before host preparation |
-| H11 | UNKNOWN: no certificate files under the read path | re-read where the proxy actually stores certificates |
-| H13 | one database container answered (no v2 roles, as expected); the rest did not | UNKNOWN for the first-generation database's roles |
-| H14 | UNKNOWN (shell glob failure, above) | fix the script to run its items under `sh`, then re-read |
+| H11 | re-read (below): certificates current, the learning site's renewed this month | the proxy renews on its own; the v2 host name gets its certificate at host preparation |
+| H13 | re-read (below): the first-generation database's application role is a login role without superuser or role creation; no v2 role exists | isolation as planned; v2 brings its own database and roles |
+| H14 | re-read (below): the host's backup repository path exists; no exclusion list in the scanned script paths | the exclusion that must keep v2's key directories out is confirmed at host preparation, from the backup job itself |
 | Staff path | the proxy already has two staff-path style lines (not v2's) | v2's staff route is new work under `9kg.28` |
 | SSH, firewall | key-only sign-in, no root login; incoming denied by default with a small allow list | as expected |
+| Re-read | `9kg.86` (same day): the script now sends each item to `sh` on stdin, so the login shell no longer matters. Record hash `4bb39320ca983ec98411571e714b987bbcdad0a946ce8934b174b6dfeace10fb`: 24 answered, H13 marked UNKNOWN only because one unrelated database refused the catalog read (now shown inline) | H11 and H14 answered; H13 answered for the first-generation database |
 | Private network | devices belonging to people other than the owner are on the same private network | "staff site on the private network" alone does not limit it to the owner's two devices; host preparation must add a per-device allow list |
 
 ## 3. Host preparation request (`9kg.28`)

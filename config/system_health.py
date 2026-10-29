@@ -423,6 +423,7 @@ def intake_health() -> dict:
     from applications import notices
     from applications.invitations import LIVE
     from applications.models import Invitation
+    from erasure import registry
 
     # 9kg.52: the data notice's state (approved, draft, retired or missing, with the version, digest and synthetic
     # flag; never the wording). In invitation mode, wording that may not be served here (unapproved, retired, or an
@@ -431,11 +432,14 @@ def intake_health() -> dict:
     notice = notices.status(notices.DATA_NOTICE)
     withheld = settings.CATALYST_INTAKE_MODE == "invitation" and not notices.servable(notice, settings.CATALYST_ENV)
     anomalies = ["data_notice_unapproved"] if withheld else []
+    # 9kg.84: the provisional retention values lock real intake here (the page is withheld, no invitation is issued).
+    locked = registry.intake_locked()
+    anomalies += ["registry_provisional"] if locked else []
     # 9kg.80: the verification mail's state; in a live environment without approved real wording, intake is withheld.
     anomalies += ["verification_template_unapproved"] if notices.verification_withheld() else []
     return {"mode": settings.CATALYST_INTAKE_MODE, "client_identity": settings.CATALYST_CLIENT_IDENTITY,
             "live_invitations": Invitation.objects.filter(LIVE).count(), "data_notice": notice,
-            "verification": notices.status(notices.VERIFICATION), "anomalies": anomalies}
+            "verification": notices.status(notices.VERIFICATION), "registry_provisional": locked, "anomalies": anomalies}
 
 
 def report() -> dict:

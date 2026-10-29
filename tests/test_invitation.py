@@ -259,7 +259,7 @@ def test_9kg_43_the_dossier_the_health_report_and_the_release_receipt_show_the_m
     client = Client()
     app = intake(client)
     code, report = health()
-    assert code == 0 and report["intake"] == {"mode": "invitation", "client_identity": "direct", "live_invitations": 1, "anomalies": [],
+    assert code == 0 and report["intake"] == {"mode": "invitation", "client_identity": "direct", "live_invitations": 1, "anomalies": [], "registry_provisional": False,
                                               "data_notice": {"status": "draft", "version": 1, "synthetic": True,
                                                                               "sha256": report["intake"]["data_notice"]["sha256"]},
                                               "verification": report["intake"]["verification"]}  # 9kg.80, its own test
