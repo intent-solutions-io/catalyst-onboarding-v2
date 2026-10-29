@@ -300,14 +300,14 @@ def test_9kg_34_documents_stored_in_the_clear_are_sealed_by_the_operator_and_the
 
 # --- the erasure step and the registry -----------------------------------------------------------------------------
 
-def test_9kg_34_the_registry_admits_destroy_key_for_signed_documents_only_and_ships_undecided(monkeypatch):
+def test_9kg_34_the_registry_admits_destroy_key_for_signed_documents_only(monkeypatch):
     assert registry.problems(DESTROYING) == []
     assert registry.ALLOWED["signed_documents"] == (registry.RETAIN, registry.DESTROY_KEY)
     assert "submissions.treatment:unsupported" in registry.problems(
         {**DECIDED, "submissions": {"treatment": registry.DESTROY_KEY, "retention": "p1y"}})
     assert "signed_documents.treatment:unsupported" in registry.problems(
         {**DECIDED, "signed_documents": {"treatment": registry.ANONYMIZE, "retention": "p1y"}})
-    assert registry.REGISTRY["signed_documents"]["treatment"] == registry.UNDECIDED
+    assert registry.REGISTRY["signed_documents"]["treatment"] == registry.DESTROY_KEY  # 9kg.84, provisional
     assert set(catalog.TABLES["agreements_custodyenvelope"].columns().values()) == {"non_personal"}
     assert "custody_key_destroyed" in journal.KINDS and "keys_destroyed" in journal.KINDS["erasure_complete"]
 

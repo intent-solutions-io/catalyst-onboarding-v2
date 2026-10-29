@@ -5,8 +5,8 @@
     manage.py catalyst_erasure_drill replay --expect-head <head>
     manage.py catalyst_erasure_drill trace  --needle <text>
 
-The shipped registry (erasure.registry) stays undecided until POL-10, so the real commands refuse every erasure. For
-its own run only, this command installs a decided synthetic registry (every subject class anonymized, the custody copy
+The drill does not depend on the shipped registry (erasure.registry, provisional since 9kg.84): for its own run only,
+this command installs a decided synthetic registry (every subject class anonymized, the custody copy
 under `destroy_key`) and then calls the real command, unchanged:
 
 - `erase` runs `catalyst_erase` (the retention login, the erasure key, the custody directories named on the command
