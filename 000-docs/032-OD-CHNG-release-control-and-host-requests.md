@@ -244,6 +244,10 @@ token change, no disposable repository, no probe. No history was touched.
 | R11 the agent session's permissions | still `admin` true: step 3 (the privilege boundary) is not done |
 | The script's assertions | all passed |
 
+**2026-10-29: step 3 residual accepted (D-53).** The owner: "you can keep your github access". The agent's login keeps
+administrator rights on this repository; that residual is accepted in place of the scoped token, so steps 4 to 8 no
+longer wait on it. The ruleset still binds the agent: its bypass list is empty.
+
 What this changes: GitHub now refuses a direct push, a force-push, a deletion of `main`, and a merge without both
 checks, for everyone including the owner, until someone with administrator rights disables the ruleset (the emergency
 path in section 1.3). What it does not change: the agent's login is still an administrator, so the ruleset is a
