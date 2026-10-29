@@ -26,6 +26,7 @@ Selection policy: {{ policy_ref }}.</p>
 </table>
 {% if not state.run %}<p>Model advice is unavailable or suspended for this snapshot. This is a human-only assessment (D-35), recorded with the structured reason <code>{{ state.human_only_code }}</code>{% if state.suspension_ref %} citing the suspension record {{ state.suspension_ref }}{% endif %}, the same criteria and the same snapshot.</p>
 <label>Why a human-only assessment <input name="human_only_reason" maxlength="300" required value="{{ form.human_only_reason }}"></label>{% endif %}
+{% if cohort_boundary %}<p class="cohort-boundary">Internal trial: no decline, and every criterion is recorded as capability unknown, evidence strength none (council record 033 Q5 and Q6). Hold, or withdraw through the withdrawal path, instead of a decline.</p>{% endif %}
 {% if member_on_file %}<p class="member-on-file">First-generation agreement on file: no v2 decline for an existing member (council record 030 Q8). Hold, or withdraw through the withdrawal path, instead.</p>{% endif %}
 {% if changed %}<p class="refused" role="alert"><strong>The case changed since you opened this page; your selections were cleared.</strong> Read the current state above, then choose each capability, strength and the outcome again (your notes are kept).</p>
 {% elif form %}<p><strong>Your reasoning above is kept; choose the outcome again</strong> after reading the current state (an outcome is never carried over).</p>{% endif %}

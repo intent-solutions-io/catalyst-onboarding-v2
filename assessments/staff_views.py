@@ -163,6 +163,7 @@ def _decision_context(request, application, form=None):
     paused = AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists()
     criteria = state["pack"].criteria if state["pack"] else []
     member = members.on_file(application) is not None  # 9kg.52, 030 Q8: no v2 decline for an existing member
+    cohort = decisions.cohort_boundary()  # 9kg.85, 033 Q5 and Q6: no decline, nothing rated
     return {
         "form": form,  # 9kg.41: what was typed before a refusal; the outcome is never carried over (chosen again)
         "application": application, "version": version, "claims": claims, "rows": rows, "state": state,
@@ -170,12 +171,13 @@ def _decision_context(request, application, form=None):
         "run": state["run"] or state["latest_run"], "authority": settings.CATALYST_QUALIFICATION_AUTHORITY is not None,
         "may_decide": may, "outcomes": [o for o in decisions.STAGE_FOR if may and not (o == "admit" and paused)
                                         and not (o == "hold" and application.stage == "on_hold")
-                                        and not (o == "decline" and member)],
-        "member_on_file": member,
+                                        and not (o == "decline" and (member or cohort))],
+        "member_on_file": member, "cohort_boundary": cohort,
         # 9kg.50: a held case comes back to a decision here (admit or decline), never through a free close action.
         "decidable": application.stage in ("awaiting_decision", "on_hold")
         or (application.stage == "assessing" and state["human_only_allowed"]),
-        "capability": decisions.CAPABILITY, "strength": decisions.EVIDENCE_STRENGTH,
+        "capability": decisions.UNRATED[:1] if cohort else decisions.CAPABILITY,
+        "strength": decisions.UNRATED[1:] if cohort else decisions.EVIDENCE_STRENGTH,
         "criteria": [{**c, "posted": {"cap": form.get(f"cap-{c['id']}", ""), "str": form.get(f"str-{c['id']}", ""),
                                       "note": form.get(f"note-{c['id']}", "")}} for c in criteria],
         "policy_ref": decisions.policy_ref(state["pack"]) if state["pack"] else "",
