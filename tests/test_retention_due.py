@@ -43,7 +43,7 @@ def test_9kg_75_each_rule_lists_a_person_exactly_when_the_clock_has_run_out(priv
     first = report(today + timedelta(days=90))  # the invitation expired a day after issue: R2 needs 90 more days
     assert first["due"] == {"R1": [], "R2": []}
     assert first["counts"] == {"R1": 0, "R2": 0, "R3_not_computable": 1, "open": 1}
-    assert first["provisional"] is True and first["clock_days"] == registry.CLOCK_DAYS  # the shipped values (9kg.84)
+    assert first["provisional"] is False and first["clock_days"] == registry.CLOCK_DAYS  # the shipped values (D-53)
     assert set(first["not_computable"]) == {"R3", "R4"}
 
     second = report(today + timedelta(days=92))

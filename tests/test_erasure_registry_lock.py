@@ -36,7 +36,7 @@ def shipped_registry():
 
 def test_9kg_84_the_registry_ships_filled_with_the_provisional_values_and_locked():
     shipped = shipped_registry()
-    assert shipped.PROVISIONAL is True
+    assert shipped.PROVISIONAL is False  # D-53: cleared by the owner's go; the lock itself is tested below
     assert shipped.problems() == []  # decided: an erasure and a live backup are no longer refused by the registry
     rows = shipped.REGISTRY
     assert all(rows[name]["treatment"] == shipped.ANONYMIZE for name in shipped.SUBJECT_CLASSES)
