@@ -398,13 +398,14 @@ else
     bash -c "! \"\$@\" 2>&1 | grep -q '\"issued\": true' && \"\$@\" 2>&1 | grep -qE 'registry_provisional|data_notice'" _ "${compose[@]}" run --rm --no-deps -T migrate \
     python manage.py catalyst_invite dark-deploy@example.test --issued-by "production check" --note "dark deploy, TEST-P6-27"
   # The 503 counts only as an intake refusal: readiness answers 200 (not an outage) and the web process logged the
-  # lock or the data notice as the reason (applications.views._log_withheld; a throttle or database 503 logs another).
-  refusal "intake: the request form is withheld (503) while the registry is provisional or the notice unapproved" bash -c \
-    '[ "$1" = 503 ] && [ "$2" = 200 ] && docker logs "$3" 2>&1 | grep -qE "intake page withheld: (registry_provisional|data_notice_)"' _ \
+  # lock, the verification mail or the data notice as the reason (applications.views._log_withheld; 9kg.80; a throttle
+  # or database 503 logs another).
+  refusal "intake: the request form is withheld (503) while the registry is provisional or the wording unapproved" bash -c \
+    '[ "$1" = 503 ] && [ "$2" = 200 ] && docker logs "$3" 2>&1 | grep -qE "intake page withheld: (registry_provisional|verification_template_unapproved|data_notice_)"' _ \
     "$(code $public 127.0.0.1 18443 /request-access/)" "$(socket_get /readyz)" "$("${compose[@]}" ps -q web)"
   for name in "an applicant is accepted through the form" "the verification mail reached the private file sink, not a provider" \
               "the confirmation page offered its form" "the applicant confirms (200, and the confirmed page's own sentence)"; do
-    not_run "TEST-P6-27 $name (production: needs approved wording, 031 item 16, and the approvable verification mail, 9kg.80, then a delivered mail and a confirmation on the host, the mail canary 9kg.31.1)"
+    not_run "TEST-P6-27 $name (production: needs approved wording, 031 item 16, and the owner's approval of the verification mail, 9kg.80, then a delivered mail and a confirmation on the host, the mail canary 9kg.31.1)"
   done
 fi
 sleep 3  # the worker loop has had its turn: anything not held would have started

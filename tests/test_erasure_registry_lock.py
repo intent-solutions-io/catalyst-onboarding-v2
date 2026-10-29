@@ -53,6 +53,7 @@ def test_9kg_84_the_registry_ships_filled_with_the_provisional_values_and_locked
 def test_9kg_84_while_provisional_a_live_environment_takes_no_intake_and_issues_no_invitation(
         privileged_reset, settings, monkeypatch, caplog):
     monkeypatch.setattr(views, "_withheld_logged", {})
+    monkeypatch.setattr(notices, "verification_withheld", lambda: False)  # 9kg.80 has its own tests
     closed(settings)
     owner = approve_notice(privileged_reset, notices.DATA_NOTICE)
     real_version(privileged_reset, notices.DATA_NOTICE, 2, "Real wording, approved by the owner.\n", owner)

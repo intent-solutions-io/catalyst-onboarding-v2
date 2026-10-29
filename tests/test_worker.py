@@ -111,11 +111,13 @@ def test_s1_06_the_worker_sends_the_queued_verification_and_records_the_outcome(
     assert action.completed_at is not None
     outbound = OutboundMessage.objects.get()
     assert (outbound.attempt_number, outbound.status, outbound.recipient) == (1, "accepted", "ada@example.test")
-    assert (outbound.template_key, outbound.template_version) == ("verification_invitation", "s1-synthetic-1")
+    seed = verification.SEED.digest(verification.SEED.SUBJECT, verification.SEED.BODY)  # 9kg.80: the seeded draft
+    assert (outbound.template_key, outbound.template_version) == ("verification_invitation", f"1:{seed[:24]}")
     assert outbound.message_id == message.extra_headers["Message-ID"] and outbound.sent_at is not None
     assert events(app) == ["submission_received", "verification_sent"]
     sent = ApplicationEvent.objects.get(kind="verification_sent")
-    assert sent.data == {"attempt": 1, "template_version": "s1-synthetic-1"} and sent.actor_type == "system"
+    assert sent.data == {"attempt": 1, "template_version": 1, "template_sha256": seed, "draft": True}
+    assert sent.actor_type == "system"
     # D-24 and logging: neither the token nor the link nor the address is stored in history or logged.
     history = json.dumps(list(ApplicationEvent.objects.values("data", "actor_ref")))
     for secret in (token, link, "ada@example.test"):

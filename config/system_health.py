@@ -435,9 +435,11 @@ def intake_health() -> dict:
     # 9kg.84: the provisional retention values lock real intake here (the page is withheld, no invitation is issued).
     locked = registry.intake_locked()
     anomalies += ["registry_provisional"] if locked else []
+    # 9kg.80: the verification mail's state; in a live environment without approved real wording, intake is withheld.
+    anomalies += ["verification_template_unapproved"] if notices.verification_withheld() else []
     return {"mode": settings.CATALYST_INTAKE_MODE, "client_identity": settings.CATALYST_CLIENT_IDENTITY,
             "live_invitations": Invitation.objects.filter(LIVE).count(), "data_notice": notice,
-            "registry_provisional": locked, "anomalies": anomalies}
+            "verification": notices.status(notices.VERIFICATION), "registry_provisional": locked, "anomalies": anomalies}
 
 
 def report() -> dict:

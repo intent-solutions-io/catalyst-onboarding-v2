@@ -36,6 +36,8 @@ import uuid
 from dataclasses import dataclass
 from datetime import timedelta
 from email.utils import make_msgid
+from importlib import import_module
+from string import Template
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -45,6 +47,7 @@ from django.db import IntegrityError, connection, transaction
 from django.db.models import Q
 from django.db.models.functions import Now
 
+from applications import notices
 from applications.links import verification_link
 from applications.models import OPEN_STAGES, Application, ApplicationEvent, ContactChallenge
 from applications.services import SEND_VERIFICATION, send_verification_key
@@ -62,15 +65,27 @@ EXPIRY_SWEEP_SUBJECT = ("system", uuid.UUID("00000000-0000-0000-0000-00000000ccc
 EXPIRED_ITEM = "verification_expired"
 EXPIRY_SWEEP_BATCH = 200  # per pass, oldest expiry first; the rest wait for the next pass
 
-TEMPLATE_KEY = "verification_invitation"
-TEMPLATE_VERSION = "s1-synthetic-1"  # placeholder wording (POL-17)
-SUBJECT = "Confirm your email address"
-BODY = (
-    "Hello,\n\n"
-    "Someone asked to start an application with this email address. If it was you, open this link to confirm"
-    " the address:\n\n{link}\n\n"
-    "If it was not you, you can ignore this message.\n"
-)
+# 9kg.80: the wording is the `verification_invitation` message template (migration 0020), approved by the owner on
+# the template screen and rendered through applications.notices with the link as its one variable. A live environment
+# sends only an approved, non-synthetic version; with none it returns the action to the queue under the reason code and
+# looks again after WORDING_RECHECK_SECONDS (intake is withheld meanwhile, applications.views). The outbound row records
+# the version and a digest prefix (`<version>:<24 hex>`, the column holds 32), the `verification_sent` event the full
+# digest. Where a draft may be shown and the test reset removed the row, the seeded draft itself is used, marked.
+TEMPLATE_KEY = notices.VERIFICATION
+SEED = import_module("correspondence.migrations.0020_verification_template")
+SUBJECT = SEED.SUBJECT
+WORDING_RECHECK_SECONDS = 3600
+
+
+def wording(link: str) -> notices.Wording:
+    """The verification mail for this link, or `notices.Unavailable` with a reason code."""
+    try:
+        return notices.wording(TEMPLATE_KEY, {"link": link})
+    except notices.Unavailable as refused:
+        if str(refused) != f"{TEMPLATE_KEY}_missing":  # raised only where a draft may be shown
+            raise
+    return notices.Wording(TEMPLATE_KEY, 1, SEED.digest(SEED.SUBJECT, SEED.BODY), SEED.SUBJECT,
+                           Template(SEED.BODY).substitute(link=link), approved=False)
 
 
 class SendCountMismatch(Exception):
@@ -127,16 +142,21 @@ class SendVerification:
             return
         if connection.in_atomic_block:
             raise RuntimeError("refusing to send inside a transaction")
+        try:
+            mail = wording(verification_link(decision.challenge_public_id))
+        except notices.Unavailable as refused:  # 9kg.80: no approvable wording here; wait for the owner's approval
+            self._stop(claim, Stop(Status.QUEUED, str(refused), WORDING_RECHECK_SECONDS))
+            return
         message_id = make_msgid(idstring=f"a{claim.attempt}", domain=urlsplit(settings.CATALYST_PUBLIC_BASE_URL).hostname)
         message = EmailMessage(
-            subject=SUBJECT,
-            body=BODY.format(link=verification_link(decision.challenge_public_id)),
+            subject=mail.subject,
+            body=mail.display,
             to=[decision.recipient],
             headers={"Message-ID": message_id},
         )
         outbound = dict(
             application_id=decision.application_id, pending_action_id=claim.id, attempt_number=claim.attempt,
-            template_key=TEMPLATE_KEY, template_version=TEMPLATE_VERSION, recipient=decision.recipient,
+            template_key=TEMPLATE_KEY, template_version=f"{mail.version}:{mail.sha256[:24]}", recipient=decision.recipient,
             message_id=message_id,
         )
         try:
@@ -157,7 +177,8 @@ class SendVerification:
 
         def write_success():
             OutboundMessage.objects.create(status=OutboundMessage.Status.ACCEPTED, sent_at=Now(), **outbound)
-            self.record(claim, "verification_sent", {"attempt": claim.attempt, "template_version": TEMPLATE_VERSION})
+            self.record(claim, "verification_sent", {"attempt": claim.attempt, "template_version": mail.version,
+                                                     "template_sha256": mail.sha256, "draft": mail.draft})
 
         try:
             recorded = ledger.finish(claim, self, status=Status.DONE, write=write_success)
