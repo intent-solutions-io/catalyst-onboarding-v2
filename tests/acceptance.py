@@ -1773,6 +1773,10 @@ P6_SUPPORTING = {
         "test_erasure_registry_lock::test_9kg_84_while_provisional_a_live_environment_takes_no_intake_and_issues_no_invitation",
         "test_erasure_registry_lock::test_9kg_84_the_shipped_values_finish_an_interrupted_erasure_with_nothing_in_custody",
     ],
+    "9kg.75 the owner's monthly report lists who is due for erasure, by reference only, exactly when each clock has run out (031)": [
+        "test_retention_due::test_9kg_75_each_rule_lists_a_person_exactly_when_the_clock_has_run_out",
+        "test_retention_due::test_9kg_75_the_report_refuses_another_login_a_web_or_worker_process_and_an_undecided_registry",
+    ],
     "9kg.85 a live environment holds the internal cohort to the trial: no decline, nothing rated, no required details (033)": [
         "test_cohort_boundary::test_9kg_85_a_live_environment_refuses_every_cohort_decline_and_any_rated_criterion",
         "test_cohort_boundary::test_9kg_85_the_decision_form_offers_no_decline_and_no_rating_in_a_live_environment",

@@ -82,6 +82,9 @@ PERSON_CLOCK = ("per person by outcome: R1 P12M from the terminal event (decline
 # The durable record outlives every erasure it records (the floor is fixed by design); the keyed hash's lifetime is
 # counsel's (033 Q1).
 RECORD_LIFE = "the deployment's life, never below the oldest restorable backup; the keyed hash's lifetime COUNSEL"
+# 9kg.75: the same clocks in days, for `catalyst_retention_due`. None: not computable by the service (R3's period is
+# counsel's and the engagement end is not yet recorded; R4 runs from a request the service does not receive).
+CLOCK_DAYS = {"R1": 365, "R2": 90, "R3": None, "R4": 30}
 PROVISIONAL = True
 
 REGISTRY = {
