@@ -13,6 +13,8 @@ a one-time link. Nothing printed or written carries the canary's address, the li
 segment is redacted before anything is recorded). The canary person is erased afterwards with `catalyst_erase` by the
 retention login, as the first production erasure.
 
+CANARY_CHROMIUM (optional) names a Chromium executable when the installed Playwright's own build is absent.
+
 Exit 0 when every step passed, 1 otherwise.
 """
 
@@ -108,7 +110,7 @@ def main() -> int:
     since = datetime.now(timezone.utc).replace(microsecond=0)
     ok = False
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        browser = p.chromium.launch(executable_path=os.environ.get("CANARY_CHROMIUM") or None)
         context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True)
         context.tracing.start(screenshots=True, snapshots=True, sources=False)
         page = context.new_page()
@@ -130,9 +132,9 @@ def main() -> int:
                 "pseudonymous record"))
 
             def submit():
-                page.get_by_label("Name", exact=True).fill("Live Canary")
-                page.get_by_label("Email", exact=True).fill(user)
-                page.get_by_label("Reason", exact=True).fill("Live canary check of the deployed service.")
+                page.locator("#id_name").fill("Live Canary")
+                page.locator("#id_email").fill(user)
+                page.locator("#id_reason").fill("Live canary check of the deployed service.")
                 shot("filled")
                 page.get_by_role("button", name="Send request").click()
                 expect(page.locator("h1")).to_have_text("Request received")
