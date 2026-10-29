@@ -141,7 +141,9 @@ def test_oc4_11_the_notice_carries_no_reason_rationale_or_model_output(d, monkey
     app, decision = declined(d, monkeypatch)
     run_worker()
     [message] = notices_of(app)
-    assert seen == [("decline_notice", {"display_name": app.display_name})]  # the only value ever rendered
+    # The only value the decline notice ever renders (the verification mail renders its link, 9kg.80; not this notice).
+    assert [s for s in seen if s[0] == "decline_notice"] == [("decline_notice", {"display_name": app.display_name})]
+    assert {key for key, _ in seen} <= {"decline_notice", "verification_invitation"}
     wire = d.server.messages[-1]["data"].decode()
     run = decision.run
     leaks = [SECRET_NOTE, SECRET_REASON, SECRET_CODE, decision.policy_ref, str(decision.public_id), "rationale"]

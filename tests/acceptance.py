@@ -1773,6 +1773,7 @@ P6_SUPPORTING = {
         "test_verification_wording::test_9kg_80_without_the_row_a_draft_environment_uses_the_seed_and_a_live_one_refuses",
         "test_verification_wording::test_9kg_80_a_live_environment_sends_nothing_unapproved_withholds_intake_and_sends_the_approved_version",
         "test_verification_wording::test_9kg_80_an_approved_synthetic_verification_mail_is_still_refused_in_a_live_environment",
+        "test_verification_wording::test_9kg_80_a_retired_verification_mail_withholds_intake_in_a_draft_environment_too",
     ],
     "9kg.84 the provisional POL-10 values ship filled and lock real intake in a live environment until counsel answers (033)": [
         "test_erasure_registry_lock::test_9kg_84_the_registry_ships_filled_with_the_provisional_values_and_locked",

@@ -125,3 +125,12 @@ def test_9kg_80_an_approved_synthetic_verification_mail_is_still_refused_in_a_li
     send_once()
     assert PendingAction.objects.get(kind="send_verification").last_error == "verification_invitation_synthetic"
     assert mail.outbox == [] and notices.verification_withheld()
+
+
+def test_9kg_80_a_retired_verification_mail_withholds_intake_in_a_draft_environment_too(privileged_reset):
+    """CodeRabbit on PR #132: a draft environment accepted applicants whose mail the sender then refused."""
+    seeded = ensure_template()
+    assert not notices.verification_withheld() and Client().get(FORM).status_code == 200  # the marked draft is sent
+    outbound.approve_template_version(seeded.pk, template_owner(privileged_reset, "retiring-owner"))
+    MessageTemplateVersion.objects.filter(pk=seeded.pk).update(status="retired")  # the wording was withdrawn
+    assert notices.verification_withheld() and Client().get(FORM).status_code == 503

@@ -22,12 +22,15 @@ def digest(subject, body):
 
 
 def create_template(Template, Version):
-    """The template and its first draft. Called by this migration and by tests that need the row after the test
-    reset truncated the correspondence tables."""
-    template = Template.objects.create(key=KEY, secret_bearing=True,
-                                       purpose="The verification mail: the first automated message, with the one-time link")
-    Version.objects.create(template=template, version=1, subject=SUBJECT, body_text=BODY, variables=["link"],
-                           secret_bearing=True, status="draft", content_sha256=digest(SUBJECT, BODY), synthetic=True)
+    """The template and its first draft, unless already present (a re-applied migration keeps any later or approved
+    version: CodeRabbit on PR #132). Called by this migration and by tests that need the row after the test reset
+    truncated the correspondence tables."""
+    template, _ = Template.objects.get_or_create(
+        key=KEY, defaults={"secret_bearing": True,
+                           "purpose": "The verification mail: the first automated message, with the one-time link"})
+    if not Version.objects.filter(template=template, version=1).exists():
+        Version.objects.create(template=template, version=1, subject=SUBJECT, body_text=BODY, variables=["link"],
+                               secret_bearing=True, status="draft", content_sha256=digest(SUBJECT, BODY), synthetic=True)
 
 
 def seed(apps, schema_editor):
@@ -36,7 +39,8 @@ def seed(apps, schema_editor):
 
 def unseed(apps, schema_editor):
     Version = apps.get_model("correspondence", "MessageTemplateVersion")
-    Version.objects.filter(template__key=KEY, status="draft").delete()  # an approved version is frozen (0015)
+    # Only the seed this migration made: a later draft or an approved version (frozen, 0015) stays.
+    Version.objects.filter(template__key=KEY, version=1, status="draft", content_sha256=digest(SUBJECT, BODY)).delete()
     if not Version.objects.filter(template__key=KEY).exists():
         apps.get_model("correspondence", "MessageTemplate").objects.filter(key=KEY).delete()
 
