@@ -32,6 +32,7 @@ from config import guards
 
 DATA_NOTICE = "data_notice"
 INVITATION = "invitation"
+VERIFICATION = "verification_invitation"  # 9kg.80: the verification mail (correspondence migration 0020)
 DRAFT_MARKER = "DRAFT: placeholder wording the owner has not approved; shown only outside a live environment."
 
 
@@ -95,6 +96,15 @@ def servable(state: dict, environment: str) -> bool:
     if guards.draft_wording_allowed(environment):
         return state["status"] != "missing"
     return state["status"] == "approved" and not state["synthetic"]
+
+
+def verification_withheld() -> bool:
+    """9kg.80: a live environment has no approved, non-synthetic verification mail, so an accepted applicant could not
+    be sent one: intake is withheld and health reports `verification_template_unapproved`. Where a draft may be shown,
+    the seeded draft is sent, marked (correspondence.verification), so nothing is withheld there."""
+    if guards.draft_wording_allowed(settings.CATALYST_ENV):
+        return False
+    return not servable(status(VERIFICATION), settings.CATALYST_ENV)
 
 
 def wording(key: str, values: dict | None = None) -> Wording:

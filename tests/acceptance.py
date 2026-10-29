@@ -1768,6 +1768,12 @@ P6_SUPPORTING = {
         "test_effect_registry::test_9kg62_lookalike_calls_are_not_effects",
         "test_effect_registry::test_9kg62_an_unreviewed_outward_module_is_found",
     ],
+    "9kg.80 a live environment sends only owner-approved verification wording and shows no unapproved form copy (031)": [
+        "test_verification_wording::test_9kg_80_the_seed_is_the_code_s_draft_and_a_draft_environment_sends_it_marked",
+        "test_verification_wording::test_9kg_80_without_the_row_a_draft_environment_uses_the_seed_and_a_live_one_refuses",
+        "test_verification_wording::test_9kg_80_a_live_environment_sends_nothing_unapproved_withholds_intake_and_sends_the_approved_version",
+        "test_verification_wording::test_9kg_80_an_approved_synthetic_verification_mail_is_still_refused_in_a_live_environment",
+    ],
     "9kg.70 the custody key store's faults page under their own codes, an erased document's absent key never (026)": [
         "test_custody_health::test_9kg_70_a_healthy_store_raises_nothing_and_an_erased_document_is_counted_never_paged",
         "test_custody_health::test_9kg_70_each_fault_pages_under_its_own_code",

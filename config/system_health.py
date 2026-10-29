@@ -431,8 +431,11 @@ def intake_health() -> dict:
     notice = notices.status(notices.DATA_NOTICE)
     withheld = settings.CATALYST_INTAKE_MODE == "invitation" and not notices.servable(notice, settings.CATALYST_ENV)
     anomalies = ["data_notice_unapproved"] if withheld else []
+    # 9kg.80: the verification mail's state; in a live environment without approved real wording, intake is withheld.
+    anomalies += ["verification_template_unapproved"] if notices.verification_withheld() else []
     return {"mode": settings.CATALYST_INTAKE_MODE, "client_identity": settings.CATALYST_CLIENT_IDENTITY,
-            "live_invitations": Invitation.objects.filter(LIVE).count(), "data_notice": notice, "anomalies": anomalies}
+            "live_invitations": Invitation.objects.filter(LIVE).count(), "data_notice": notice,
+            "verification": notices.status(notices.VERIFICATION), "anomalies": anomalies}
 
 
 def report() -> dict:

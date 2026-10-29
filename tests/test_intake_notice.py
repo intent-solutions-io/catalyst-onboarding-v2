@@ -106,6 +106,9 @@ def on_file(email, *args):
 @pytest.fixture
 def quiet_withheld(monkeypatch):
     monkeypatch.setattr(views, "_withheld_logged", {})
+    # These tests are about the data notice alone; the verification mail's own refusal (9kg.80) is tested in
+    # tests/test_verification_wording.py, so here it counts as approved.
+    monkeypatch.setattr(notices, "verification_withheld", lambda: False)
 
 
 # --- the page: one approved template, its version and digest ----------------------------------------------------
