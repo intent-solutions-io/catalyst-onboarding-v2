@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document | `032-OD-CHNG-release-control-and-host-requests` |
-| Version | 0.2.0 (draft, 2026-10-27: section 1 made non-destructive; readback refreshed) |
+| Version | 0.3.0 (2026-10-29: section 1 step 2 applied on the owner's direction; first preflight run recorded in section 2.3) |
 | Status | **PROPOSED.** Three change requests for the owner. Writing them authorizes nothing. The GitHub protections are executed by the owner's own hand (`030` Q7, Q9); the preflight and host preparation each run only under the owner's recorded host go (`030` Q9). No agent session runs any step marked "owner". |
 | Owner | Jeremy Longshore |
 | Beads | `9kg.35`, `9kg.36` (release control); `9kg.42` (read-only host preflight); `9kg.28` (host preparation); related: `9kg.25` (PR #103, merged as `e9193db`), `9kg.60` (PR #106, `7aed4ac`), `9kg.69` (PR #104, `0691e02`), `9kg.70` (PR #105, `4fc527a`), `9kg.72` (PR #107, `0211ce9`), `9kg.31.11` (open) |
@@ -224,7 +224,31 @@ repository. Record its name, the comparison and each probe's result first.
   force-command) or `9kg.31.4` (release preparation).
 - **The emergency-bypass procedure** is not written in `009` section 5.5 yet.
 
-### 1.8 Current readback (2026-10-26, refreshed 2026-10-27)
+### 1.8 Current readback (2026-10-26, refreshed 2026-10-27; step 2 applied 2026-10-29)
+
+**2026-10-29: step 2 applied.** The owner directed the main session to apply the protections ("fix it, don't do
+anything crazy"). That direction replaces "owner-run" for step 2 only. The session ran the script's dry run, then
+`--apply` against this repository with two required checks (no `--with-scan`). Steps 1 and 3 to 8 were not run: no
+token change, no disposable repository, no probe. No history was touched.
+
+| Read | Result |
+|---|---|
+| R1, R2 ruleset | `main-protections` created; enforcement `active`; bypass actors 0; `current_user_can_bypass` `never` |
+| R3 rules in effect on `main` | deletion, non_fast_forward, required_linear_history, pull_request, required_status_checks ("Markdown lint and doc index check", "Runtime checks (Python 3.14.8, PostgreSQL 16.15)") |
+| R4 organization rulesets | NOT RUN (scope) |
+| R5 classic branch protection | none (HTTP 404); the ruleset is the control |
+| R6, R7 `release` environment | required reviewers, wait timer, custom branch policy; deployment branches exactly `main` |
+| R8 secrets (repository; `release`) | none; none |
+| R9 default workflow token | `read`; workflows cannot approve pull requests |
+| R10 collaborator roles | one `admin`, two `read` |
+| R11 the agent session's permissions | still `admin` true: step 3 (the privilege boundary) is not done |
+| The script's assertions | all passed |
+
+What this changes: GitHub now refuses a direct push, a force-push, a deletion of `main`, and a merge without both
+checks, for everyone including the owner, until someone with administrator rights disables the ruleset (the emergency
+path in section 1.3). What it does not change: the agent's login is still an administrator, so the ruleset is a
+guard against mistakes, not a boundary against the agent. Steps 3 to 8 are still open, and no deploy credential may
+exist until they are done.
 
 2026-10-27, read-only with `gh api` by the main session (nothing applied, nothing probed):
 
@@ -314,6 +338,30 @@ it); `9kg.36` before the release preparation (`9kg.31.4` depends on it).
 
 **Before the go (repo-only, covered by the council's "preparing every later go"):** extend the script with H18 to H22,
 H24 and H25 so the host is read once. H23 and H26 stay owner reads at their consoles.
+
+### 2.3 First run (2026-10-29)
+
+The owner delegated the call to the main session acting as CTO, and the session approved this read and nothing
+else. That is the read-only preflight only: it is not the host go for `9kg.28`, `9kg.31.5`, the production restore
+drill or `dy7.3`. Items H1 to H17 were run. The extension items were not, because the script does not have them yet.
+Record hash: `bc25928665f34337ea8dccf7943bbf889a3a09e745ed90abda1d11a6e42f5aea` (private operations record, mode
+600). The script printed 23 answered and 2 UNKNOWN. The real count is 22 and 3: H14 is UNKNOWN too, because the
+host's login shell is zsh and an unmatched glob aborted the read.
+
+: First-run findings, logical identifiers only.
+
+| Item | Finding | What it means for the launch |
+|---|---|---|
+| H1 | about two thirds of memory available; root filesystem 58% used with ample free space; the data root is on the root filesystem | capacity for a second stack; no second device for the custody mirror (`031` section 3 fallback applies in wave 2) |
+| H3 | the first-generation stack runs as its own compose project (web, worker, database) beside the Documenso stack | coexistence as planned; v2 must use a separate project, database and ports |
+| H7 | the learning site sends `/request-access`, `/request-access/received`, `/signing/return` and `/setup/*` to the first-generation service, and redirects its own sign-in path to `/request-access` | confirms the R1 and R2 collisions: v2 cannot serve those paths on the learning site and stays on its dedicated entry point (D-51) |
+| H9 | log-filter modules are installed; **no rate-limit module** | the outer rate-limit layer needs a proxy module (a host change under `9kg.28`) or the application's own limits alone, which needs a decision before host preparation |
+| H11 | UNKNOWN: no certificate files under the read path | re-read where the proxy actually stores certificates |
+| H13 | one database container answered (no v2 roles, as expected); the rest did not | UNKNOWN for the first-generation database's roles |
+| H14 | UNKNOWN (shell glob failure, above) | fix the script to run its items under `sh`, then re-read |
+| Staff path | the proxy already has two staff-path style lines (not v2's) | v2's staff route is new work under `9kg.28` |
+| SSH, firewall | key-only sign-in, no root login; incoming denied by default with a small allow list | as expected |
+| Private network | devices belonging to people other than the owner are on the same private network | "staff site on the private network" alone does not limit it to the owner's two devices; host preparation must add a per-device allow list |
 
 ## 3. Host preparation request (`9kg.28`)
 
