@@ -52,7 +52,9 @@ item() {  # item "<label>" <<< "<remote command>"; the command is a fixed litera
   local label="$1" cmd out status
   cmd="$(cat)"
   printf '\n## %s\n\n```\n$ %s\n' "$label" "$cmd" >> "$OUT"
-  out=$("${SSH[@]}" "$HOST" "$cmd" 2>&1); status=$?
+  # 9kg.86: the command goes to `sh` on stdin, so the remote login shell (zsh on the first run, where an unmatched
+  # glob aborted an item) never interprets it.
+  out=$(printf '%s\n' "$cmd" | "${SSH[@]}" "$HOST" sh 2>&1); status=$?
   out="$(printf '%s' "$out" | redact)"
   if [ "$status" -eq 0 ] && [ -n "$(printf '%s' "$out" | tr -d '[:space:]')" ]; then
     printf '%s\n```\n' "$out" >> "$OUT"; printf '%-62s answered\n' "$label"; answered=$((answered+1))
@@ -85,10 +87,10 @@ item "Proxy: the learning site's routing directives (allowlisted directives only
 item "Proxy: adapted configuration hash (parse only, no validate)" <<< "h=\$(caddy adapt --config $PROXY_CONFIG --adapter caddyfile 2>/dev/null) && printf '%s' \"\$h\" | sha256sum"
 item "Proxy modules of interest (rate limit, log filters, auth)" <<< "caddy list-modules 2>/dev/null | grep -Ei 'rate|filter|auth|forward'"
 item "Proxy log files (names, sizes, modes)" <<< "ls -l /var/log/caddy 2>/dev/null"
-item "Certificates on disk (names and dates only)" <<< "find /var/lib/caddy -type f -name '*.crt' -printf '%TY-%Tm-%Td %f\n' 2>/dev/null | sort | tail -20"
+item "Certificates on disk (names and dates only)" <<< "sudo -n find /var/lib/caddy -type f -name '*.crt' -printf '%TY-%Tm-%Td %f\n' 2>/dev/null | sort | tail -20"
 item "Secrets directory: names, modes and owners (never contents)" <<< "ls -l $SECRETS_DIR 2>/dev/null"
 item "PostgreSQL service(s) and images (host or container)" <<< "systemctl list-units --type=service --no-pager --no-legend | grep -i postgres; docker ps --format '{{.Names}} {{.Image}}' | grep -i postgres"
-item "PostgreSQL roles (names and attributes only)" <<< "sudo -n -u postgres psql -Atc \"select rolname, rolsuper, rolcreaterole, rolcanlogin from pg_roles order by 1\" 2>/dev/null || for c in \$(docker ps --format '{{.Names}}' | grep -i postgres); do docker exec \$c psql -U postgres -Atc \"select rolname, rolsuper, rolcreaterole, rolcanlogin from pg_roles order by 1\" 2>/dev/null; done"
+item "PostgreSQL roles (names and attributes only)" <<< "sudo -n -u postgres psql -Atc \"select rolname, rolsuper, rolcreaterole, rolcanlogin from pg_roles order by 1\" 2>/dev/null || for c in \$(docker ps --format '{{.Names}} {{.Image}}' | awk '\$2 ~ /postgres/ {print \$1}'); do echo \"[\$c]\"; docker exec \$c sh -c 'psql -U \"\${POSTGRES_USER:-postgres}\" -d postgres -Atc \"select rolname, rolsuper, rolcreaterole, rolcanlogin from pg_roles where rolname !~ '\\''^pg_'\\'' order by 1\"' 2>/dev/null || echo '(roles not readable)'; done"
 item "Backup fabric: repository paths and exclusions (names only)" <<< "ls -ld /backup* /srv/backup* 2>/dev/null; grep -rhoE -- '--exclude [^ ]+' /usr/local/bin/*backup* /etc/cron.d/* 2>/dev/null | sort -u"
 item "Alert floor present (names only)" <<< "ls -l /usr/local/bin/notify.sh /usr/local/lib/intentsolutions/alert-floor.sh 2>/dev/null"
 item "Staff private path configured on the proxy (count of matching lines)" <<< "test -r $PROXY_CONFIG && { grep -cE 'handle_path|@staff|forward_auth|remote_ip' $PROXY_CONFIG || true; }"
