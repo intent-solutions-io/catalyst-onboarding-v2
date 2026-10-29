@@ -85,7 +85,9 @@ RECORD_LIFE = "the deployment's life, never below the oldest restorable backup; 
 # 9kg.75: the same clocks in days, for `catalyst_retention_due`. None: not computable by the service (R3's period is
 # counsel's and the engagement end is not yet recorded; R4 runs from a request the service does not receive).
 CLOCK_DAYS = {"R1": 365, "R2": 90, "R3": None, "R4": 30}
-PROVISIONAL = True
+# D-53 (2026-10-29): the owner launches wave 1 before counsel answers, accepting the risk; the lock is cleared with the
+# release that adds the real wording. Intake stays withheld until the owner approves that wording (applications.notices).
+PROVISIONAL = False
 
 REGISTRY = {
     **{name: {"treatment": ANONYMIZE, "retention": PERSON_CLOCK} for name in SUBJECT_CLASSES},
