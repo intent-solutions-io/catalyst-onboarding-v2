@@ -6,7 +6,7 @@ and which data notice the mail carried); a repeat for the same address supersede
 new one. Prints JSON without the address: the invitation mail (subject and body, with the data notice rendered in
 from the approved template, 9kg.52) for the owner to send by hand, and the notice's version and digest. A live
 environment refuses to issue while the notice or the invitation wording is unapproved, synthetic or withdrawn
-(applications.notices); a local or synthetic one prints the draft with its marker. `--format text` prints the mail
+(applications.notices), and while the erasure registry is provisional (9kg.84); a local or synthetic one prints the draft with its marker. `--format text` prints the mail
 alone, ready to paste into a hand send, with the recorded digests after it. A concurrent run for the same address is
 reported as such. The log line carries the issuer only. Both formats print the invitation's public reference (9kg.72):
 the identifier `catalyst_erase --subject` takes for a person invited who never applied. Exit 0 issued, 1 refused.
@@ -23,6 +23,7 @@ from django.db import DatabaseError, IntegrityError
 from applications import invitations, notices
 from applications.forms import EMAIL_MAX
 from applications.identity import email_key
+from erasure import registry
 
 logger = logging.getLogger("applications.invitations")
 
@@ -49,6 +50,9 @@ class Command(BaseCommand):
             raise CommandError("--issued-by must name who authorized the invitation")
         if len(issued_by) > 200 or len(note) > 500:
             raise CommandError("--issued-by is at most 200 characters and --note at most 500")
+        if registry.intake_locked():
+            raise CommandError("refused (registry_provisional): the retention values are provisional until counsel"
+                               " answers (9kg.84); nothing was issued")
         lifetime = timedelta(days=days) if days is not None else timedelta(seconds=settings.CATALYST_INVITATION_LIFETIME_SECONDS)
         if lifetime <= timedelta(0):
             raise CommandError("the lifetime must be positive")

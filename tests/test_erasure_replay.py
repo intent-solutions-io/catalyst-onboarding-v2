@@ -213,7 +213,7 @@ def test_9kg_25_missing_corrupt_or_stale_erasure_evidence_keeps_the_restore_held
     with pytest.raises(service.Refused, match="record_key_missing"):
         replay.replay(conn, head, rows=DECIDED)
     settings.CATALYST_ERASURE_KEY = KEY
-    with pytest.raises(service.Refused, match="registry_undecided"):  # the shipped, undecided registry
+    with pytest.raises(service.Refused, match="registry_undecided"):  # an undecided registry
         replay.replay(conn, head, rows={n: {"treatment": "undecided", "retention": "undecided"} for n in DECIDED})
     assert replay.current_state(since=placed) == "unreplayed"
     assert replay.replay(conn, head, rows=DECIDED)["already"] == 1

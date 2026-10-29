@@ -12,7 +12,8 @@ Limits (9kg.29, config.throttle): a POST is counted against the client before th
 valid, against the hashed address key; either bucket over its limit is the one 429 page. A missing client identity or
 an unavailable throttle store refuses the POST with the 503 page (fail closed for issuance). Invitation-only intake
 (9kg.43, applications.invitations): an uninvited submission is rolled back inside the service and gets the same
-redirect as an accepted one; the view logs a reason code only.
+redirect as an accepted one; the view logs a reason code only. While the erasure registry is provisional (9kg.84), a
+live environment withholds the page (the one 503 page, reason code `registry_provisional`).
 
 The confirmation view (005 S1.2 Confirm; J-03) carries the signed token in its path. Every response under
 that path, including the ones Django builds outside the view, is sent with `Referrer-Policy: no-referrer`
@@ -35,6 +36,7 @@ from django.views.decorators.http import require_http_methods, require_safe
 
 from config import throttle
 from config.client_identity import client_identity
+from erasure import registry
 
 from . import confirmation, invitations, notices, services
 from .forms import AccessRequestForm
@@ -71,6 +73,9 @@ def _log_withheld(reason: str) -> None:
 
 @require_http_methods(["GET", "HEAD", "POST"])
 def request_access(request):
+    if registry.intake_locked():  # 9kg.84: no real intake while POL-10 is provisional
+        _log_withheld("registry_provisional")
+        return render(request, TRY_AGAIN, status=503)
     try:
         notice = _data_notice()
     except notices.Unavailable as refused:

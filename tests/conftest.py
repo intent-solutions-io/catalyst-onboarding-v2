@@ -155,6 +155,16 @@ def suite_public_entry(settings):
         setattr(settings, name, value)
 
 
+# 9kg.84: the shipped registry is provisional, which locks real intake in a live environment. Tests that exercise a live
+# environment's intake run with the lock lifted; the tests of the lock set it back (`registry_lock`), and
+# `test_erasure_registry_lock` asserts the shipped value itself.
+@pytest.fixture(autouse=True)
+def provisional_lock_lifted(monkeypatch):
+    from erasure import registry
+
+    monkeypatch.setattr(registry, "PROVISIONAL", False)
+
+
 # PASS means executed and passed. A skipped test, an expected failure (xfail) or an unexpected pass of
 # an xfail-marked test (xpass) cannot satisfy a required case, so any of them fails the run (CI gate).
 # Counted from the reports themselves, so it does not depend on the terminal reporter plugin.
