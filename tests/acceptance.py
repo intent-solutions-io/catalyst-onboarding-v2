@@ -1771,6 +1771,7 @@ P6_SUPPORTING = {
     "9kg.84 the provisional POL-10 values ship filled and lock real intake in a live environment until counsel answers (033)": [
         "test_erasure_registry_lock::test_9kg_84_the_registry_ships_filled_with_the_provisional_values_and_locked",
         "test_erasure_registry_lock::test_9kg_84_while_provisional_a_live_environment_takes_no_intake_and_issues_no_invitation",
+        "test_erasure_registry_lock::test_9kg_84_the_shipped_values_finish_an_interrupted_erasure_with_nothing_in_custody",
     ],
     "9kg.85 a live environment holds the internal cohort to the trial: no decline, nothing rated, no required details (033)": [
         "test_cohort_boundary::test_9kg_85_a_live_environment_refuses_every_cohort_decline_and_any_rated_criterion",

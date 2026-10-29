@@ -18,6 +18,8 @@ from applications import notices, views
 from applications.models import Invitation
 from config import backup, system_health
 from erasure import registry
+from erasure import service
+from tests.test_erasure import KEY, Crash, decided, erase, subject  # noqa: F401  (fixture)
 from tests.test_intake import FORM, counts, post
 from tests.test_intake_notice import approve_notice, closed, real_version
 from tests.test_invitation import ADA
@@ -83,3 +85,26 @@ def test_9kg_84_while_provisional_a_live_environment_takes_no_intake_and_issues_
         call_command("catalyst_invite", ADA, "--issued-by", "owner probe")
     assert "registry_provisional" not in str(refused.value)
     assert health()[1]["intake"]["registry_provisional"] is False
+
+
+def test_9kg_84_the_shipped_values_finish_an_interrupted_erasure_with_nothing_in_custody(privileged_reset, decided, monkeypatch):
+    """CodeRabbit on PR #129: under the shipped `destroy_key`, a resumed erasure required the custody key store even with
+    nothing in custody. In wave 1 no key directory is configured, so the dark deploy's subjects could not be finished."""
+    from applications.models import Application
+
+    monkeypatch.setattr(registry, "REGISTRY", shipped_registry().REGISTRY)
+    assert registry.REGISTRY["signed_documents"]["treatment"] == registry.DESTROY_KEY
+    one = subject("dark-deploy@example.test", "Synthetic Subject")
+    real_call = service._call
+
+    def crash_before_commit(conn, *args, commit):
+        if commit:
+            raise Crash("the operator's terminal closed")
+        return real_call(conn, *args, commit=commit)
+    monkeypatch.setattr(service, "_call", crash_before_commit)
+    with pytest.raises(Crash):
+        erase(privileged_reset, one.public_ref)
+    monkeypatch.setattr(service, "_call", real_call)
+    resumed = erase(privileged_reset, one.public_ref)  # no key directory is configured here
+    assert resumed.status == "erased" and resumed.resumed
+    assert Application.objects.get(pk=one.pk).email == "[erased]"

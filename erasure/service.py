@@ -137,7 +137,8 @@ def erase(conn, subject_ref: str, authority: str, reason: str, rows=None) -> Out
             raise Refused("record_key_mismatch")
         if destroy:
             _refuse_lingering_plaintext(conn, None, subject_ref=subject_ref)
-            _refuse_unavailable_key_store()  # a resumed run has no dry run: checked before the committed call
+            if _custody_keys_exist(conn):  # 9kg.84 (CodeRabbit on PR #129): with no custody key anywhere, as in
+                _refuse_unavailable_key_store()  # wave 1, an unconfigured store must not block finishing the erasure
     elif email_key is None:
         raise Refused("unknown_subject")
     else:
@@ -207,12 +208,23 @@ def _retained(result: dict, destroyed: bool) -> list:
 def _pending(refs) -> list:
     """The subject's custody keys not yet destroyed: not journaled as destroyed, or still present in a key directory
     (an earlier erasure under `retain`, an interrupted destruction, a restored file). A reference absent but never
-    journaled is pending too: it is journaled and verified, never assumed. A key store that cannot be read refuses."""
+    journaled is pending too: it is journaled and verified, never assumed. A key store that cannot be read refuses.
+    No references, nothing pending: the key store is not consulted (9kg.84)."""
+    if not refs:
+        return []
     try:
         destroyed = keystore.journaled_destroyed(verify=True)  # the erase process holds the erasure key
         return [ref for ref in refs if ref not in destroyed or any(keystore.present(ref))]
     except keystore.KeyStoreError as exc:
         raise Refused(f"custody_{exc.code}") from None
+
+
+def _custody_keys_exist(conn) -> bool:
+    """Whether anything is in custody at all: a resumed run has no dry run naming the subject's keys, so it requires the
+    key store unless provably nothing is in custody (9kg.84)."""
+    found = conn.execute("SELECT EXISTS (SELECT 1 FROM agreements_custodyenvelope)").fetchone()[0]
+    conn.rollback()
+    return bool(found)
 
 
 def _refuse_unavailable_key_store() -> None:
