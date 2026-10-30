@@ -13,8 +13,6 @@ a one-time link. Nothing printed or written carries the canary's address, the li
 segment is redacted before anything is recorded). The canary person is erased afterwards with `catalyst_erase` by the
 retention login, as the first production erasure.
 
-CANARY_CHROMIUM (optional) names a Chromium executable when the installed Playwright's own build is absent.
-
 Exit 0 when every step passed, 1 otherwise.
 """
 
@@ -28,7 +26,7 @@ import shlex
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
@@ -69,7 +67,10 @@ def wait_for_mail(user, password, host, since, timeout=300):
             for num in reversed(found[0].split()):
                 _, data = box.fetch(num, "(RFC822)")
                 message = email.message_from_bytes(data[0][1])
-                if parsedate_to_datetime(message["Date"]) < since:
+                sent = parsedate_to_datetime(message["Date"])
+                if sent.tzinfo is None:
+                    sent = sent.replace(tzinfo=timezone.utc)
+                if sent < since:
                     continue
                 body = message.get_payload(decode=True) if not message.is_multipart() else \
                     next(p for p in message.walk() if p.get_content_type() == "text/plain").get_payload(decode=True)
@@ -101,6 +102,8 @@ def main() -> int:
     parser.add_argument("--invite", required=True, help="the command that runs catalyst_invite on the host")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--imap-host", default="sunfire.mxrouting.net")
+    parser.add_argument("--mail-window-minutes", type=int, default=0,
+                        help="also accept a verification mail this many minutes older than the run (a reused link)")
     args = parser.parse_args()
     user, password = os.environ["CANARY_MAIL_USER"], os.environ["CANARY_MAIL_PASSWORD"]
     out = args.out / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -140,7 +143,8 @@ def main() -> int:
                 expect(page.locator("h1")).to_have_text("Request received")
                 shot("received")
             run.step("submit the form", submit)
-            link, mail_id = run.step("verification mail arrives", lambda: wait_for_mail(user, password, args.imap_host, since))
+            link, mail_id = run.step("verification mail arrives", lambda: wait_for_mail(user, password, args.imap_host,
+                                                                                         since - timedelta(minutes=args.mail_window_minutes)))
 
             def confirm():
                 page.goto(link)
