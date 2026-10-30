@@ -2,6 +2,7 @@
 rules. Building and inspecting the image needs Docker, which the test containers do not have; that check is recorded
 on the pull request (built locally) and is part of staging (6B.11)."""
 
+import platform
 import re
 
 from tests.support import ROOT
@@ -13,8 +14,13 @@ def dockerfile() -> str:
 
 def test_6b5_the_base_image_is_the_digest_the_tests_run_on():
     compose = (ROOT / "compose.yaml").read_text()
-    pinned = re.search(r"image: (python:3\.14\.8-slim@sha256:[0-9a-f]{64})", compose).group(1)
+    # Any 3.x.y patch release: the version is asserted against the interpreter below, not hard-coded here (a
+    # hard-coded 3.14.8 made the 3.14.10 bump fail on the regex instead of on the digest, PR #143).
+    match = re.search(r"image: (python:(3\.\d+\.\d+)-slim@sha256:[0-9a-f]{64})", compose)
+    assert match, "compose.yaml pins no python:3.x.y-slim image by digest"
+    pinned, version = match.group(1), match.group(2)
     assert re.findall(r"^FROM (\S+)", dockerfile(), flags=re.M)[0] == pinned
+    assert version == platform.python_version()  # the tests run on exactly the interpreter the image is built from
 
 
 def test_6b5_dependencies_are_hash_locked_and_the_process_is_not_root():
