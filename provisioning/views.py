@@ -3,7 +3,7 @@
 GET shows the form and never consumes the token. POST commits. Every refusal is the same page (an unknown, used,
 expired, cancelled or superseded link cannot be told apart). The password field is never re-rendered, nothing typed is
 kept, and the POST parameters are marked sensitive so no error report can show them. Responses under the setup path
-are private and no-referrer (`config.redaction`).
+are private and same-origin-referrer (`config.redaction`).
 
 Both pages are limited per client and per token (9kg.29, config.throttle): a burst gets the one 429 page before any
 lookup, so an unknown token is refused exactly like a known one; a POST with the store down is refused with the 503

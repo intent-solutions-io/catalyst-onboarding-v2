@@ -17,7 +17,7 @@ live environment withholds the page (the one 503 page, reason code `registry_pro
 without an approved, non-synthetic verification mail (9kg.80, reason code `verification_template_unapproved`).
 
 The confirmation view (005 S1.2 Confirm; J-03) carries the signed token in its path. Every response under
-that path, including the ones Django builds outside the view, is sent with `Referrer-Policy: no-referrer`
+that path, including the ones Django builds outside the view, is sent with `Referrer-Policy: same-origin`
 and `Cache-Control: no-store` (config.redaction middleware), and refusals are logged as a reason code
 only. Django's own request and CSRF loggers name the path of a 4xx response, so config.redaction
 replaces the token in those records. It is limited per client and per token; a read with the store down is still

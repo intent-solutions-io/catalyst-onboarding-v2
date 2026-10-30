@@ -153,7 +153,7 @@ def test_p5_21_get_shows_post_commits_and_the_link_works_once(cl, monkeypatch):
     assert not WithdrawalConfirmation.objects.filter(token_sha256=token).exists()  # only the hash is stored
     for _ in range(2):
         page = Client().get(path)
-        assert page.status_code == 200 and page["Referrer-Policy"] == "no-referrer"
+        assert page.status_code == 200 and page["Referrer-Policy"] == "same-origin"
     assert Application.objects.get(pk=app.pk).stage == "agreements_complete"  # a GET changes nothing
     done = Client().post(path)
     assert done.status_code == 200 and Application.objects.get(pk=app.pk).stage == "withdrawn"

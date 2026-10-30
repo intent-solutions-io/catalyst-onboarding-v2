@@ -92,7 +92,8 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
-SECURE_REFERRER_POLICY = "no-referrer"  # no page needs to tell another site where a visitor came from
+SECURE_REFERRER_POLICY = "same-origin"  # never tells another site where a visitor came from. Not "no-referrer": with it,
+# a real browser sends `Origin: null` on its own form posts and the CSRF check refuses every one (live canary, 2026-10-29)
 # Pinned rather than left to Django's defaults, so an upgrade cannot loosen them (PR #61 review).
 X_FRAME_OPTIONS = "DENY"
 SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
