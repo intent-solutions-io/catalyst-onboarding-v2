@@ -1,20 +1,27 @@
 version: 2
+# One grouped pull request per ecosystem, once a month, so dependency noise is two PRs instead of
+# eight (sweep of 2026-10-30: eight single-dependency PRs, each needing its own rebase and CI run
+# because branch protection requires an up-to-date head). Security updates are not grouped by
+# default and still arrive as their own PRs as soon as GitHub publishes the advisory.
 updates:
   # Keep GitHub Actions up to date
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 10
+      interval: "monthly"
+    open-pull-requests-limit: 2
+    groups:
+      github-actions:
+        patterns: ["*"]
 
-  # Language: generic — the skill will select the correct ecosystem
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 10
+      interval: "monthly"
+    open-pull-requests-limit: 2
+    groups:
+      python-dependencies:
+        patterns: ["*"]
     ignore:
       # ADR-17 / D-18 pin the Django 5.2 LTS line. A major-version move (6.x is not LTS) is an owner
       # decision with its own migration PR, never an automated bump. Security and patch releases of 5.2 still arrive.
