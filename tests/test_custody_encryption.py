@@ -300,14 +300,14 @@ def test_9kg_34_documents_stored_in_the_clear_are_sealed_by_the_operator_and_the
 
 # --- the erasure step and the registry -----------------------------------------------------------------------------
 
-def test_9kg_34_the_registry_admits_destroy_key_for_signed_documents_only_and_ships_undecided(monkeypatch):
+def test_9kg_34_the_registry_admits_destroy_key_for_signed_documents_only(monkeypatch):
     assert registry.problems(DESTROYING) == []
     assert registry.ALLOWED["signed_documents"] == (registry.RETAIN, registry.DESTROY_KEY)
     assert "submissions.treatment:unsupported" in registry.problems(
         {**DECIDED, "submissions": {"treatment": registry.DESTROY_KEY, "retention": "p1y"}})
     assert "signed_documents.treatment:unsupported" in registry.problems(
         {**DECIDED, "signed_documents": {"treatment": registry.ANONYMIZE, "retention": "p1y"}})
-    assert registry.REGISTRY["signed_documents"]["treatment"] == registry.UNDECIDED
+    assert registry.REGISTRY["signed_documents"]["treatment"] == registry.DESTROY_KEY  # 9kg.84, provisional
     assert set(catalog.TABLES["agreements_custodyenvelope"].columns().values()) == {"non_personal"}
     assert "custody_key_destroyed" in journal.KINDS and "keys_destroyed" in journal.KINDS["erasure_complete"]
 
@@ -727,7 +727,8 @@ def test_9kg_34_lingering_plaintext_of_a_destroyed_key_is_removed_and_one_failur
     envelopes = {d.pk: _interrupted_migration(d) for d in (erased, damaged, fine)}
     keystore.destroy(str(app.public_ref), [envelopes[erased.pk].key_ref])  # its sealed copy can never open again
     sealed_path = custody / envelopes[damaged.pk].storage_key
-    sealed_path.write_bytes(sealed_path.read_bytes()[:-1] + b"X")  # this one cannot be verified
+    tampered = sealed_path.read_bytes()
+    sealed_path.write_bytes(tampered[:-1] + bytes([tampered[-1] ^ 0xFF]))  # this one cannot be verified
     code, report = command("catalyst_custody_keys", "--migrate", "--confirm")
     assert code == 1 and report["plaintext_cleanup_failed"] == 1 and report["plaintext_removed"] == 2
     assert not (custody / erased.storage_key).exists()  # removed without opening the sealed copy

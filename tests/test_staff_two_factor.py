@@ -93,9 +93,12 @@ def test_6b9_the_login_needs_the_token_and_a_verified_session_reaches_every_staf
     assert wrong.status_code == 200 and "_auth_user_id" not in client.session
     TOTPDevice.objects.filter(user__username="two-factor-staff").update(throttling_failure_timestamp=None,
                                                                          throttling_failure_count=0)
-    assert sign_in(Client(), "two-factor-staff", TOTPDevice, current_token("two-factor-staff")).status_code == 302
-    replay = Client()  # the same token again, in the same time step: refused (django-otp's last_t)
-    assert sign_in(replay, "two-factor-staff", TOTPDevice, current_token("two-factor-staff")).status_code == 200
+    token = current_token("two-factor-staff")
+    assert sign_in(Client(), "two-factor-staff", TOTPDevice, token).status_code == 302
+    # The same code again: refused by django-otp's last_t. Replaying the code itself, not a fresh current_token(),
+    # keeps this true when the 30-second step rolls over between the two sign-ins.
+    replay = Client()
+    assert sign_in(replay, "two-factor-staff", TOTPDevice, token).status_code == 200
     assert "_auth_user_id" not in replay.session
     TOTPDevice.objects.filter(user__username="two-factor-staff").update(last_t=-1, throttling_failure_timestamp=None,
                                                                          throttling_failure_count=0)

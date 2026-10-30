@@ -109,7 +109,8 @@ def _copy_private(source: Path, target: Path) -> None:
 def refuse_real_backup_while_undecided() -> None:
     """9kg.32 (council 030 Q3, D-51): a backup in a live environment holds real personal data, which no erasure could
     reach while POL-10's registry has an undecided value (erasure.registry); refuse it. The synthetic and local
-    environments are not live, so drills and tests back up as before."""
+    environments are not live, so drills and tests back up as before. Since 9kg.84 the shipped values are provisional
+    but decided, so a live backup is allowed; the provisional lock keeps real intake out instead."""
     from django.conf import settings
 
     from config.guards import LIVE_ENVIRONMENTS

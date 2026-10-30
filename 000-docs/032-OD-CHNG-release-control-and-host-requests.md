@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document | `032-OD-CHNG-release-control-and-host-requests` |
-| Version | 0.1.0 (draft, 2026-10-26) |
+| Version | 0.3.0 (2026-10-29: section 1 step 2 applied on the owner's direction; first preflight run recorded in section 2.3) |
 | Status | **PROPOSED.** Three change requests for the owner. Writing them authorizes nothing. The GitHub protections are executed by the owner's own hand (`030` Q7, Q9); the preflight and host preparation each run only under the owner's recorded host go (`030` Q9). No agent session runs any step marked "owner". |
 | Owner | Jeremy Longshore |
 | Beads | `9kg.35`, `9kg.36` (release control); `9kg.42` (read-only host preflight); `9kg.28` (host preparation); related: `9kg.25` (PR #103, merged as `e9193db`), `9kg.60` (PR #106, `7aed4ac`), `9kg.69` (PR #104, `0691e02`), `9kg.70` (PR #105, `4fc527a`), `9kg.72` (PR #107, `0211ce9`), `9kg.31.11` (open) |
@@ -45,28 +45,79 @@ of 2026-10-23). Only a GitHub ruleset and a protected environment are enforced b
 
 ### 1.3 Owner-run actions, in order
 
-Preconditions: the owner's own GitHub credentials in the owner's own terminal; no agent session holds owner
-credentials at the time; no deploy credential exists yet. **Not met today:** the token this repository's agent
-sessions use on the dev box has administrator permission (readback, section 1.8). Step 4's token swap must therefore
-come first, or the owner runs steps 1 to 3 while no agent session is running.
+Preconditions: the owner's own GitHub credentials in the owner's own terminal; no agent session running while the
+owner acts; no deploy credential exists yet. **Not met today (readback of 2026-10-27, section 1.8):** agent sessions
+on the dev box use the owner's own `gh` login, a classic token with the `repo`, `workflow` and `delete_repo` scopes
+and administrator permission on this repository, which every session can read. The privilege boundary is therefore
+not a token setting alone: every GitHub credential the agent's operating-system user can read must lose
+administrator rights on this repository (step 3).
 
-1. **Dry run.** `EXPECTED_LOGIN=<owner login> scripts/apply-github-protections.sh`. It prints the identity, the admin
-   right, the current state and the ruleset and environment it would send. Nothing is changed.
-2. **Apply.** `EXPECTED_LOGIN=<owner login> scripts/apply-github-protections.sh --apply`. It creates or updates the
-   ruleset, upserts the environment and its `main` branch policy, reads back and asserts: bypass actors 0, enforcement
-   active, the required checks exactly as intended, the deployment branch policy exactly `main`, and the five rule
-   types effective on `main`. A failed assertion exits non-zero: fix before anything else.
-3. **The merge-guard registration** (outside this repository): name both required checks. Confirm with
-   `safe-merge --dry-run` on the probe pull request of section 1.6.
-4. **The scoped agent token.** Issue it with the permission set of section 1.2 and switch every agent session to it.
-   From this point no agent session holds owner credentials (`030` Q7).
-5. **The probes** of section 1.6.
-6. **The image scan (`9kg.36`).** After the probes pass: re-run step 2 with `--with-scan`, then add "Build and scan the
-   image" to the merge-guard registration. The image workflow has no path filter, so the job reports on every pull
-   request, docs-only included (`009` section 5.5's rule). Run probe P6, then probe P7.
-7. **Record.** Paste the readback into section 1.8 and, through a docs pull request, into `009` section 5.5 with the
-   emergency-bypass procedure; update the header comment of `.github/workflows/image.yml`, which still says "Not a
-   required check".
+`REPO` is always passed explicitly to the script, for this repository as well. Every `gh` command names its target
+with `--repo`. Every push in section 1.6 runs from a fresh clone of the disposable repository whose `origin` was
+checked first.
+
+**Emergency bypass (written into `009` section 5.5 before step 2).** The bypass list is empty, so nobody can merge
+around a check that never reports. The escape is the owner, as administrator, setting the ruleset's enforcement to
+`disabled` (never deleting it), doing the one change, setting it back to `active`, re-reading R2 and R3, and recording
+the reason within a day. That is the only sanctioned path.
+
+1. **Stop every agent session** on the dev box. None runs again until step 3 is done.
+2. **Protect this repository first** (settings only; it touches no history, and from here on a mistaken push or merge
+   against `main` is refused). Dry run: `REPO=<this repository> EXPECTED_LOGIN=<owner login>
+   scripts/apply-github-protections.sh`. Then the same with `--apply`. It creates or updates the ruleset, upserts the
+   environment and its `main` branch policy, reads back and asserts: bypass actors 0, enforcement active, the
+   required checks exactly as intended, the deployment branch policy exactly `main`, and the five rule types
+   effective on `main`. A failed assertion exits non-zero: stop and fix.
+3. **The privilege boundary (owner).** Issue a fine-grained token for agent sessions, limited to this repository:
+   contents and pull requests read and write; checks, commit statuses, actions and metadata read. No administration,
+   environments, secrets, variables, deployments or webhooks. Pushing a change to `.github/workflows/` also needs the
+   workflows permission: either grant it and record the residual, or have the owner push workflow changes. Then
+   inventory and remove or neutralize every other GitHub credential the agent's operating-system user can read:
+   - the `gh` login (`gh auth logout`);
+   - SSH keys registered to the owner's account (an SSH push authenticates as the owner);
+   - `GH_TOKEN` or `GITHUB_TOKEN` in shell profiles or agent settings;
+   - git credential stores;
+   - any token in an encrypted file the dev-box key can decrypt. The owner reads that token's permission on this
+     repository (R11 under it, never printing it). If it reads `admin` or `maintain` true, the owner either
+     neutralizes it or records an explicit acceptance of that residual in section 1.8; step 8 waits for that record.
+
+   Running agent sessions as a separate operating-system user that can read none of these has the same effect. Either
+   way it reaches every repository the dev box works on, not only this one. **Done when** all of these hold:
+   - R11 under the agent's token reads `admin` false and `maintain` false;
+   - for each SSH key the agent's user can read, `ssh -i <key> -T git@github.com` does not authenticate as the owner;
+   - R11 under each other readable token reads `admin` false, or its acceptance is recorded.
+
+   From this step on, the owner's administrator login never returns to the dev-box user: steps 4 to 8 run from a
+   machine or account the agent's user cannot read. If the owner logs in on the dev box anyway, they log out before
+   any agent session starts, and repeat this step's checks. Record the token's expiry, never its value. **Residuals, recorded, not fixed here:** `contents: write`
+   lets an agent create tags and releases and push or delete branches other than `main`, and no tag ruleset exists.
+4. **Prove the definition on the disposable repository** (section 1.6). Create it, clone it fresh into an empty
+   directory, check that `git remote get-url origin` names it, then apply with `REPO=<org>/<disposable>
+   EXPECTED_LOGIN=<owner login> scripts/apply-github-protections.sh --apply`. Run the equivalence check against this
+   repository **before any probe**, then probes P1 to P6 there.
+5. **The merge-guard registration** (outside this repository): name both required checks. Confirm with probe P0.
+6. **The image scan (`9kg.36`).** Re-apply with `--with-scan` here, then on the disposable repository. Repeat the
+   equivalence check, then add "Build and scan the image" to the merge-guard registration. The image workflow has no
+   path filter, so the job reports on every pull request, docs-only included (`009` section 5.5's rule). Run probes P7
+   and P8 here, and P1 again on the disposable repository.
+7. **Record.** Paste the readback, the equivalence comparisons and each probe's result into section 1.8, and through
+   a docs pull request into `009` section 5.5. Update the header comment of `.github/workflows/image.yml`, which still
+   says "Not a required check". Close the probe pull requests and delete the disposable repository.
+8. **Only then** may a deploy credential be created, bound to the `release` environment claim and the `main` ref
+   (section 1.2), as part of host preparation under its own go.
+
+Stop conditions for the whole procedure:
+
+- any readback assertion failing, here or on the disposable repository;
+- R11 under any token the agent's user can read, or the SSH test for any of its keys, still showing owner rights,
+  with no recorded acceptance;
+- any equivalence difference;
+- a probe whose remote or `--repo` is not the disposable repository;
+- any probe not refused;
+- any prompt to dispatch `release.yml`.
+
+R4 unreadable (the current token lacks `admin:org`; organization rulesets may not exist on the organization's
+current plan) is recorded as NOT RUN (scope) with that limit, not as a pass.
 
 ### 1.4 Effective-rule readback (read-only)
 
@@ -111,22 +162,57 @@ Answer each with yes or no, and a note, in section 1.8.
      and digest from the owner's recorded go, is the real second key (`9kg.35` notes).
    - Rulesets and environment reviewers lapse if the repository becomes private on the current plan.
 
-### 1.6 Refusal probes (owner-run)
+### 1.6 Refusal probes (owner-run, never against this repository's `main`)
 
-Each probe has an expected refusal and a stop rule. A probe that is not run is reported NOT RUN, never PASS.
+**Rule.** No probe pushes to, force-pushes, deletes or merges into this repository's `main`. No probe dispatches
+`release.yml`, which publishes a release and tags `main`. No probe creates a deploy credential. A probe that would
+change `main` if a control were missing runs only in a disposable repository that carries the same controls. On
+this repository, the evidence is the effective-rule readback (section 1.4) plus probes that cannot change anything.
+A probe that is not run is reported NOT RUN, never PASS.
 
-| # | Probe | Expected | If not refused |
-|---|---|---|---|
-| P0 | `safe-merge --dry-run` on a draft probe pull request whose checks are still running | refused (client-side) | the guard registration is wrong: fix it before going on |
-| P1 | `gh pr merge <probe> --squash` while its checks are pending | refused by GitHub: required status checks | close the probe, re-read R2 and R3 |
-| P2 | `gh pr merge <probe> --squash --admin` | refused: the bypass list is empty | the ruleset is not in force for the owner: stop, re-apply, re-read |
-| P3 | An empty commit pushed directly: `git commit --allow-empty -m "probe: direct push must be refused"` then `git push origin HEAD:main` | refused: changes must go through a pull request | the empty commit is harmless; leave it, record the failure, fix the ruleset; no force-push to remove it |
-| P4 | A force-push: record `main`'s head first, then push a sibling of it with `--force-with-lease` | refused: non-fast-forward | restore at once by pushing the recorded head, then fix. The owner may skip P4 and rely on R2 and R3; record it as NOT RUN |
-| P5 | On a throwaway branch, a push-triggered probe workflow with one no-op job that names `environment: release` | the job is rejected by the environment's branch policy before any step; no secret is read | stop: the environment does not restrict deployments to `main`. (Dispatching `release.yml` from a branch proves nothing here: its own `if` skips the job before the environment is evaluated.) |
-| P6 | (`9kg.36`) A draft pull request that adds one package version with a known, fixable high finding to the production image | "Build and scan the image" fails; P1 and `safe-merge` both refuse | the scan is not in the contract: re-run step 6 of section 1.3 |
-| P7 | (`9kg.36`) A docs-only pull request | every required check reports, the scan included | a required check that does not report would block every docs pull request: fix the workflow trigger |
+**The disposable repository (owner).** Create a new **public** repository in the same organization, because
+rulesets and environment reviewers on a private repository need a paid plan and would not be equivalent. Give it a
+throwaway name, recorded in the private operations record. It holds one commit: a README and one workflow,
+`probe.yml`. That workflow runs on `pull_request` with the types `opened`, `synchronize`, `reopened` and `labeled`, and
+has three jobs, named exactly "Markdown lint and doc index check", "Runtime checks (Python 3.14.8, PostgreSQL
+16.15)" and "Build and scan the image". Each runs a single `sleep`, then `exit 0`, or `exit 1` when the pull request
+carries a `fail` label. The third job is there so that the `--with-scan` contract also reports. The repository has no secrets, variables, deploy keys, webhooks, release
+workflow or other collaborators. Apply the same definition as step 4 of section 1.3 says.
 
-Clean-up: close every probe pull request unmerged and delete the probe branches (the owner's own act).
+**Equivalence check before any probe (read-only; repeated after every apply).** Read R2, R3, R6 and R7 on both repositories. Compare them after
+removing ids, URLs, timestamps and the `source` field. The rule types, parameters, required checks with their
+integration id, bypass list, environment protection rules and branch policies must be identical. If anything
+differs, stop: probes on the disposable repository prove nothing about this one.
+
+: Probes, where each runs, the expected refusal and the stop rule.
+
+| # | Where | Probe | Expected | If not refused |
+|---|---|---|---|---|
+| P0 | this repository | `safe-merge --dry-run` on an open pull request whose checks are still running (dry run: it never merges) | refused (client-side) | the guard registration is wrong: fix it before going on |
+| P1 | disposable | `gh pr merge <probe> --squash` while its checks are pending | refused by GitHub: required status checks | stop; re-read R2 and R3 on both repositories |
+| P2 | disposable | `gh pr merge <probe> --squash --admin` | refused: the bypass list is empty | stop; the definition lets the owner bypass; fix it in the script, re-apply to both, re-read |
+| P3 | disposable | an empty commit pushed straight to `main` | refused: changes must go through a pull request | stop; fix the definition |
+| P4 | disposable | a force-push of a sibling commit to `main` (`--force-with-lease`) | refused: non-fast-forward | stop; fix the definition. Nothing on this repository was at risk |
+| P4b | disposable | deleting `main` (`git push origin :main`) | refused | stop; fix the definition |
+| P5 | disposable | on a non-`main` branch, a push-triggered workflow with one no-op job that names `environment: release` | rejected by the environment's branch policy before any step | stop; the environment does not restrict deployments to `main` |
+| P6 | disposable | a pull request labelled `fail`, so a required check fails; then P1's merge | refused: a required check failed | stop; fix the definition |
+| P7 | this repository | (`9kg.36`) a **draft** pull request adding one package version with a known, fixable high finding to the image. Never merged; no merge command is run against it | "Build and scan the image" fails, and `safe-merge --dry-run` refuses | the scan does not fail: re-run step 6 of section 1.3. The pull request is closed unmerged either way |
+| P8 | this repository | (`9kg.36`) a **draft** docs-only pull request, never merged | every required check reports, the scan included | a check that does not report would block every docs pull request: fix the workflow trigger |
+
+Every probe on the disposable repository runs from its fresh clone after `git remote get-url origin` was checked,
+and every `gh` command in it carries `--repo <org>/<disposable>`. Because this repository is protected first (step 2),
+a probe aimed at the wrong target is refused here too. That is a backstop, not the plan.
+
+**What this evidence covers, and what it does not.** The disposable probes show that GitHub enforces this ruleset
+and environment definition for the owner's identity in this organization. They do not show it on this repository.
+For this repository, the evidence is that its effective rules (R3) and environment (R6, R7) read back identical to
+the probed ones. Organization rulesets and organization-level bypass actors (R4) apply to both repositories, and the
+owner reads them with the `admin:org` scope. Apps installed only on this repository, and its collaborators (R10),
+are read separately: an app with bypass rights there would not show in the disposable repository. A later edit to
+either repository's ruleset voids the comparison until it is re-read.
+
+Clean-up (owner): close every probe pull request unmerged, delete the probe branches, then delete the disposable
+repository. Record its name, the comparison and each probe's result first.
 
 ### 1.7 Gaps this request does not close
 
@@ -138,7 +224,51 @@ Clean-up: close every probe pull request unmerged and delete the probe branches 
   force-command) or `9kg.31.4` (release preparation).
 - **The emergency-bypass procedure** is not written in `009` section 5.5 yet.
 
-### 1.8 Current readback (2026-10-26)
+### 1.8 Current readback (2026-10-26, refreshed 2026-10-27; step 2 applied 2026-10-29)
+
+**2026-10-29: step 2 applied.** The owner directed the main session to apply the protections ("fix it, don't do
+anything crazy"). That direction replaces "owner-run" for step 2 only. The session ran the script's dry run, then
+`--apply` against this repository with two required checks (no `--with-scan`). Steps 1 and 3 to 8 were not run: no
+token change, no disposable repository, no probe. No history was touched.
+
+| Read | Result |
+|---|---|
+| R1, R2 ruleset | `main-protections` created; enforcement `active`; bypass actors 0; `current_user_can_bypass` `never` |
+| R3 rules in effect on `main` | deletion, non_fast_forward, required_linear_history, pull_request, required_status_checks ("Markdown lint and doc index check", "Runtime checks (Python 3.14.8, PostgreSQL 16.15)") |
+| R4 organization rulesets | NOT RUN (scope) |
+| R5 classic branch protection | none (HTTP 404); the ruleset is the control |
+| R6, R7 `release` environment | required reviewers, wait timer, custom branch policy; deployment branches exactly `main` |
+| R8 secrets (repository; `release`) | none; none |
+| R9 default workflow token | `read`; workflows cannot approve pull requests |
+| R10 collaborator roles | one `admin`, two `read` |
+| R11 the agent session's permissions | still `admin` true: step 3 (the privilege boundary) is not done |
+| The script's assertions | all passed |
+
+**2026-10-29: step 3 residual accepted (D-53).** The owner: "you can keep your github access". The agent's login keeps
+administrator rights on this repository; that residual is accepted in place of the scoped token, so steps 4 to 8 no
+longer wait on it. The ruleset still binds the agent: its bypass list is empty.
+
+What this changes: GitHub now refuses a direct push, a force-push, a deletion of `main`, and a merge without both
+checks, for everyone including the owner, until someone with administrator rights disables the ruleset (the emergency
+path in section 1.3). What it does not change: the agent's login is still an administrator, so the ruleset is a
+guard against mistakes, not a boundary against the agent. Steps 3 to 8 are still open, and no deploy credential may
+exist until they are done.
+
+2026-10-27, read-only with `gh api` by the main session (nothing applied, nothing probed):
+
+| Read | Result |
+|---|---|
+| R1, R3 rulesets and rules in effect on `main` | none (`[]`, `[]`) |
+| R4 organization rulesets | NOT RUN (scope): the session's token lacks `admin:org` |
+| R5 classic branch protection | none (HTTP 404) |
+| R6 environments | none |
+| R8 repository secrets; variables; deploy keys | 0; 0; 0 (no deploy credential exists) |
+| R9 default workflow token | `read`; workflows cannot approve pull requests |
+| R10 collaborator roles | one `admin`, two `read` |
+| R11 the agent session's permissions | `admin` true, `maintain` true: the owner's classic login (scopes `repo`, `workflow`, `delete_repo`, `codespace`, `gist`, `read:org`) |
+| Workflows using `pull_request_target` or a self-hosted runner | none |
+
+Earlier readback:
 
 Read back on 2026-10-26 by the main session with `gh api`, read-only. The token has repository admin permission;
 nothing was applied.
@@ -213,6 +343,31 @@ it); `9kg.36` before the release preparation (`9kg.31.4` depends on it).
 **Before the go (repo-only, covered by the council's "preparing every later go"):** extend the script with H18 to H22,
 H24 and H25 so the host is read once. H23 and H26 stay owner reads at their consoles.
 
+### 2.3 First run (2026-10-29)
+
+The owner delegated the call to the main session acting as CTO, and the session approved this read and nothing
+else. That is the read-only preflight only: it is not the host go for `9kg.28`, `9kg.31.5`, the production restore
+drill or `dy7.3`. Items H1 to H17 were run. The extension items were not, because the script does not have them yet.
+Record hash: `bc25928665f34337ea8dccf7943bbf889a3a09e745ed90abda1d11a6e42f5aea` (private operations record, mode
+600). The script printed 23 answered and 2 UNKNOWN. The real count is 22 and 3: H14 is UNKNOWN too, because the
+host's login shell is zsh and an unmatched glob aborted the read.
+
+: First-run findings, logical identifiers only.
+
+| Item | Finding | What it means for the launch |
+|---|---|---|
+| H1 | about two thirds of memory available; root filesystem 58% used with ample free space; the data root is on the root filesystem | capacity for a second stack; no second device for the custody mirror (`031` section 3 fallback applies in wave 2) |
+| H3 | the first-generation stack runs as its own compose project (web, worker, database) beside the Documenso stack | coexistence as planned; v2 must use a separate project, database and ports |
+| H7 | the learning site sends `/request-access`, `/request-access/received`, `/signing/return` and `/setup/*` to the first-generation service, and redirects its own sign-in path to `/request-access` | confirms the R1 and R2 collisions: v2 cannot serve those paths on the learning site and stays on its dedicated entry point (D-51) |
+| H9 | log-filter modules are installed; **no rate-limit module** | the outer rate-limit layer needs a proxy module (a host change under `9kg.28`) or the application's own limits alone, which needs a decision before host preparation |
+| H11 | re-read (below): certificates current, the learning site's renewed this month | the proxy renews on its own; the v2 host name gets its certificate at host preparation |
+| H13 | re-read (below): the first-generation database's application role is a login role without superuser or role creation; no v2 role exists | isolation as planned; v2 brings its own database and roles |
+| H14 | re-read (below): the host's backup repository path exists; no exclusion list in the scanned script paths | the exclusion that must keep v2's key directories out is confirmed at host preparation, from the backup job itself |
+| Staff path | the proxy already has two staff-path style lines (not v2's) | v2's staff route is new work under `9kg.28` |
+| SSH, firewall | key-only sign-in, no root login; incoming denied by default with a small allow list | as expected |
+| Re-read | `9kg.86` (same day): the script now sends each item to `sh` on stdin, so the login shell no longer matters. Record hash `4bb39320ca983ec98411571e714b987bbcdad0a946ce8934b174b6dfeace10fb`: 24 answered, H13 marked UNKNOWN only because one unrelated database refused the catalog read (now shown inline) | H11 and H14 answered; H13 answered for the first-generation database |
+| Private network | devices belonging to people other than the owner are on the same private network | "staff site on the private network" alone does not limit it to the owner's two devices; host preparation must add a per-device allow list |
+
 ## 3. Host preparation request (`9kg.28`)
 
 ### 3.1 Preconditions
@@ -223,10 +378,12 @@ Host preparation starts only when all of these hold:
 2. The coexistence decision is recorded as final on the preflight's evidence (`211.7.3`), and the staff devices and
    holders are recorded privately (`211.7.5`).
 3. The protections' readback passed and the scoped agent token is in force (section 1).
-4. **Repository work not yet done:** a production stack definition (the staging renderer hard-codes `staging`; `9kg.28`
-   asks for production configuration with no staging defaults) and a reviewed release that admits `production` with
-   its provider settings (`031` section 8, item 3). Both are repo-only, under bead `9kg.31.11` (filed 2026-10-26);
-   the dark deploy `9kg.31.5` depends on it.
+4. **Repository work:** a production stack definition and a reviewed release that admits `production` (`031`
+   section 8, item 3), bead `9kg.31.11`. Built 2026-10-27 (`026` section 18): production is admitted with every live
+   refusal, and `deploy/production/compose.yaml` is the staging definition with reviewed inputs only. Its provider
+   settings (Documenso, MXroute) still need a guard amendment before their canaries. The three Django-mailer mails go
+   through the pinned transport in production (`9kg.77`, built 2026-10-27); the worker's outbound route to the mail
+   host is `9kg.79`.
 5. Values the configuration needs before start-up: the challenge lifetime (required at start-up), the custody rows
    (`031` section 3) for the custody mounts, and the erasure registry before the first production backup (`031`
    section 8, item 1).
@@ -247,7 +404,8 @@ Each service mounts only what it needs. "Never" is enforced by the guards and re
 | `fetcher` | service | fetcher | `fetcher_password`, `secret_key` | none (it names a journal path that does not exist) | backend; fetch (to the egress proxy only) | any provider secret, custody, keys or journal |
 | `egress` | service | none | none | the deny-list directory, read-only | fetch; egress | anything else |
 | `backup` | timer and on demand | backup | `backup_password` (and the keys the staging definition gives it) | the host's logical-dump directory (output), custody read-only, the effect journal read-only | backend | the wrapping key, the erasure key, a key directory (the command refuses all three) |
-| `restore` | owner-run | owner and administrator; the post-restore step as the `reconcile` kind | `owner_password`, `admin_password`, `secret_key`, verification keys; `mail_password` for the IMAP Sent read only (RD-1 default, never SMTP); `erasure_key` **for the lift only** (PR #103 brief; see 3.5) | custody (read-write), the effect journal, the key directory and the mirror (the lift's sweep) | backend; IMAP to the mail host only | the wrapping key (the post-restore step refuses it) |
+| `restore` | owner-run | owner and administrator | `owner_password`, `admin_password`, `secret_key`, verification keys; `erasure_key` **for the lift only** (PR #103 brief; see 3.5) | custody (read-write), the effect journal, the key directory and the mirror (the lift's sweep) | backend only (`9kg.79`) | the wrapping key, the mail password, any route out |
+| `post-restore` (new, `9kg.79`) | owner-run, the review run of the post-restore step as the `reconcile` kind | owner | `owner_password`, `secret_key`, verification keys, `mail_password` for the IMAP Sent read only (RD-1, never SMTP) | custody, the effect journal | backend; mail (the mail host only, by the host firewall) | the administrator password, the erasure key, the wrapping key, the lift |
 | `erase` (new) | owner-run | retention | `retention_password`, `erasure_key` | the effect journal (read-write), the key directory and the mirror (key destruction), custody read-only (the lingering-plaintext check) | backend only | the wrapping key, the fetch and egress networks, any mail or provider secret |
 | `custody` (new one-shot) | owner-run | owner (as the restore drill runs it) | `owner_password`, `custody_wrapping_key`; `erasure_key` for `--recover` only | custody, the key directory and the mirror, the effect journal | backend | running beside the worker for `--migrate` or `--reap-orphans` |
 | proxy | the host's existing proxy | none | none | a new site block for the dedicated v2 host name; the staff host site restricted to named devices; the webhook site (POST only) when the Documenso canary needs it | edge | any change to the learning site's block |
@@ -275,7 +433,9 @@ Not on the host at all (fixed rules): the mail-host provisioning credential (D-F
 ### 3.4 Network restrictions
 
 - The backend and fetch networks are internal. Only `egress` and the worker leave the host; the worker only to the mail
-  host and Documenso, by the mail-host allow-list (`CATALYST_MAIL_ALLOWED_HOSTS`) and the provider settings.
+  host and Documenso, by the mail-host allow-list (`CATALYST_MAIL_ALLOWED_HOSTS`) and the provider settings. In the production definition (`9kg.79`) the worker's route is the `mail` network,
+  which it shares only with the owner-run `post-restore` service (the IMAP Sent read); `restore`, which holds the
+  administrator password, has none. The host firewall limits that network to the mail host.
 - The web process listens on a unix socket only, mode 0660, the proxy's group. No TCP port is published for web,
   database or the staff site.
 - The staff host is reachable only from the named staff devices (tailnet tags, P6-D-3), with two-factor.
@@ -383,12 +543,36 @@ From `9kg.28`'s acceptance, plus the custody and erasure items added since:
 | The dedicated v2 host name | step 5 | `211.7.3` (INPUT) |
 | The key mirror's device and the custody locations | step 1 | `211.7.9` and H22 (INPUT) |
 | The wrapping key's escrow entry and its recipients | step 2 | `211.7.9` (INPUT) |
-| The erasure key's source in the encrypted secret store; its rotation row in `027` | step 2 | `211.7.1`; `027` has no row yet |
+| The erasure key's source in the encrypted secret store; its rotation row in `027` | step 2 | created 2026-10-30 on the owner's instruction (section 3.12); `027` still has no row |
 | The off-host private store for erasure heads and the journal's off-host destination (`9kg.60`) | before the first erasure; before E | INPUT |
 | The P6-D-8 exception record for the database data directory | step 1 | the estate's filesystem standard (owner) |
 | Port allocations from the estate inventory | step 3 | H4 (owner) |
 | The egress deny list's supplier and rotation | step 3 (the list may stay empty while fetching is disabled) | INPUT |
-| The production stack definition and the release admitting `production` | step 3 | repo-only work with no bead yet |
+| The production stack definition and the release admitting `production` | step 3 | built (`9kg.31.11`, `026` section 18) |
 | The challenge lifetime and the page list | step 3 and step 6 | `211.7.7`, `211.7.2` |
 | The erasure registry decision | the first production backup | `211.7.1` |
 | The v2 mailbox and its credentials, and the Documenso team, token and webhook secrets | the canaries (D), not this step | `211.7.3`, `211.7.4` |
+
+### 3.12 Erasure key and retention wrapper (applied 2026-10-30)
+
+On the owner's instruction of 2026-10-30 ("go ahead and create the erasure key"), the production erasure key was
+created on the host so the live canary's subjects could be erased (`9kg.87`, the first production erasure).
+
+- **The key.** 32 random bytes as 64 hex characters, generated on the host and written only into
+  `/etc/intentsolutions/catalyst-v2/erasure.sops.env` (a SOPS dotenv file, mode 600), encrypted to the host's age
+  recipient and to the estate recipient, so the dev box can recover it. An encrypted copy is kept in the owner's
+  private store on the dev box. The value was never printed, logged or placed beside the stack's other secrets:
+  `catalyst-v2-secrets` does not read this file, so no service's `/run/secrets` can ever hold it.
+- **The wrapper.** `/usr/local/sbin/catalyst-v2-erase <manage.py command>` runs one command as the retention login
+  (`CATALYST_DB_USER=catalyst_retention`) with `CATALYST_SECRETS_DIR` pointing at a private tmpfs directory it builds
+  for that one run (the retention password as `db_password`, the Django and link keys, and the erasure key), in a
+  one-off container of the serving image; the directory is shredded when the command ends. It is the only path that
+  holds the key, for `catalyst_erase`, `catalyst_erasure_record`, `catalyst_erasure_subjects`,
+  `catalyst_retention_due` and `catalyst_erasure_replay`.
+- **Heads off the host.** Until `9kg.60`'s journal shipping is wired on the host, every head printed by an erasure
+  or a record check is appended to the owner's private store on the dev box, with the erasure's JSON receipt (no
+  personal data). The first record check through the wrapper read a chain of six entries, nothing erased and nothing
+  open.
+- **Still open.** The `027` rotation row for the key (P6-D-15); the first erasure itself, which waits on the two
+  canary cases being closed by staff (an application in a non-terminal stage is refused, CE003) and on the closure
+  fix of PR #141 (a held `start_evidence_collection` would be refused next, CE004).

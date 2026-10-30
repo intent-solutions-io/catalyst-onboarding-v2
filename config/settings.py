@@ -92,7 +92,8 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
-SECURE_REFERRER_POLICY = "no-referrer"  # no page needs to tell another site where a visitor came from
+SECURE_REFERRER_POLICY = "same-origin"  # never tells another site where a visitor came from. Not "no-referrer": with it,
+# a real browser sends `Origin: null` on its own form posts and the CSRF check refuses every one (live canary, 2026-10-29)
 # Pinned rather than left to Django's defaults, so an upgrade cannot loosen them (PR #61 review).
 X_FRAME_OPTIONS = "DENY"
 SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
@@ -353,8 +354,9 @@ CATALYST_MAIL_LOOP_WINDOW_SECONDS = number("CATALYST_MAIL_LOOP_WINDOW_SECONDS", 
 CATALYST_REMINDER_MAX = number("CATALYST_REMINDER_MAX", "2", minimum=0)  # then escalate_unanswered
 CATALYST_REMINDER_INTERVAL_SECONDS = number("CATALYST_REMINDER_INTERVAL_SECONDS", "259200", minimum=0)
 CATALYST_REMINDER_MIN_GAP_SECONDS = number("CATALYST_REMINDER_MIN_GAP_SECONDS", "86400", minimum=0)
-CATALYST_REMINDER_QUIET_START_HOUR = number("CATALYST_REMINDER_QUIET_START_HOUR", "21", minimum=0)  # UTC; equal = none
-CATALYST_REMINDER_QUIET_END_HOUR = number("CATALYST_REMINDER_QUIET_END_HOUR", "7", minimum=0)
+# 9kg.85 (033 Q9): 02:00 to 13:00 UTC, the night across the cohort's US time zones.
+CATALYST_REMINDER_QUIET_START_HOUR = number("CATALYST_REMINDER_QUIET_START_HOUR", "2", minimum=0)  # UTC; equal = none
+CATALYST_REMINDER_QUIET_END_HOUR = number("CATALYST_REMINDER_QUIET_END_HOUR", "13", minimum=0)
 CATALYST_REMINDER_RESUME_GRACE_SECONDS = number("CATALYST_REMINDER_RESUME_GRACE_SECONDS", "3600", minimum=0)
 CATALYST_REMINDER_STALE_DEFERRALS = number("CATALYST_REMINDER_STALE_DEFERRALS", "6", minimum=1)  # then collector_stale
 # 9kg.3: how often a send held by an unresolved hard bounce looks again (the resolution also releases it at once).
@@ -586,12 +588,15 @@ TIME_ZONE = "UTC"
 LANGUAGE_CODE = "en-us"
 USE_I18N = False
 
-# A local sink in every allowed environment (production is not one yet; config.guards). Tests use locmem.
+# A local sink in every environment but production (config.guards). In production Django's own mails go through
+# correspondence.transport, the one SMTP path (config.mail, 9kg.77); `config.mail.RefusingEmailBackend` is the explicit
+# hold. No live link is ever written to disk. Tests use locmem.
 EMAIL_BACKEND = env(
     "CATALYST_EMAIL_BACKEND",
     {"test": "django.core.mail.backends.locmem.EmailBackend",
-     # staging: a private file sink, never the console, whose output lands in container logs with bearer links
-     "staging": "django.core.mail.backends.filebased.EmailBackend"}.get(
+     # a deployment: a private file sink, never the console, whose output lands in container logs with bearer links
+     "staging": "django.core.mail.backends.filebased.EmailBackend",
+     "production": "config.mail.TransportEmailBackend"}.get(
         CATALYST_ENV, "django.core.mail.backends.console.EmailBackend"),
 )
 EMAIL_FILE_PATH = os.environ.get("CATALYST_EMAIL_FILE_PATH") or None  # the filebased sink's private directory

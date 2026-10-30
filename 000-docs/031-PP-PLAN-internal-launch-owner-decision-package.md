@@ -172,10 +172,10 @@ every subject class anonymized and `signed_documents` at `destroy_key`:
 1. **Who.** The Retention operator, on the host's erase service, which holds the retention login and the erasure key
    only (`026` section 16).
 2. **How often.** Monthly, and within five working days of an erasure request.
-3. **Find what is due.** Until `9kg.75` lands: in the read-only staff admin, list applications filtered by stage
-   (declined, withdrawn, closed); open each dossier and read the date of its terminal history event; compare with R1
-   and R3 and with the private hold list. Once it lands, `catalyst_retention_due` (`9kg.75`) lists the due public
-   references by rule.
+3. **Find what is due.** Run `manage.py catalyst_retention_due` as the retention login (`9kg.75`, built
+   2026-10-29). It lists the public references due under R1 and R2 and counts the people under R3 and with an open
+   application; R3 and R4 are not computable by the service (the engagement end is not recorded and the period is
+   counsel's; requests arrive by mail). Compare the list with the private hold list before erasing.
 4. **Erase.** For each due person, run `manage.py catalyst_erase --subject <public reference> --authority <code>
    --reason <code>` with codes such as `pol-10` and `retention_period_elapsed` or `subject_request`. Then follow the
    existing runbook (`026` section 16, steps 2 to 7): copy the head off-host, do each owed handoff and record it with
@@ -475,6 +475,8 @@ Follow-up recorded on 2026-10-26 by the main session (the numbers are this secti
 - Item 10: `9kg.31.10` now depends on `oc4.7`, `f1u.2`, `.5`, `.6`, `.7` and `.8`, and on `9kg.71`, `oc4.8` and
   `9kg.74`.
 - The go/no-go `9kg.31.6` now also depends on `9kg.60` (the journal's off-host copy before real effects).
+- Recorded on 2026-10-28 (`033` section 4): item 3 is superseded, since `config/guards.py` now admits `production`; item 1's
+  second option is not available as built, since the pre-deploy step refuses to migrate without a backup.
 
 The items below are as found while drafting; the list above records what was done about each.
 

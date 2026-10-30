@@ -32,6 +32,7 @@ from config import guards
 
 DATA_NOTICE = "data_notice"
 INVITATION = "invitation"
+VERIFICATION = "verification_invitation"  # 9kg.80: the verification mail (correspondence migration 0020)
 DRAFT_MARKER = "DRAFT: placeholder wording the owner has not approved; shown only outside a live environment."
 
 
@@ -95,6 +96,18 @@ def servable(state: dict, environment: str) -> bool:
     if guards.draft_wording_allowed(environment):
         return state["status"] != "missing"
     return state["status"] == "approved" and not state["synthetic"]
+
+
+def verification_withheld() -> bool:
+    """9kg.80: whether the verification mail could not be rendered here, so an accepted applicant could not be sent one:
+    intake is withheld and health reports `verification_template_unapproved`. A trial render with a placeholder link
+    decides (CodeRabbit on PR #132: a retired version or an invalid draft refuses the send in staging too). Where a draft
+    may be shown and the template row is absent, the seeded draft is sent (correspondence.verification): not withheld."""
+    try:
+        wording(VERIFICATION, {"link": "https://link.invalid/"})
+    except Unavailable as refused:
+        return not (guards.draft_wording_allowed(settings.CATALYST_ENV) and str(refused) == f"{VERIFICATION}_missing")
+    return False
 
 
 def wording(key: str, values: dict | None = None) -> Wording:

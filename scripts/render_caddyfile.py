@@ -34,6 +34,9 @@ def _link_paths() -> tuple[str, ...]:
 PRIVATE_PATHS = _link_paths()
 PUBLIC_EXACT = ("/request-access/", "/request-access/received/")
 TARGET = ROOT / "deploy" / "staging" / "Caddyfile"
+# 9kg.31.11: the production stack mounts the same file beside its compose definition (the sites take their names from
+# the environment, so one rendering serves both).
+PRODUCTION_TARGET = ROOT / "deploy" / "production" / "Caddyfile"
 LEARN_LOG = ROOT / "deploy" / "cutover" / "catalyst-learn-log.caddy"
 
 
@@ -60,9 +63,14 @@ def redaction_pattern() -> str:
 
 
 def log_format() -> str:
+    """The access and error log filter: the token segment of every private path is redacted in the request URI, and
+    the Referer header is dropped. With `Referrer-Policy same-origin` (PR #137) a browser sends the token-bearing page
+    URL as the Referer of the confirmation POST and of every same-origin asset request, which would land the token in
+    the log unredacted (seen in the production proxy log, 2026-10-30)."""
     return f"""format filter {{
 			wrap json
 			request>uri regexp {redaction_pattern()} /$1/REDACTED
+			request>headers>Referer delete
 		}}"""
 
 
@@ -109,7 +117,7 @@ def render() -> str:
 	}}
 	header {{
 		?X-Content-Type-Options nosniff
-		?Referrer-Policy no-referrer
+		?Referrer-Policy same-origin
 		-Server
 	}}
 }}
@@ -186,6 +194,8 @@ log {{
 if __name__ == "__main__":
     if sys.argv[1:] == ["--write"]:
         TARGET.write_text(render())
+        PRODUCTION_TARGET.parent.mkdir(exist_ok=True)
+        PRODUCTION_TARGET.write_text(render())
         LEARN_LOG.write_text(render_learn_log())
     else:
         sys.stdout.write(render())

@@ -6,8 +6,8 @@
 {% if notice.draft %}<p><strong class="draft-marker">Draft notice.</strong> This wording is a placeholder that has not been approved; it is shown only outside a live environment.</p>
 {% endif %}<p>{{ notice.text|linebreaksbr }}</p>
 </section>
-{% endif %}<p>Synthetic placeholder form. The optional fields below describe your work and credentials.{% if not invitation_only %} We check only the links you give, on approved sites; a private or unavailable link never counts against you.{% endif %} Never include client secrets, credentials or confidential material. A person makes every decision.</p>
-<form method="post" novalidate>
+{% endif %}{% if placeholder_copy %}<p><strong class="draft-marker">Placeholder copy.</strong> The optional fields below describe your work and credentials.{% if not invitation_only %} We check only the links you give, on approved sites; a private or unavailable link never counts against you.{% endif %} Never include client secrets, credentials or confidential material. A person makes every decision.</p>
+{% endif %}<form method="post" novalidate>
   {% csrf_token %}
   {{ form.as_div }}
   <button type="submit">Send request</button>

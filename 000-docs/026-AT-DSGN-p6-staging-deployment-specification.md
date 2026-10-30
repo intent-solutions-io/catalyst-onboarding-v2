@@ -2406,6 +2406,13 @@ hardened after the PR #102 security, release-operations and data reviews).**
   - an unconfigured store;
   - the health command exiting 1 and naming the code.
 
+### The production-host preflight (9kg.42, 2026-10-29)
+
+- **Record:** the private operations record, sha256 `bc25928665f34337ea8dccf7943bbf889a3a09e745ed90abda1d11a6e42f5aea`.
+  Read-only, items H1 to H17, 22 answered and 3 UNKNOWN (H11, H13, H14). Re-read after `9kg.86`: sha256
+  `4bb39320ca983ec98411571e714b987bbcdad0a946ce8934b174b6dfeace10fb`, 24 answered.
+- **Findings and consequences:** `032` section 2.3.
+
 ## 17. The aged-waits health part (9kg.51, 2026-10-23)
 
 `029` section 5.2 listed the waits with no bound once the first-generation owner notices retire: an application in
@@ -2448,3 +2455,115 @@ Tests: `tests/test_system_health.py` (`9kg.51` in `tests/acceptance.py` P6_SUPPO
 nothing, past its threshold raises its code, and clears when resolved; thresholds and paging per class. `9kg.57`: each held
 follow-on kind aged past the class threshold raises `aged_waits.held_followons`, a released or cancelled follow-on and a
 held action of another kind are not counted, and a follow-on returned to held ages from its return.
+
+## 18. Production admitted in code (9kg.31.11, 2026-10-27)
+
+`031` section 8, conflict 3: the guards admitted only `development`, `test` and `staging`, and the compose renderer
+hard-coded `staging`, so no release could start as production. Built, as repository work only; nothing here starts
+production on a host, which stays the owner's go (`9kg.31.5`, `029` section 13).
+
+- **Admission.** `config.guards.ALLOWED_ENVIRONMENTS` names `production`; `DEPLOYED_ENVIRONMENTS` (`staging`,
+  `production`) carries the deployment rules; `LIVE_ENVIRONMENTS` (`production`) the live ones. Every rule written
+  for "outside test and development" now applies to production: secrets only from per-secret files, the staff host
+  and local hosts, the worker heartbeat, the effect journal directory, https behind the proxy with secure host-only
+  cookies, staff two-factor, and `check --deploy` clean.
+- **Live refusals kept, each tested in production.** The mail allow-list with the pinned v2 login, the denied
+  first-generation login and the Sent-folder evidence source (`9kg.49`); the journal ship-lag threshold (`9kg.60`);
+  custody refused while the owner's custody decision is open (`211.7.9`); the backup refused while the erasure
+  registry is undecided (`211.7.1`); no unapproved wording served (`9kg.52`). Off in production, as in every
+  non-synthetic environment: model advice (`CATALYST_ASSESSMENT_MODEL` is `none`), evidence fetching (no fetchable
+  host, fixture or trust store), the agreement provider and the provisioning adapter (every setting refused), and
+  every provider credential in the environment.
+- **New live rails** (`config.guards.live_problems`), failing closed after the PR #118 security review:
+  - intake stays invitation-only (open intake is the public cutover);
+  - the public base URL is exactly `https://<host>`, with no user part, port, path, query, fragment, backslash,
+    percent sign or white space;
+  - the public and staff hosts are distinct plain lower-case DNS names, never the learning site's host (moving Learn
+    is GATE-CUTOVER) and never a production domain's apex or `www` name;
+  - `ALLOWED_HOSTS` holds exactly those two and `CATALYST_LOCAL_HOSTS`;
+  - the sender address (`CATALYST_FROM_EMAIL`) is set and is not the synthetic default.
+- **Mail.** Applicant mail in production leaves only through `correspondence.transport` to the allow-listed host.
+  Django's own mails (contact confirmation, password setup, withdrawal link) use `config.mail.TransportEmailBackend`
+  in production (`9kg.77`, 2026-10-27): each message goes through the same transport, with its allow-list, pinned
+  login, verified TLS, peer check and web-and-worker rule, one recipient and no copies, and any outcome but
+  `accepted_by_server` raises so the sender takes its failure path (`MailUncertain` when the server may have accepted
+  it). `config.mail.RefusingEmailBackend` stays admitted as the owner's hold. No file or console sink, and not
+  Django's own SMTP backend, is ever admitted in production, so no live link or address is written to disk.
+- **Roles.** `scripts/provision_db_roles.py` admits production with staging's rules: passwords from files only, the
+  database taken over by the owner role, grants read back.
+- **Stack.** `scripts/render_staging_compose.py` renders `deploy/production/compose.yaml` from the staging
+  definition; `scripts/render_caddyfile.py` writes the same Caddyfile beside it. A test pins the difference to these
+  inputs: `CATALYST_ENV`, the project name, the secrets directory variable (`CATALYST_PRODUCTION_SECRETS`), the
+  owner's challenge lifetime (no default, POL-02), the live mail rules, the ship-lag threshold, the sender address
+  and the paging values (no defaults, `211.7.2`), the operator-supplied egress deny list, and the effect journal on
+  an external volume (`catalyst-production-effects`), which `docker compose down -v` cannot remove. A second test
+  starts each of the six Django services (web, worker, fetcher, migrate, backup, restore) with its rendered
+  environment and the host's inputs filled in.
+
+- **Mail route** (`9kg.79`, 2026-10-27). Production adds a `mail` network that is not internal, joined by the
+  worker and by a new owner-run `post-restore` service, and by no other Catalyst process. Those two alone receive
+  the mail host settings (`CATALYST_MAIL_HOST`, `_PORT`, `_USER`, `_SENT_FOLDER`, no defaults) and the
+  `mail_password` secret. The post-restore step (the reconcile kind: the Sent-folder read, never SMTP) runs in
+  `post-restore` with the owner's login, and its lift runs in `restore` with the erasure key added for that run only,
+  so the erasure key and the mail password are never in one process. `restore` keeps the administrator password and
+  has no route out. The trusted authserv-id is a required input too, or every inbound reply reads unverified. The
+  host firewall restricts the network's destinations to the mail host, and its readback is a deploy gate (`9kg.28`);
+  Documenso's route is a separate decision with its canary (`9kg.31.2`). A test pins which services hold the route
+  and the secret; the staging definition is unchanged.
+
+- **Journal shipping and the egress check** (`9kg.78.2`, 2026-10-27). Production adds an owner-run `journal-ship`
+  service (profile `ops`, run by a host timer): `catalyst_journal_ship --to /var/lib/catalyst/ship`, with the journal
+  mounted read-write (the shipped head is recorded beside it) and the host's off-host destination
+  (`CATALYST_JOURNAL_SHIP_DIR`, no default) as its only other mount. It has no network at all, and holds the
+  least-privileged database login only because the settings need one. Production's egress service declares
+  `CATALYST_EGRESS_FETCHING=disabled`, so its health check passes on an intentionally empty deny list (blank lines and
+  comments only) and still fails on a missing, unreadable or malformed one; the policy itself still refuses every
+  fetch on an empty list (`assessments.egress.deny_file_state`, `check`).
+
+- **The stack check against production** (`9kg.78.3`, 2026-10-27). `CATALYST_STACK_ENV=production
+  scripts/staging_check.sh` builds the image's production target, renders `deploy/production/compose.yaml` with
+  synthetic inputs on the dev box, and runs the same shape checks (no secret in any environment or `docker inspect`,
+  read-only roots, no capabilities, uid 10001, the proxy's sites and refusals, readiness, log redaction,
+  `check --deploy`, idempotent migrate and role provisioning, the database outage, the path refusals, headers, the
+  webhook, the network and egress rules, staff two-factor, custody). Where production differs on purpose it checks
+  that instead: the worker alone is on the mail network and holds the mail password; the request form and the
+  owner's invitation are refused until real, non-synthetic wording is approved (503 and `data_notice_*`); no
+  applicant means no held action. Five checks are NOT RUN with their reason: the worker's outside reach (its limit
+  is the host firewall) and the four intake and confirmation steps (they wait for the owner's wording, the
+  approvable verification mail `9kg.80`, and a delivered mail, the mail canary `9kg.31.1`). It runs only against a local Docker daemon that holds no
+  `catalyst-production` project and no `catalyst-production-effects` volume, and removes only the volume it created.
+  The production run ends with a summary that keeps apart the applicant journey (not demonstrated), the protective
+  refusals, the structural checks, host and provider evidence (none: this is the dev box) and each NOT RUN with the
+  task that completes it. Runs of 2026-10-27 at the PR head: staging 140 PASS, 0 FAIL, 0 NOT RUN; production 138 PASS
+  (2 protective refusals, 136 structural), 0 FAIL, 5 NOT RUN. A refusal is never counted as the journey. The
+  restore, deploy and alert drills against production are `9kg.78.4`: the first two take a production backup, which
+  refuses until POL-10 is recorded.
+
+- **Adapters** (`9kg.78.1`, 2026-10-27). The deploy adapters require `CATALYST_STACK_ENV` (`staging` or
+  `production`; unset, empty or anything else exits 2 before any alert, marker or probe, so a host that lost the
+  setting never falls back to staging's `-k`). The staging drills set it. Every alert names the stack (`catalyst
+  production: <codes>`). The outside-in probes of the public form pass `-q` first (no `.curlrc` is read) and `-k`
+  for staging's internal CA only; production verifies the certificate against the system store, or against
+  `CATALYST_PROBE_CA_FILE` when the host names one, with `CURL_CA_BUNDLE`, `SSL_CERT_FILE` and `SSL_CERT_DIR`
+  cleared for the probe alone, not for the notify command (`deploy/staging/adapters/stack.sh`). This is the probe's code; that the host's certificate verifies is
+  host evidence (`9kg.28`, `9kg.31.5`).
+
+**Limits** (the PR #118 reviews):
+
+- **Topology.** The production stack is the staging topology: an in-stack proxy with Caddy's internal CA
+  (`tls internal`, a per-start CA in tmpfs), publishing on addresses the host names. That serves a dark deploy reached
+  only by the operator; it is not usable by applicants. Whether the host's proxy fronts the stack or the in-stack
+  proxy gets a public certificate is the owner's topology decision with the host preparation (`9kg.28`). The
+  refusal of an all-interfaces publish address is also a host preflight item there; the compose file only says so.
+- **Owned elsewhere.** The `erase` and `custody` services of `032` section 3.2, the custody key mounts and the
+  erasure key wait on the owner's decisions (`211.7.1`, `211.7.9`). The restore, deploy and alert drills still name
+  the staging stack (`9kg.78.4`, after POL-10). The `restore` service holds the administrator password,
+  so it has no route out (`9kg.79`).
+- **No live adapters.** None exists for Documenso or MXroute; their canaries need a reviewed guard amendment first
+  (`9kg.31.2`, `9kg.31.3`).
+- **Expected red at the dark deploy.** Health reports the undecided erasure registry (the backup refuses) and the
+  unapproved notice wordings until the owner records POL-10 and the wordings. `9kg.31.5` records these as expected,
+  or POL-10 is settled first (`031` section 8, item 1).
+
+Tests: `tests/test_guards.py`, `tests/test_startup.py`, `tests/test_db_roles.py`, `tests/test_staging_compose.py`,
+`tests/test_staging_proxy.py` (`9kg.31.11` in `tests/acceptance.py` P6_SUPPORTING).

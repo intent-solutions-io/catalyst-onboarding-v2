@@ -6,12 +6,17 @@
 Intent Solutions is a Claude Partner Network Select Services Partner.
 <!-- intent-select-partner:end -->
 
-> **Status (2026-10-23):** phases P1 to P5 are built and their acceptance gates are signed off **for synthetic work
-> only** (GATE-S1, GATE-P2, GATE-P3, GATE-P4, GATE-P5). P6 staging (a deployable image, a staging stack, a deploy
-> that reverts itself, alerts, a measured restore and a cutover rehearsal) is built and drilled on the dev box, and
-> GATE-STAGING is signed off for that scope (D-50). The first production deployment, an invited internal cohort on
-> the production host, is **planned** in `000-docs/029` and not authorized. Nothing is deployed. No real applicant
-> data, live model, live Documenso, real mailbox or live provider key is used.
+> **Status (2026-10-30):** phases P1 to P5 are built and their acceptance gates are signed off for synthetic work
+> (GATE-S1, GATE-P2, GATE-P3, GATE-P4, GATE-P5); P6 staging is built, drilled on the dev box and signed off
+> (GATE-STAGING, D-50). **Wave one is deployed to production** under the owner's go of 2026-10-29 (D-53,
+> `000-docs/033`): the production stack serves `catalyst-v2.intentsolutions.io` from an attested image of `main`, with
+> the staff site on the tailnet behind two-factor. Wave-one scope is the invitation-only journey for the internal
+> cohort: a real invitation, the public form, a real verification mail from v2's own mailbox, explicit confirmation,
+> and the staff dossier. Signing, model use, evidence fetching, mailbox provisioning, the public Learn cutover and
+> wider enrolment stay disabled (D-51, D-53). The live browser canary (`scripts/live_canary.py`) walked that journey
+> against production on 2026-10-30 and passed every step; its erasure step waits on the production erasure key
+> (`000-docs/032` section 3.11, owner decision 211.7.1). Counsel's answers on retention (POL-10) are pending: the
+> registry ships provisional values, and no real cohort data enters a backup before they are recorded.
 
 A documentation-first, Django-native Solution Catalyst onboarding platform for Intent Solutions.
 
@@ -28,13 +33,16 @@ from first contact, in one progressive dossier in PostgreSQL.
 | P4 | NDA, then User Agreement, through a **local fake of Documenso**: no duplicate envelopes, signing verified only by a fresh provider read, Catalyst's own verified copy kept separately, audited retrieval, a staff agreement screen, and one held provisioning hand-off | GATE-P4 (D-45; `000-docs/021`, AAR `000-docs/000-aars/022`) |
 | P5 | Mailbox provisioning, credential setup, activation and withdrawal | built and accepted for synthetic work: GATE-P5 signed off 2026-10-18 (D-48, `000-docs/000-aars/025`) |
 | P6 | An attested image, a staging stack with its own roles and secrets read from files, staff two-factor, an egress-controlled evidence fetcher, a deploy that reverts itself, health checks that alert to Buzz, a backup restored and measured, the Learn cutover rehearsed on a stand-in | built and drilled on the dev box; GATE-STAGING signed off 2026-10-22 (D-50; `000-docs/000-aars/028`, 17 of 38 cases partly proven) |
-| PL and the internal launch | Coexistence with the live first-generation service; the first production deployment for an invited internal cohort | planned (`000-docs/029`, proposed; GATE-PILOT is the owner's go/no-go) |
+| PL and the internal launch | Coexistence with the live first-generation service; the first production deployment for an invited internal cohort | **wave one deployed** 2026-10-29 under D-53 (`000-docs/033`, host and release record `000-docs/032`); the wave-one journey proven live by the browser canary 2026-10-30; wave two (signing) and the go/no-go for wider enrolment remain the owner's |
 
-**Not built or not authorized:** real email delivery, live model calls, live Documenso, real agreement templates, a
-live mailbox adapter, erasure and retention, production-host configuration, deployment and releases. Before any real applicant data, the owner's open policies must be
-decided: custody (POL-09), retention and erasure (POL-10), required details (POL-18), staff MFA and network access
-(POL-13, POL-14), and the others in `000-docs/011` section 6. The carried production limits are listed in
-`000-docs/000-aars/022` section 9 and `000-docs/024`.
+**Live in production (wave one):** invitation-only intake, the public form, verification mail through v2's own
+mailbox, explicit confirmation, the staff dossier, health checks, the pre-deploy backup and the deploy that reverts
+itself. **Built, disabled or waiting on an owner act:** Documenso signing (a separate team, wave two), the MiniMax
+assessment (off: D-53 "no model"), evidence fetching, mailbox provisioning and activation, the Learn routing cutover
+(D-51: Learn is unchanged), and the first production erasure (the erasure chain is built; the production erasure key
+is not yet created, `000-docs/032` section 3.11). **Pending with counsel:** retention and erasure values (POL-10,
+provisional in the registry), custody (POL-09) and the applicant notices; the carried production limits are listed in
+`000-docs/000-aars/022` section 9, `000-docs/024` and `000-docs/031`.
 
 How the selection standard itself is governed and improved is set out in `000-docs/011` section 11 and
 `000-docs/019` (approved D-35). Software gates passing is not evidence of selection quality.

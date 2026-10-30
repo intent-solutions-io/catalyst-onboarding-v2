@@ -11,6 +11,7 @@
 # the sweep) and TEST-P6-38 (a planted sentinel never reaches an alert).
 set -uo pipefail
 cd "$(dirname "$0")/.."
+export CATALYST_STACK_ENV=staging  # the adapters require it (9kg.78.1); this drill runs the staging stack only
 project="catalyst-alert-drill-$$"
 work="$(mktemp -d)"
 fail=0

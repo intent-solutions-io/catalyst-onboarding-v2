@@ -19,7 +19,12 @@ P3-D-16; D-35: per-criterion rationale, the selection-policy reference, and the 
 - **every rubric criterion** has a human rationale with capability and strength of evidence recorded separately;
 - **no v2 decline for an existing member** (030 Q8, 9kg.52): a decline is refused (`decline_refused_member_on_file`)
   while the address has a live first-generation agreement-on-file record (applications.members); hold, or withdraw
-  through the withdrawal path, instead.
+  through the withdrawal path, instead;
+- **the internal cohort's trial boundary** (9kg.85; council record 033 Q5 and Q6, D-52) in a live environment: no
+  decline at all (`decline_refused_in_the_internal_cohort`; hold, or withdraw through the withdrawal path), and every
+  criterion recorded unrated, capability `unknown` with evidence strength `none`
+  (`cohort_criteria_must_be_unrated`), so taking part is never an appraisal of a colleague. `COHORT_BOUNDARY` is
+  lifted only by a reviewed release before wider enrollment.
 
 Then: the `QualificationDecision` row, the stage move (`admitted`, `declined` or `on_hold`), an event, and the
 follow-on: a held `issue_nda:<application>` for admit (P4 releases it); for decline a queued
@@ -63,6 +68,9 @@ STAGE_FOR = {"admit": Stage.ADMITTED, "decline": Stage.DECLINED, "hold": Stage.O
 FOLLOW_ON = {"admit": "issue_nda"}  # held; P4 releases it. A decline queues the notice instead (oc4.11, decline.py)
 CAPABILITY = ("shown", "partly_shown", "not_shown", "unknown")
 EVIDENCE_STRENGTH = ("strong", "moderate", "weak", "none")
+# 9kg.85 (033 Q5, Q6): the internal cohort's trial boundary, enforced in a live environment while this is set.
+COHORT_BOUNDARY = True
+UNRATED = ("unknown", "none")  # (capability, evidence strength): nothing is rated
 FAILED = ("refused", "invalid_output", "failed", "capped", "abandoned")
 # oc4.12: why a human-only assessment applies, in order of precedence (the first that holds).
 HUMAN_ONLY_CODES = ("advice_suspended", "run_capped", "run_failed", "run_cap_reached", "returned_without_reassessment")
@@ -226,6 +234,13 @@ def _rationale(pack, rationale: dict) -> dict:
     return out
 
 
+def cohort_boundary() -> bool:
+    """9kg.85: whether the internal cohort's trial boundary applies here (set, and the environment is live)."""
+    from config.guards import LIVE_ENVIRONMENTS
+
+    return COHORT_BOUNDARY and settings.CATALYST_ENV in LIVE_ENVIRONMENTS
+
+
 def record_decision(application_id: int, user, *, outcome: str, reason_code: str, reason_text: str = "",
                     expected_digest: str, rationale: dict, human_only_reason: str = "", decline_notice: str = declines.SEND,
                     withhold_reason: str = "") -> QualificationDecision:
@@ -235,6 +250,8 @@ def record_decision(application_id: int, user, *, outcome: str, reason_code: str
         raise PermissionDenied("record_qualification_decision")
     if outcome not in STAGE_FOR:
         raise Refused("unknown_outcome")
+    if outcome == "decline" and cohort_boundary():
+        raise Refused("decline_refused_in_the_internal_cohort")  # 033 Q5: hold or withdraw a member instead
     if not _REASON_CODE.match(reason_code or ""):
         raise Refused("reason_code_invalid")
     if len((reason_text or "").strip()) > NOTE_MAX or len((human_only_reason or "").strip()) > 300:
@@ -282,6 +299,8 @@ def record_decision(application_id: int, user, *, outcome: str, reason_code: str
                                                                  subject_id=application.public_ref).exists():
             raise Refused("admit_refused_while_paused")
         checked = _rationale(state["pack"], rationale)
+        if cohort_boundary() and any((e["capability"], e["evidence_strength"]) != UNRATED for e in checked.values()):
+            raise Refused("cohort_criteria_must_be_unrated")  # 033 Q6: never an appraisal of a colleague
         code = state["human_only_code"] if human_only else ""
         inputs = {"policy": state["policy_ref"], "pack": state["pack"].name, "pack_sha256": state["pack_sha256"],
                   "rubric_version": state["rubric_version"], "snapshot": state["snapshot"],

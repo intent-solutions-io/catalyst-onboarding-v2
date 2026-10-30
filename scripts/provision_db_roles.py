@@ -11,16 +11,17 @@ creates, idempotently:
   backup     LOGIN, no other attribute; reads every table but the session table, for the backup job (6B.7)
   fetcher    LOGIN, no other attribute; only what the evidence fetch touches (9kg.24)
 
-None is a superuser, none can create roles, and no role is a member of another. In staging the owner role also
-becomes the database's owner, which PostgreSQL 15 and later require for creating tables in `public`.
+None is a superuser, none can create roles, and no role is a member of another. In staging and production the owner role
+also becomes the database's owner, which PostgreSQL 15 and later require for creating tables in `public`.
 
 Where the passwords come from:
 - test and development: CATALYST_DB_OWNER_PASSWORD, CATALYST_DB_APP_PASSWORD, CATALYST_DB_RETENTION_PASSWORD,
   CATALYST_DB_BACKUP_PASSWORD, CATALYST_DB_FETCHER_PASSWORD and CATALYST_DB_ADMIN_PASSWORD in the environment;
-- staging: files in CATALYST_SECRETS_DIR named owner_password, app_password, retention_password, backup_password,
+- staging and production: files in CATALYST_SECRETS_DIR named owner_password, app_password, retention_password, backup_password,
   fetcher_password and admin_password, never the environment (026 section 5).
 
-Production provisioning is not authorized yet: the script refuses any environment but these three.
+Production is admitted with staging's rules (9kg.31.11); running it on the production host is an owner-run step of
+the host preparation (`9kg.28`). Any other environment is refused.
 """
 
 import os
@@ -29,20 +30,22 @@ import sys
 import psycopg
 from psycopg import sql
 
-ENVIRONMENTS = ("development", "test", "staging")
+ENVIRONMENTS = ("development", "test", "staging", "production")
+# The deployments: passwords from per-secret files only, the database taken over by the owner, grants read back.
+DEPLOYED = ("staging", "production")
 KEYS = ("owner", "app", "retention", "backup", "fetcher")
 DEFAULT_NAMES = {"owner": "catalyst_owner", "app": "catalyst_app", "retention": "catalyst_retention",
                  "backup": "catalyst_backup", "fetcher": "catalyst_fetcher"}
 
 
 def password(key: str, environment: str) -> str:
-    if environment != "staging":
+    if environment not in DEPLOYED:
         return os.environ[f"CATALYST_DB_{key.upper()}_PASSWORD"]
     if f"CATALYST_DB_{key.upper()}_PASSWORD" in os.environ:
-        raise SystemExit(f"provision_db_roles: CATALYST_DB_{key.upper()}_PASSWORD may not be in the environment in staging")
+        raise SystemExit(f"provision_db_roles: CATALYST_DB_{key.upper()}_PASSWORD may not be in the environment in {environment}")
     directory = os.environ.get("CATALYST_SECRETS_DIR", "")
     if not directory.startswith("/"):
-        raise SystemExit("provision_db_roles: staging needs CATALYST_SECRETS_DIR (an absolute path)")
+        raise SystemExit(f"provision_db_roles: {environment} needs CATALYST_SECRETS_DIR (an absolute path)")
     try:
         with open(os.path.join(directory, f"{key}_password"), encoding="utf-8") as handle:
             value = handle.read().rstrip("\r\n")
@@ -74,15 +77,15 @@ def main() -> int:
     if environment not in ENVIRONMENTS:
         print(f"provision_db_roles: only for CATALYST_ENV in {', '.join(ENVIRONMENTS)}", file=sys.stderr)
         return 2
-    if environment == "staging":  # refuse every password in the environment before reading any file
+    if environment in DEPLOYED:  # refuse every password in the environment before reading any file
         named = [f"CATALYST_DB_{k.upper()}_PASSWORD" for k in (*KEYS, "admin")]
         present = [name for name in named if name in os.environ]
         if present:
-            print(f"provision_db_roles: {', '.join(present)} may not be in the environment in staging", file=sys.stderr)
+            print(f"provision_db_roles: {', '.join(present)} may not be in the environment in {environment}", file=sys.stderr)
             return 2
     roles = {
         os.environ.get(f"CATALYST_DB_{key.upper()}_ROLE", DEFAULT_NAMES[key]): (
-            password(key, environment), ["CREATEDB"] if key == "owner" and environment != "staging" else [])
+            password(key, environment), ["CREATEDB"] if key == "owner" and environment not in DEPLOYED else [])
         for key in KEYS
     }
     with psycopg.connect(
@@ -103,7 +106,7 @@ def main() -> int:
             # Hashed here, so the clear password never reaches the server, its log or pg_stat_activity (PR #66 review).
             verifier = conn.pgconn.encrypt_password(secret.encode(), name.encode(), b"scram-sha-256").decode()
             conn.execute(sql.SQL("{} {} WITH {} PASSWORD {}").format(verb, sql.Identifier(name), attributes, sql.Literal(verifier)))
-        if environment == "staging":
+        if environment in DEPLOYED:
             # PostgreSQL 15 and later let only the database's owner create in `public`; the bootstrap administrator
             # created this database, so the migration owner takes it over (6B.5b; tests create their own database).
             database = sql.Identifier(os.environ["CATALYST_DB_NAME"])
@@ -113,8 +116,8 @@ def main() -> int:
             conn.execute(sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
                 database, sql.SQL(", ").join(sql.Identifier(name) for name in roles)))
             conn.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
-        problems = check(conn, list(roles), next(iter(roles)) if environment != "staging" else None)
-        if environment == "staging":  # read the database grants back (PR #72 review)
+        problems = check(conn, list(roles), next(iter(roles)) if environment not in DEPLOYED else None)
+        if environment in DEPLOYED:  # read the database grants back (PR #72 review)
             name, owner = os.environ["CATALYST_DB_NAME"], next(iter(roles))
             if conn.execute("SELECT has_database_privilege('public', %s, 'CONNECT')", [name]).fetchone()[0]:
                 problems.append("PUBLIC may still connect")

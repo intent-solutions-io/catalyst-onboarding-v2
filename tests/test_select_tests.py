@@ -24,7 +24,8 @@ spec.loader.exec_module(select_tests)
 # code through a URL or a command name alone (which the import map cannot see).
 # Since PR #88, tests/support.py's resume_pauses imports applications and workflow, so every module that imports
 # tests.support reaches those two packages; the map over-selects them for a package change, the safe direction.
-REACHES_NO_PACKAGE = {"test_database", "test_health", "test_network_guard", "test_release_gate"}
+REACHES_NO_PACKAGE = {"test_database", "test_health", "test_live_canary", "test_network_guard", "test_release_gate"}
+# test_live_canary exercises scripts/live_canary.py alone (a change under scripts/ runs the whole suite).
 
 
 def test_every_test_module_is_covered_by_the_map():

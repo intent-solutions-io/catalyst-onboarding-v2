@@ -140,11 +140,12 @@ def digests(owner) -> dict:
     return out
 
 
-# --- the registry: undecided means refuse ---------------------------------------------------------------------------
+# --- the registry: undecided means refuse (the shipped values are provisional, 9kg.84) ---------------------------------------------------------------------------
 
-def test_9kg_32_the_registry_ships_undecided_and_refuses_the_erasure_and_a_real_backup(privileged_reset, settings):
+def test_9kg_32_an_undecided_registry_refuses_the_erasure_and_a_real_backup(privileged_reset, settings, monkeypatch):
     assert registry.REGISTRY.keys() == DECIDED.keys()
-    assert all(row == {"treatment": "undecided", "retention": "undecided"} for row in registry.REGISTRY.values())
+    # 9kg.84: the shipped registry is filled (provisionally); an undecided one is what POL-10 replaced.
+    monkeypatch.setattr(registry, "REGISTRY", {name: {"treatment": "undecided", "retention": "undecided"} for name in DECIDED})
     assert len(registry.problems()) == 2 * len(registry.REGISTRY)
     assert registry.problems(DECIDED) == []  # 9kg.25: replay after a restore exists, so decided rows are enough
     assert registry.problems({**DECIDED, "signed_documents": {"treatment": "anonymize", "retention": "p1y"}}) == [
@@ -676,10 +677,6 @@ def test_9kg_32_the_command_runs_only_as_the_retention_login_and_never_as_web_or
         assert refused.returncode == 1 and "erasure refused: not_the_retention_role" in refused.stderr, refused.stderr
     undecided = as_role("retention", registry_rows={n: {"treatment": "undecided", "retention": "undecided"} for n in DECIDED})
     assert undecided.returncode == 1 and "erasure refused: registry_undecided" in undecided.stderr
-    shipped = run([sys.executable, "manage.py", "catalyst_erase", "--subject", str(app.public_ref), "--authority",
-                   AUTHORITY, "--reason", REASON], CATALYST_DB_USER=ROLES["retention"],
-                  CATALYST_DB_PASSWORD=os.environ["CATALYST_DB_RETENTION_PASSWORD"], **base)
-    assert shipped.returncode == 1 and "registry_undecided" in shipped.stderr  # the shipped registry refuses
     assert erasure_entries() == [] and Application.objects.get(pk=app.pk).email == "grace@example.test"
     done = as_role("retention")
     assert done.returncode == 0, done.stderr

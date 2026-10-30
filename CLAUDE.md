@@ -1,11 +1,15 @@
 # CLAUDE.md
 
 Entry point for Claude Code in **catalyst-onboarding-v2**, the documentation-first, Django-native
-Solution Catalyst onboarding platform for Intent Solutions. Synthetic only: P1 to P5 are accepted for synthetic
-work (GATE-S1 D-26, GATE-P2 D-33, GATE-P3 D-36, GATE-P4 D-45, GATE-P5 D-48) and P6 staging is built, drilled on
-the dev box and signed off (GATE-STAGING, D-50). The first production deployment, an invited internal cohort, is
-planned in `029` (handoff PL-A) and not authorized; its gate is GATE-PILOT and its work graph is in Beads.
-Selection-quality governance (approved D-35) is in `011` section 11 and `019`. Repository:
+Solution Catalyst onboarding platform for Intent Solutions. P1 to P5 are accepted for synthetic work (GATE-S1 D-26,
+GATE-P2 D-33, GATE-P3 D-36, GATE-P4 D-45, GATE-P5 D-48) and P6 staging is built, drilled on the dev box and signed
+off (GATE-STAGING, D-50). **Wave one is in production** since 2026-10-29 under the owner's go D-53 (`033`): the
+invitation-only journey for the internal cohort (invitation, form, verification mail, confirmation, staff dossier)
+on `catalyst-v2.intentsolutions.io`, proven live by `scripts/live_canary.py` on 2026-10-30. Signing, model use,
+evidence fetching, provisioning, the Learn cutover and wider enrolment stay disabled; the production erasure key and
+counsel's POL-10 answers are the open owner acts (`032` section 3.11, 211.7.1). The plan is `029`; the host and
+release record is `032`; the work graph is in Beads. Selection-quality governance (approved D-35) is in `011`
+section 11 and `019`. Repository:
 https://github.com/intent-solutions-io/catalyst-onboarding-v2 (public).
 
 ## Read first

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Apply the `main` ruleset and the protected `release` environment (009 section 5.5, P6-D-5, bead 9kg.35).
 #
-# Run by the owner, by hand, with the owner's own GitHub credentials. An agent session must not run the apply
+# Run by the owner, by hand, with the owner's own GitHub credentials, always with REPO set. An agent session must not run the apply
 # mode (council record 030, Q7 and Q9). Dry-run by default: it prints what it would send and reads back the
 # current state. `--apply` sends the changes, then reads back. Idempotent: an existing ruleset of the same name
 # is updated, not duplicated; the environment is upserted.
@@ -16,7 +16,9 @@
 # creates a deploy credential. Verify afterwards with a probe pull request that has no checks: it must not merge.
 set -euo pipefail
 
-REPO="${REPO:-intent-solutions-io/catalyst-onboarding-v2}"
+# The target is always named (032 section 1.3): a forgotten REPO= must never default to the real repository while a
+# disposable one is meant.
+REPO="${REPO:?set REPO=<owner>/<name> explicitly, for this repository as well}"
 RULESET_NAME="${RULESET_NAME:-main-protections}"
 ENVIRONMENT="${ENVIRONMENT:-release}"
 WAIT_TIMER="${WAIT_TIMER:-5}"

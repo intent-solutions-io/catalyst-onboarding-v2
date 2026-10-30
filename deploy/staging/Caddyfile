@@ -13,6 +13,7 @@
 		format filter {
 			wrap json
 			request>uri regexp (?i)^/+((?:%43|%63|c)(?:%4f|%6f|o)(?:%4e|%6e|n)(?:%46|%66|f)(?:%49|%69|i)(?:%52|%72|r)(?:%4d|%6d|m)|(?:%53|%73|s)(?:%45|%65|e)(?:%54|%74|t)(?:%55|%75|u)(?:%50|%70|p)|(?:%57|%77|w)(?:%49|%69|i)(?:%54|%74|t)(?:%48|%68|h)(?:%44|%64|d)(?:%52|%72|r)(?:%41|%61|a)(?:%57|%77|w))(?:/|%2f)+[^/?#]+ /$1/REDACTED
+			request>headers>Referer delete
 		}
 	}
 	servers {
@@ -41,11 +42,12 @@
 		format filter {
 			wrap json
 			request>uri regexp (?i)^/+((?:%43|%63|c)(?:%4f|%6f|o)(?:%4e|%6e|n)(?:%46|%66|f)(?:%49|%69|i)(?:%52|%72|r)(?:%4d|%6d|m)|(?:%53|%73|s)(?:%45|%65|e)(?:%54|%74|t)(?:%55|%75|u)(?:%50|%70|p)|(?:%57|%77|w)(?:%49|%69|i)(?:%54|%74|t)(?:%48|%68|h)(?:%44|%64|d)(?:%52|%72|r)(?:%41|%61|a)(?:%57|%77|w))(?:/|%2f)+[^/?#]+ /$1/REDACTED
+			request>headers>Referer delete
 		}
 	}
 	header {
 		?X-Content-Type-Options nosniff
-		?Referrer-Policy no-referrer
+		?Referrer-Policy same-origin
 		-Server
 	}
 }

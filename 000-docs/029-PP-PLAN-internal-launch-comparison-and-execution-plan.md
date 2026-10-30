@@ -342,8 +342,33 @@ screen shows its age (`9kg.41`); the stage, item and pause classes are counted b
   the receipt; an append failure is observable (a code-only log, a failure counter, a health signal, a readiness
   refusal). Deferred, as beads the main session files: a database-assigned version per key for replay ordering;
   off-host shipping of the journal with a head mirror and a lag alert (the journal's own RPO); rotation into chained
-  segments tied to backup retention; a test enumerating every effectful write path by class; an item per queued
-  send with no copy instead of the blanket `--outward-checked`.
+  segments tied to backup retention; an item per queued send with no copy instead of the blanket
+  `--outward-checked`.
+- **The effect registry** (`9kg.62`, built 2026-10-26): `workflow/effects.py` names each function that performs an
+  effect a restore cannot undo, in seven families (journal writes, SMTP, Django mail, Documenso writes, MXroute
+  writes, IMAP appends, model runs), with its class: journaled before, journaled after, provider read, checked before
+  it acts, covered by the post-restore review, or a marker about the journal itself. Each non-journal class names the
+  function that covers it. `tests/test_effect_registry.py` finds those calls in the source and fails on an
+  unregistered or stale function, a class that does not match the calls, a journal entry written after the provider
+  call it should precede in the same function, a check-first action that writes before it reads, a journal kind that
+  is not resolvable or has no writer, a restrictive kind never prepared, a provider client write method the scanner
+  does not know, or a new module that reaches the network, starts a process or writes a file. It does not check that
+  a named reader reads what the entry claims, receivers held in attributes, or a database write that should be
+  journaled and is not; those stay review judgements against the effect list above. Writing and reviewing it found:
+  - the revocation's password rotation and forwarder removal run before the transaction that prepares
+    `access_revocation`, so the journal does not cover them; the post-restore review's revocation round does
+    (`config/post_restore.py`, step 4);
+  - the contact-confirmation, password-setup and withdrawal mails go through Django's mailer, not
+    `correspondence.transport`; the review supersedes every live link they carry (`close_outstanding_links`);
+  - an envelope created after the backup for an agreement the restored database does not hold was read by
+    nothing, so a restore could send the signer a second envelope. Built 2026-10-27 (`9kg.76`): the envelope read
+    lists the team's documents from every template back to an hour before the backup's start and opens a
+    `restore_effect_envelope` item, keyed by the envelope id, for each Catalyst-keyed envelope no restored row names.
+    The listing fails closed: it ends only on a short page or past the floor, checks that creation times never
+    increase, and a page limit reached, an order not kept or an unconfigured provider where agreements were used
+    refuses the lift;
+  - a restrictive `prepare` that cannot be written does not stop its effect: the failure is logged, counted and
+    refused at readiness; only the erasure and custody records refuse their effect.
 - **Custody** (`9kg.34`, built 2026-10-24; section 6.2.2 and `026` section 16): every custody document is sealed
   with AES-256-GCM from a reviewed library under its own data key, wrapped under one wrapping key; the wrapped keys
   live in a key directory and its live mirror, outside the database, the custody directory and every backup set; once

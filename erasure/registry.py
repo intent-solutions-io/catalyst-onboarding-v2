@@ -29,6 +29,13 @@ Rows that are not database classes:
 
 Each row's `retention` is the period after which the class is deleted or anonymized without a request (POL-10).
 Nothing applies a retention period yet; the values are recorded here so that the same decision fills them.
+
+The values are provisional (9kg.84; council record 033 Q1 and Q2(a), D-52): 031 section 2 as amended by 033 Q1, filled
+before counsel answers so that the dark deploy can be backed up, restored and erased. Filling them removes the
+registry's own refusal of a live backup, so `PROVISIONAL` replaces it at the door: while it is set, a live environment
+refuses to issue an invitation (`catalyst_invite`) and withholds the request form, and health reports
+`intake.registry_provisional`. No real person's data can enter while the values are provisional. A later reviewed
+release with counsel's values clears it, and merges only once the 032 section 1 protections are in place.
 """
 
 UNDECIDED = "undecided"
@@ -67,7 +74,31 @@ ALLOWED = {
     "effect_journal": (RETAIN,),
 }
 
-REGISTRY = {name: {"treatment": UNDECIDED, "retention": UNDECIDED} for name in (*SUBJECT_CLASSES, *OTHER_CLASSES)}
+# 9kg.84: the provisional POL-10 values. One clock per person, chosen by how the case ended (031 section 2.2 as amended
+# by 033 Q1); every anonymized class shares it because one erasure applies them all.
+PERSON_CLOCK = ("per person by outcome: R1 P12M from the terminal event (declined or withdrawn, no agreement issued);"
+                " R2 P3M from the invitation's expiry (never applied); R3 from an owner-recorded engagement end, period"
+                " COUNSEL (agreements issued or on file); R4 P30D from receipt of an erasure request")
+# The durable record outlives every erasure it records (the floor is fixed by design); the keyed hash's lifetime is
+# counsel's (033 Q1).
+RECORD_LIFE = "the deployment's life, never below the oldest restorable backup; the keyed hash's lifetime COUNSEL"
+# 9kg.75: the same clocks in days, for `catalyst_retention_due`. None: not computable by the service (R3's period is
+# counsel's and the engagement end is not yet recorded; R4 runs from a request the service does not receive).
+CLOCK_DAYS = {"R1": 365, "R2": 90, "R3": None, "R4": 30}
+# D-53 (2026-10-29): the owner launches wave 1 before counsel answers, accepting the risk; the lock is cleared with the
+# release that adds the real wording. Intake stays withheld until the owner approves that wording (applications.notices).
+PROVISIONAL = False
+
+REGISTRY = {
+    **{name: {"treatment": ANONYMIZE, "retention": PERSON_CLOCK} for name in SUBJECT_CLASSES},
+    "throttle_keys": {"treatment": ANONYMIZE, "retention": "one throttle window, swept hourly; or with the person's clock"},
+    # 033 Q1: an agreement-obligations hold stops key destruction until the R3 period has run (signing is off in wave 1).
+    "signed_documents": {"treatment": DESTROY_KEY, "retention": "R3, after any agreement-obligations hold is lifted"},
+    "provider_copies": {"treatment": MANUAL_HANDOFF,
+                        "retention": "P30D from receipt of the request; includes the owner's own mailbox copies"},
+    "erasure_record": {"treatment": RETAIN, "retention": RECORD_LIFE},
+    "effect_journal": {"treatment": RETAIN, "retention": RECORD_LIFE},
+}
 
 # The classes whose rows are found only through the subject's real email key. Once `application_identity` replaces the
 # key with a tombstone, these rows can never be found again, so anonymizing the identity while retaining any of them
@@ -78,6 +109,15 @@ KEY_SELECTED_CLASSES = ("invitations", "member_on_file", "mail_derivatives", "th
 def current() -> dict:
     """The registry in force: this module's REGISTRY (tests replace it with a decided synthetic copy)."""
     return REGISTRY
+
+
+def intake_locked() -> bool:
+    """9kg.84: whether real intake is refused here: the values are provisional and the environment is live."""
+    from django.conf import settings
+
+    from config.guards import LIVE_ENVIRONMENTS
+
+    return PROVISIONAL and settings.CATALYST_ENV in LIVE_ENVIRONMENTS
 
 
 def problems(registry: dict | None = None) -> list[str]:

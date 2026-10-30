@@ -195,6 +195,47 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
   finished by running it again. `--retire-old-key` checks that no key file is still under the old key, then journals
   its retirement, so a remnant of an erased document's wrapped key has no key left that opens it. The next key is
   refused by every process but the owner-run rotation
+- Django's own mails in production (bead `9kg.77`; `026` section 18): the contact confirmation, the password setup
+  and the withdrawal link go through `correspondence.transport`, the one SMTP path, by `config.mail.TransportEmailBackend`
+  (one recipient, no copies; anything but acceptance raises, so each sender takes its failure path). The refusing
+  backend stays admitted as the owner's hold; the transport backend is refused outside a live environment
+- The stack check runs against either stack (bead `9kg.78.3`; `026` section 18): `CATALYST_STACK_ENV=production
+  scripts/staging_check.sh` brings the production definition up on the dev box with synthetic inputs and runs the
+  same shape checks, with production's own expectations where it differs on purpose (staging 140 PASS; production
+  138 PASS, of which 2 protective refusals, 0 FAIL, 5 NOT RUN with their reasons; the applicant journey is reported
+  as not demonstrated), on a local daemon only and never beside a real `catalyst-production` project
+- Journal shipping in production (bead `9kg.78.2`; `026` section 18): an owner-run `journal-ship` service with no
+  network copies the effect journal to the host's off-host destination, and production's egress health check passes
+  on an intentionally empty deny list while still failing on a broken one
+- The production mail route (bead `9kg.79`; `026` section 18): in `deploy/production/compose.yaml` the worker and a
+  new owner-run `post-restore` service alone join a non-internal `mail` network and hold the mail host settings and
+  the `mail_password` secret; the post-restore step runs there, so `restore`, which holds the administrator password,
+  never gets a route out. Staging is unchanged
+- The deploy adapters name their stack (bead `9kg.78.1`; `026` section 18): `CATALYST_STACK_ENV` is required
+  (`staging` or `production`; unset or empty is refused) and labels every alert; outside staging the outside-in
+  probes verify TLS instead of passing `-k`, read no `.curlrc`, and ignore the environment's CA overrides
+- Production admitted in code (bead `9kg.31.11`; `026` section 18): the guards admit `production` with every live
+  refusal in force (the mail allow-list and pins, the journal ship-lag threshold, custody and backup refused while
+  the owner's decisions are open) and keep model advice, evidence fetching, the agreement provider and the
+  provisioning adapter off. Production also runs invitation-only, on exactly `https://<a dedicated host>` that is
+  never the learning site's, answers for no other host, and refuses Django's own mails (`config.mail`) until their
+  live path exists (`9kg.77`), so no live link is written to disk. `deploy/production/compose.yaml` is rendered from
+  the staging definition and differs only in reviewed inputs (a test pins the list), with the effect journal on an
+  external volume; each production service starts with its rendered environment. Starting it on a host is a
+  separate, owner-approved act
+- Envelopes created after the backup (bead `9kg.76`; `029` section 6.2): after a restore the envelope read also
+  lists the team's documents at Documenso, from every template, back to an hour before the backup's start, and opens a
+  `restore_effect_envelope` item (keyed by the envelope id, which the report lists) for every Catalyst-keyed envelope
+  that no restored agreement or attempt names, so the restored system cannot send a signer a second envelope
+  unnoticed. The listing fails closed: a page limit reached, an order the provider did not keep, or an unconfigured
+  provider where agreements were used refuses the lift
+- The effect registry (bead `9kg.62`; `029` section 6.2): `workflow/effects.py` classifies each function that
+  performs an effect a restore cannot undo in seven families (journal, SMTP, Django mail, Documenso, MXroute, IMAP,
+  model), naming the function that covers each one. `tests/test_effect_registry.py` finds those calls in the source
+  and fails on an unclassified, stale or misclassified one, on a journal kind that is unresolvable or has no writer,
+  on a provider write method the scanner does not know, and on a new module that reaches the network, starts a
+  process or writes a file. It found an uncovered case, filed as `9kg.76`: an envelope created after the backup for an
+  agreement the restore does not hold. No runtime behaviour changes
 - The custody health part (bead `9kg.70`; `026` section 16): `catalyst_health` reports the custody key store's state
   without the wrapping key, counts only, and pages each fault under its own code. The codes cover an unavailable
   store (naming the directory), an unsafe store, the wrong wrapping key, a lost key, an incomplete recovery copy,

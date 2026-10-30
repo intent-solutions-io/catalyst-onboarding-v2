@@ -248,7 +248,8 @@ def test_p4_27_corruption_or_an_unsafe_file_refuses_and_opens_a_staff_item(k, mo
     app, document = stored(k, monkeypatch)
     path = k.storage / document.storage_key
     if tamper == "bytes":
-        path.write_bytes(path.read_bytes()[:-1] + b"X")
+        tampered = path.read_bytes()
+        path.write_bytes(tampered[:-1] + bytes([tampered[-1] ^ 0xFF]))
     elif tamper == "symlink":
         other = tmp_path / "elsewhere.pdf"
         other.write_bytes(path.read_bytes())
@@ -402,7 +403,8 @@ def test_review_downloads_run_outside_any_transaction_and_reads_open_the_file_on
 def test_review_a_stored_copy_is_never_replaced_by_a_retry_and_a_collision_goes_to_staff(k, monkeypatch):
     app, document = stored(k, monkeypatch)
     path = k.storage / document.storage_key
-    path.write_bytes(path.read_bytes()[:-1] + b"X")
+    tampered = path.read_bytes()
+    path.write_bytes(tampered[:-1] + bytes([tampered[-1] ^ 0xFF]))
     with pytest.raises(services.Refused, match="document_integrity_failed"):
         services.retrieve_document(str(document.public_id), k.agreement_decider, "Counsel review copy")
     with pytest.raises(services.Refused, match="stored_copy_exists"):  # replacing it is the owner's POL-09/10 call

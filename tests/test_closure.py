@@ -153,7 +153,7 @@ def test_p5_21_get_shows_post_commits_and_the_link_works_once(cl, monkeypatch):
     assert not WithdrawalConfirmation.objects.filter(token_sha256=token).exists()  # only the hash is stored
     for _ in range(2):
         page = Client().get(path)
-        assert page.status_code == 200 and page["Referrer-Policy"] == "no-referrer"
+        assert page.status_code == 200 and page["Referrer-Policy"] == "same-origin"
     assert Application.objects.get(pk=app.pk).stage == "agreements_complete"  # a GET changes nothing
     done = Client().post(path)
     assert done.status_code == 200 and Application.objects.get(pk=app.pk).stage == "withdrawn"
@@ -283,6 +283,28 @@ def test_review_closing_mid_flow_cancels_queued_work_and_settles_cleanly(cl, mon
     assert request.status == "stopped" and CredentialSetup.objects.get(request=request).state == "cancelled"
     assert post(path).status_code == 404
     assert not StaffItem.objects.filter(application=app, reason_code="provisioning_setup_needs_staff", status="open").exists()
+
+
+def test_9kg_87_closing_cancels_the_held_evidence_collection_so_the_person_can_be_erased(cl, monkeypatch):
+    """S1's confirmation holds a start_evidence_collection action for the owner's release; a closed or withdrawn
+    application never starts it, and the erasure refuses while it is held (subject_has_open_work, CE004)."""
+    from applications.confirmation import START_EVIDENCE_COLLECTION, start_evidence_collection_key
+
+    app, request, path = invited(cl, monkeypatch)
+    held = PendingAction.objects.get(kind=START_EVIDENCE_COLLECTION, subject_id=app.public_ref)  # S1 created it
+    assert held.idempotency_key == start_evidence_collection_key(app.public_ref)
+    # The P5 chain released it; a wave-one case keeps it held (evidence collection is not activated), so hold it again.
+    PendingAction.objects.filter(pk=held.pk).update(status=PendingAction.Status.HELD, completed_at=None)
+    other = PendingAction.objects.create(kind=START_EVIDENCE_COLLECTION, subject_type="application",
+                                         subject_id="00000000-0000-0000-0000-00000000bbbb", input_ref="version",
+                                         status=PendingAction.Status.HELD, idempotency_key="start_evidence_collection:other")
+    closure.close_application(app.pk, cl.closer, "withdrawn", "Applicant asked by phone to withdraw")
+    held.refresh_from_db()
+    other.refresh_from_db()
+    assert (held.status, held.last_error) == ("cancelled", "application_closed") and held.completed_at is not None
+    assert other.status == "held"  # another person's held collection is untouched
+    assert not PendingAction.objects.filter(kind=START_EVIDENCE_COLLECTION, subject_id=app.public_ref,
+                                            status__in=("queued", "running", "held", "uncertain")).exists()
 
 
 def test_review_a_shared_forwarder_fixed_in_the_panel_is_verified_only_by_a_new_read(cl, monkeypatch):

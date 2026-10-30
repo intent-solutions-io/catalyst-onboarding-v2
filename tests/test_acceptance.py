@@ -38,6 +38,9 @@ from tests.test_worker import Crash, expire_lease
 from workflow import ledger
 from workflow.models import AutomationPause, PendingAction
 
+_SEED = importlib.import_module("correspondence.migrations.0020_verification_template")
+SEED_SHA256 = _SEED.digest(_SEED.SUBJECT, _SEED.BODY)  # 9kg.80: the seeded verification draft
+
 ROOT = Path(__file__).resolve().parent.parent
 FORM = reverse("applications:request_access")
 VALID = {"name": "Ada Example", "email": "ada@example.test", "reason": "Synthetic reason for access."}
@@ -93,7 +96,8 @@ def test_s1_15_the_whole_flow_writes_exactly_the_expected_history(flow):
     history = list(app.events.order_by("occurred_at", "id").values_list("kind", "actor_type", "actor_ref", "data"))
     assert history == [
         ("submission_received", "applicant", "", {"version_number": 1}),
-        ("verification_sent", "system", f"pending_action:{send.pk}", {"attempt": 1, "template_version": "s1-synthetic-1"}),
+        ("verification_sent", "system", f"pending_action:{send.pk}", {"attempt": 1, "template_version": 1,  # 9kg.80
+                                                                       "template_sha256": SEED_SHA256, "draft": True}),
         ("contact_verified", "applicant", "", {"version_number": 1}),
         ("repeat_submission", "applicant", "", {"version_number": 2}),
         ("needs_staff_attention", "applicant", "", {"version_number": 2, "reason": "repeat_after_verification"}),
@@ -628,6 +632,7 @@ def test_the_evidence_register_reproduces_aar_028_per_case_and_in_total():
 
 REGISTER_PROBE_CONFTEST = """
 from tests import acceptance
+
 acceptance.CASES = {}
 acceptance.SUPPORTING = {}
 acceptance.P2_CASES = {}
