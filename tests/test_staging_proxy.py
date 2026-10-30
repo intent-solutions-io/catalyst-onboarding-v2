@@ -39,6 +39,11 @@ def test_6b8_token_segments_are_redacted_in_every_log_including_errors():
     text = module.render()
     pattern = module.redaction_pattern()
     assert text.count(f"request>uri regexp {pattern} /$1/REDACTED") == 2  # the default (error) log and each site's
+    # Referrer-Policy same-origin (PR #137) makes the browser send the token-bearing page URL as the Referer of the
+    # confirmation POST and of every same-origin asset request: the header is dropped from every log, alongside the URI.
+    assert text.count("request>headers>Referer delete") == 2
+    for block in text.split("format filter {")[1:]:
+        assert "request>headers>Referer delete" in block.split("}")[0]
     assert "log default {" in text and "log_skip" not in text  # lines kept for the audit trail, tokens removed
     for path in PRIVATE_PATHS:
         name = path.strip("/")
