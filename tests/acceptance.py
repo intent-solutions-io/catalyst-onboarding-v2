@@ -1789,6 +1789,21 @@ P6_SUPPORTING = {
     "D-53 the real wave 1 wording is added as drafts, never approved by code, and served live only once the owner approves it (033)": [
         "test_wave1_wording::test_d53_the_real_wording_is_added_as_drafts_once_and_served_live_only_after_the_owner_approves",
     ],
+    "9kg.87 the live browser canary records no address or token, follows only this run's verification mail on the exact origin, and cleans up one message by UID (032)": [
+        "test_live_canary::test_9kg_87_redaction_removes_every_token_and_every_form_of_the_login_address_and_password",
+        "test_live_canary::test_9kg_87_a_failed_command_is_described_without_its_command_line",
+        "test_live_canary::test_9kg_87_the_trace_text_entries_are_scrubbed_and_a_trace_that_still_leaks_is_discarded",
+        "test_live_canary::test_9kg_87_only_a_mail_for_this_address_origin_and_run_qualifies_and_is_read_without_mutation",
+        "test_live_canary::test_9kg_87_without_a_qualifying_mail_the_wait_times_out_rather_than_following_a_look_alike",
+        "test_live_canary::test_9kg_87_cleanup_deletes_the_one_message_by_uid_and_never_expunges_the_whole_mailbox",
+        "test_live_canary::test_9kg_87_a_step_records_its_outcome_redacted_and_a_not_run_step_its_reason",
+        "test_live_canary::test_9kg_87_a_fresh_journey_passes_only_with_the_erasure_receipt_and_records_nothing_private",
+        "test_live_canary::test_9kg_87_without_the_retention_command_the_erasure_is_not_run_and_the_run_fails",
+        "test_live_canary::test_9kg_87_an_erasure_that_erased_nothing_or_printed_no_head_is_not_a_receipt",
+        "test_live_canary::test_9kg_87_a_reused_link_run_is_a_diagnostic_never_a_fresh_pass",
+        "test_live_canary::test_9kg_87_the_reports_survive_cleanup_failures_and_a_failed_cleanup_fails_the_run",
+        "test_live_canary::test_9kg_87_the_login_address_and_a_superseding_invitation_are_refused_as_the_canary",
+    ],
     "9kg.87 pages that post a form never send no-referrer, so a real browser's own post is not refused as Origin null (live canary)": [
         "test_referrer_policy::test_9kg_87_no_page_that_posts_a_form_tells_the_browser_no_referrer",
         "test_referrer_policy::test_9kg_87_a_form_post_with_origin_null_is_what_the_csrf_check_refuses",
