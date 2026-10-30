@@ -1787,6 +1787,15 @@ P6_SUPPORTING = {
     "D-53 the real wave 1 wording is added as drafts, never approved by code, and served live only once the owner approves it (033)": [
         "test_wave1_wording::test_d53_the_real_wording_is_added_as_drafts_once_and_served_live_only_after_the_owner_approves",
     ],
+    "9kg.87 the live browser canary records no address or token, follows only this run's verification mail on the exact origin, and cleans up one message by UID (032)": [
+        "test_live_canary::test_9kg_87_redaction_removes_every_token_and_the_canary_login_and_address",
+        "test_live_canary::test_9kg_87_a_failed_command_is_described_without_its_command_line",
+        "test_live_canary::test_9kg_87_the_trace_text_entries_are_scrubbed_and_binary_entries_kept",
+        "test_live_canary::test_9kg_87_only_a_mail_for_this_address_origin_and_run_qualifies_and_is_read_without_mutation",
+        "test_live_canary::test_9kg_87_without_a_qualifying_mail_the_wait_times_out_rather_than_following_a_look_alike",
+        "test_live_canary::test_9kg_87_cleanup_deletes_the_one_message_by_uid_and_never_expunges_the_whole_mailbox",
+        "test_live_canary::test_9kg_87_a_step_records_its_outcome_redacted_and_a_not_run_step_its_reason",
+    ],
     "9kg.85 a live environment holds the internal cohort to the trial: no decline, nothing rated, no required details (033)": [
         "test_cohort_boundary::test_9kg_85_a_live_environment_refuses_every_cohort_decline_and_any_rated_criterion",
         "test_cohort_boundary::test_9kg_85_the_decision_form_offers_no_decline_and_no_rating_in_a_live_environment",
