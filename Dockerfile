@@ -2,7 +2,7 @@
 # socket, no access log), worker and fetcher (manage.py run_worker with --exclude / --only), migrate (manage.py
 # migrate as the owner role). Two targets: `production` carries the application only; `staging` adds the two
 # synthetic fakes staging is allowed to use (6B.1). Secrets never enter a layer; they are mounted at run time.
-FROM python:3.14.8-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS base
+FROM python:3.14.10-slim@sha256:3cabfd7d7aaf394e6040e79fa1eec6ca1c52b74ed9188650472695d9a9326999 AS base
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
     DJANGO_SETTINGS_MODULE=config.settings CATALYST_STATIC_ROOT=/app/static
 RUN groupadd --system --gid 10001 catalyst \

@@ -49,7 +49,7 @@ How the selection standard itself is governed and improved is set out in `000-do
 
 ## Run it
 
-Docker is required. Every run uses its own digest-pinned Python 3.14.8 and PostgreSQL 16.15 containers and removes
+Docker is required. Every run uses its own digest-pinned Python 3.14.10 and PostgreSQL 16.15 containers and removes
 them afterwards. No credentials are needed and nothing external is contacted.
 
 ```bash
