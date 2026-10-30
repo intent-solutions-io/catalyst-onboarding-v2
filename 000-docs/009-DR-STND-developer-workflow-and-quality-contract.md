@@ -108,18 +108,19 @@ This is the single source for how work is authorized. `CLAUDE.md` and `AGENTS.md
 | Markdown | `npx --yes markdownlint-cli2@0.23.2 "**/*.md"` | broken formatting that hides content | 2.1-2.7 s warm; in CI (action pinned by commit) |
 | Doc index | `bash scripts/check-docs.sh index` (CI step "Every filed doc appears in 000-docs/000-INDEX.md" calls it) | filed documents nobody can find | 0.07 s; in CI |
 | Agent definitions | **CI:** the step "Agent definitions stay read-only and well formed" in `ci.yml` (frontmatter parses, 14 fields, name matches file, no Write/Edit/Bash/Agent/Task/NotebookEdit/Skill granted, Agent denied, model allowed, no permission bypass). **Local, when definitions change:** `claude plugin validate .claude/agents` plus the Intent Solutions validator behind `/validate-agent` (maintainer's tooling, not vendored here) | malformed or over-privileged specialists | CI step 0.09 s locally; IS validator 2.4 s for eleven (owner-local) |
-| Python lint and dependency audit | **CI:** the step "Python lint and dependency audit (ruff, pip-audit; 009 section 5.1)" in the docs job, on every pull request. **Local:** `ruff check .` (ruff 0.16.2; rules in `pyproject.toml`) and, from a virtual environment with `pip install --require-hashes --no-deps -r requirements/lint.txt`, `python -m pip_audit --disable-pip --no-deps --require-hashes -r requirements/base.txt -r requirements/dev.txt -r requirements/docs.txt -r requirements/lint.txt -r requirements/browser.txt` | undefined and unused names, import and comparison mistakes, syntax errors; a locked dependency with a known vulnerability | ruff 0.45 s over 286 files; pip-audit 4.8 s with a warm cache, 10.3 s with a fresh one, over 57 distinct locked distributions; the hash-locked tool install 21 s (2026-10-23, bead `catalyst-v2-9kg.46`) |
+| Python lint and dependency audit | **CI:** the step "Python lint and dependency audit (ruff, pip-audit; 009 section 5.1)" in the docs job, on every pull request. **Local:** `ruff check .` (ruff 0.17.3; rules in `pyproject.toml`) and, from a virtual environment with `pip install --require-hashes --no-deps -r requirements/lint.txt`, `python -m pip_audit --disable-pip --no-deps --require-hashes -r requirements/base.txt -r requirements/dev.txt -r requirements/docs.txt -r requirements/lint.txt -r requirements/browser.txt` | undefined and unused names, import and comparison mistakes, syntax errors; a locked dependency with a known vulnerability | ruff 0.45 s over 286 files; pip-audit 4.8 s with a warm cache, 10.3 s with a fresh one, over 57 distinct locked distributions; the hash-locked tool install 21 s (2026-10-23, bead `catalyst-v2-9kg.46`) |
 | Runtime tests | `scripts/test.sh` locally (a unique Compose project per run; it provisions the three database roles, then runs the suite; cleanup removes only that run's resources); CI job "Runtime checks (Python 3.14.8, PostgreSQL 16.15)" with the same digest-pinned images, aggregated into the required check | settings, start-up guards, data-model constraints, database roles and append-only protection, migrations; a skip, xfail or xpass fails the run | 130 tests, 61.2 s of tests, 88 s wall locally (2026-10-10, 1B.2 branch) |
 | Secrets | **CI:** gitleaks 8.30.1 (checksum-verified download) over full Git history, redacted output | credentials in the public repository | 0.32 s locally over history; 1.1 s over the working tree |
 | Sensitive content beyond secrets | `python3 -m config.personal_data_scan --class evidence` over the committed evidence set (run by the suite, so in CI; `026` section 11.2) plus manual diff review for private paths, internal access details and agreement text elsewhere | public exposure | scan 0.1 s locally; the rest manual (gitleaks finds credentials, not personal data) |
 | Links and cross-references | manual check that every referenced `000-docs` file exists | dangling references | NOT MEASURED; local only |
 
-`ci.yml` pins the action by commit (`markdownlint-cli2-action` v24.2.0 since PR #1), not the tool; the
-`main` run log on 2026-10-09 (run 37960690832) reported `markdownlint-cli2 v0.23.2 (markdownlint
-v0.41.1)`, which is why the local command pins 0.23.2. (Before PR #1 the action was v19 and bundled
-0.17.2.) A `check-docs` script that both CI and contributors call, with the tool version pinned in one
-place, is proposal P4. Until then "same version as CI" holds only while the action keeps bundling
-0.23.2; a Dependabot bump of the action changes it and must update this line.
+`ci.yml` pins the action by commit (`markdownlint-cli2-action` v25.0.0 since the grouped Dependabot
+PR #144 of 2026-10-30; v24.2.0 from PR #1 before that), not the tool; v25.0.0 bundles
+`markdownlint-cli2 0.24.0 (markdownlint 0.42.0)` (its `package-lock.json` at the pinned commit),
+which is why the local command pins 0.24.0. (Before PR #1 the action was v19 and bundled 0.17.2; v24.2.0
+bundled 0.23.2.) A `check-docs` script that both CI and contributors call, with the tool version pinned
+in one place, is proposal P4. Until then "same version as CI" holds only while the action keeps bundling
+0.24.0; a Dependabot bump of the action changes it and must update this line and `scripts/check-docs.sh`.
 
 ### 5.2 Skills versus test execution
 

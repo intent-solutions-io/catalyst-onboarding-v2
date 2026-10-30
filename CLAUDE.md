@@ -53,7 +53,7 @@ bd ready                                   # open work (bd prime already ran at 
 scripts/check-docs.sh                      # Markdown lint (same version as CI) and doc index check
 scripts/test.sh                            # runtime tests in digest-pinned Python 3.14.10 + PostgreSQL 16.15 containers
 git diff --name-only origin/main... | xargs python3 scripts/select_tests.py   # targeted selection hint (009 5.3; never a gate)
-ruff check .                               # Python lint (ruff 0.16.2, rules in pyproject.toml); pip-audit command in 009 5.1
+ruff check .                               # Python lint (ruff 0.17.3, rules in pyproject.toml); pip-audit command in 009 5.1
 claude plugin validate .claude/agents      # agent definitions (plus the IS validator, see 009)
 ```
 

@@ -11,6 +11,6 @@ index_check() {
   echo "doc index: every filed doc is listed"
 }
 if [ "${1:-all}" != "index" ]; then
-  npx --yes markdownlint-cli2@0.23.2 "**/*.md"   # keep in step with the CI action's bundled version
+  npx --yes markdownlint-cli2@0.24.0 "**/*.md"   # keep in step with the CI action's bundled version
 fi
 index_check
