@@ -63,9 +63,14 @@ def redaction_pattern() -> str:
 
 
 def log_format() -> str:
+    """The access and error log filter: the token segment of every private path is redacted in the request URI, and
+    the Referer header is dropped. With `Referrer-Policy same-origin` (PR #137) a browser sends the token-bearing page
+    URL as the Referer of the confirmation POST and of every same-origin asset request, which would land the token in
+    the log unredacted (seen in the production proxy log, 2026-10-30)."""
     return f"""format filter {{
 			wrap json
 			request>uri regexp {redaction_pattern()} /$1/REDACTED
+			request>headers>Referer delete
 		}}"""
 
 
