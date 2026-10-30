@@ -5,9 +5,9 @@ Django==5.2.18
 psycopg[binary]==3.3.6
 # P3 3B.2 (018 5.5, P3-D-8; F-1): the assessment agent. Slim, with no provider extra: tests use TestModel and
 # FunctionModel only, and no live provider client is installed until a live model use is authorized.
-pydantic-ai-slim==2.57.0
+pydantic-ai-slim==2.62.0
 # 6B.5 (026 section 4): the WSGI server for the web process, bound to the proxy's unix socket, with no access log.
-gunicorn==23.0.0
+gunicorn==26.2.0
 # 6B.9 (026 section 8, P6-D-3): staff two-factor. django-otp alone (TOTP and recovery codes, depending only on Django)
 # rather than django-two-factor-auth (phone, QR and form-wizard dependencies); 1.7.5's one change was read before pinning.
 django-otp==1.7.5
@@ -15,4 +15,4 @@ django-otp==1.7.5
 # (pyca), its AES-256-GCM primitive only: no bespoke cryptography and no KMS. 50.0.2 was released 2026-09-30.
 cryptography==50.0.2
 # Its build-free C binding's parser, pinned below the newest release (3.12, 2026-10-22) to one at least two weeks old.
-pycparser==3.11
+pycparser==3.12
