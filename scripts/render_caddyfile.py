@@ -112,7 +112,7 @@ def render() -> str:
 	}}
 	header {{
 		?X-Content-Type-Options nosniff
-		?Referrer-Policy no-referrer
+		?Referrer-Policy same-origin
 		-Server
 	}}
 }}

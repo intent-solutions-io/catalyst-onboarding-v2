@@ -10,7 +10,8 @@ Stated limit: it covers this process's log records only, never a proxy's or serv
 
 `PrivateConfirmationResponses` is the outermost middleware: every response under the confirmation path,
 including those Django builds outside the view (CSRF 403, 405, 404 from the resolver, the trailing-slash
-redirect, a 500), is sent with `Cache-Control: no-store` and `Referrer-Policy: no-referrer`.
+redirect, a 500), is sent with `Cache-Control: no-store` and `Referrer-Policy: same-origin` (the token reaches no other site; `no-referrer`
+made browsers post `Origin: null`, which the CSRF check refuses).
 """
 
 import logging
@@ -44,7 +45,7 @@ class PrivateConfirmationResponses:
         response = self.get_response(request)
         if request.path.startswith(PRIVATE_PATHS):
             patch_cache_control(response, no_store=True, private=True)
-            response["Referrer-Policy"] = "no-referrer"
+            response["Referrer-Policy"] = "same-origin"  # a token goes back only to this site; see settings
         return response
 
 

@@ -1787,6 +1787,10 @@ P6_SUPPORTING = {
     "D-53 the real wave 1 wording is added as drafts, never approved by code, and served live only once the owner approves it (033)": [
         "test_wave1_wording::test_d53_the_real_wording_is_added_as_drafts_once_and_served_live_only_after_the_owner_approves",
     ],
+    "9kg.87 pages that post a form never send no-referrer, so a real browser's own post is not refused as Origin null (live canary)": [
+        "test_referrer_policy::test_9kg_87_no_page_that_posts_a_form_tells_the_browser_no_referrer",
+        "test_referrer_policy::test_9kg_87_a_form_post_with_origin_null_is_what_the_csrf_check_refuses",
+    ],
     "9kg.85 a live environment holds the internal cohort to the trial: no decline, nothing rated, no required details (033)": [
         "test_cohort_boundary::test_9kg_85_a_live_environment_refuses_every_cohort_decline_and_any_rated_criterion",
         "test_cohort_boundary::test_9kg_85_the_decision_form_offers_no_decline_and_no_rating_in_a_live_environment",

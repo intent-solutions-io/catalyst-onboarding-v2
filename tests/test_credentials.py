@@ -80,7 +80,7 @@ def test_p5_13_14_03_04_invite_set_activate_and_welcome(pv, monkeypatch, caplog)
     for _ in range(2):  # a GET (or a link preview) never consumes the link
         page = Client().get(path)
         assert page.status_code == 200 and b'type="password"' in page.content
-        assert page["Referrer-Policy"] == "no-referrer" and "no-store" in page["Cache-Control"]
+        assert page["Referrer-Policy"] == "same-origin" and "no-store" in page["Cache-Control"]
     assert Application.objects.get(pk=app.pk).stage == "provisioning"
     done = post(path)
     assert done.status_code == 200 and PASSWORD.encode() not in done.content
@@ -110,7 +110,7 @@ def test_p5_13_used_expired_and_superseded_links_get_the_same_answer(pv, monkeyp
     expired = Client().get(path)
     unknown = Client().get("/setup/not-a-real-token-at-all/")
     assert expired.status_code == unknown.status_code == 404 and expired.content == unknown.content
-    assert expired["Referrer-Policy"] == "no-referrer"
+    assert expired["Referrer-Policy"] == "same-origin"
     assert post(path).status_code == 404 and not FakeMailHost.current_passwords
 
 

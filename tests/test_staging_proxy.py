@@ -91,7 +91,7 @@ def test_6b8_caddy_trusts_no_proxy_and_sets_the_forwarded_values_itself():
 
 def test_6b8_caddy_responses_carry_safe_headers_and_slow_clients_time_out():
     text = renderer().render()
-    for line in ("?X-Content-Type-Options nosniff", "?Referrer-Policy no-referrer", "-Server", "header_down -Server",
+    for line in ("?X-Content-Type-Options nosniff", "?Referrer-Policy same-origin", "-Server", "header_down -Server",
                  "header Cache-Control no-store", "read_header 10s", "read_body 30s", "idle 2m", "hide .*"):
         assert line in text, line
     assert "Never import it into the shared estate Caddyfile" in text  # a dedicated staging instance (admin off)
