@@ -23,7 +23,7 @@ def test_9kg_87_a_form_post_with_origin_null_is_what_the_csrf_check_refuses():
     client = Client(enforce_csrf_checks=True)
     page = client.get(FORM)
     token = page.cookies[settings.CSRF_COOKIE_NAME].value
-    base = {"name": "Origin Probe", "email": "origin.probe@example.test", "reason": "Synthetic reason for access.",
+    base = {"name": "Ada Example", "email": "ada@example.test", "reason": "Synthetic reason for access.",
             "csrfmiddlewaretoken": token}
     refused = client.post(FORM, base, HTTP_ORIGIN="null", secure=True)
     assert refused.status_code == 403
