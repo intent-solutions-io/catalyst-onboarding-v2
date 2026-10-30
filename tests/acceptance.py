@@ -1073,6 +1073,7 @@ P5_CASES = {
     "TEST-P5-05": [
         "test_closure::test_p5_05_18_closing_an_active_member_revokes_access_and_deletes_nothing",
         "test_closure::test_review_closing_mid_flow_cancels_queued_work_and_settles_cleanly",
+        "test_closure::test_9kg_87_closing_cancels_the_held_evidence_collection_so_the_person_can_be_erased",
         "test_closure::test_p5_revocations_and_withdrawals_are_fixed_for_every_role",
     ],
     "TEST-P5-06": [
