@@ -5,7 +5,7 @@ Synthetic only, against the scripted SMTP and IMAP servers of tests/test_inbound
 setting `due_at` to the completed-collection watermark, so the watermark rule (4.1) is always exercised.
 """
 
-from datetime import timedelta
+from datetime import datetime, time, timedelta, timezone
 
 import pytest
 
@@ -60,6 +60,29 @@ def remind(mailbox, settings):
     return mailbox
 
 
+@pytest.fixture
+def clock(monkeypatch):
+    """The instant the reminder handler's clock reports. `reminders.db_now` is the one reading quiet hours and the
+    minimum gap decide from, so a test sets `clock.now` and the handler sees exactly that; None (the default) is the
+    database's real clock. A test that read the clock itself to guess which hour the handler would see failed on main
+    when the hour rolled over between the two readings (run 40987508161, 01:59:59 to 02:00:00 UTC).
+
+    `clock.tomorrow(hour, minute, second)` is that UTC time on the day after the database's today: a fixed hour for the
+    quiet-hours decision, and later than every timestamp the test has written, which the minimum-gap check subtracts
+    from the handler's reading."""
+    real = reminders.db_now
+
+    class Clock:
+        now = None
+
+        @staticmethod
+        def tomorrow(hour, minute=0, second=0):
+            return datetime.combine(real().date() + timedelta(days=1), time(hour, minute, second), tzinfo=timezone.utc)
+
+    monkeypatch.setattr(reminders, "db_now", lambda: Clock.now or real())
+    return Clock
+
+
 def actions(question, kind="remind"):
     return list(PendingAction.objects.filter(kind=kind, input_ref__startswith=str(question.public_id)).order_by("id"))
 
@@ -108,15 +131,17 @@ def test_p2_29_cadence_maximum_and_escalation_after_the_last_reminder(remind):
     assert len(reminder_mails(remind)) == 2 and StaffItem.objects.filter(reason_code="escalate_unanswered").count() == 1
 
 
-def test_p2_29_quiet_hours_defer_to_their_end_and_the_minimum_gap_is_kept(remind, settings):
+def test_p2_29_quiet_hours_defer_to_their_end_and_the_minimum_gap_is_kept(remind, settings, clock):
     question, _ = sent_question(remind)
-    now = reminders.db_now()
-    settings.CATALYST_REMINDER_QUIET_START_HOUR, settings.CATALYST_REMINDER_QUIET_END_HOUR = now.hour, (now.hour + 1) % 24
+    settings.CATALYST_REMINDER_QUIET_START_HOUR, settings.CATALYST_REMINDER_QUIET_END_HOUR = 1, 2
+    clock.now = clock.tomorrow(1, 30)  # the handler reads an instant inside the period, half an hour before its end
     fire()
     [action] = actions(question)
-    end = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
     assert (action.status, action.last_error, action.attempts) == ("queued", "quiet_hours", 0)
-    assert abs((action.due_at - end).total_seconds()) < 2 and reminder_mails(remind) == []
+    # Deferred to the period's end: the ledger stamps due_at and updated_at from one transaction clock, so the
+    # deferral is exactly the time the handler's reading left in the period.
+    assert action.due_at - action.updated_at == timedelta(minutes=30) and reminder_mails(remind) == []
+    clock.now = None  # the real clock again: the gap is measured from the real time the question was sent
     settings.CATALYST_REMINDER_QUIET_START_HOUR = settings.CATALYST_REMINDER_QUIET_END_HOUR = 0
     settings.CATALYST_REMINDER_MIN_GAP_SECONDS = 7200
     fire()
@@ -125,11 +150,26 @@ def test_p2_29_quiet_hours_defer_to_their_end_and_the_minimum_gap_is_kept(remind
     assert action.due_at > reminders.db_now() + timedelta(seconds=7000)
 
 
+def test_p2_29_the_quiet_period_ends_on_the_handler_s_clock_not_on_an_earlier_reading(remind, settings, clock):
+    """The hour-boundary ordering of main run 40987508161 (e5faa02), made deterministic: the quiet window is derived
+    from a clock reading at 01:59:59, then the handler reads 02:00:00. The last second of the period is quiet, and
+    the reminder is deferred by exactly that second; the first second after it is not, and the reminder goes out."""
+    question, _ = sent_question(remind)
+    clock.now = clock.tomorrow(1, 59, 59)
+    seen = reminders.db_now()
+    settings.CATALYST_REMINDER_QUIET_START_HOUR, settings.CATALYST_REMINDER_QUIET_END_HOUR = seen.hour, seen.hour + 1
+    fire()  # the handler reads the same 01:59:59: the period's last second
+    [action] = actions(question)
+    assert (action.status, action.last_error, action.attempts) == ("queued", "quiet_hours", 0)
+    assert action.due_at - action.updated_at == timedelta(seconds=1) and reminder_mails(remind) == []
+    clock.now = clock.tomorrow(2, 0, 0)
+    fire()  # the handler reads the first instant after the period, as it did on main
+    assert states(question) == [("1", "done"), ("2", "queued")] and len(reminder_mails(remind)) == 1
+
+
 @pytest.mark.parametrize(("start", "end", "hour", "inside"), [(21, 7, 22, True), (21, 7, 3, True), (21, 7, 12, False),
                                                               (8, 17, 8, True), (8, 17, 17, False), (5, 5, 5, False)])
 def test_p2_29_quiet_hours_wrap_midnight(settings, start, end, hour, inside):
-    from datetime import datetime, timezone
-
     settings.CATALYST_REMINDER_QUIET_START_HOUR, settings.CATALYST_REMINDER_QUIET_END_HOUR = start, end
     assert (reminders.quiet_until(datetime(2026, 10, 13, hour, 30, tzinfo=timezone.utc)) is not None) is inside
 
