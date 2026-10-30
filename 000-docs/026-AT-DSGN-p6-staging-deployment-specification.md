@@ -75,7 +75,7 @@ record (P6-D-8).
 
 ## 4. The deployment unit (proposed)
 
-- **One image.** `python:3.14.8-slim` at the digest already pinned for the tests; dependencies installed
+- **One image.** `python:3.14.10-slim` at the digest already pinned for the tests; dependencies installed
   `--require-hashes --no-deps`; non-root, read-only root filesystem, capabilities dropped, no new privileges; the
   commit as an OCI label and a read-only file; no secret in any layer.
 - **Processes from that image:**
