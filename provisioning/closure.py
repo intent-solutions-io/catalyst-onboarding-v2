@@ -96,6 +96,13 @@ def close_locked(application, outcome: str, reason: str, actor_ref: str, actor_t
             ensure_revocations(request, actor_ref)
     PendingAction.objects.filter(kind=core.HANDOFF, subject_id=application.public_ref, status=Status.HELD).update(
         status=Status.CANCELLED, completed_at=Now(), updated_at=Now(), last_error="application_closed")
+    # 9kg.87: the evidence collection a confirmation holds for the owner's release never starts for a closed or
+    # withdrawn application; left held, it would keep the person's erasure refused (subject_has_open_work) for good.
+    from applications.confirmation import START_EVIDENCE_COLLECTION
+
+    PendingAction.objects.filter(kind=START_EVIDENCE_COLLECTION, subject_type="application",
+                                 subject_id=application.public_ref, status__in=(Status.QUEUED, Status.HELD)).update(
+        status=Status.CANCELLED, completed_at=Now(), updated_at=Now(), last_error="application_closed")
     WithdrawalConfirmation.objects.filter(application=application, state__in=("pending", "sent", "uncertain")).update(
         state="superseded", updated_at=Now())
     to = Stage.WITHDRAWN if outcome == "withdrawn" else Stage.CLOSED
