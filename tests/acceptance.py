@@ -375,6 +375,7 @@ P2_CASES = {
         "test_reminders::test_p2_29_cadence_maximum_and_escalation_after_the_last_reminder",
         "test_reminders::test_p2_29_quiet_hours_defer_to_their_end_and_the_minimum_gap_is_kept",
         "test_reminders::test_p2_29_quiet_hours_wrap_midnight",
+        "test_reminders::test_p2_29_the_quiet_period_ends_on_the_handler_s_clock_not_on_an_earlier_reading",
     ],
     "TEST-P2-30": [
         "test_reminders::test_e2_a_frozen_reminder_send_follows_its_question",
