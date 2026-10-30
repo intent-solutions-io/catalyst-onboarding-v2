@@ -543,7 +543,7 @@ From `9kg.28`'s acceptance, plus the custody and erasure items added since:
 | The dedicated v2 host name | step 5 | `211.7.3` (INPUT) |
 | The key mirror's device and the custody locations | step 1 | `211.7.9` and H22 (INPUT) |
 | The wrapping key's escrow entry and its recipients | step 2 | `211.7.9` (INPUT) |
-| The erasure key's source in the encrypted secret store; its rotation row in `027` | step 2 | `211.7.1`; `027` has no row yet |
+| The erasure key's source in the encrypted secret store; its rotation row in `027` | step 2 | created 2026-10-30 on the owner's instruction (section 3.12); `027` still has no row |
 | The off-host private store for erasure heads and the journal's off-host destination (`9kg.60`) | before the first erasure; before E | INPUT |
 | The P6-D-8 exception record for the database data directory | step 1 | the estate's filesystem standard (owner) |
 | Port allocations from the estate inventory | step 3 | H4 (owner) |
@@ -552,3 +552,27 @@ From `9kg.28`'s acceptance, plus the custody and erasure items added since:
 | The challenge lifetime and the page list | step 3 and step 6 | `211.7.7`, `211.7.2` |
 | The erasure registry decision | the first production backup | `211.7.1` |
 | The v2 mailbox and its credentials, and the Documenso team, token and webhook secrets | the canaries (D), not this step | `211.7.3`, `211.7.4` |
+
+### 3.12 Erasure key and retention wrapper (applied 2026-10-30)
+
+On the owner's instruction of 2026-10-30 ("go ahead and create the erasure key"), the production erasure key was
+created on the host so the live canary's subjects could be erased (`9kg.87`, the first production erasure).
+
+- **The key.** 32 random bytes as 64 hex characters, generated on the host and written only into
+  `/etc/intentsolutions/catalyst-v2/erasure.sops.env` (a SOPS dotenv file, mode 600), encrypted to the host's age
+  recipient and to the estate recipient, so the dev box can recover it. An encrypted copy is kept in the owner's
+  private store on the dev box. The value was never printed, logged or placed beside the stack's other secrets:
+  `catalyst-v2-secrets` does not read this file, so no service's `/run/secrets` can ever hold it.
+- **The wrapper.** `/usr/local/sbin/catalyst-v2-erase <manage.py command>` runs one command as the retention login
+  (`CATALYST_DB_USER=catalyst_retention`) with `CATALYST_SECRETS_DIR` pointing at a private tmpfs directory it builds
+  for that one run (the retention password as `db_password`, the Django and link keys, and the erasure key), in a
+  one-off container of the serving image; the directory is shredded when the command ends. It is the only path that
+  holds the key, for `catalyst_erase`, `catalyst_erasure_record`, `catalyst_erasure_subjects`,
+  `catalyst_retention_due` and `catalyst_erasure_replay`.
+- **Heads off the host.** Until `9kg.60`'s journal shipping is wired on the host, every head printed by an erasure
+  or a record check is appended to the owner's private store on the dev box, with the erasure's JSON receipt (no
+  personal data). The first record check through the wrapper read a chain of six entries, nothing erased and nothing
+  open.
+- **Still open.** The `027` rotation row for the key (P6-D-15); the first erasure itself, which waits on the two
+  canary cases being closed by staff (an application in a non-terminal stage is refused, CE003) and on the closure
+  fix of PR #141 (a held `start_evidence_collection` would be refused next, CE004).
