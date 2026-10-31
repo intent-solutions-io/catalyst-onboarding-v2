@@ -123,7 +123,7 @@ TABLES = {
         selector="id = ANY(v_apps)",
         subject={"email": S("application_identity"), "email_key": S("application_identity", KEY, "public_ref"),
                  "display_name": S("application_identity")},
-        other="id public_ref stage contact_verified_at next_version_number created_at updated_at"),
+        other="id public_ref reference stage contact_verified_at next_version_number created_at updated_at"),  # bgl.5
     "applications_applicationevent": Table(
         selector=APP, subject={"data": S("history_events", OBJECT)}, staff="actor_ref",
         other="id kind actor_type occurred_at application_id created_txid"),  # created_txid: the guard's marker
@@ -217,7 +217,7 @@ TABLES = {
     "correspondence_messagetemplate": Table(other="id key purpose secret_bearing created_at"),
     "correspondence_messagetemplateversion": Table(staff="approved_by", other=(
         "id version subject body_text variables secret_bearing status approved_at content_sha256 synthetic created_at"
-        " template_id")),
+        " template_id subject_reference")),
     "correspondence_outboundmessage": Table(
         selector=APP, subject={"recipient": S("mail_derivatives")},
         other=("id attempt_number template_key template_version message_id status sent_at application_id"

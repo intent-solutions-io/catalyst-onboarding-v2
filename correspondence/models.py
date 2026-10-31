@@ -95,6 +95,10 @@ class MessageTemplateVersion(models.Model):
     template = models.ForeignKey(MessageTemplate, on_delete=models.PROTECT, related_name="versions")
     version = models.PositiveIntegerField()
     subject = models.CharField(max_length=200)  # static: no variables in subjects (016 A1)
+    # bgl.5 (the owner's parity direction of 2026-10-31; amends 016 A1 for the reference only): the sender appends
+    # " [CAT-XXXX-XXXX]", the application's reference, to the static subject. Part of the content digest
+    # (correspondence.rendering.version_digest), so approving a version approves whether its subject carries it.
+    subject_reference = models.BooleanField(default=False, db_default=False)
     body_text = models.TextField()
     variables = models.JSONField(default=list)  # the allow-list of $names the body may use
     # Copied from the template at creation (code keeps them equal) so the database can enforce 3.1's rule.

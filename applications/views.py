@@ -14,7 +14,8 @@ an unavailable throttle store refuses the POST with the 503 page (fail closed fo
 (9kg.43, applications.invitations): an uninvited submission is rolled back inside the service and gets the same
 redirect as an accepted one; the view logs a reason code only. While the erasure registry is provisional (9kg.84), a
 live environment withholds the page (the one 503 page, reason code `registry_provisional`); so does a live environment
-without an approved, non-synthetic verification mail (9kg.80, reason code `verification_template_unapproved`).
+without an approved, non-synthetic verification mail (9kg.80, reason code `verification_template_unapproved`) and, with
+the separate receipt on, without an approved, non-synthetic receipt (bgl.5, reason code `receipt_template_unapproved`).
 
 The confirmation view (005 S1.2 Confirm; J-03) carries the signed token in its path. Every response under
 that path, including the ones Django builds outside the view, is sent with `Referrer-Policy: same-origin`
@@ -79,6 +80,9 @@ def request_access(request):
         return render(request, TRY_AGAIN, status=503)
     if notices.verification_withheld():  # 9kg.80: no applicant is accepted who cannot be sent the verification mail
         _log_withheld("verification_template_unapproved")
+        return render(request, TRY_AGAIN, status=503)
+    if notices.receipt_withheld():  # bgl.5: nor one who cannot be sent the receipt the first generation sent
+        _log_withheld("receipt_template_unapproved")
         return render(request, TRY_AGAIN, status=503)
     try:
         notice = _data_notice()

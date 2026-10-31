@@ -75,6 +75,9 @@ APPROVED_MIGRATIONS = {
     ("correspondence", "0020_verification_template"),  # 9kg.80: the verification mail as an approvable template
     ("agreements", "0010_custody_envelope"), ("erasure", "0003_custody_keys"),  # 9kg.34: custody sealed at rest
     ("workflow", "0006_restore_hold_insert_guard"), ("erasure", "0004_erase_replay"),  # 9kg.25: the replay variant of the erase function, under the restore hold only
+    # bgl.5: the CAT- reference on every application, the subject-reference flag on a template version, the receipt templates
+    ("applications", "0010_application_reference"), ("correspondence", "0021_subject_reference"),
+    ("correspondence", "0022_intake_receipt_templates"),
 }
 
 

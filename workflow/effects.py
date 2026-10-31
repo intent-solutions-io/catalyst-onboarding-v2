@@ -147,6 +147,10 @@ REGISTRY = {
     # left waiting.
     "correspondence.verification:SendVerification.run": {
         "django_mail": Site(COVERED_BY_REVIEW, "the review supersedes every unused confirmation link", by=CLOSE_LINKS)},
+    # bgl.5: the receipt carries no link; a receipt action live at the restore point becomes uncertain with a staff item
+    # (send_receipt is an outward redeliverable kind), so a restored queue never sends a second receipt unseen.
+    "correspondence.receipt:SendReceipt.run": {
+        "django_mail": Site(COVERED_BY_REVIEW, "a live receipt action is made uncertain with a staff item", by=REVIEW)},
     # Erasure (9kg.32, 9kg.25): the durable erasure record; the intent is fsynced before the erasure runs, and an
     # unwritable record refuses the erasure. The replay marker records a replay, not a new effect.
     "erasure.record:_append": {

@@ -33,6 +33,7 @@ from django.db.models.functions import Now
 from django.utils.module_loading import import_string
 
 from applications import members
+from applications.reference import with_reference
 from applications.models import TERMINAL_STAGES, Application, ApplicationEvent, Stage
 from applications.stages import transition
 from workflow import journal, ledger
@@ -130,6 +131,8 @@ def current_template_version(key: str) -> MessageTemplateVersion | None:
 
 def _freeze(application, kind, recipient, version, values, authorized_by, authority, supersedes=None) -> ApprovedMessage:
     subject, body = render(version, values)
+    if version.subject_reference:  # bgl.5: the sender appends the reference; the frozen subject is the subject as sent
+        subject = with_reference(subject, application.reference)
     if version.secret_bearing:
         raise Refused("secret_bearing_kind_not_in_this_task")  # reproducible-inputs kinds arrive with their task
     return ApprovedMessage.objects.create(

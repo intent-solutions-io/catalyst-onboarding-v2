@@ -338,7 +338,7 @@ def test_review_the_backstop_refuses_another_applications_decision_and_a_decided
     tx = d.committed.connect("owner", autocommit=False)
     columns = [r[0] for r in tx.execute("SELECT column_name FROM information_schema.columns WHERE table_name ="
                                         " 'applications_application' AND column_name NOT IN ('id', 'public_ref', 'email_key',"
-                                        " 'stage')").fetchall()]
+                                        " 'stage', 'reference')").fetchall()]  # bgl.5: unique, from its default
     new_id = tx.execute(f"INSERT INTO applications_application (public_ref, email_key, stage, {', '.join(columns)}) SELECT"
                         f" gen_random_uuid(), 'other@example.test', 'admitted', {', '.join(columns)} FROM"
                         " applications_application WHERE id = %s RETURNING id", [app.pk]).fetchone()[0]

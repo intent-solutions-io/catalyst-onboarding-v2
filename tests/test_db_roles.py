@@ -14,6 +14,7 @@ import uuid
 import psycopg
 import pytest
 
+from applications import reference
 from tests import support
 from django.conf import settings
 from django.db import ProgrammingError, connection, transaction
@@ -60,9 +61,9 @@ def connect(privileged_reset):
 
 def new_application(conn, key="applicant@example.test"):
     app_id = conn.execute(
-        "INSERT INTO applications_application (public_ref, email, email_key, display_name, stage, next_version_number)"
-        " VALUES (gen_random_uuid(), %s, %s, 'Synthetic', 'submitted', 1) RETURNING id",
-        [key, key],
+        "INSERT INTO applications_application (public_ref, reference, email, email_key, display_name, stage,"
+        " next_version_number) VALUES (gen_random_uuid(), %s, %s, %s, 'Synthetic', 'submitted', 1) RETURNING id",
+        [reference.generate(), key, key],  # bgl.5: the database default is not the application role's to run
     ).fetchone()[0]
     version_id = conn.execute(
         "INSERT INTO applications_submissionversion (application_id, public_id, version_number, origin, submitted_fields)"

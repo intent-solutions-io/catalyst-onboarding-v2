@@ -1,7 +1,7 @@
 {% extends "correspondence/staff/base.html" %}{% load correspondence_display %}
 {% block content %}
 <h1>Correspondence: <bdi>{{ application.display_name|visible }}</bdi></h1>
-<p>Stage {{ application.stage }}. Automation {% if paused %}paused by {{ paused.actor_ref }} at {{ paused.created_at|date:"Y-m-d H:i" }} UTC. Reason: <bdi>{{ paused.reason|visible }}</bdi>{% else %}running{% endif %}.</p>
+<p>Reference {{ application.reference }}. Stage {{ application.stage }}. Automation {% if paused %}paused by {{ paused.actor_ref }} at {{ paused.created_at|date:"Y-m-d H:i" }} UTC. Reason: <bdi>{{ paused.reason|visible }}</bdi>{% else %}running{% endif %}.</p>
 {% if paused and system_pause and not can_resume_system %}
 <p>This is a system safety pause: resuming it needs decision-maker review once its cause is resolved.</p>
 {% elif paused and system_pause %}

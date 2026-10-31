@@ -117,7 +117,8 @@ class SendDecline:
         except notices.Unavailable as refused:
             return Status.QUEUED, str(refused)[:64], item, recheck
         version = MessageTemplateVersion.objects.get(template__key=TEMPLATE, version=wording.version)
-        subject, body = wording.subject, wording.display  # a draft always carries its marker
+        # A draft always carries its marker; bgl.5: the subject carries the reference when the version asks for it.
+        subject, body = wording.subject_for(application.reference), wording.display
 
         def write():
             message = ApprovedMessage.objects.create(

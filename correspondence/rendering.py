@@ -6,6 +6,13 @@ placeholder outside the allow-list, or any missing or extra value, fails closed:
 
 The canonical digest (016 3.2) is SHA-256 over the decoded subject, a line feed, and the decoded text
 body with line endings normalized to line feeds. A5 compares provider evidence with the same digest.
+
+A version's own digest (`version_digest`) is the canonical digest of what it approves. bgl.5: a version whose subject
+carries the application's reference (`subject_reference`) is digested with the subject written as `<subject>
+[$reference]`, so the flag is covered by the digest and approval; a version without it keeps exactly the digest it
+always had. Subjects hold no placeholder (016 A1, checked here), so the two forms can never be confused. The reference
+itself is appended by the sender for one application (applications.reference.with_reference), never by this renderer;
+a frozen message's digest is then over the subject as sent.
 """
 
 import hashlib
@@ -22,6 +29,13 @@ def canonical_digest(subject: str, body: str) -> str:
     return hashlib.sha256(f"{subject}\n{normalized}".encode()).hexdigest()
 
 
+REFERENCE_MARK = " [$reference]"
+
+
+def version_digest(subject: str, body: str, subject_reference: bool = False) -> str:
+    return canonical_digest(subject + REFERENCE_MARK if subject_reference else subject, body)
+
+
 def placeholders(body_text: str) -> set[str]:
     return set(Template(body_text).get_identifiers())
 
@@ -33,9 +47,11 @@ def check_version(version) -> None:
         raise TemplateRefused("placeholder_outside_allow_list")
     if not Template(version.body_text).is_valid():
         raise TemplateRefused("invalid_placeholder")
+    if "$" in version.subject:  # 016 A1: static subjects; bgl.5's reference is appended by the sender, not a variable
+        raise TemplateRefused("placeholder_in_subject")
     if version.secret_bearing != version.template.secret_bearing:
         raise TemplateRefused("secret_bearing_mismatch")
-    if canonical_digest(version.subject, version.body_text) != version.content_sha256:
+    if version_digest(version.subject, version.body_text, version.subject_reference) != version.content_sha256:
         raise TemplateRefused("content_digest_mismatch")
 
 

@@ -18,6 +18,11 @@ Rules it keeps:
   otherwise the active challenge (if any) is superseded and a new challenge and send action are created. Expiry is
   compared with the database clock.
 
+The receipt (bgl.5; 034 rows 7 and 9): a new application gets one `send_receipt` action in the same transaction, queued
+before its verification send, when the separate receipt is on (`notices.receipt_mode() == "separate"`). Its key names the
+application, so there is never a second: a repeat, a revision or a reissue adds none (the first generation's "no second
+receipt"). In "verification" mode the verification mail is the receipt and nothing extra is queued.
+
 Failure guarantee: acceptance is atomic, so the records above commit together or not at all. A
 DatabaseError raised before the commit means nothing was committed. A connection lost at the commit
 itself leaves the caller unable to tell whether it committed (PostgreSQL reports the outcome only over
@@ -37,12 +42,13 @@ from django.db.models.functions import Now
 
 from workflow.models import PendingAction
 
-from . import invitations
+from . import invitations, notices
 from .identity import email_key
 from .models import OPEN_STAGES, Application, ApplicationEvent, ContactChallenge, SubmissionVersion
 
 OPEN_KEY_CONSTRAINT = "application_one_open_per_email_key"
 SEND_VERIFICATION = "send_verification"
+SEND_RECEIPT = "send_receipt"  # bgl.5
 
 
 class NotInvited(Exception):
@@ -74,6 +80,20 @@ def open_staff_item(application, reason: str, attention_event) -> None:
 
 def send_verification_key(challenge_public_id) -> str:
     return f"{SEND_VERIFICATION}:{challenge_public_id}"
+
+
+def send_receipt_key(application_public_ref) -> str:
+    """One receipt per application, ever (bgl.5): the key names the application, not a version or a challenge."""
+    return f"{SEND_RECEIPT}:{application_public_ref}"
+
+
+def _queue_receipt(application, version) -> None:
+    """bgl.5: the separate receipt for a new application, for the version that created it, queued before the
+    verification send (the claim order is due time, then id), so the receipt is the applicant's first mail."""
+    PendingAction.objects.create(
+        kind=SEND_RECEIPT, subject_type="application", subject_id=application.public_ref, input_ref=str(version.public_id),
+        idempotency_key=send_receipt_key(application.public_ref), status=PendingAction.Status.QUEUED,
+    )
 
 
 def _open_application(key):
@@ -185,7 +205,10 @@ def accept_submission(data) -> Outcome:
         number = _next_version_number(application)
         verified = application.contact_verified_at is not None
         origin = SubmissionVersion.Origin.REPEAT_AFTER_VERIFICATION if verified else SubmissionVersion.Origin.FORM
-        SubmissionVersion.objects.create(application=application, version_number=number, origin=origin, submitted_fields=fields)
+        version = SubmissionVersion.objects.create(application=application, version_number=number, origin=origin,
+                                                   submitted_fields=fields)
+        if new_application and notices.receipt_mode() == "separate":
+            _queue_receipt(application, version)
         new_challenge = False if verified else _issue_challenge(application)
         event = dict(application=application, actor_type=ApplicationEvent.ActorType.APPLICANT, data={"version_number": number})
         ApplicationEvent.objects.create(kind="submission_received" if new_application else "repeat_submission", **event)

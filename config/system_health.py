@@ -437,9 +437,12 @@ def intake_health() -> dict:
     anomalies += ["registry_provisional"] if locked else []
     # 9kg.80: the verification mail's state; in a live environment without approved real wording, intake is withheld.
     anomalies += ["verification_template_unapproved"] if notices.verification_withheld() else []
+    # bgl.5: with the separate receipt on, its state too (in "verification" mode the line above covers the receipt).
+    anomalies += ["receipt_template_unapproved"] if notices.receipt_withheld() else []
     return {"mode": settings.CATALYST_INTAKE_MODE, "client_identity": settings.CATALYST_CLIENT_IDENTITY,
             "live_invitations": Invitation.objects.filter(LIVE).count(), "data_notice": notice,
-            "verification": notices.status(notices.VERIFICATION), "registry_provisional": locked, "anomalies": anomalies}
+            "verification": notices.status(notices.verification_template()), "registry_provisional": locked,
+            "anomalies": anomalies}
 
 
 def report() -> dict:

@@ -14,6 +14,8 @@ from django.db import models
 from django.db.models import Q
 from django.db.models.functions import Now
 
+from . import reference as references
+
 # Journey stages (004 section 2). "Open" means any non-terminal stage, including `active`.
 OPEN_STAGES = (
     "submitted", "contact_verified", "evidence", "assessing", "awaiting_answers", "awaiting_decision",
@@ -42,6 +44,11 @@ class Stage(models.TextChoices):
 
 class Application(models.Model):
     public_ref = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    # bgl.5: the applicant-facing `CAT-XXXX-XXXX` label (applications.reference), set once at creation; a label for
+    # subjects and the dossier, never an authenticator. An imported first-generation application passes its own. The
+    # database default (migration 0010) covers a row inserted outside the ORM.
+    reference = models.CharField(max_length=13, unique=True, default=references.new_reference, editable=False,
+                                 db_default=models.Func(function=references.DB_FUNCTION, output_field=models.CharField()))
     email = models.CharField(max_length=320)  # as typed; used for sending
     email_key = models.CharField(max_length=320)  # normalized identity key (005 S1.3)
     display_name = models.CharField(max_length=200)
@@ -62,6 +69,7 @@ class Application(models.Model):
             # held unique here, so a tombstone never collides with another or stands in for a real key (no `@`).
             models.UniqueConstraint(fields=["email_key"], condition=Q(email_key__startswith="erased:"),
                                     name="application_tombstone_key_unique"),
+            models.CheckConstraint(condition=Q(reference__regex=references.STORED_PATTERN), name="application_reference_format"),
         ]
 
     def __str__(self):

@@ -73,7 +73,8 @@ RECONCILED = "post-restore review run done; effects reconciled"
 # Kinds the ledger may run again safely but that still reach outside: a mail, a billed model call, a fetch. The decline
 # notice's freeze (`send_decline`, oc4.11) sends nothing itself, but one that ran after T left no record of the notice it
 # froze and sent, so running it again would send a second notice: it becomes uncertain like the others (PR #98 review).
-OUTWARD_REDELIVERABLE = ("send_verification", "run_assessment", "interpret_message", "fetch_evidence", "send_decline")
+OUTWARD_REDELIVERABLE = ("send_verification", "run_assessment", "interpret_message", "fetch_evidence", "send_decline",
+                         "send_receipt")  # bgl.5: a receipt in flight at the restore point is never sent twice unseen
 ITEM_CONFIRMATION = "restore_confirmation_link_closed"
 ITEM_WITHDRAWAL = "restore_withdrawal_link_closed"
 # The staff items opened for applicants whose link was closed, by cause: a restore, or a leaked link-signing key (027).
