@@ -1,6 +1,6 @@
 """Invitation-only intake (9kg.43; 029 sections 4.1 and 7; REQ-003, REQ-027, POL-01).
 
-While CATALYST_INTAKE_MODE is "invitation" (fixed in code, the shipped default; config.guards), the public form accepts
+While CATALYST_INTAKE_MODE is "invitation" (the default when the environment sets none; config.guards), the public form accepts
 only an address holding a live invitation: one issued by the owner-run `catalyst_invite`, unused, not superseded and
 unexpired by the database clock. The check runs inside the intake transaction (`admits`): an uninvited submission does
 every write the invited one does and is then rolled back, so the applicant's response and its timing are those of an

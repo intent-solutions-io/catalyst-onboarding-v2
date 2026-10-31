@@ -1709,7 +1709,7 @@ P6_SUPPORTING = {
     "9kg.31.11 production is admitted in code with every live refusal in force, and its stack is staging's with reviewed inputs (026)": [
         "test_guards::test_only_the_four_named_environments_are_allowed",
         "test_guards::test_9kg_31_11_production_keeps_model_advice_fetching_agreements_and_provisioning_off",
-        "test_guards::test_9kg_31_11_production_runs_invitation_only_on_its_own_host",
+        "test_guards::test_9kg_31_11_production_runs_on_its_own_host_in_either_intake_mode",
         "test_guards::test_9kg_31_11_production_never_sinks_or_prints_django_mail",
         "test_guards::test_9kg_31_11_the_refusing_backend_refuses_every_message_and_writes_nothing",
         "test_guards::test_9kg_31_11_production_is_a_deployment_for_every_deployment_rule",
@@ -1911,7 +1911,7 @@ P6_SUPPORTING = {
     ],
     # PL-A batch item 1 (029 sections 4.1, 7 and 13.3): invitation-only intake, enforced server-side.
     "9kg.43 intake is invitation-only by default, enforced in the service, spent once at confirmation": [
-        "test_invitation::test_9kg_43_the_shipped_default_is_invitation_only_and_the_mode_is_fixed_in_code",
+        "test_invitation::test_9kg_43_the_shipped_default_is_invitation_only_and_the_mode_comes_only_from_the_environment",
         "test_invitation::test_9kg_43_an_uninvited_address_gets_exactly_the_invited_response_and_nothing_is_recorded",
         "test_invitation::test_9kg_43_an_invitation_is_spent_at_confirmation_once_and_the_applicant_stays_admitted_afterwards",
         "test_invitation::test_9kg_43_concurrent_confirmations_spend_the_invitation_once",
@@ -1919,6 +1919,25 @@ P6_SUPPORTING = {
         "test_invitation::test_9kg_43_issuance_is_an_owner_run_command_that_records_who_issued_it_and_nobody_else_can_change",
         "test_invitation::test_9kg_43_with_the_mode_off_the_public_intake_is_unchanged",
         "test_invitation::test_9kg_43_the_dossier_the_health_report_and_the_release_receipt_show_the_mode",
+    ],
+    # 034 rows 1, 2, 4 and 5: the public entry on the first generation's URLs.
+    "bgl.2 the intake mode comes from the environment; open intake accepts anyone on the exact first-generation paths and on the listed public host aliases; a honeypot and a signed render time record nothing; global caps defer, never refuse": [
+        "test_public_intake::test_bgl_2_the_mode_is_read_from_the_environment_and_a_bad_value_refuses_start_up",
+        "test_public_intake::test_bgl_2_open_mode_accepts_an_uninvited_submission",
+        "test_public_intake::test_bgl_2_invitation_mode_still_refuses_an_uninvited_address_silently",
+        "test_public_intake::test_bgl_2_the_exact_paths_without_a_slash_answer_and_the_slash_forms_still_do",
+        "test_public_intake::test_bgl_2_the_page_carries_a_fresh_render_time_and_the_hidden_honeypot",
+        "test_public_intake::test_bgl_2_a_filled_honeypot_looks_exactly_like_success_and_records_nothing",
+        "test_public_intake::test_bgl_2_a_bad_render_time_gets_the_form_back_with_its_values_and_records_nothing",
+        "test_public_intake::test_bgl_2_the_render_time_bounds_are_the_first_generations",
+        "test_public_intake::test_bgl_2_over_the_hourly_cap_the_applicant_is_accepted_and_the_verification_waits",
+        "test_public_intake::test_bgl_2_the_deferral_counts_releases_per_hour_and_per_day",
+        "test_public_intake::test_bgl_2_aliases_come_from_the_environment_into_the_allowed_hosts_and_trusted_origins",
+        "test_public_intake::test_bgl_2_an_alias_host_gets_the_form_and_submits_with_csrf_on_its_own_origin",
+        "test_public_intake::test_bgl_2_a_host_that_is_not_listed_gets_400_and_an_alias_never_serves_the_staff_or_health_paths",
+        "test_staging_proxy::test_bgl_2_the_alias_site_serves_only_the_public_request_pages",
+        "test_live_canary::test_bgl_2_open_intake_checks_that_no_data_notice_is_shown_and_still_invites_the_erasure_subject",
+        "test_live_canary::test_bgl_2_invitation_mode_is_the_default_and_checks_the_data_notice",
     ],
     # 030 Q8 and Q4 (D-51): the one-paragraph data notice as an owner-approved template, and the member-on-file flag.
     "9kg.52 the data notice renders from one approved template on the intake page and in the invitation mail; a member's first-generation agreement on file is referenced, never re-signed, and never declined in v2": [

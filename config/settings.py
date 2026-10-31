@@ -55,6 +55,14 @@ ALLOWED_HOSTS = [h.strip() for h in env("CATALYST_ALLOWED_HOSTS", "localhost").s
 # host that may serve the staff screens and the admin. Staging and later must name a staff host (config.guards).
 CATALYST_LOCAL_HOSTS = [h.strip() for h in os.environ.get("CATALYST_LOCAL_HOSTS", "localhost").split(",") if h.strip()]
 CATALYST_STAFF_HOST = os.environ.get("CATALYST_STAFF_HOST", "").strip()
+# bgl.2 (034 section 3.1): other host names the public applicant pages answer on, for the learning host's proxy, which
+# forwards the first generation's exact paths with the browser's Host and Origin unchanged. Comma-separated, empty by
+# default (with several, write ", " between them: the stack proxy reads the same value as its site address list); each
+# is added to ALLOWED_HOSTS and (outside the local environments) to CSRF_TRUSTED_ORIGINS as https://<alias>.
+# config.guards refuses a non-plain name, a wildcard, the staff host and a local host; HostGuard never serves the staff
+# screens or the health paths on one; the stack proxy forwards only the public request paths for them.
+CATALYST_PUBLIC_HOST_ALIASES = [h.strip() for h in os.environ.get("CATALYST_PUBLIC_HOST_ALIASES", "").split(",") if h.strip()]
+ALLOWED_HOSTS += [h for h in CATALYST_PUBLIC_HOST_ALIASES if h not in ALLOWED_HOSTS]
 
 INSTALLED_APPS = [
     "config.apps.CatalystConfig",
@@ -553,7 +561,7 @@ if CATALYST_ENV not in LOCAL_ENVIRONMENTS:
     SECURE_HSTS_SECONDS = 300
     SECURE_HSTS_INCLUDE_SUBDOMAINS = False
     SECURE_HSTS_PRELOAD = False
-    CSRF_TRUSTED_ORIGINS = [CATALYST_PUBLIC_BASE_URL]
+    CSRF_TRUSTED_ORIGINS = [CATALYST_PUBLIC_BASE_URL, *(f"https://{alias}" for alias in CATALYST_PUBLIC_HOST_ALIASES)]
     # Deliberate (026 P6-D-3, section 8): HSTS stays short and covers no subdomains and no preload list.
     SILENCED_SYSTEM_CHECKS = ["security.W005", "security.W021"]
 
@@ -571,10 +579,24 @@ CATALYST_THROTTLE_WEBHOOK_PER_CLIENT = number("CATALYST_THROTTLE_WEBHOOK_PER_CLI
 # config.guards refuses any other value, an environment-sourced value, and "direct" outside the local environments.
 CATALYST_CLIENT_IDENTITY = "direct" if CATALYST_ENV in LOCAL_ENVIRONMENTS else "proxy"
 # 9kg.43 (029 sections 4.1 and 7): who may apply. "invitation": only an address holding a live invitation issued by the
-# owner-run `catalyst_invite` (applications.invitations); "open": anyone. Fixed in code, so changing it is a release
-# whose receipt records the mode; never read from the environment (config.guards). The shipped default is
-# invitation-only; the test suite opens it per test (tests/conftest.py) and proves the default from a fresh process.
-CATALYST_INTAKE_MODE = "invitation"
+# owner-run `catalyst_invite` (applications.invitations); "open": anyone (034 row 2, bgl.2: the public entry on the
+# first-generation URLs). Read from the environment so the host opens or closes intake without a release; unset is
+# invitation-only, and any value but the two is refused at start-up (config.guards), never an open form. The release
+# receipt and the health report record the mode in force. The test suite opens it per test (tests/conftest.py) and
+# proves the default from a fresh process.
+CATALYST_INTAKE_MODE = os.environ.get("CATALYST_INTAKE_MODE", "invitation")
+# bgl.2 (034 row 4): the request form's bot checks (applications.abuse). A hidden honeypot field and a signed render
+# time: a filled honeypot gets the received page and nothing is recorded; a missing, forged or expired render time, or
+# a submission faster than a person could fill the form, gets the form back (status 400) and nothing is recorded.
+# The first generation's values: at least 3 seconds and at most 2 hours after the page was rendered.
+CATALYST_INTAKE_FORM_CHECKS = True  # fixed in code; the test suite turns it off per test (tests/conftest.py)
+CATALYST_INTAKE_FORM_MIN_AGE_SECONDS = number("CATALYST_INTAKE_FORM_MIN_AGE_SECONDS", "3", minimum=0)
+CATALYST_INTAKE_FORM_MAX_AGE_SECONDS = number("CATALYST_INTAKE_FORM_MAX_AGE_SECONDS", str(2 * 3600))
+# bgl.2 (034 row 5): global caps on new applications per UTC clock hour and per UTC day (the first generation's 30 and
+# 100). A new application over a cap is still accepted and stored; its verification mail, and so its confirmation and
+# everything after it, waits for the first window with room (applications.services).
+CATALYST_INTAKE_GLOBAL_PER_HOUR = number("CATALYST_INTAKE_GLOBAL_PER_HOUR", "30")
+CATALYST_INTAKE_GLOBAL_PER_DAY = number("CATALYST_INTAKE_GLOBAL_PER_DAY", "100")
 CATALYST_INVITATION_LIFETIME_SECONDS = number("CATALYST_INVITATION_LIFETIME_SECONDS", str(14 * 86400))
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

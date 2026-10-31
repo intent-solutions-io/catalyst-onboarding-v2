@@ -67,16 +67,21 @@ def closed(settings):
 
 # --- the mode: fixed in code, invitation-only by default -------------------------------------------------------
 
-def test_9kg_43_the_shipped_default_is_invitation_only_and_the_mode_is_fixed_in_code():
+def test_9kg_43_the_shipped_default_is_invitation_only_and_the_mode_comes_only_from_the_environment():
     local = run(PROBE)
     assert local.returncode == 0, local.stderr
     assert local.stdout.split() == ["invitation", "direct"]
     staging = run(PROBE, **STAGING)
     assert staging.returncode == 0, staging.stderr
     assert staging.stdout.split() == ["invitation", "proxy"]
-    for name, value in (("CATALYST_INTAKE_MODE", "open"), ("CATALYST_CLIENT_IDENTITY", "direct")):
-        refused = run(CHECK, **{name: value})
-        assert refused.returncode != 0 and f"{name} may not be set from the environment" in refused.stderr
+    # bgl.2 (034 row 2): the host opens intake through the environment; the client-identity source stays fixed in code.
+    opened = run(PROBE, CATALYST_INTAKE_MODE="open")
+    assert opened.returncode == 0 and opened.stdout.split() == ["open", "direct"], opened.stderr
+    refused = run(CHECK, CATALYST_CLIENT_IDENTITY="direct")
+    assert refused.returncode != 0 and "CATALYST_CLIENT_IDENTITY may not be set from the environment" in refused.stderr
+    for bad in ("closed", "OPEN", " open"):
+        refused = run(CHECK, CATALYST_INTAKE_MODE=bad)
+        assert refused.returncode != 0 and "CATALYST_INTAKE_MODE must be 'invitation' (the default) or 'open'" in refused.stderr, bad
     # An unset or invalid mode value is a start-up problem, never an open form.
     for bad in ("", None, "closed", "Invitation", "invite"):
         problems = guards.intake_problems(SimpleNamespace(CATALYST_INTAKE_MODE=bad, CATALYST_CLIENT_IDENTITY="direct", CATALYST_ENV="test"), {})
