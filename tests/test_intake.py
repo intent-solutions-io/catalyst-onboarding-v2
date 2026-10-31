@@ -21,11 +21,12 @@ from django.utils import timezone
 from applications import services
 from applications.identity import email_key
 from applications.models import Application, ApplicationEvent, ContactChallenge, SubmissionVersion, VersionAdoption
+from tests import support
 from workflow.models import PendingAction
 
 FORM = reverse("applications:request_access")
 RECEIVED = reverse("applications:request_access_received")
-VALID = {"name": "Ada Example", "email": "ada@example.test", "reason": "Synthetic reason for access."}
+VALID = {"name": "Ada Example", "email": "ada@example.test", "reason": "Synthetic reason for access.", **support.INTAKE_ANSWERS}
 
 
 def post(client, data=None, **fields):
@@ -97,7 +98,8 @@ def test_s1_01_valid_submission_records_everything_once(client):
     assert app.next_version_number == 2
     version = SubmissionVersion.objects.get()
     assert (version.application_id, version.version_number, version.origin) == (app.id, 1, "form")
-    assert version.submitted_fields == {"name": "Ada Example", "email": "ada@example.test", "reason": "Synthetic reason for access."}
+    assert version.submitted_fields == {"name": "Ada Example", "email": "ada@example.test", "reason": "Synthetic reason for access.",
+                                        **support.STORED_ANSWERS}
     event = ApplicationEvent.objects.get()
     assert (event.kind, event.actor_type, event.data) == ("submission_received", "applicant", {"version_number": 1})
     challenge = active_challenges(app).get()

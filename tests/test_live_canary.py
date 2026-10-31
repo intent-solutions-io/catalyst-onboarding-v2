@@ -207,6 +207,8 @@ class FakePlaywright:
 
         class Locator:
             def fill(self, value): pass
+            def select_option(self, value): pass  # bgl.3: the country and interest selects
+            def check(self): pass  # bgl.3: the "none" ticks, the consent and the 18+ attestation
             def click(self): pass
             def inner_text(self): return "Email address confirmed"
             def count(self): return 0

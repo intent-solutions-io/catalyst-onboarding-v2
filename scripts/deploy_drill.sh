@@ -73,7 +73,9 @@ submit() {  # submit <email>: the owner's invitation, then an applicant through 
   [ "$(curl -sk -b "$jar" -o /dev/null -w '%{http_code}' --resolve catalyst.staging.test:18443:127.0.0.1 \
     -H 'Referer: https://catalyst.staging.test:18443/request-access/' -H 'Origin: https://catalyst.staging.test:18443' \
     --data-urlencode "csrfmiddlewaretoken=$csrf" --data-urlencode 'name=Deploy Drill' --data-urlencode "email=$1" \
-    --data-urlencode 'reason=Synthetic reason for access.' https://catalyst.staging.test:18443/request-access/)" = 302 ]
+    --data-urlencode 'reason=Synthetic reason for access.' \
+    --data-urlencode 'residence_country=GB' --data-urlencode 'phone_country=GB' --data-urlencode 'phone=+44 20 7946 0958' --data-urlencode 'interest_track=cert_only' --data-urlencode 'age_attested=on' --data-urlencode 'no_degree=on' --data-urlencode 'no_certifications=on' --data-urlencode 'verification_consent=on' \
+    https://catalyst.staging.test:18443/request-access/)" = 302 ]  # bgl.3: the answers the form requires
 }
 
 install -d -m 0700 "$work/secrets" "$work/state" "$work/wrapper" "$work/backups"

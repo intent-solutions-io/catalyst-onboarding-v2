@@ -6,3 +6,6 @@
 cfa31d7e83ff7afc165dd10aa41118beb34b597f:tests/test_personal_data_scan.py:generic-api-key:24
 # PR #88 squash merge (e2e0313) re-committed the same synthetic positive control of the personal-data scan test (9kg.40).
 e2e0313ded390447316fd4d71f49e8486d652646:tests/test_personal_data_scan.py:generic-api-key:25
+# PR #152 (bgl.10): synthetic stub passwords (Synthetic-Pw-1, Synthetic-Pw-2) in the mail-host adapter test; the stub never reaches a real host.
+22c0bd3acae579c2c935ce1702e58d97a2320dcb:tests/test_parity_mxroute.py:generic-api-key:118
+22c0bd3acae579c2c935ce1702e58d97a2320dcb:tests/test_parity_mxroute.py:generic-api-key:122
