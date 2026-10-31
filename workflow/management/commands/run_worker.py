@@ -58,6 +58,10 @@ class Command(BaseCommand):
                 raise CommandError(f"effect journal directory is {problem}: CATALYST_EFFECT_JOURNAL_DIR")
             journal.ensure_genesis()  # every later backup anchors to this journal's identity
         if settings.CATALYST_PROCESS_ROLE != "fetcher":
+            from assessments import live
+
+            live.allow_requests()  # bgl.12: on only under the live activation, in a synthetic environment, when configured
+        if settings.CATALYST_PROCESS_ROLE != "fetcher":
             from config.apps import sweep_custody_keys
 
             sweep_custody_keys()  # 9kg.34: journaled custody-key destructions are finished before any work

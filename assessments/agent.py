@@ -1,23 +1,26 @@
-"""The PydanticAI assessment agent (018 5.5, 5.6, 6; task 3B.2). Test models only.
+"""The PydanticAI assessment agent (018 5.5, 5.6, 6; task 3B.2). Test models, and the live branch behind its activation.
 
 Live model use is refused in three layers (018 5.5): `pydantic_ai.models.ALLOW_MODEL_REQUESTS = False` is set when
 this module is imported, which is the only way any code reaches a model (it costs about 2 s to import, so it is not
-done in every process's `ready()`); `build_model` has no live branch at all (no provider client is even
-installed: the dependency is `pydantic-ai-slim` without a provider extra) and returns a test model only when
-`CATALYST_ASSESSMENT_MODEL == "test"` in the `test` environment; and `config.guards.assessment_problems` refuses
-any other value at start-up. Agent instrumentation is never enabled.
+done in every process's `ready()`); `build_model` returns a test model only when `CATALYST_ASSESSMENT_MODEL == "test"`
+in a synthetic environment, and reaches the live branch (`assessments.live`, parity track bgl.12) only when the live
+activation is on in a synthetic environment, the setting names a live model, the owner's recorded approval of exactly
+this use stands, the client is configured and the worker entry point has switched the request flag on; and
+`config.guards.assessment_problems` refuses any live value, base URL, key or activation outside `test` and `staging`.
+At the default configuration no live branch is reachable anywhere (D-53, "no model"). Agent instrumentation is never
+enabled.
 
 One attempt = at most 2 model requests (the call and one repair, `retries=1`): an output that fails
 `schema.problems` raises `ModelRetry` once, then `UnexpectedModelBehavior` ends the attempt as invalid output.
-SDK and transport retries do not exist here (no provider client); the ledger's attempt bound is the only other
-retry layer, so the requests per snapshot are bounded by 2 x the attempt bound (018 6).
+SDK and transport retries do not exist here (the live client is built with zero retries); the ledger's attempt bound
+is the only other retry layer, so the requests per snapshot are bounded by 2 x the attempt bound (018 6).
 
-oc4.9, the live-call protections (018 section 21), all in the one checked-run path the assessment and the reply
-interpreter share:
+oc4.9, the live-call protections (018 section 21), all in the one checked-run path the assessment, the reply
+interpreter and the clarification draft and check share:
 
 - **approval before any live request:** `build_model(use)` asks `approval.require` for the owner's recorded approval
-  of exactly this use whenever the model setting is anything but "none" or "test"; with no live branch, an approved
-  use still ends `model_not_authorized`;
+  of exactly this use whenever the model setting is anything but "none" or "test"; without the activation, an
+  approved use still ends `model_not_authorized`;
 - **the approved fields bound to what is sent:** the request builders report the source fields they used, and a
   field outside `approval.FIELDS` refuses (`fields_not_approved`); a live approval's terms carry that same list, so
   `approval.require` refuses a changed list as stale;
@@ -26,7 +29,7 @@ interpreter share:
   renews the claim's lease through the active `workflow.keeper.LeaseKeeper` (a heartbeat thread also renews it while
   a call outlives a third of the lease); a lost lease raises `ledger.LeaseLost` and no further request is made;
 - **a provider-side timeout Catalyst enforces:** each request is bounded by
-  `CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS` around the model call (and the same value goes to a provider client
+  `CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS` around the model call (and the same value goes to the provider client
   as its own timeout); a timeout is a provider error, never an adverse result. One attempt fits in half the lease
   (`config.guards.attempt_lease_problems`).
 """
@@ -46,7 +49,7 @@ from pydantic_ai.models.wrapper import WrapperModel
 from config import guards
 from workflow import keeper as keepers, ledger
 
-from . import approval
+from . import approval, live
 from .schema import AssessmentOutput, problems
 
 _models.ALLOW_MODEL_REQUESTS = False  # 018 5.5, first layer: no request to a non-test model, in any environment
@@ -79,7 +82,7 @@ class Outcome:
     input_tokens: int
     output_tokens: int
     model_id: str
-    provider: str = "test"  # only test models exist (018 5.5)
+    provider: str = "test"  # a test model, or the live provider's name (assessments.live)
     output_mode: str = "tool"  # the default output mode for a pydantic output type
 
 
@@ -89,9 +92,10 @@ MODEL_SETTINGS = {"max_tokens": 4000, "temperature": 0.0}
 
 
 def build_model(use: "approval.Use | None" = None):
-    if _models.ALLOW_MODEL_REQUESTS:  # nothing may switch the first layer back on
-        raise ModelUnavailable("model_requests_enabled")
     mode = settings.CATALYST_ASSESSMENT_MODEL
+    named = approval.parse_model(mode)
+    if _models.ALLOW_MODEL_REQUESTS and not (named and live.activated()):
+        raise ModelUnavailable("model_requests_enabled")  # the first layer switched on by anything but the activation
     if mode == "test" and guards.synthetic(settings.CATALYST_ENV):
         model = TEST_MODEL if TEST_MODEL is not None else TestModel()
         if not isinstance(model, (TestModel, FunctionModel)):
@@ -104,7 +108,14 @@ def build_model(use: "approval.Use | None" = None):
             approval.require(use)
         except approval.NotApproved as exc:
             raise ModelUnavailable(str(exc)) from None
-    raise ModelUnavailable("model_not_authorized")  # no live branch exists: an approval is necessary, never sufficient
+        if named and live.activated():  # bgl.12: the live branch, after the approval and only under the activation
+            problem = live.configured()
+            if problem:
+                raise ModelUnavailable(problem)
+            if not _models.ALLOW_MODEL_REQUESTS:
+                raise ModelUnavailable("model_requests_disabled")  # the worker entry point alone switches it on
+            return live.build(*named, timeout=float(settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS))
+    raise ModelUnavailable("model_not_authorized")  # an approval is necessary, never sufficient
 
 
 class _Guarded(WrapperModel):
@@ -177,14 +188,14 @@ def run_checked(system: str, prompt: str, output_type, check, use: "approval.Use
         raise ModelUnavailable("fields_not_approved")
     model = build_model(use)
     keeper = keepers.current()
-    live = not isinstance(model, (TestModel, FunctionModel))
-    if live and keeper is None:
+    is_live = not isinstance(model, (TestModel, FunctionModel))
+    if is_live and keeper is None:
         raise ModelUnavailable("no_lease_fence")  # never skipped silently: a live call always runs fenced
-    if live and use is None:
+    if is_live and use is None:
         raise ModelUnavailable("model_use_not_approved")
     timeout = float(settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS)
     guarded = _Guarded(model, fence=keeper.fence if keeper is not None else None,
-                       check=_recheck(use) if live else None,
+                       check=_recheck(use) if is_live else None,
                        after=keeper.beat if keeper is not None else None, timeout=timeout)
     agent = Agent(guarded, output_type=output_type, system_prompt=system, retries=approval.REPAIR_LIMIT)
 
@@ -215,6 +226,8 @@ def run_checked(system: str, prompt: str, output_type, check, use: "approval.Use
         raise InvalidOutput(code, last) from None
     except (ModelUnavailable, InvalidOutput, BudgetStop):
         raise
+    except live.transport_errors() as exc:  # the provider client failed (connection, timeout, status): never adverse
+        raise ProviderError(type(exc).__name__) from None
     except RuntimeError as exc:
         if "ALLOW_MODEL_REQUESTS" in str(exc):
             raise ModelUnavailable("model_requests_disabled") from None
@@ -222,7 +235,8 @@ def run_checked(system: str, prompt: str, output_type, check, use: "approval.Use
     except (OSError, TimeoutError) as exc:  # the provider call itself failed; never an adverse result
         raise ProviderError(type(exc).__name__) from None
     requests, input_tokens, output_tokens = _usage(result)
-    return Outcome(result.output, requests, input_tokens, output_tokens, getattr(model, "model_name", type(model).__name__))
+    provider = approval.parse_model(settings.CATALYST_ASSESSMENT_MODEL)[0] if is_live else "test"
+    return Outcome(result.output, requests, input_tokens, output_tokens, getattr(model, "model_name", type(model).__name__), provider)
 
 
 def assess(request, use: "approval.Use | None" = None) -> Outcome:

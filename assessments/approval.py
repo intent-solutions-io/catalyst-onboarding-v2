@@ -5,6 +5,8 @@ An approval (`ModelUseApproval`, written only by the owner-run `approve_model_us
 terms-bound approval for one purpose (`assessment` or `interpretation`, which share the checked-run path and the
 daily budget). It is valid for every request whose terms match, for every applicant, until the owner revokes it or a
 term changes; it has no expiry (an expiry is an owner decision, not built here). The terms are below.
+A live use for `clarification_draft` and
+`clarification_check` (bgl.12, `assessments.clarify`) is approved the same way, each on its own.
 `require(use)` recomputes the terms for the call at hand and refuses unless the latest record for the purpose is an
 approval whose digest is the same, whose stored terms still hash to that digest, and whose provider and model id
 columns name the model in the setting:
@@ -17,8 +19,9 @@ columns name the model in the setting:
 - `model_not_authorized`: the model setting names no provider and model id.
 
 The check runs before any reservation (the run's and the interpreter's pre-call) and again inside the checked run,
-just before the model is used. Test models make no live request and need no approval. The live branch itself does
-not exist yet (`agent.build_model`): an approval is necessary, never sufficient.
+just before the model is used. Test models make no live request and need no approval. The live branch
+(`assessments.live`, bgl.12) is built only under an activation that is off in code and refused outside the synthetic
+environments: an approval is necessary, never sufficient.
 """
 
 import hashlib
@@ -32,7 +35,9 @@ REPAIR_LIMIT = 1  # one output repair per attempt (agent.run_checked: retries=RE
 REQUESTS_PER_ATTEMPT = 1 + REPAIR_LIMIT
 BUILDER_VERSION = "1"  # bump on any change to snapshot.clean, scrub, _fence, build_request or interpret.build_prompt
 INTERPRET_SCHEMA_VERSION = "1"  # interpret.InterpretOutput.schema_version
-PURPOSES = ("assessment", "interpretation")
+# bgl.12: the clarification draft and its check are two more purposes through the same checked-run path, each needing
+# its own recorded approval; nothing of the applicant's leaves in them (assessments.clarify).
+PURPOSES = ("assessment", "interpretation", "clarification_draft", "clarification_check")
 
 # The exact fields that may leave Catalyst for each purpose (018 section 5.2), as the request builders send them:
 # `snapshot._claim_texts` and `snapshot.build_request` for the assessment, `interpret.Interpreter.interpret` for the
@@ -46,6 +51,10 @@ FIELDS = {
         "evidence_captures[].outcome", "missing_evidence[].claim_status", "rubric.criteria[].definition",
     ),
     "interpretation": ("questions[].text", "reply.derived_text_outside_quoted_and_own_text"),
+    "clarification_draft": ("proposed_questions[].text", "proposed_questions[].why_needed", "proposed_questions[].alternative_route",
+                            "rubric.criteria[].definition", "questions[].text"),
+    "clarification_check": ("proposed_questions[].text", "proposed_questions[].why_needed", "proposed_questions[].alternative_route",
+                            "rubric.criteria[].definition", "questions[].text", "draft.body"),
 }
 BUDGETS = (
     "CATALYST_ASSESSMENT_ATTEMPTS", "CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT", "CATALYST_ASSESSMENT_RUNS_PER_APPLICATION",

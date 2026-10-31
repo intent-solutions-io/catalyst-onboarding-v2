@@ -37,7 +37,7 @@ from workflow import ledger
 from workflow.keeper import LeaseKeeper
 from workflow.models import AutomationPause, PendingAction
 
-from . import agent, approval, clarification, pack as packs, snapshot
+from . import agent, approval, clarification, pack as packs, routine, snapshot
 from .models import AssessmentInvocation, AssessmentRun
 from .schema import SCHEMA_VERSION, flags
 
@@ -312,4 +312,5 @@ class RunAssessment:
             except StageConflict:
                 return  # the application left `assessing` meanwhile: the run is history only, and proposes nothing
             clarification.propose_from_run(run, outcome.output)  # stored proposed; nothing is sent (P3-D-5)
+            routine.enqueue(run)  # bgl.12: nothing below CATALYST_ROUTINE_ADVANCE_ACTIVATION 1; the policy reads the output there
         ledger.finish(claim, self, status=Status.DONE, write=write)

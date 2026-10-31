@@ -30,8 +30,9 @@ model provider client would use (`httpx2`, which PydanticAI's provider clients a
 installed) raise on every request, loopback included: both clients' `send` and both default transports are patched,
 so a client with the default transport or any transport class of these libraries cannot reach a model endpoint. It
 does not cover a client that brings a transport of its own outside these libraries, or another HTTP library;
-tests/test_live_safety.py fails if the dependencies gain one (openai, anthropic, requests, aiohttp, httpx) before this
-fixture covers it. Nothing in Catalyst uses these libraries for its own traffic."""
+tests/test_live_safety.py fails if the dependencies gain one (anthropic, requests, aiohttp, httpx) before this
+fixture covers it; `openai` (the live branch's client, bgl.12) uses httpx2 and is covered. Nothing in Catalyst uses
+these libraries for its own traffic."""
 
 import ipaddress
 import json

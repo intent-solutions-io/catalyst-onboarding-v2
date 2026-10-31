@@ -560,7 +560,7 @@ def test_p3_50_the_recommendation_never_chooses_the_next_step(a, monkeypatch, se
 
 def test_p3_50_no_provider_client_and_no_output_field_in_control_flow():
     code = {p.name: p.read_text() for p in Path(support.ROOT, "assessments").rglob("*.py") if "migrations" not in p.parts}
-    flow = code["runs.py"] + code["services.py"] + code["collection.py"] + code["decisions.py"]
+    flow = code["runs.py"] + code["services.py"] + code["collection.py"] + code["decisions.py"] + code["routine.py"]
     for field in ("recommendation", "confidence", "proposed_questions", "injection_suspected", ".rating", '"rating"',
                   "'rating'"):
         assert field not in flow, field
@@ -570,9 +570,11 @@ def test_p3_50_no_provider_client_and_no_output_field_in_control_flow():
         assert field not in clarification, field
     propose = clarification.split("def propose_from_run")[1].split("\ndef ")[0]
     assert "proposed_questions" in propose and "transition" not in propose
-    for text in code.values():
-        for banned in ("import openai", "from openai", "import anthropic", "agreements", "provisioning", "logfire.configure"):
-            assert banned not in text, banned
+    for name, text in code.items():
+        # bgl.12: the provider client is imported by the live branch alone (assessments/live.py), behind its activation
+        for banned in (("import anthropic", "agreements", "provisioning", "logfire.configure")
+                       + (() if name == "live.py" else ("import openai", "from openai"))):
+            assert banned not in text, (name, banned)
 
 
 # --- staff: items, rerun, backfill and the screen --------------------------------------------------------

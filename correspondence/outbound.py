@@ -190,6 +190,50 @@ def approve_question(question_id: int, user) -> ApprovedMessage:
     return message
 
 
+def approve_questions_by_policy(application_id: int, question_ids: list, *, body: str, actor: str) -> ApprovedMessage:
+    """bgl.12 (assessments.routine): the routine-advance policy approves, in one frozen message, the questions it was
+    allowed to send. Inside the caller's transaction with the application locked. The same preconditions as a staff
+    approval; the body is the checked draft (its own template value), the authority is `system_policy`, and the stage
+    opens the clarification round as a staff approval would. Nothing here reads model output: the caller has already
+    passed the draft through the second check and the question screen."""
+    application = Application.objects.select_for_update(of=("self",)).get(pk=application_id)
+    questions = list(Question.objects.select_for_update(of=("self",)).filter(pk__in=question_ids, application=application).order_by("id"))
+    if len(questions) != len(question_ids) or not questions:
+        raise Refused("question_not_found")
+    if any(q.status == Question.Status.WITHDRAWN or q.approval_state == Question.Approval.APPROVED for q in questions):
+        raise Refused("question_not_approvable")
+    if application.stage != Stage.AWAITING_DECISION:
+        raise Refused("application_not_awaiting_decision")
+    if StaffItem.objects.filter(question_id__in=[q.pk for q in questions], reason_code="restore_effect_unknown_send",
+                                status=StaffItem.Status.OPEN).exists():
+        raise Refused("sent_after_backup_pending_review")
+    recipient = verified_address(application)
+    if recipient is None:
+        raise Refused("contact_not_verified")
+    version = current_template_version(QUESTION_TEMPLATE)
+    if version is None:
+        raise Refused("no_approved_template_version")
+    try:
+        message = _freeze(application, ApprovedMessage.Kind.QUESTION, recipient, version,
+                          {"display_name": application.display_name, "question_text": body}, actor, ApprovedMessage.Authority.SYSTEM_POLICY)
+    except TemplateRefused as exc:
+        raise Refused(str(exc)) from None
+    Question.objects.filter(pk__in=[q.pk for q in questions]).update(
+        approval_state=Question.Approval.APPROVED, approved_by=actor, approved_at=Now(), updated_at=Now())
+    for question in questions:
+        ApprovedMessageQuestion.objects.create(approved_message=message, question=question,
+                                               purpose=ApprovedMessageQuestion.Purpose.INITIAL)
+        event(application, "question_approved", {"question": str(question.public_id), "send_ref": str(message.send_ref),
+                                                  "authority": ApprovedMessage.Authority.SYSTEM_POLICY}, actor_ref=actor)
+        journal.record("question_approved", f"send:{message.send_ref}:{question.public_id}", {
+            "question": str(question.public_id), "send_ref": str(message.send_ref), "content_sha256": message.content_sha256})
+    enqueue_send(message, 0)
+    transition(application.pk, (Stage.AWAITING_DECISION,), Stage.AWAITING_ANSWERS, event_kind="clarification_started",
+               data={"questions": [str(q.public_id) for q in questions], "authority": ApprovedMessage.Authority.SYSTEM_POLICY},
+               actor_ref=actor)
+    return message
+
+
 # --- building the wire message ----------------------------------------------------------------------------
 
 # --- the send handler -------------------------------------------------------------------------------------

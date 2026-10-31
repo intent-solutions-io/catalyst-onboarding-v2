@@ -95,7 +95,10 @@ ACKNOWLEDGE_ONLY = {"processing_error", "message_id_conflict", "mailbox_uidvalid
                     "verification_expired",
                     # bgl.8: the service-sent link that failed, an incomplete read-back and an address-quality flag are
                     # acknowledged after staff act on the agreements screen; none of them holds the sequence
-                    "agreement_link_send_failed", "agreement_details_readback_incomplete", "agreement_address_quality"}
+                    "agreement_link_send_failed", "agreement_details_readback_incomplete", "agreement_address_quality",
+                    # bgl.12: the routine-advance policy stopped (a daily cap, exhausted retries); the case is on the
+                    # decision screen either way, so an acknowledgement records that staff saw it
+                    "routine_advance_failed", "routine_send_cap_reached", "routine_request_cap_reached"}
 # 9kg.41 (owner decision on the PR #93 review): a suspended or capped snapshot closes only through the human-only
 # decision on the decision screen (which resolves it) or a later successful run, never by an acknowledgement that would
 # leave the case looking as if a run were coming.

@@ -17,7 +17,8 @@ POSTGRESQL_ENGINE = "django.db.backends.postgresql"
 # them in the environment outside test and development.
 SECRET_ENV_NAMES = ("CATALYST_SECRET_KEY", "CATALYST_VERIFICATION_KEY", "CATALYST_VERIFICATION_FALLBACK_KEYS",
                     "CATALYST_DB_PASSWORD", "CATALYST_MAIL_PASSWORD", "CATALYST_ERASURE_KEY",
-                    "CATALYST_CUSTODY_WRAPPING_KEY", "CATALYST_CUSTODY_NEXT_WRAPPING_KEY")
+                    "CATALYST_CUSTODY_WRAPPING_KEY", "CATALYST_CUSTODY_NEXT_WRAPPING_KEY",
+                    "CATALYST_ASSESSMENT_API_KEY")  # bgl.12: the live model key, a file outside test and development
 
 # Environments Catalyst may run in. `staging` (026 P6-D-2, D-49) is synthetic like `test`: the same fakes under the
 # same strict rules, never a real provider. `production` (9kg.31.11, 026 section 18) is admitted in code with every
@@ -283,15 +284,51 @@ def evidence_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return problems
 
 
+# bgl.12: the settings that reach a live model, allowed only in the synthetic environments and only under the activation.
+LIVE_MODEL_TEST_ONLY = ("CATALYST_ASSESSMENT_LIVE_BASE_URL", "CATALYST_ASSESSMENT_API_KEY")
+CODE_FIXED_ASSESSMENT = ("CATALYST_ASSESSMENT_MODEL", "CATALYST_ASSESSMENT_LIVE_ACTIVATION", "CATALYST_ROUTINE_ADVANCE_ACTIVATION")
+
+
 def assessment_problems(settings, environ: Mapping[str, str]) -> list[str]:
-    """018 5.5 (P3 3B.2): no live model anywhere. "test" (a PydanticAI test model) only in the test and
-    staging environments; every other environment must say "none"; never from the environment."""
-    problems = ["CATALYST_ASSESSMENT_MODEL may not be set from the environment"] if "CATALYST_ASSESSMENT_MODEL" in environ else []
+    """018 5.5 (P3 3B.2) and bgl.12: "test" (a PydanticAI test model) only in the test and staging environments; a live
+    value "<provider>:<model id>" only there too, and only with CATALYST_ASSESSMENT_LIVE_ACTIVATION on; every other
+    environment must say "none". The live base URL and key are allowed only in those environments, and none of the
+    model, the activations or the routine policy's activation may come from the environment."""
+    problems = [f"{name} may not be set from the environment" for name in CODE_FIXED_ASSESSMENT if name in environ]
     mode = getattr(settings, "CATALYST_ASSESSMENT_MODEL", "none")
-    if mode not in ("none", "test"):
-        problems.append("CATALYST_ASSESSMENT_MODEL must be 'none' or 'test'; live model use is not authorized")
-    elif mode == "test" and not synthetic(getattr(settings, "CATALYST_ENV", "")):
-        problems.append("CATALYST_ASSESSMENT_MODEL 'test' is allowed only in the test and staging environments")
+    environment = getattr(settings, "CATALYST_ENV", "")
+    live_activation = int(getattr(settings, "CATALYST_ASSESSMENT_LIVE_ACTIVATION", 0) or 0)
+    if mode == "test":
+        if not synthetic(environment):
+            problems.append("CATALYST_ASSESSMENT_MODEL 'test' is allowed only in the test and staging environments")
+    elif mode != "none":
+        from assessments.approval import parse_model
+
+        if parse_model(mode) is None or not synthetic(environment) or live_activation < 1:
+            problems.append("CATALYST_ASSESSMENT_MODEL must be 'none' or 'test', or name '<provider>:<model id>' in a synthetic "
+                            "environment with CATALYST_ASSESSMENT_LIVE_ACTIVATION on; live model use is not authorized here")
+    if not synthetic(environment):
+        for name in LIVE_MODEL_TEST_ONLY:
+            if getattr(settings, name, ""):
+                problems.append(f"{name} is allowed only in the test and staging environments (no live model elsewhere)")
+        if live_activation >= 1:
+            problems.append("CATALYST_ASSESSMENT_LIVE_ACTIVATION is allowed only in the test and staging environments")
+    url = getattr(settings, "CATALYST_ASSESSMENT_LIVE_BASE_URL", "")
+    if url:
+        from assessments.live import base_url_problem
+
+        if base_url_problem(url):
+            problems.append("CATALYST_ASSESSMENT_LIVE_BASE_URL must be an https URL, or http to a loopback literal")
+    routine = int(getattr(settings, "CATALYST_ROUTINE_ADVANCE_ACTIVATION", 0) or 0)
+    if routine not in (0, 1, 2):
+        problems.append("CATALYST_ROUTINE_ADVANCE_ACTIVATION must be 0 (off), 1 (shadow) or 2 (act)")
+    if routine >= 1:
+        from assessments.policy import Thresholds
+
+        try:
+            problems += Thresholds.from_settings(settings).problems()
+        except AttributeError:
+            problems.append("the routine-advance thresholds must be set when CATALYST_ROUTINE_ADVANCE_ACTIVATION is on")
     return problems + attempt_lease_problems(settings)
 
 

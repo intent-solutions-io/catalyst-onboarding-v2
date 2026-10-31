@@ -264,6 +264,7 @@ CATALYST_ACTION_HANDLERS = {
     "fetch_evidence": "assessments.collection.FetchEvidence",
     "complete_evidence_collection": "assessments.collection.CompleteEvidenceCollection",  # 9kg.24: run by the worker
     "run_assessment": "assessments.runs.RunAssessment",  # 018 4 step 4 (P3 3B.2); test models only
+    "routine_advance": "assessments.routine.RoutineAdvance",  # bgl.12: queued only under CATALYST_ROUTINE_ADVANCE_ACTIVATION
     "interpret_message": "correspondence.processing.InterpretMessage",  # 018 5.4 (P3 3B.3); test models only
     # oc4.11: a recorded decline queues `send_decline`, which freezes the decline notice and hands it to send_message.
     "send_decline": "assessments.decline.SendDecline",
@@ -435,7 +436,8 @@ CATALYST_EVIDENCE_MAX_TEXT_CHARS = number("CATALYST_EVIDENCE_MAX_TEXT_CHARS", "2
 if CATALYST_EVIDENCE_DEADLINE_SECONDS * 2 > CATALYST_WORKER_LEASE_SECONDS:
     raise ImproperlyConfigured("CATALYST_EVIDENCE_DEADLINE_SECONDS must be at most half of CATALYST_WORKER_LEASE_SECONDS")
 # The assessment run (018 5.5, 6; P3 3B.2). "none" everywhere except `test`, where "test" selects a PydanticAI
-# test model; there is no live value (config.guards.assessment_problems). Fixed in code, never from the environment.
+# test model; a live value "<provider>:<model id>" is accepted only in a synthetic environment under
+# CATALYST_ASSESSMENT_LIVE_ACTIVATION below (config.guards.assessment_problems). Fixed in code, never from the environment.
 CATALYST_ASSESSMENT_MODEL = "none"
 CATALYST_ASSESSMENT_ATTEMPTS = number("CATALYST_ASSESSMENT_ATTEMPTS", "2")
 CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT = number("CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT", "4")
@@ -481,6 +483,31 @@ if CATALYST_CAPPED_EXIT not in ("human_only", "none"):
 CATALYST_QUESTIONS_PER_ROUND = number("CATALYST_QUESTIONS_PER_ROUND", "3")
 # Reply interpretation may use at most this many of the shared daily requests per application (3B.3 review).
 CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION = number("CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION", "10")
+# bgl.12 (034 section 2.2 rows 15 to 19): the live model branch and the routine-advance policy, both OFF in code and
+# refused in a live environment (config.guards.assessment_problems). Nothing below changes what production does:
+# D-53 ("no model") and the launch-wide suspension hold at these defaults.
+# The live activation (fixed in code, never from the environment): 0 off; 1 lets `assessments.live` build the MiniMax
+# model in a synthetic environment when CATALYST_ASSESSMENT_MODEL names "<provider>:<model id>", the owner's approval is
+# recorded (approve_model_use) and the base URL and key below are set. The worker entry point alone switches
+# PydanticAI's request flag on, and only under this activation.
+CATALYST_ASSESSMENT_LIVE_ACTIVATION = 0
+CATALYST_ASSESSMENT_LIVE_BASE_URL = os.environ.get("CATALYST_ASSESSMENT_LIVE_BASE_URL", "").strip()  # https, or loopback http
+CATALYST_ASSESSMENT_API_KEY = secret("CATALYST_ASSESSMENT_API_KEY", "")  # a per-secret file outside test and development
+# The routine-advance policy (assessments.policy, assessments.routine): 0 off; 1 shadow (every verdict is recorded as an
+# event, nothing acts); 2 act (a routine admit runs the existing admit path, a drafted and checked clarification is
+# sent). Fixed in code; a decline is never automatic at any level.
+CATALYST_ROUTINE_ADVANCE_ACTIVATION = 0
+CATALYST_ROUTINE_ADVANCE_CONFIDENCE = os.environ.get("CATALYST_ROUTINE_ADVANCE_CONFIDENCE", "high")  # low, medium, high
+CATALYST_ROUTINE_ADVANCE_REQUIRED_RATING = os.environ.get("CATALYST_ROUTINE_ADVANCE_REQUIRED_RATING", "supported")
+CATALYST_ROUTINE_ADVANCE_OTHER_RATING = os.environ.get("CATALYST_ROUTINE_ADVANCE_OTHER_RATING", "partly_supported")
+# Daily caps (the first generation capped runs and sends per UTC day): sends default to 0, fail-closed, like the daily
+# request budget; a cap is a hard stop that records why and opens a staff item. Requests share
+# CATALYST_ASSESSMENT_DAILY_REQUESTS with the assessment and the reply interpreter.
+CATALYST_ROUTINE_DAILY_SENDS = number("CATALYST_ROUTINE_DAILY_SENDS", "0", minimum=0)
+# A hold (automation paused, contact unverified, a question open, evidence pending) or a self-caused failure of the draft
+# or the check retries after this many seconds, at most this many times, then opens a staff item.
+CATALYST_ROUTINE_RETRY_AFTER_SECONDS = number("CATALYST_ROUTINE_RETRY_AFTER_SECONDS", "3600", minimum=0)
+CATALYST_ROUTINE_RETRY_LIMIT = number("CATALYST_ROUTINE_RETRY_LIMIT", "2", minimum=0)
 CATALYST_STAFF_DRAFT_TTL_SECONDS = number("CATALYST_STAFF_DRAFT_TTL_SECONDS", "1800")  # 016 3.4: a preview expires
 CATALYST_REMINDER_OVERDUE_MARGIN_SECONDS = number("CATALYST_REMINDER_OVERDUE_MARGIN_SECONDS", "3600", minimum=0)
 if CATALYST_REMINDER_QUIET_START_HOUR > 23 or CATALYST_REMINDER_QUIET_END_HOUR > 23:

@@ -1555,6 +1555,29 @@ P6_CASES = {
 }
 
 P6_SUPPORTING = {
+    # bgl.12 (034 section 2.2 rows 15 to 19): the live MiniMax branch and the routine-advance policy, both behind
+    # activations that are off in code; a named design rule like the 9kg groups, never a staging case.
+    "bgl.12 the live model branch and the routine-advance policy act only under their activations": [
+        "test_routine_advance::test_bgl12_the_default_configuration_reaches_no_live_branch",
+        "test_routine_advance::test_bgl12_the_live_branch_is_selected_only_when_settings_say_so_and_requests_are_allowed",
+        "test_routine_advance::test_bgl12_a_live_call_runs_fenced_and_a_provider_failure_is_never_adverse",
+        "test_routine_advance::test_bgl12_the_guards_refuse_every_live_setting_outside_the_synthetic_environments",
+        "test_routine_advance::test_bgl12_the_policy_decision_table",
+        "test_routine_advance::test_bgl12_the_policy_never_advances_on_claims_alone_and_thresholds_are_settings",
+        "test_routine_advance::test_bgl12_below_the_activation_nothing_is_queued_and_shadow_records_without_acting",
+        "test_routine_advance::test_bgl12_a_routine_applicant_is_admitted_on_the_existing_path_without_a_person",
+        "test_routine_advance::test_bgl12_an_ask_drafts_checks_and_sends_only_on_a_pass",
+        "test_routine_advance::test_bgl12_a_check_that_does_not_pass_sends_nothing_and_leaves_the_proposal_on_the_screen",
+        "test_routine_advance::test_bgl12_an_injection_shaped_draft_the_check_sends_to_a_person_is_never_sent",
+        "test_routine_advance::test_bgl12_nothing_is_drafted_or_sent_when_automatic_action_is_off",
+        "test_routine_advance::test_bgl12_the_send_cap_and_a_pause_are_rechecked_at_the_send",
+        "test_routine_advance::test_bgl12_a_draft_that_fails_the_screen_is_repaired_once_then_held",
+        "test_routine_advance::test_bgl12_the_daily_send_cap_is_a_hard_stop_with_a_staff_item",
+        "test_routine_advance::test_bgl12_the_daily_request_cap_stops_the_draft_before_any_reservation",
+        "test_routine_advance::test_bgl12_a_self_caused_failure_retries_bounded_then_opens_a_staff_item",
+        "test_routine_advance::test_bgl12_a_hold_waits_and_needs_human_lands_on_the_screen",
+        "test_routine_advance::test_bgl12_only_the_policy_module_reads_the_advisory_fields_and_only_live_imports_the_client",
+    ],
     "9kg.2 a system pause resumes only past its cause (pre-staging hardening)": [
         "test_processing::test_9kg_2_every_system_pause_reason_is_a_resumable_cause_with_a_resolution",
         "test_processing::test_9kg_2_the_screen_offers_a_system_resume_only_to_a_decision_maker_with_a_required_reason",
