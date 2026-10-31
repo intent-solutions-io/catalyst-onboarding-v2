@@ -854,10 +854,15 @@ def test_9kg_34_erasure_0003_reverses_to_exactly_the_function_0002_installs(priv
     finally:
         with admin("postgres") as conn:
             conn.execute(psql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(psql.Identifier(fresh)))
+    # bgl.16: erasure 0005 adds the import's subject column to the function, so 0003's reverse is compared with the
+    # function as 0004 left it (0005 reversed first), which is the one 0003's reverse finds.
+    manage_as_owner("migrate", "erasure", "0004", "--verbosity", "0")
+    at_0004 = owner.execute(query).fetchone()[0]
+    assert "firstgen_importedrecord" in with_custody and "firstgen_importedrecord" not in at_0004
     manage_as_owner("migrate", "erasure", "0002", "--verbosity", "0")
     try:
         reversed_ = owner.execute(query).fetchone()[0]
-        assert reversed_ == before_0003 == catalog.without_custody(with_custody)
+        assert reversed_ == before_0003 == catalog.without_custody(at_0004)
         assert "agreements_custodyenvelope" not in reversed_ and catalog.CUSTODY_BEGIN not in reversed_
     finally:
         manage_as_owner("migrate", "--verbosity", "0")

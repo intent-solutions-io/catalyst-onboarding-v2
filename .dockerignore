@@ -9,6 +9,7 @@
 !config/
 !correspondence/
 !erasure/
+!firstgen/
 !provisioning/
 !workflow/
 !scripts/provision_db_roles.py
