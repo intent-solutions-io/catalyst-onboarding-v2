@@ -75,6 +75,8 @@ APPROVED_MIGRATIONS = {
     ("correspondence", "0020_verification_template"),  # 9kg.80: the verification mail as an approvable template
     ("agreements", "0010_custody_envelope"), ("erasure", "0003_custody_keys"),  # 9kg.34: custody sealed at rest
     ("workflow", "0006_restore_hold_insert_guard"), ("erasure", "0004_erase_replay"),  # 9kg.25: the replay variant of the erase function, under the restore hold only
+    # bgl.14 (034 rows 42 and 43): the Twenty link, its grants and the reinstalled erasure functions (the twenty handoff)
+    ("crm", "0001_initial"), ("crm", "0002_grants"), ("erasure", "0005_twenty_projection"),
 }
 
 

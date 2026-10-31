@@ -29,7 +29,8 @@ journaled-before site writes after the effect (an outcome recorded once the effe
 
 Families, by what the scanner finds: `journal` (append, record, prepare), `smtp` (`correspondence.transport.send`),
 `django_mail` (a `django.core.mail` message sent), `documenso` (`agreements.provider` writes), `mailhost`
-(`provisioning.adapter.MailHost` writes), `imap` (a mailbox client's `append`) and `model` (a PydanticAI agent run).
+(`provisioning.adapter.MailHost` writes), `imap` (a mailbox client's `append`), `model` (a PydanticAI agent run) and
+`twenty` (`crm.twenty` writes: a person or a note created or updated, a note attached; bgl.14).
 Network, subprocess and file-writing primitives outside these are a separate allow-list in the test, not classified
 here.
 """
@@ -176,6 +177,17 @@ REGISTRY = {
     "provisioning.credentials:set_password": {
         "mailhost": Site(COVERED_BY_REVIEW, "a password cannot be read back; the review closes every open setup",
                          by=CLOSE_LINKS)},
+    # The Twenty projection (bgl.14): every write is preceded in its own function by the read that finds it done, so a
+    # restored run that repeats it finds the person by its link or the case id it carries, the note by id or marker and
+    # the attachment by its targets, and writes only what differs (the restored link rows lose nothing that matters).
+    "crm.projection:project_person": {
+        "twenty": Site(CHECKED_BEFORE, "reads the person by link, case id or email before any create or update",
+                       by="crm.projection:project_person")},
+    "crm.projection:write_note": {
+        "twenty": Site(CHECKED_BEFORE, "reads the note by id or title and marker, and its targets, before writing",
+                       by="crm.projection:write_note")},
+    "crm.projection:fill_person": {
+        "twenty": Site(CHECKED_BEFORE, "reads the person and fills only the blanks it shows", by="crm.projection:fill_person")},
     "provisioning.handlers:CreateMailbox.run": {
         "mailhost": Site(PROVIDER_READ, "restored requests are read by address; every create reads absence first",
                          by=READ_MAILBOXES)},

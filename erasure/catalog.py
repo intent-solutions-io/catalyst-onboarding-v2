@@ -188,6 +188,11 @@ TABLES = {
     "django_content_type": Table(other="id app_label model"),
     "django_migrations": Table(other="id app name applied"),
     "django_session": Table(staff="session_data", secret="session_key", other="expire_date"),
+    # --- crm (bgl.14): the Twenty link; the person and the note at Twenty are the `twenty` handoff -------------------
+    "crm_twentylink": Table(
+        selector=APP, subject={"field_hashes": S("application_identity", OBJECT)},  # digests of low-entropy values
+        other=("id person_id link_method note_id note_sha256 projection_version projected_at created_at updated_at"
+               " application_id")),
     # --- correspondence ------------------------------------------------------------------------------------------
     "correspondence_approvedmessage": Table(
         selector=APP,
@@ -529,6 +534,11 @@ def erase_sql(retention_literal: str, existing: dict, replay: bool = False) -> s
     RAISE EXCEPTION 'erasure: an access revocation is not final' USING ERRCODE = 'CE005';
   END IF;
 """
+    # bgl.14: the person and the applicant file note at Twenty, once the schema has the link table (erasure 0005).
+    twenty = ("" if "crm_twentylink" not in existing else
+              "  IF EXISTS (SELECT 1 FROM public.crm_twentylink t WHERE t.application_id = ANY(v_apps)"
+              " AND (t.person_id <> '' OR t.note_id <> '')) THEN\n"
+              "    v_handoffs := v_handoffs || 'twenty'::text;\n  END IF;\n")
     unknown = "      RAISE EXCEPTION 'erasure: unknown subject' USING ERRCODE = 'CE002';\n"
     if replay:  # data review of PR #103, finding 1: a key the backup holds only on rows outside an application or invitation
         unknown = ("      IF p_key IS NULL OR pg_catalog.strpos(p_key, '@') = 0 THEN\n"
@@ -607,7 +617,7 @@ BEGIN
   IF EXISTS (SELECT 1 FROM public.assessments_assessmentrun r WHERE r.application_id = ANY(v_apps)) THEN
     v_handoffs := v_handoffs || 'model_provider'::text;  -- what the model provider kept of a request, if anything
   END IF;
-  -- Not erased by this function: the custody PDFs (registry row signed_documents; 9kg.34 destroys their keys).
+{twenty}  -- Not erased by this function: the custody PDFs (registry row signed_documents; 9kg.34 destroys their keys).
   IF EXISTS (SELECT 1 FROM public.agreements_storeddocument d WHERE d.application_id = ANY(v_apps)) THEN
     v_retained := v_retained || 'custody_documents'::text;
   END IF;

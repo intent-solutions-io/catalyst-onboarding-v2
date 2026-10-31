@@ -20,7 +20,8 @@ Rows that are not database classes:
   each of the subject's per-document keys (agreements.keystore), in the key directory and its mirror, so the sealed
   files in custody and in every backup, old or new, cannot be opened without a surviving copy of the wrapped key and the wrapping key. The rows and sealed files stay; nothing
   in the database changes. The provider's copy is not reached (`provider_copies`, P4-D-15 until POL-10).
-- `provider_copies`: the Documenso copy, the mail host's Sent and inbox folders and a provisioned mailbox. Deleting
+- `provider_copies`: the Documenso copy, the mail host's Sent and inbox folders, a provisioned mailbox and, since bgl.14,
+  the Twenty person and applicant file note the projection wrote. Deleting
   them is a manual handoff owned by the owner (211.7.1, QA finding 12); the only supported treatment is
   `manual_handoff`, recorded as an erasure-record entry with its completion date (`catalyst_erase --handoff`).
 - `erasure_record` and `effect_journal`: how long the durable record is kept. The floor is fixed by design (at least

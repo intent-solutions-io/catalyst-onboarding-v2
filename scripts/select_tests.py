@@ -35,7 +35,8 @@ ROOT = Path(__file__).resolve().parent.parent
 TESTS = ROOT / "tests"
 # The application packages a change can be mapped from. `config` is not one: its settings, URLs and guards load in
 # every test, so a change there runs the whole suite.
-PACKAGES = ("accounts", "agreements", "applications", "assessments", "correspondence", "erasure", "provisioning", "workflow")
+PACKAGES = ("accounts", "agreements", "applications", "assessments", "correspondence", "crm", "erasure", "provisioning",
+            "workflow")
 # Test-tree files every test depends on, or that run as child processes rather than being imported: changing one runs
 # the whole suite.
 FULL_RUN = frozenset({"tests/__init__.py", "tests/conftest.py", "tests/settings_sqlite.py"})

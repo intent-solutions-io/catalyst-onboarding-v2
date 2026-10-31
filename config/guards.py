@@ -17,7 +17,7 @@ POSTGRESQL_ENGINE = "django.db.backends.postgresql"
 # them in the environment outside test and development.
 SECRET_ENV_NAMES = ("CATALYST_SECRET_KEY", "CATALYST_VERIFICATION_KEY", "CATALYST_VERIFICATION_FALLBACK_KEYS",
                     "CATALYST_DB_PASSWORD", "CATALYST_MAIL_PASSWORD", "CATALYST_ERASURE_KEY",
-                    "CATALYST_CUSTODY_WRAPPING_KEY", "CATALYST_CUSTODY_NEXT_WRAPPING_KEY")
+                    "CATALYST_CUSTODY_WRAPPING_KEY", "CATALYST_CUSTODY_NEXT_WRAPPING_KEY", "CATALYST_TWENTY_TOKEN")
 
 # Environments Catalyst may run in. `staging` (026 P6-D-2, D-49) is synthetic like `test`: the same fakes under the
 # same strict rules, never a real provider. `production` (9kg.31.11, 026 section 18) is admitted in code with every
@@ -59,7 +59,9 @@ SINK_EMAIL_BACKENDS = frozenset({
     REFUSING_EMAIL_BACKEND,
 })
 
-# Catalyst's own providers (D-04 to D-08): any variable with these prefixes is refused.
+# Catalyst's own providers (D-04 to D-08): any variable with these prefixes is refused. The first generation's Twenty
+# variables (TWENTY_*) stay refused after bgl.14: v2's projection reads only its own CATALYST_TWENTY_* settings, fixed in
+# code, and a token file (twenty_problems).
 PROVIDER_ENV_PREFIXES = ("MINIMAX_", "DOCUMENSO_", "TWENTY_", "MXROUTE_", "SMTP_", "EMAIL_HOST")
 
 # Other model-provider and telemetry credential or export settings, refused by exact name (owner
@@ -425,6 +427,42 @@ def provisioning_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return problems
 
 
+TWENTY_TEST_ONLY = ("CATALYST_TWENTY_PROJECTION", "CATALYST_TWENTY_URL", "CATALYST_TWENTY_ADDRESS", "CATALYST_TWENTY_CA_FILE")
+# The process roles that never call Twenty (the fetcher reaches applicant-supplied addresses; the post-restore step reads
+# only the restored tables and the Sent folder).
+TWENTY_TOKEN_DENIED_ROLES = ("fetcher", "reconcile")
+
+
+def twenty_problems(settings, environ: Mapping[str, str], kind: str = "") -> list[str]:
+    """bgl.14 (034 rows 42 and 43; owner answer of 2026-10-31 reversing D-08 on activation): the Twenty projection.
+    The switch, the URL, the pinned address and the trust store are fixed in code, never from the environment, and,
+    with the token file, empty or off outside `test` and `staging` until the swap's own reviewed code change admits
+    production. In those two the URL must be https on a `.test` host and the address a literal loopback address, so only
+    the local stub can answer. The token is a secret file (`twenty_token`), held by the worker and the owner-run commands
+    only: the web process and the fetcher and post-restore roles refuse to start with it."""
+    problems = [f"{name} may not be set from the environment" for name in TWENTY_TEST_ONLY if name in environ]
+    token = getattr(settings, "CATALYST_TWENTY_TOKEN", "")
+    if token and (kind == "web" or getattr(settings, "CATALYST_PROCESS_ROLE", "") in TWENTY_TOKEN_DENIED_ROLES):
+        problems.append("CATALYST_TWENTY_TOKEN may be given only to the worker and the owner-run commands")
+    if not synthetic(getattr(settings, "CATALYST_ENV", "")):
+        for name in (*TWENTY_TEST_ONLY, "CATALYST_TWENTY_TOKEN"):
+            if getattr(settings, name, ""):
+                problems.append(f"{name} is allowed only in the test and staging environments until the Twenty swap")
+        return problems
+    url = getattr(settings, "CATALYST_TWENTY_URL", "")
+    if url:
+        parts = urlsplit(url) if url.startswith("https://") else None
+        if parts is None:
+            problems.append("CATALYST_TWENTY_URL must be https")
+        elif not (parts.hostname or "").endswith(".test") or parts.query or parts.fragment or parts.username:
+            problems.append("CATALYST_TWENTY_URL must name a .test host, with no user, query or fragment")
+        if not is_loopback_literal(getattr(settings, "CATALYST_TWENTY_ADDRESS", "")):
+            problems.append("CATALYST_TWENTY_ADDRESS must be a literal loopback address")
+        if not getattr(settings, "CATALYST_TWENTY_CA_FILE", ""):
+            problems.append("CATALYST_TWENTY_CA_FILE is required with CATALYST_TWENTY_URL (never the system store)")
+    return problems
+
+
 PRODUCTION_DOMAINS = ("intentsolutions.io",)
 # The learning site's host (029 section 7): the internal launch runs on a dedicated v2 host, and moving Learn's routes
 # is GATE-CUTOVER, a separate decision; production may not answer for or link to it.
@@ -724,6 +762,7 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + decision_problems(settings, environ)
         + agreement_problems(settings, environ)
         + provisioning_problems(settings, environ)
+        + twenty_problems(settings, environ, _process_kind())
         + host_problems(settings)
         + live_problems(settings)
         + secret_problems(settings, environ)
