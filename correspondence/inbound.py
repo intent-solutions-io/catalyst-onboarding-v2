@@ -23,7 +23,7 @@ from django.conf import settings
 from django.db import DataError, IntegrityError, InterfaceError, OperationalError, connection, transaction
 from django.db.models.functions import Now
 
-from applications.models import TERMINAL_STAGES, Application
+from applications.models import TERMINAL_STAGES, Application, ApplicationEvent
 from workflow import ledger
 from workflow.models import PendingAction
 
@@ -42,6 +42,7 @@ from .common import Refused
 from .messages import FILE_COPY, build_email, enqueue_file_copy, message_id, only_duplicate_key, verified_address  # noqa: F401
 from .scheduling import sync_reminders
 from .staff_items import open_item
+from . import lapse
 
 logger = logging.getLogger(__name__)
 Status = PendingAction.Status
@@ -156,6 +157,9 @@ def _associate(message: InboundMessage, derived) -> None:
                   association.SENDER_MISMATCH: "sender_mismatch"}[decision]
         _exception(message, reason, application)
         return
+    # bgl.7: a trusted reply reopens a lapsed application to the stage it lapsed from, before the reply is linked.
+    lapse.reopen(application, trigger=f"reply:{message.public_id}", actor_ref=f"inbound:{message.public_id}",
+                 actor_type=ApplicationEvent.ActorType.APPLICANT)
     for question in questions:
         if question.status in ANSWERABLE:
             QuestionReplyLink.objects.create(question=question, inbound_message=message, state="pending")

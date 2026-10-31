@@ -186,6 +186,7 @@ class ApprovedMessage(models.Model):
         STAFF_MESSAGE = "staff_message"  # 2B.4
         WELCOME = "welcome"  # P5 5B.2: queued by activation, sent by the P2 sender
         DECLINE = "decline"  # oc4.11: frozen by assessments.decline, sent by the P2 sender to a declined applicant
+        LAPSE_NOTE = "lapse_note"  # bgl.7: the one closing note of a lapse (correspondence.lapse), sent by the P2 sender
 
     class Authority(models.TextChoices):
         SYSTEM_POLICY = "system_policy"
@@ -226,7 +227,8 @@ class ApprovedMessage(models.Model):
     class Meta:
         permissions = [("decide_uncertain_send", "Decide an unknown, exhausted, blocked or rejected send (decision-maker, D-30)")]
         constraints = [
-            models.CheckConstraint(condition=Q(kind__in=["question", "reminder", "staff_message", "welcome", "decline"]),
+            models.CheckConstraint(condition=Q(kind__in=["question", "reminder", "staff_message", "welcome", "decline",
+                                                         "lapse_note"]),
                                    name="approved_message_kind_valid"),
             models.CheckConstraint(condition=Q(authority__in=["system_policy", "staff"]), name="approved_message_authority_valid"),
             models.CheckConstraint(condition=Q(disposition__in=DISPOSITIONS), name="approved_message_disposition_valid"),

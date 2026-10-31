@@ -12,6 +12,11 @@ and records the result with `ledger.finish` in the same transaction:
   reminder keeps waiting;
 - otherwise `remind` freezes the reminder's `ApprovedMessage` from the approved `question_reminder` template
   and queues its send (A2, A3), and `escalate_unanswered` opens a "no response" staff item.
+
+The reminder goes in the thread of the question's first message (bgl.7; 034 row 20): its subject is `Re: ` plus that
+message's frozen subject, and the send handler adds `In-Reply-To` and `References` from the frozen records
+(correspondence.messages.thread_headers). The template's own subject is used only when the question has no initial
+message to reply to. The cadence settings and their first-generation defaults are in config/settings.py.
 """
 
 from dataclasses import dataclass
@@ -26,6 +31,7 @@ from workflow import journal, ledger
 from workflow.models import AutomationPause, PendingAction
 
 from .questions import sent_text
+from .messages import reply_subject
 from .models import ApprovedMessage, ApprovedMessageQuestion, MailboxCursor, OutboundMessage, Question
 from .outbound import _freeze, current_template_version, enqueue_send, verified_address
 from .rendering import TemplateRefused, render
@@ -53,6 +59,22 @@ def quiet_until(now: datetime) -> datetime | None:
         return None
     until = now.replace(hour=end, minute=0, second=0, microsecond=0)
     return until if until > now else until + timedelta(days=1)
+
+
+def collection_stale(due_at) -> bool:
+    """4.1: whether a reply may be sitting uncollected: a cursor that never completed a pass (or is resyncing) makes the
+    watermark stale (SQL MIN ignores NULLs), as does a completed-collection watermark older than the due time."""
+    cursors = MailboxCursor.objects.all()
+    incomplete = cursors.filter(complete_through_at__isnull=True).exists()
+    watermark = cursors.aggregate(w=Min("complete_through_at"))["w"]
+    return incomplete or watermark is None or watermark < due_at
+
+
+def initial_subject(question) -> str | None:
+    """The frozen subject of the question's first message, which a reminder replies to."""
+    link = (ApprovedMessageQuestion.objects.filter(question=question, purpose=ApprovedMessageQuestion.Purpose.INITIAL)
+            .select_related("approved_message").first())
+    return link.approved_message.frozen_subject if link is not None else None
 
 
 @dataclass(frozen=True)
@@ -125,11 +147,7 @@ class _QuestionAction:
             gap = timedelta(seconds=settings.CATALYST_REMINDER_MIN_GAP_SECONDS)
             if last is not None and now - last < gap:
                 return Decision(Status.QUEUED, "minimum_gap", due_in=last + gap - now, refund=True)
-        cursors = MailboxCursor.objects.all()
-        # A cursor that never completed a pass (or is resyncing) makes the watermark stale: SQL MIN ignores NULLs.
-        incomplete = cursors.filter(complete_through_at__isnull=True).exists()
-        watermark = cursors.aggregate(w=Min("complete_through_at"))["w"]
-        if incomplete or watermark is None or watermark < due_at:
+        if collection_stale(due_at):
             retry = timedelta(seconds=settings.CATALYST_REMINDER_STALE_RETRY_SECONDS)
             if not claim.final:
                 return Decision(Status.QUEUED, "watermark_stale", due_in=retry)  # counts toward the bound
@@ -172,9 +190,12 @@ class SendReminder(_QuestionAction):
         if version.secret_bearing:
             return refused("secret_bearing_reminder_template")
 
+        parent_subject = initial_subject(question)
+        subject = reply_subject(parent_subject) if parent_subject else None  # bgl.7: a reply in the question's thread
+
         def write():
             message = _freeze(application, ApprovedMessage.Kind.REMINDER, recipient, version, values,
-                              f"pending_action:{claim.id}", ApprovedMessage.Authority.SYSTEM_POLICY)
+                              f"pending_action:{claim.id}", ApprovedMessage.Authority.SYSTEM_POLICY, subject=subject)
             ApprovedMessageQuestion.objects.create(approved_message=message, question=question,
                                                    purpose=ApprovedMessageQuestion.Purpose.REMINDER)
             enqueue_send(message, 0)

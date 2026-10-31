@@ -80,6 +80,9 @@ ACKNOWLEDGE_ONLY = {"processing_error", "message_id_conflict", "mailbox_uidvalid
                     "filed_copy_failed", "inbound_oversize", "application_closed", "collector_pass_failed",
                     "mailbox_history_out_of_scope", "loop_threshold",
                     "escalate_unanswered", "reminder_refused", "reminder_failed",  # 2B.4 (escalation may also end by withdrawal)
+                    # bgl.7: the lapse and the signing reminder; a refused note or reminder looks again by itself
+                    "lapse_note_refused", "lapse_failed", "signing_reminder_unavailable", "signing_reminder_refused",
+                    "signing_reminder_failed",
                     # P3 3B.1: acknowledged after staff act (a new submission with claims, or a re-fetch on /staff/p3/)
                     "claims_missing", "adoption_changed", "evidence_collection_failed",
                     # P3 3B.2: acknowledged by staff; also resolved by the system when a later run succeeds or staff rerun

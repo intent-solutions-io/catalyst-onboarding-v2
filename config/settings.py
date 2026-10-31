@@ -248,6 +248,8 @@ CATALYST_ACTION_HANDLERS = {
     "send_staff_message": "correspondence.outbound.SendStaffMessage",  # 016 3.4, not automated (P2 2B.4)
     "remind": "correspondence.reminders.SendReminder",  # 016 E2 (P2 2B.4)
     "escalate_unanswered": "correspondence.reminders.EscalateUnanswered",  # 016 E1, J-08 (P2 2B.4)
+    "lapse": "correspondence.lapse.Lapse",  # bgl.7: ten quiet business days after the last reminder (034 row 21)
+    "remind_signing": "agreements.signing_reminder.RemindSigning",  # bgl.7: the signing reminder (034 row 34)
     # P3 3B.1 (018 4.1): the S1 action stays held until the owner-run activation command releases it.
     "start_evidence_collection": "assessments.collection.StartEvidenceCollection",
     "fetch_evidence": "assessments.collection.FetchEvidence",
@@ -350,9 +352,21 @@ CATALYST_MAIL_COLLECTOR_STALE_FACTOR = number("CATALYST_MAIL_COLLECTOR_STALE_FAC
 # automation and open a staff item. Synthetic values; POL-06 production values are not decided.
 CATALYST_MAIL_LOOP_THRESHOLD = number("CATALYST_MAIL_LOOP_THRESHOLD", "3", minimum=2)  # 1 would break the single-autoresponder rule
 CATALYST_MAIL_LOOP_WINDOW_SECONDS = number("CATALYST_MAIL_LOOP_WINDOW_SECONDS", "86400")
-# Reminders (016 E; POL-06 cadence). Synthetic values; production numbers are decided later (8.2).
-CATALYST_REMINDER_MAX = number("CATALYST_REMINDER_MAX", "2", minimum=0)  # then escalate_unanswered
+# Reminders (016 E; POL-06 cadence). The defaults are the first-generation production cadence (034 row 20; bgl.7): one
+# reminder, five business days (Monday to Friday, UTC; workflow.business_days) after the question or the previous
+# reminder was accepted. A business-day interval of 0 falls back to the seconds interval, so an environment keeps its
+# earlier cadence with CATALYST_REMINDER_MAX=2 CATALYST_REMINDER_INTERVAL_BUSINESS_DAYS=0. POL-06 production wording is
+# still open; the cadence values here are the parity defaults, not a POL-06 decision.
+CATALYST_REMINDER_MAX = number("CATALYST_REMINDER_MAX", "1", minimum=0)  # then escalate_unanswered (and the lapse)
+CATALYST_REMINDER_INTERVAL_BUSINESS_DAYS = number("CATALYST_REMINDER_INTERVAL_BUSINESS_DAYS", "5", minimum=0)
 CATALYST_REMINDER_INTERVAL_SECONDS = number("CATALYST_REMINDER_INTERVAL_SECONDS", "259200", minimum=0)
+# The signing reminder (034 row 34): one more copy of the signing link mail after five business days unsigned, through
+# agreements.signing_mail (the seam bead bgl.8 fills). 0 reminders, or 0 days, schedules none.
+CATALYST_SIGNING_REMINDER_MAX = number("CATALYST_SIGNING_REMINDER_MAX", "1", minimum=0)
+CATALYST_SIGNING_REMINDER_BUSINESS_DAYS = number("CATALYST_SIGNING_REMINDER_BUSINESS_DAYS", "5", minimum=0)
+# The lapse (034 row 21): after the last reminder, this many quiet business days with no reply and nothing signed move
+# the application to `lapsed` with one closing note (correspondence.lapse); 0 never lapses.
+CATALYST_LAPSE_AFTER_BUSINESS_DAYS = number("CATALYST_LAPSE_AFTER_BUSINESS_DAYS", "10", minimum=0)
 CATALYST_REMINDER_MIN_GAP_SECONDS = number("CATALYST_REMINDER_MIN_GAP_SECONDS", "86400", minimum=0)
 # 9kg.85 (033 Q9): 02:00 to 13:00 UTC, the night across the cohort's US time zones.
 CATALYST_REMINDER_QUIET_START_HOUR = number("CATALYST_REMINDER_QUIET_START_HOUR", "2", minimum=0)  # UTC; equal = none
