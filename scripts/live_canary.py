@@ -10,7 +10,9 @@ touching the inbox's own address (which may be a real identity). The login addre
 An invitation that supersedes a live one for the address is refused too: the identity was already in use.
 
 Steps, each timed and screenshotted: invite the canary address through the real `catalyst_invite`; open the public
-request form in headless Chromium and submit it from that address; read this run's verification mail from the inbox
+request form in headless Chromium (with `--intake-mode open`, check the form carries no data notice, as open intake
+shows none; the invitation is still issued, because its reference is the erasure subject) and submit it from that
+address; read this run's verification mail from the inbox
 by IMAP (addressed to exactly the canary address, dated after the run began, with a link on the exact public origin);
 open the link twice and check that a GET alone does not confirm; confirm with the form's POST; assert the confirmed
 page; open the link once more and check it shows the confirmed page with nothing left to submit. Then the canary
@@ -242,6 +244,8 @@ def main() -> int:
     parser.add_argument("--erase-reason", default="canary_test_subject", help="the erasure's reason code")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--imap-host", default="sunfire.mxrouting.net")
+    parser.add_argument("--intake-mode", choices=("invitation", "open"), default="invitation",
+                        help="the deployed CATALYST_INTAKE_MODE: the data notice is on the form only in invitation mode")
     parser.add_argument("--mail-window-minutes", type=int, default=0,
                         help="also accept a verification mail this many minutes older than the run (a reused link)")
     args = parser.parse_args()
@@ -305,8 +309,12 @@ def main() -> int:
                 run.step("open the request form", lambda: (page.goto(f"{origin}/request-access/"),
                                                            expect(page.locator("h1")).to_have_text("Request access"),
                                                            shot("form")))
-                run.step("data notice shown", lambda: expect(page.locator("#data-notice")).to_contain_text(
-                    "pseudonymous record"))
+                if args.intake_mode == "invitation":
+                    run.step("data notice shown", lambda: expect(page.locator("#data-notice")).to_contain_text(
+                        "pseudonymous record"))
+                else:  # bgl.2: open intake shows no data notice by design (applications.views._data_notice)
+                    run.step("no data notice (open intake)",
+                             lambda: expect(page.locator("#data-notice")).to_have_count(0))
 
                 def submit():
                     page.locator("#id_name").fill("Live Canary")

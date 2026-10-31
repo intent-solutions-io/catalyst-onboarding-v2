@@ -20,7 +20,10 @@ from applications.models import Application, ApplicationEvent, ContactChallenge
 from config import guards
 from tests.support import run
 from tests.test_intake import EMPTY, FORM, RECEIVED, VALID, counts, post
+from tests.test_guards import production
 from tests.test_invitation import CHECK, PROBE, closed
+from tests.test_startup import STAGING as STAGING_ENV
+from tests.test_web_security import STAGING as STAGING_WEB
 from workflow.models import PendingAction
 
 EXACT, EXACT_RECEIVED = "/request-access", "/request-access/received"
@@ -230,3 +233,75 @@ def test_bgl_2_the_deferral_counts_releases_per_hour_and_per_day(settings):
     assert services.cap_deferral(now) == datetime(2030, 1, 1, 12, tzinfo=UTC)  # 12:00 holds one of two: room
     released(datetime(2030, 1, 1, 10, 10, tzinfo=UTC), deferred_until=datetime(2030, 1, 1, 12, tzinfo=UTC))
     assert services.cap_deferral(now) == datetime(2030, 1, 1, 13, tzinfo=UTC)
+
+
+# --- public host aliases: the learning host's names for the public request pages -------------------------------------
+
+ALIAS = "learn.example.test"
+
+
+def aliased(settings):
+    for name, value in STAGING_WEB.items():
+        setattr(settings, name, value)
+    settings.CATALYST_PUBLIC_HOST_ALIASES = [ALIAS]
+    settings.ALLOWED_HOSTS = [*STAGING_WEB["ALLOWED_HOSTS"], ALIAS]
+    settings.CSRF_TRUSTED_ORIGINS = [settings.CATALYST_PUBLIC_BASE_URL, f"https://{ALIAS}"]
+    settings.CATALYST_INTAKE_MODE = "open"
+
+
+def test_bgl_2_aliases_come_from_the_environment_into_the_allowed_hosts_and_trusted_origins():
+    probe = [*PROBE[:2], "import django; django.setup(); from django.conf import settings as s; "
+                         "print(s.ALLOWED_HOSTS, s.CSRF_TRUSTED_ORIGINS, s.CATALYST_PUBLIC_HOST_ALIASES)"]
+    shown = run(probe, **STAGING_ENV, CATALYST_PUBLIC_HOST_ALIASES="learn.example.test, other.example.test")
+    assert shown.returncode == 0, shown.stderr
+    assert shown.stdout.strip() == ("['catalyst.staging.test', 'learn.example.test', 'other.example.test'] "
+                                    "['https://catalyst.staging.test', 'https://learn.example.test', "
+                                    "'https://other.example.test'] ['learn.example.test', 'other.example.test']")
+    assert run(probe, **STAGING_ENV).stdout.strip().endswith("['https://catalyst.staging.test'] []")  # none by default
+    assert run(CHECK, **STAGING_ENV, CATALYST_PUBLIC_HOST_ALIASES=ALIAS).returncode == 0
+    for bad in ("*.example.test", "Learn.example.test", "learn.example.test:443", "127.0.0.1", "learn", "staff.staging.test",
+                "https://learn.example.test"):
+        refused = run(CHECK, **STAGING_ENV, CATALYST_PUBLIC_HOST_ALIASES=bad)
+        assert refused.returncode != 0 and "CATALYST_PUBLIC_HOST_ALIASES" in refused.stderr, bad
+    # Production answers for its aliases and nothing else.
+    hosts = ["catalyst-v2.example.test", "staff-v2.example.test", "localhost"]
+    assert guards.live_problems(production(CATALYST_PUBLIC_HOST_ALIASES=["learn.intentsolutions.io"],
+                                           ALLOWED_HOSTS=[*hosts, "learn.intentsolutions.io"])) == []
+    assert any("ALLOWED_HOSTS may hold only" in p for p in guards.live_problems(
+        production(ALLOWED_HOSTS=[*hosts, "learn.intentsolutions.io"])))
+    assert guards.alias_problems(production(CATALYST_PUBLIC_HOST_ALIASES=["staff-v2.example.test"])) == [
+        "CATALYST_PUBLIC_HOST_ALIASES may not include the staff host"]
+
+
+@pytest.mark.django_db
+def test_bgl_2_an_alias_host_gets_the_form_and_submits_with_csrf_on_its_own_origin(settings):
+    aliased(settings)
+    checked(settings)
+    browser = Client(enforce_csrf_checks=True)
+    https = {"HTTP_HOST": ALIAS, "HTTP_X_FORWARDED_PROTO": "https"}
+    page = browser.get(EXACT, **https)
+    assert page.status_code == 200 and b"Request access" in page.content
+    body = page.content.decode()
+    csrf = body.split('name="csrfmiddlewaretoken" value="', 1)[1].split('"', 1)[0]
+    data = {**VALID, "email": "alias@example.test", "csrfmiddlewaretoken": csrf, "form_token": aged()}
+    sent = browser.post(EXACT, data, HTTP_ORIGIN=f"https://{ALIAS}", HTTP_REFERER=f"https://{ALIAS}{EXACT}", **https)
+    assert (sent.status_code, sent["Location"]) == (302, EXACT_RECEIVED)
+    assert Application.objects.get().email == "alias@example.test"
+    assert browser.get(EXACT_RECEIVED, **https).status_code == 200
+    # Another site's origin is refused by CSRF: the alias is trusted, not every origin.
+    forged = browser.post(EXACT, {**data, "email": "forged@example.test"}, HTTP_ORIGIN="https://evil.example.test", **https)
+    assert forged.status_code == 403 and Application.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_bgl_2_a_host_that_is_not_listed_gets_400_and_an_alias_never_serves_the_staff_or_health_paths(settings):
+    aliased(settings)
+    client = Client()
+    assert client.get(EXACT, HTTP_HOST="unlisted.example.test", HTTP_X_FORWARDED_PROTO="https").status_code == 400
+    https = {"HTTP_HOST": ALIAS, "HTTP_X_FORWARDED_PROTO": "https"}
+    for path in ("/staff/", "/staff/login/", "/staff/p2/", "/healthz", "/readyz"):
+        assert client.get(path, **https).status_code == 404, path
+    settings.CATALYST_STAFF_HOST = ""  # the local fallback (no staff host) still refuses the alias, as the public host
+    settings.CATALYST_ENV = "test"
+    for path in ("/staff/", "/staff/p2/"):
+        assert client.get(path, **https).status_code == 404, path

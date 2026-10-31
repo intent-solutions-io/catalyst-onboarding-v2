@@ -71,6 +71,23 @@
 	}
 }
 
+# bgl.2: the public host aliases (the learning host's names), for the public request pages only. Never the staff
+# screens, the token paths or the health paths. The compose file always gives the proxy a value (a placeholder name
+# when no alias is set), so this block always has an address.
+{$CATALYST_PUBLIC_HOST_ALIASES:alias.staging.test} {
+	import catalyst_site
+	request_body {
+		max_size 128KB
+	}
+	@alias path /request-access/ /request-access/received/ /request-access /request-access/received
+	handle @alias {
+		import catalyst_web
+	}
+	handle {
+		import catalyst_not_found
+	}
+}
+
 {$CATALYST_STAFF_HOST:staff.staging.test}:{$CATALYST_STAFF_PORT:8444} {
 	bind {$CATALYST_STAFF_BIND:127.0.0.1}
 	import catalyst_site

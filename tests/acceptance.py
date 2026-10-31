@@ -1921,7 +1921,7 @@ P6_SUPPORTING = {
         "test_invitation::test_9kg_43_the_dossier_the_health_report_and_the_release_receipt_show_the_mode",
     ],
     # 034 rows 1, 2, 4 and 5: the public entry on the first generation's URLs.
-    "bgl.2 the intake mode comes from the environment; open intake accepts anyone on the exact first-generation paths; a honeypot and a signed render time record nothing; global caps defer, never refuse": [
+    "bgl.2 the intake mode comes from the environment; open intake accepts anyone on the exact first-generation paths and on the listed public host aliases; a honeypot and a signed render time record nothing; global caps defer, never refuse": [
         "test_public_intake::test_bgl_2_the_mode_is_read_from_the_environment_and_a_bad_value_refuses_start_up",
         "test_public_intake::test_bgl_2_open_mode_accepts_an_uninvited_submission",
         "test_public_intake::test_bgl_2_invitation_mode_still_refuses_an_uninvited_address_silently",
@@ -1932,6 +1932,12 @@ P6_SUPPORTING = {
         "test_public_intake::test_bgl_2_the_render_time_bounds_are_the_first_generations",
         "test_public_intake::test_bgl_2_over_the_hourly_cap_the_applicant_is_accepted_and_the_verification_waits",
         "test_public_intake::test_bgl_2_the_deferral_counts_releases_per_hour_and_per_day",
+        "test_public_intake::test_bgl_2_aliases_come_from_the_environment_into_the_allowed_hosts_and_trusted_origins",
+        "test_public_intake::test_bgl_2_an_alias_host_gets_the_form_and_submits_with_csrf_on_its_own_origin",
+        "test_public_intake::test_bgl_2_a_host_that_is_not_listed_gets_400_and_an_alias_never_serves_the_staff_or_health_paths",
+        "test_staging_proxy::test_bgl_2_the_alias_site_serves_only_the_public_request_pages",
+        "test_live_canary::test_bgl_2_open_intake_checks_that_no_data_notice_is_shown_and_still_invites_the_erasure_subject",
+        "test_live_canary::test_bgl_2_invitation_mode_is_the_default_and_checks_the_data_notice",
     ],
     # 030 Q8 and Q4 (D-51): the one-paragraph data notice as an owner-approved template, and the member-on-file flag.
     "9kg.52 the data notice renders from one approved template on the intake page and in the invitation mail; a member's first-generation agreement on file is referenced, never re-signed, and never declined in v2": [

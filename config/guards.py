@@ -478,10 +478,11 @@ def live_problems(settings) -> list[str]:
         elif host in PRODUCTION_DOMAINS or any(host == f"www.{domain}" for domain in PRODUCTION_DOMAINS):
             problems.append(f"{name} may not be a production domain's apex or www name (a dedicated v2 host only)")
     local = [str(h) for h in (getattr(settings, "CATALYST_LOCAL_HOSTS", []) or [])]
-    expected = {h for h in (public, staff, *local) if h}
+    aliases = [str(h) for h in (getattr(settings, "CATALYST_PUBLIC_HOST_ALIASES", []) or [])]  # bgl.2, alias_problems
+    expected = {h for h in (public, staff, *local, *aliases) if h}
     extra = sorted(h for h in (getattr(settings, "ALLOWED_HOSTS", []) or []) if h not in expected)
     if extra:
-        problems.append(f"ALLOWED_HOSTS may hold only the public, staff and local hosts in a live environment, not {extra}")
+        problems.append(f"ALLOWED_HOSTS may hold only the public, staff, local and alias hosts in a live environment, not {extra}")
     if getattr(settings, "EMAIL_BACKEND", "") not in LIVE_EMAIL_BACKENDS:
         problems.append(f"EMAIL_BACKEND must be {TRANSPORT_EMAIL_BACKEND} (or the {REFUSING_EMAIL_BACKEND} hold) "
                         "in a live environment")
@@ -489,6 +490,23 @@ def live_problems(settings) -> list[str]:
     domain = sender.rpartition("@")[2]
     if not domain or not _live_host(domain) or domain.endswith((".invalid", ".example")) or domain.startswith("example."):
         problems.append("CATALYST_FROM_EMAIL must be the v2 sender address in a live environment, not a synthetic one")
+    return problems
+
+
+def alias_problems(settings) -> list[str]:
+    """bgl.2: every public host alias is a plain lower-case DNS name (no wildcard, port, address or look-alike), never
+    the staff host and never a local host, so an alias can only ever reach the public applicant pages."""
+    staff = (getattr(settings, "CATALYST_STAFF_HOST", "") or "").lower().rstrip(".")
+    local = {str(h).lower().rstrip(".") for h in getattr(settings, "CATALYST_LOCAL_HOSTS", []) or []}
+    problems = []
+    for alias in getattr(settings, "CATALYST_PUBLIC_HOST_ALIASES", []) or []:
+        alias = str(alias)
+        if "*" in alias or not _live_host(alias):
+            problems.append(f"CATALYST_PUBLIC_HOST_ALIASES entries must be plain lower-case host names, not {alias!r}")
+        elif staff and alias.rstrip(".") == staff:
+            problems.append("CATALYST_PUBLIC_HOST_ALIASES may not include the staff host")
+        elif alias.rstrip(".") in local:
+            problems.append("CATALYST_PUBLIC_HOST_ALIASES may not include a local host")
     return problems
 
 
@@ -731,6 +749,7 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + agreement_problems(settings, environ)
         + provisioning_problems(settings, environ)
         + host_problems(settings)
+        + alias_problems(settings)
         + live_problems(settings)
         + secret_problems(settings, environ)
         + journal_problems(settings)

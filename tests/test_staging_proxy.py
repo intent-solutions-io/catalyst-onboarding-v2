@@ -106,3 +106,13 @@ def test_6b8_caddy_responses_carry_safe_headers_and_slow_clients_time_out():
 def test_6b8_there_is_no_webhook_site():
     text = renderer().render()
     assert "documenso" not in text.lower() and "/hooks/" not in text  # not mounted until the pilot (P6-D-4)
+
+
+def test_bgl_2_the_alias_site_serves_only_the_public_request_pages():
+    module = renderer()
+    alias = site(module.render(), "CATALYST_PUBLIC_HOST_ALIASES")
+    allowed = re.search(r"@alias path (.+)", alias).group(1).split()
+    assert allowed == ["/request-access/", "/request-access/received/", "/request-access", "/request-access/received"]
+    for absent in ("/staff", "/confirm", "/setup", "/withdraw", "/healthz", "/readyz", "/static", "bind "):
+        assert absent not in alias, absent
+    assert "import catalyst_not_found" in alias and "max_size 128KB" in alias

@@ -55,6 +55,14 @@ ALLOWED_HOSTS = [h.strip() for h in env("CATALYST_ALLOWED_HOSTS", "localhost").s
 # host that may serve the staff screens and the admin. Staging and later must name a staff host (config.guards).
 CATALYST_LOCAL_HOSTS = [h.strip() for h in os.environ.get("CATALYST_LOCAL_HOSTS", "localhost").split(",") if h.strip()]
 CATALYST_STAFF_HOST = os.environ.get("CATALYST_STAFF_HOST", "").strip()
+# bgl.2 (034 section 3.1): other host names the public applicant pages answer on, for the learning host's proxy, which
+# forwards the first generation's exact paths with the browser's Host and Origin unchanged. Comma-separated, empty by
+# default (with several, write ", " between them: the stack proxy reads the same value as its site address list); each
+# is added to ALLOWED_HOSTS and (outside the local environments) to CSRF_TRUSTED_ORIGINS as https://<alias>.
+# config.guards refuses a non-plain name, a wildcard, the staff host and a local host; HostGuard never serves the staff
+# screens or the health paths on one; the stack proxy forwards only the public request paths for them.
+CATALYST_PUBLIC_HOST_ALIASES = [h.strip() for h in os.environ.get("CATALYST_PUBLIC_HOST_ALIASES", "").split(",") if h.strip()]
+ALLOWED_HOSTS += [h for h in CATALYST_PUBLIC_HOST_ALIASES if h not in ALLOWED_HOSTS]
 
 INSTALLED_APPS = [
     "config.apps.CatalystConfig",
@@ -553,7 +561,7 @@ if CATALYST_ENV not in LOCAL_ENVIRONMENTS:
     SECURE_HSTS_SECONDS = 300
     SECURE_HSTS_INCLUDE_SUBDOMAINS = False
     SECURE_HSTS_PRELOAD = False
-    CSRF_TRUSTED_ORIGINS = [CATALYST_PUBLIC_BASE_URL]
+    CSRF_TRUSTED_ORIGINS = [CATALYST_PUBLIC_BASE_URL, *(f"https://{alias}" for alias in CATALYST_PUBLIC_HOST_ALIASES)]
     # Deliberate (026 P6-D-3, section 8): HSTS stays short and covers no subdomains and no preload list.
     SILENCED_SYSTEM_CHECKS = ["security.W005", "security.W021"]
 
