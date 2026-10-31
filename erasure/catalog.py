@@ -281,7 +281,7 @@ TABLES = {
         staff="reviewed_by released_by", other="id public_id domain basis released_at created_at application_id"),
     "provisioning_credentialsetup": Table(
         selector=REQUEST, subject={"recipient": S("provisioning_records")}, secret="token_sha256",
-        other="id public_id series state expires_at set_attempts set_started_at completed_at created_at updated_at request_id"),
+        other="id public_id series mode state expires_at set_attempts set_started_at completed_at created_at updated_at request_id"),
     "provisioning_provisioningattempt": Table(other=(
         "id public_id step series outcome code absent_before started_at finished_at request_id")),
     "provisioning_provisioningevidence": Table(

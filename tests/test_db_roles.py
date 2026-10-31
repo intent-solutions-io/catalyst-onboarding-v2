@@ -405,6 +405,30 @@ def test_this_test_process_runs_as_the_application_role():
 
 # --- migration behaviour (the owner, in a child process) ------------------------------------------------------
 
+def test_credential_mode_migration_preserves_the_erasure_branch_in_both_directions(connect):
+    from erasure import catalog
+
+    owner = connect("owner", autocommit=True)
+
+    def guard():
+        return owner.execute(
+            "SELECT prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+            "WHERE n.nspname = 'public' AND p.proname = 'catalyst_credential_setup_fixed' "
+            "AND p.pronargs = 0").fetchone()[0]
+
+    branches = catalog.BRANCH_PATTERN.findall(guard())
+    assert len(branches) == 1
+    try:
+        manage_as_owner("migrate", "provisioning", "0007", "--verbosity", "0")
+        assert catalog.BRANCH_PATTERN.findall(guard()) == branches
+        assert "NEW.mode" not in guard()
+        manage_as_owner("migrate", "provisioning", "0008", "--verbosity", "0")
+        assert catalog.BRANCH_PATTERN.findall(guard()) == branches
+        assert "NEW.mode" in guard()
+    finally:
+        manage_as_owner("migrate", "--verbosity", "0")
+
+
 def test_history_protection_migrations_reverse_and_reapply_and_keep_data(connect):
     app = connect("app")
     app_id, version_id, _ = new_application(app)

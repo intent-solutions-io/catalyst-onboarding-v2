@@ -5,6 +5,8 @@
 # with the rest of the series' identity. Runs as the migration owner.
 from django.db import migrations, models
 
+from erasure import catalog
+
 SETUP = "provisioning_credentialsetup"
 
 BODY_WITH_MODE = """
@@ -28,8 +30,20 @@ BODY_WITHOUT_MODE = BODY_WITH_MODE.replace(", NEW.mode", "").replace(", OLD.mode
 
 def _replace(body):
     def run(apps, schema_editor):
+        # An upgrade may already have erasure.0002 installed. Preserve its audited
+        # retention-only branch in both directions; a fresh install without that
+        # migration must leave the ordinary identity guard intact until it runs.
+        with schema_editor.connection.cursor() as cursor:
+            cursor.execute("SELECT prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+                           "WHERE n.nspname = 'public' AND p.proname = 'catalyst_credential_setup_fixed' "
+                           "AND p.pronargs = 0")
+            existing = cursor.fetchone()[0]
+        branches = catalog.BRANCH_PATTERN.findall(existing)
+        if len(branches) > 1:
+            raise ValueError("credential setup guard has more than one erasure branch")
+        replacement = body.replace("BEGIN", "BEGIN" + branches[0], 1) if branches else body
         schema_editor.execute("CREATE OR REPLACE FUNCTION public.catalyst_credential_setup_fixed() RETURNS trigger "
-                              f"LANGUAGE plpgsql SET search_path = public, pg_temp AS $$ {body} $$", params=None)
+                              f"LANGUAGE plpgsql SET search_path = public, pg_temp AS $$ {replacement} $$", params=None)
     return run
 
 
