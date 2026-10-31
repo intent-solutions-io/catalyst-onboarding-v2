@@ -291,6 +291,7 @@ CATALYST_PROVISIONING_METHOD = "api"  # P5-D-4: API-first against the fake; "che
 CATALYST_PROVISIONING_QUOTA_MB = 1024  # synthetic default (P5-D-2)
 CATALYST_PROVISIONING_SEND_LIMIT = 100  # synthetic default (P5-D-2)
 CATALYST_PROVISIONING_RESERVED_LOCAL_PARTS = []
+CATALYST_PROVISIONING_RESERVED_PREFIXES = []  # 034 row 38: a local part starting with one is reserved (owner's list)
 CATALYST_PROVISIONING_ATTEMPTS = 3
 CATALYST_PROVISIONING_RECONCILE_CHECKS = 3
 CATALYST_PROVISIONING_RECONCILE_GRACE_SECONDS = 30
@@ -304,6 +305,10 @@ CATALYST_SETUP_SET_TIMEOUT_SECONDS = 60  # a set_pending older than this is set_
 # the environment; the live-host values are empty by default and refused outside the test and staging environments
 # (config.guards), where the adapter must still name a test fake. Nothing here activates a live mail host: the live
 # canary is a separate, owner-gated act.
+# The drop-in swap (owner, 2026-10-31: production uses the first-generation policy and the one-time-password welcome)
+# flips exactly NAMING_POLICY to "first_name", NAMING_HOST_CHECK to True and CREDENTIAL_MODE to "one_time_password",
+# with the live-host values below and the owner's RESERVED_LOCAL_PARTS and RESERVED_PREFIXES lists; the code defaults
+# stay P5's until that separate, owner-gated swap.
 CATALYST_PROVISIONING_NAMING_POLICY = "first_last"  # P5-D-1; "first_name" is the first-generation convention (row 38)
 CATALYST_PROVISIONING_NAMING_HOST_CHECK = False  # read each candidate at the host (mailboxes, forwarders) before reserving it
 CATALYST_PROVISIONING_CREDENTIAL_MODE = "set_your_own"  # P5-D-6, the default; "one_time_password" is the alternative (row 39)

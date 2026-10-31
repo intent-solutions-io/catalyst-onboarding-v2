@@ -322,6 +322,11 @@ def test_bgl10_the_first_name_policy_folds_names_and_orders_eleven_candidates(se
     assert naming.candidates_for("Ada Example")[:2] == ["ada", "ada.example"]
     assert naming.candidates_for("Cher")[:2] == ["cher", "cher2"]
     assert naming.candidates_for("Ada Example", policy="first_last")[0] == "ada.example"
+    settings.CATALYST_PROVISIONING_RESERVED_PREFIXES = ["no-reply", "Support"]  # the owner's prefixes (row 38)
+    assert naming.reserved("support.team") and naming.reserved("noreply2") and naming.reserved("no.reply.desk")
+    assert naming.reserved("supportive") and not naming.reserved("ada.support") and not naming.reserved("ada")
+    settings.CATALYST_PROVISIONING_RESERVED_PREFIXES = []  # the code default: exact names and role addresses only
+    assert not naming.reserved("support.team") and naming.reserved("support")
 
 
 def test_bgl10_the_first_name_policy_skips_names_taken_at_the_host_up_to_the_ninth_suffix(mx, monkeypatch, settings):
@@ -345,6 +350,21 @@ def test_bgl10_the_first_name_policy_skips_names_taken_at_the_host_up_to_the_nin
     mx.stub.mailboxes[(DOMAIN, "ada.example9")] = {"quota": 1, "limit": 1}
     assert release()["name_needs_review"] == 1 and items(app, core.ITEM_NAME_REVIEW).count() == 1  # then a person
     assert not AddressReservation.objects.filter(application=app, released_at__isnull=True).exists()
+
+
+def test_bgl10_the_first_name_policy_skips_reserved_role_and_held_addresses_without_reading_the_host(mx, monkeypatch, settings):
+    settings.CATALYST_PROVISIONING_NAMING_POLICY = "first_name"
+    settings.CATALYST_PROVISIONING_RESERVED_LOCAL_PARTS = ["ada", "ada.example"]  # the owner's reserved list
+    app = complete(mx, monkeypatch)
+    assert release()["released"] == 1
+    assert request_of(app).reservation.local_part == "ada.example2" and not mx.stub.calls  # the database collisions only
+    services.supersede(request_of(app).pk, mx.op1, "Synthetic: a role word as the first name")
+    Application.objects.filter(pk=app.pk).update(display_name="Info Example")
+    assert release()["released"] == 1
+    assert request_of(app).reservation.local_part == "info.example" and not mx.stub.calls  # "info" is a role address
+    services.supersede(request_of(app).pk, mx.op1, "Synthetic: a reserved prefix covers every candidate")
+    settings.CATALYST_PROVISIONING_RESERVED_PREFIXES = ["info"]
+    assert release()["name_needs_review"] == 1 and items(app, core.ITEM_NAME_REVIEW).count() == 1  # then a person
 
 
 def test_bgl10_the_default_policy_without_the_host_check_proposes_as_before_and_reads_nothing(mx, monkeypatch):
@@ -502,6 +522,32 @@ def test_bgl10_the_mode_of_a_series_is_fixed_for_every_role(otp, monkeypatch):
         with pytest.raises((errors.InsufficientPrivilege, errors.RaiseException)):
             otp.committed.connect(role, autocommit=True).execute(
                 "UPDATE provisioning_credentialsetup SET mode = 'set_your_own' WHERE id = %s", [setup.pk])
+
+
+def test_bgl10_closing_the_application_cancels_a_queued_password_welcome_before_any_password_is_set(otp, monkeypatch):
+    from datetime import timedelta as delta
+
+    from provisioning import closure
+
+    password_template(otp)
+    closer = grant(otp, staff(otp, "application-closer"), "close_application")
+    enqueue = core.enqueue
+
+    def later(kind, request, key, **kwargs):  # hold the welcome back so the worker goes idle with it still queued
+        if kind == credentials.OTP_WELCOME:
+            kwargs["due_in"] = delta(days=1)
+        return enqueue(kind, request, key, **kwargs)
+
+    monkeypatch.setattr(core, "enqueue", later)
+    app, request = approved(otp, monkeypatch)
+    run_worker()
+    welcome = PendingAction.objects.get(kind=credentials.OTP_WELCOME)
+    assert welcome.status == "queued" and setups(request) == [("one_time_password", "invitation_pending")]
+    closure.close_application(app.pk, closer, "closed", "Programme ended for this applicant")
+    welcome.refresh_from_db()
+    assert (welcome.status, welcome.last_error) == ("cancelled", "application_closed")
+    assert setups(request) == [("one_time_password", "cancelled")]
+    assert "PATCH" not in {m for m, _ in otp.stub.calls} and not otp.stub.passwords_seen[1:]  # only the create's
 
 
 def test_bgl10_the_password_generator_is_strong_and_within_the_documented_bounds():

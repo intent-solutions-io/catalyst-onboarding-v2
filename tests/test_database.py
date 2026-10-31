@@ -75,6 +75,8 @@ APPROVED_MIGRATIONS = {
     ("correspondence", "0020_verification_template"),  # 9kg.80: the verification mail as an approvable template
     ("agreements", "0010_custody_envelope"), ("erasure", "0003_custody_keys"),  # 9kg.34: custody sealed at rest
     ("workflow", "0006_restore_hold_insert_guard"), ("erasure", "0004_erase_replay"),  # 9kg.25: the replay variant of the erase function, under the restore hold only
+    # bgl.10: a credential series' mode, and the key of the secret-bearing one-time-password welcome (no version seeded)
+    ("provisioning", "0008_credential_setup_mode"), ("correspondence", "0021_password_welcome_template"),
 }
 
 

@@ -181,7 +181,9 @@ class CredentialSetup(models.Model):
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     request = models.ForeignKey(ProvisioningRequest, on_delete=models.PROTECT, related_name="setups")
     series = models.PositiveIntegerField()
-    mode = models.CharField(max_length=24, choices=Mode.choices, default=Mode.SET_YOUR_OWN)
+    # A database default too, so a row written without the column (the release before this one, during a deploy) is
+    # the link flow it always was.
+    mode = models.CharField(max_length=24, choices=Mode.choices, default=Mode.SET_YOUR_OWN, db_default=Mode.SET_YOUR_OWN)
     recipient = models.CharField(max_length=320)
     token_sha256 = models.CharField(max_length=64, blank=True, default="")
     state = models.CharField(max_length=24, default="invitation_pending")

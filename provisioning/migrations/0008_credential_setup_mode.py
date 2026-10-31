@@ -1,7 +1,8 @@
 # First-generation parity (034 row 39; bead catalyst-v2-bgl.10): a credential series has a mode. `set_your_own` is the
-# P5-D-6 link flow every existing row used; `one_time_password` is the alternative the worker runs (set, IMAP login
-# check, welcome). The token constraint exempts the new mode (it never has a token), and the row-fixing trigger of
-# 0004 now holds the mode fixed with the rest of the series' identity. Runs as the migration owner.
+# P5-D-6 link flow every existing row used, and the database default (a row written by the previous release during a
+# deploy); `one_time_password` is the alternative the worker runs (set, IMAP login check, welcome). The token
+# constraint exempts the new mode (it never has a token), and the row-fixing trigger of 0004 now holds the mode fixed
+# with the rest of the series' identity. Runs as the migration owner.
 from django.db import migrations, models
 
 SETUP = "provisioning_credentialsetup"
@@ -40,7 +41,7 @@ class Migration(migrations.Migration):
             model_name="credentialsetup",
             name="mode",
             field=models.CharField(choices=[("set_your_own", "Set Your Own"), ("one_time_password", "One Time Password")],
-                                   default="set_your_own", max_length=24),
+                                   default="set_your_own", db_default="set_your_own", max_length=24),
         ),
         migrations.RemoveConstraint(model_name="credentialsetup", name="setup_invited_has_token"),
         migrations.AddConstraint(

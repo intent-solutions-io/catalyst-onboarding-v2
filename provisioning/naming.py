@@ -37,8 +37,14 @@ class NamingRefused(Exception):
 
 
 def reserved(local_part: str) -> bool:
+    """A role address, a name on the owner's list, or (034 row 38) a name that starts with one of the owner's reserved
+    prefixes, compared without dots, hyphens and underscores, so a person named after a role or an officer can never
+    hold an address that reads as one (`support.team`, `no-reply2`). The prefix list is empty by default."""
+    local_part = local_part.lower()
     extra = {r.lower() for r in settings.CATALYST_PROVISIONING_RESERVED_LOCAL_PARTS}
-    return local_part.lower() in ROLE_ADDRESSES or local_part.lower() in extra
+    squashed = re.sub(r"[._-]", "", local_part)
+    prefixes = [re.sub(r"[._-]", "", p.lower()) for p in settings.CATALYST_PROVISIONING_RESERVED_PREFIXES]
+    return local_part in ROLE_ADDRESSES or local_part in extra or any(p and squashed.startswith(p) for p in prefixes)
 
 
 def fold(text: str) -> str:
