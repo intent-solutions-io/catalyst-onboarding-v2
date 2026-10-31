@@ -37,6 +37,7 @@ from django.db import transaction
 from django.db.models.functions import Now
 from django.views.decorators.debug import sensitive_variables
 
+from config.mail import from_header, reply_to
 from correspondence.outbound import current_template_version
 from correspondence.rendering import TemplateRefused, render
 from workflow import ledger
@@ -170,6 +171,7 @@ class SendPasswordWelcome(_Action):
         finally:
             del values, password
         message = EmailMessage(subject=subject, to=[setup.recipient], body=body,
+                               from_email=from_header(), reply_to=reply_to(),  # bgl.6: the configured sender (config.mail)
                                headers={"Message-ID": make_msgid(domain=urlsplit(settings.CATALYST_PUBLIC_BASE_URL).hostname)})
         del body
         try:

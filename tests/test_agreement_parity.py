@@ -123,8 +123,11 @@ def test_bgl8_under_the_provider_distribution_nothing_changes_but_the_redirect(h
     assert not link_mails()
 
 
-def test_bgl8_under_the_service_distribution_the_provider_mails_nobody_and_the_service_sends_the_link(s, monkeypatch, caplog):
+def test_bgl8_under_the_service_distribution_the_provider_mails_nobody_and_the_service_sends_the_link(s, monkeypatch, caplog,
+                                                                                                       settings):
     caplog.set_level(logging.DEBUG)
+    # bgl.6 (parity integration): the link mail carries the configured sender's display name and Reply-To
+    settings.CATALYST_FROM_DISPLAY_NAME, settings.CATALYST_REPLY_TO = "Synthetic Agreements", "agreements-synthetic@example.test"
     app = issued(s, monkeypatch)
     instance = nda(app)
     assert use_payload(s)["override"]["distributionMethod"] == "NONE"
@@ -137,6 +140,8 @@ def test_bgl8_under_the_service_distribution_the_provider_mails_nobody_and_the_s
     assert message.subject == signing_mail.SEED.LINK_SUBJECT and "PLACEHOLDER WORDING" in message.body  # the draft, marked
     assert f"{SIGNING_HOST}/sign/{token}" in message.body and app.display_name in message.body
     assert message.extra_headers["Auto-Submitted"] == "auto-generated" and message.extra_headers["Message-ID"]
+    assert message.from_email == f"Synthetic Agreements <{settings.DEFAULT_FROM_EMAIL}>"
+    assert message.reply_to == ["agreements-synthetic@example.test"]
     row = OutboundMessage.objects.get(template_key="agreement_link_nda")
     assert row.status == "accepted" and row.recipient == message.to[0] and row.sent_at
     assert row.template_version.startswith("1:")

@@ -130,6 +130,12 @@ SENT_FOLDER_SOURCE = "correspondence.sent_reader.SentFolderSource"
 # A host name: lower-case labels, and a final label with a letter (never an all-digit or address-like name).
 HOST_NAME = re.compile(r"([a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?\.)+[a-z0-9-]*[a-z][a-z0-9-]*")
 SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+# bgl.6: the one value of CATALYST_MAIL_TAKEOVER, the swap act that clears the first-generation guard (config/settings.py).
+MAIL_TAKEOVER_VALUE = "first-generation-poll-stopped"
+# bgl.6: a plain mailbox address for the sender settings: one local part and one domain, no display name, comment,
+# white space or list separator, so a header built from it names exactly one mailbox.
+PLAIN_ADDRESS = re.compile(r"[^@\s<>()\[\]\\,;:\"]+@[^@\s<>()\[\]\\,;:\"]+")
+DISPLAY_NAME_MAX = 64
 
 
 def mail_host_allowed(environment: str, host: str, test_host: str, allowed_hosts=(), role: str = "", purpose: str = "smtp") -> bool:
@@ -162,8 +168,9 @@ def mail_allow_list_problems(settings) -> list[str]:
     """9kg.49: the allow-list is exact, non-empty in a live environment, empty everywhere else. A live environment
     also requires the positive pin of the one v2 mailbox login (`CATALYST_MAIL_USER_SHA256`, a 64-hex digest the
     login must hash to) and a non-empty denied list of 64-hex digests (the first-generation mailbox), so the rule is
-    never opt-in there (security review of PR #89); a denied login is refused in every environment. The digest
-    values are private: never pasted into a pull request or a document."""
+    never opt-in there (security review of PR #89); a denied login is refused in every environment until the swap
+    value lifts the denial (bgl.6, takeover_problems). The digest values are private: never pasted into a pull request
+    or a document."""
     environment = getattr(settings, "CATALYST_ENV", "")
     allowed = list(getattr(settings, "CATALYST_MAIL_ALLOWED_HOSTS", []) or [])
     problems = []
@@ -185,14 +192,71 @@ def mail_allow_list_problems(settings) -> list[str]:
             problems.append("CATALYST_MAIL_USER_SHA256 must pin the v2 mailbox login in a live environment")
         elif user and not user_pinned(user, pin):
             problems.append("CATALYST_MAIL_USER does not hash to CATALYST_MAIL_USER_SHA256 (not the pinned v2 mailbox)")
-        if pin and pin in denied:
+        if pin and pin in denied and not takeover(settings):  # bgl.6: the swap lifts the denial (takeover_problems)
             problems.append("CATALYST_MAIL_USER_SHA256 names a denied mailbox")
         if getattr(settings, "CATALYST_SEND_EVIDENCE_SOURCE", "") != SENT_FOLDER_SOURCE:
             problems.append("CATALYST_SEND_EVIDENCE_SOURCE must be the Sent-folder reader in a live environment (9kg.49)")
     elif allowed:
         problems.append("CATALYST_MAIL_ALLOWED_HOSTS is allowed only in a live environment (synthetic and development use loopback)")
-    if denied and user and user_digest(user) in denied:
+    if denied and user and user_digest(user) in denied and not takeover(settings):
         problems.append("CATALYST_MAIL_USER is a denied mailbox (the first-generation mailbox is never a v2 source)")
+    return problems
+
+
+def takeover(settings) -> bool:
+    """bgl.6: whether this configuration has taken over the first generation's mailbox (the swap act)."""
+    return getattr(settings, "CATALYST_MAIL_TAKEOVER", "") == MAIL_TAKEOVER_VALUE
+
+
+def sender_address(settings) -> str:
+    return str(getattr(settings, "DEFAULT_FROM_EMAIL", "") or "").strip().lower()
+
+
+def takeover_problems(settings) -> list[str]:
+    """bgl.6 (034 section 3.2; the owner's answer of 2026-10-31): the swap lifts the first-generation guard, and only
+    explicitly: CATALYST_MAIL_TAKEOVER is empty (the denied digests refuse the first generation's login, the default)
+    or exactly MAIL_TAKEOVER_VALUE (the denial is lifted; the digests stay configured, so unsetting the value restores
+    the refusal). With it, v2 must read the mailbox it sends from: the login, where this process holds one, equals
+    CATALYST_FROM_EMAIL, and in a live environment the pin every process holds is that address's digest. Messages
+    name settings, never a mailbox."""
+    value = getattr(settings, "CATALYST_MAIL_TAKEOVER", "") or ""
+    if not value:
+        return []
+    if value != MAIL_TAKEOVER_VALUE:
+        return [f"CATALYST_MAIL_TAKEOVER must be empty or exactly {MAIL_TAKEOVER_VALUE!r} (the swap act)"]
+    problems = []
+    sender = sender_address(settings)
+    user = str(getattr(settings, "CATALYST_MAIL_USER", "") or "").strip().lower()
+    if user and user != sender:
+        problems.append("CATALYST_MAIL_USER must be the CATALYST_FROM_EMAIL mailbox under CATALYST_MAIL_TAKEOVER "
+                        "(v2 reads the mailbox it sends from)")
+    pin = str(getattr(settings, "CATALYST_MAIL_USER_SHA256", "") or "").strip().lower()
+    if getattr(settings, "CATALYST_ENV", "") in LIVE_ENVIRONMENTS and pin and pin != user_digest(sender):
+        problems.append("CATALYST_MAIL_USER_SHA256 must pin the CATALYST_FROM_EMAIL mailbox under CATALYST_MAIL_TAKEOVER")
+    return problems
+
+
+def sender_problems(settings) -> list[str]:
+    """bgl.6 (034 rows 10 and 22): the sender headers of every applicant mail. CATALYST_FROM_EMAIL is one plain address;
+    the display name, when set, is one short line of printable text that holds no address (no look-alike sender);
+    Reply-To, when set, is one plain address, and in a live environment the From address itself, so a reply reaches
+    the mailbox v2 reads (the first generation's own rule: Reply-To the same)."""
+    problems = []
+    sender = str(getattr(settings, "DEFAULT_FROM_EMAIL", "") or "")
+    if not PLAIN_ADDRESS.fullmatch(sender):
+        problems.append("CATALYST_FROM_EMAIL must be one plain address (the display name is CATALYST_FROM_DISPLAY_NAME)")
+    name = str(getattr(settings, "CATALYST_FROM_DISPLAY_NAME", "") or "")
+    if name and (len(name) > DISPLAY_NAME_MAX or not name.isprintable() or any(c in name for c in '@<>"\\')
+                 or name != name.strip()):
+        problems.append(f"CATALYST_FROM_DISPLAY_NAME must be one line of at most {DISPLAY_NAME_MAX} printable characters "
+                        "with no address, quote, angle bracket or backslash")
+    reply_to = str(getattr(settings, "CATALYST_REPLY_TO", "") or "")
+    if reply_to:
+        if not PLAIN_ADDRESS.fullmatch(reply_to):
+            problems.append("CATALYST_REPLY_TO must be one plain address")
+        elif getattr(settings, "CATALYST_ENV", "") in LIVE_ENVIRONMENTS and reply_to.lower() != sender.strip().lower():
+            problems.append("CATALYST_REPLY_TO must be the CATALYST_FROM_EMAIL address in a live environment (replies "
+                            "reach the mailbox v2 reads)")
     return problems
 
 
@@ -201,7 +265,7 @@ def mail_problems(settings) -> list[str]:
     test_host = getattr(settings, "CATALYST_MAIL_TEST_HOST", "")
     allowed = getattr(settings, "CATALYST_MAIL_ALLOWED_HOSTS", []) or []
     role = ANY_KIND
-    problems = mail_allow_list_problems(settings)
+    problems = mail_allow_list_problems(settings) + takeover_problems(settings)
     if test_host and settings.CATALYST_ENV != "test":
         problems.append("CATALYST_MAIL_TEST_HOST is allowed only in the test environment")
     if host and not mail_host_allowed(settings.CATALYST_ENV, host, test_host, allowed, role):
@@ -237,7 +301,11 @@ def mail_problems(settings) -> list[str]:
 
 
 DISPATCH_SETTINGS = ("CATALYST_ATTENTION_OPENER", "CATALYST_ACTION_HANDLERS", "CATALYST_REPLY_INTERPRETER",
-                     "CATALYST_ANSWERS_CONFIRMED_HOOK", "CATALYST_REPLY_INTERPRETATION_ACTIVATION")
+                     "CATALYST_ANSWERS_CONFIRMED_HOOK", "CATALYST_REPLY_INTERPRETATION_ACTIVATION",
+                     "CATALYST_FOREIGN_THREAD_RESOLVER")
+# bgl.6: the one module that may resolve replies to first-generation threads (config/settings.py), and only with its app
+# installed; tests name their own fake under `tests.`.
+FOREIGN_THREAD_RESOLVER = "firstgen.threads"
 
 
 def dispatch_problems(settings, environ: Mapping[str, str]) -> list[str]:
@@ -256,6 +324,11 @@ def dispatch_problems(settings, environ: Mapping[str, str]) -> list[str]:
                                      "accounts.")):  # accounts: the session clean-up (6B.9)
             problems.append(f"CATALYST_ACTION_HANDLERS[{kind!r}] must name a correspondence, workflow, assessments, "
                             "agreements, provisioning or accounts handler")
+    resolver = str(getattr(settings, "CATALYST_FOREIGN_THREAD_RESOLVER", "") or "")
+    installed = list(getattr(settings, "INSTALLED_APPS", []) or [])
+    if resolver and not ((resolver == FOREIGN_THREAD_RESOLVER and "firstgen" in installed)
+                         or (resolver.startswith("tests.") and getattr(settings, "CATALYST_ENV", "") == "test")):
+        problems.append(f"CATALYST_FOREIGN_THREAD_RESOLVER must be empty or {FOREIGN_THREAD_RESOLVER!r} with its app installed")
     return problems
 
 
@@ -880,6 +953,7 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + environment_problems(settings.CATALYST_ENV)
         + provider_problems(settings.EMAIL_BACKEND, environ, settings.CATALYST_ENV)
         + mail_problems(settings)
+        + sender_problems(settings)
         + dispatch_problems(settings, environ)
         + evidence_problems(settings, environ)
         + assessment_problems(settings, environ)

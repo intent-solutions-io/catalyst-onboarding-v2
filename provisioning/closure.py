@@ -33,6 +33,7 @@ from django.db.models.functions import Now
 from applications.links import WITHDRAW_PATH
 from applications.models import TERMINAL_STAGES, Application, ApplicationEvent, Stage
 from applications.stages import transition
+from config.mail import from_header, reply_to
 from correspondence import scheduling
 from correspondence.messages import verified_address
 from workflow import journal, ledger
@@ -405,7 +406,7 @@ class SendWithdrawalLink(_Action):
             WithdrawalConfirmation.objects.filter(pk=row.pk).update(state="uncertain", updated_at=Now())
         token = secrets.token_urlsafe(32)
         digest = _hash(token)
-        message = EmailMessage(subject=SUBJECT, to=[row.recipient],
+        message = EmailMessage(subject=SUBJECT, to=[row.recipient], from_email=from_header(), reply_to=reply_to(),
                                body=BODY.format(name=row.application.display_name,
                                                 link=f"{settings.CATALYST_PUBLIC_BASE_URL}{WITHDRAW_PATH}{token}/"),
                                headers={"Message-ID": make_msgid(domain=urlsplit(settings.CATALYST_PUBLIC_BASE_URL).hostname)})

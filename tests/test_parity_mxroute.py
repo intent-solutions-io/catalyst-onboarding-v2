@@ -386,8 +386,11 @@ def test_bgl10_a_host_that_cannot_answer_the_collision_check_leaves_the_handoff_
 
 # --- the one-time-password welcome (row 39) -----------------------------------------------------------------------
 
-def test_bgl10_the_one_time_password_welcome_sets_checks_by_imap_then_sends_to_the_personal_address_only(otp, monkeypatch, caplog):
+def test_bgl10_the_one_time_password_welcome_sets_checks_by_imap_then_sends_to_the_personal_address_only(otp, monkeypatch, caplog,
+                                                                                                         settings):
     caplog.set_level(logging.DEBUG)
+    # bgl.6 (parity integration): the welcome carries the configured sender's display name and Reply-To
+    settings.CATALYST_FROM_DISPLAY_NAME, settings.CATALYST_REPLY_TO = "Synthetic Agreements", "agreements-synthetic@example.test"
     password_template(otp)
     app, request = approved(otp, monkeypatch)
     sent_before, welcomes_before = len(mail.outbox), len(otp.server.messages)
@@ -400,6 +403,8 @@ def test_bgl10_the_one_time_password_welcome_sets_checks_by_imap_then_sends_to_t
     assert len(mail.outbox) == sent_before + 1
     welcome = mail.outbox[-1]
     assert welcome.to == ["ada@example.test"] and not welcome.cc and not welcome.bcc  # the verified personal address only
+    assert welcome.from_email == f"Synthetic Agreements <{settings.DEFAULT_FROM_EMAIL}>"
+    assert welcome.reply_to == ["agreements-synthetic@example.test"]
     assert f"password: {password}" in welcome.body and "mailbox_username: ada.example" in welcome.body
     assert f"mailbox_address: ada.example@{DOMAIN}" in welcome.body
     assert setups(request) == [("one_time_password", "completed")]

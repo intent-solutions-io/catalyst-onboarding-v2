@@ -284,6 +284,23 @@ def test_bgl16_replies_to_first_generation_threads_associate_by_message_id_and_r
     assert threads.application_for_message_ids(both) is None  # two applications: ambiguous, never guessed
     assert threads.application_for_subject("Re: A question about your request [CAT-NI00-0004]") == asked.pk
     assert threads.application_for_subject("Re: no reference") is None
+    # bgl.6 (parity integration): with this app installed, the reply path's resolver is this module, and association
+    # reaches the imported application through it, by Message-ID and then by the subject reference
+    from types import SimpleNamespace
+
+    from django.conf import settings
+
+    from correspondence import association
+
+    assert settings.CATALYST_FOREIGN_THREAD_RESOLVER == "firstgen.threads" and association.foreign_resolver() is threads
+    reply = SimpleNamespace(is_bounce=False, in_reply_to=[message_id], references=[], embedded_message_ids=[], subject="Re: x")
+    assert association.foreign_application_id(reply) == asked.pk
+    by_subject = SimpleNamespace(is_bounce=False, in_reply_to=["<unknown@example.test>"], references=[],
+                                 embedded_message_ids=[], subject="Re: A question about your request [CAT-NI00-0004]")
+    assert association.foreign_application_id(by_subject) == asked.pk
+    bounce = SimpleNamespace(is_bounce=True, in_reply_to=[], references=[], embedded_message_ids=["<unknown@example.test>"],
+                             subject="Undelivered [CAT-NI00-0004]")
+    assert association.foreign_application_id(bounce) is None  # a bounce never matches by subject (C0)
     record = ImportedRecord.objects.get(v1_table="outbound_message", message_id=message_id)
     assert record.application_id == asked.pk
     replies = ImportedRecord.objects.filter(application=asked, kind="message").values_list("data", flat=True)

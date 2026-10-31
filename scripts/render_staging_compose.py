@@ -104,6 +104,11 @@ COMMON_ENV = {
     "CATALYST_PUBLIC_HOST_ALIASES": "${CATALYST_PUBLIC_HOST_ALIASES:-}",
     "CATALYST_HEALTH_AGED_WAITS_PAGE": "${CATALYST_HEALTH_AGED_WAITS_PAGE:-replies_awaiting_processing,issued_agreements,provisioning_activation}",
     "CATALYST_HEALTH_PENDING_AGE_SECONDS": "${CATALYST_HEALTH_PENDING_AGE_SECONDS:-3600}",
+    # bgl.6 (034 section 3.2): the sender's display name and Reply-To, and the mailbox takeover (the swap act). Unset
+    # keeps today's headers and the first-generation denial; every Catalyst process checks them at start-up.
+    "CATALYST_FROM_DISPLAY_NAME": "${CATALYST_FROM_DISPLAY_NAME:-}",
+    "CATALYST_REPLY_TO": "${CATALYST_REPLY_TO:-}",
+    "CATALYST_MAIL_TAKEOVER": "${CATALYST_MAIL_TAKEOVER:-}",
 }
 EFFECTS = "catalyst-effects:/var/lib/catalyst/effects"
 # The inputs production adds to, or replaces in, every Catalyst process's environment (see the module docstring).

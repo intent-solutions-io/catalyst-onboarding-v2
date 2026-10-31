@@ -45,6 +45,7 @@ from django.views.decorators.debug import sensitive_variables
 
 from applications import notices
 from applications.models import Application
+from config.mail import from_header, reply_to
 from correspondence.messages import only_duplicate_key, verified_address
 from correspondence.models import OutboundMessage
 from correspondence.staff_items import event, hard_bounce_open, open_item
@@ -204,6 +205,7 @@ class SendSigningLink:
             return
         message_id = make_msgid(idstring=f"l{claim.attempt}", domain=urlsplit(settings.CATALYST_PUBLIC_BASE_URL).hostname)
         message = EmailMessage(subject=mail.subject, body=mail.display, to=[decision.recipient],
+                               from_email=from_header(), reply_to=reply_to(),  # bgl.6: the configured sender (config.mail)
                                headers={"Message-ID": message_id, "Auto-Submitted": "auto-generated"})
         outbound = dict(application_id=decision.application_id, pending_action_id=claim.id, attempt_number=claim.attempt,
                         template_key=mail.key, template_version=f"{mail.version}:{mail.sha256[:24]}",

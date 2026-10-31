@@ -3,9 +3,10 @@ Message-IDs, so replies to old threads associate").
 
 The first generation recorded each automated message's Message-ID; the import keeps them on `ImportedRecord`
 (`message_id`). A reply's In-Reply-To and References are matched exactly against them, and a subject's `[CAT-...]`
-reference against the imported references. Pure lookups for the reply path: not yet called by
-`correspondence.inbound` (wiring them in is follow-up work, 035 section 6), and never a basis for trusting the
-sender, which stays the reply path's own check (correspondence.association, C2 and C3).
+reference against the imported references. Pure lookups for the reply path: correspondence.association asks them
+(CATALYST_FOREIGN_THREAD_RESOLVER, set to this module whenever this app is installed; bgl.6) when a reply matches none
+of v2's own Message-IDs, and never as a basis for trusting the sender, which stays the reply path's own check
+(correspondence.association, C2 and C3).
 """
 
 import re

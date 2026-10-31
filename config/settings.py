@@ -350,6 +350,12 @@ CATALYST_NOTICE_SOURCE = "correspondence.notices"
 # interpreter and the answers-confirmed hook through these fixed paths and never imports `assessments`.
 CATALYST_REPLY_INTERPRETER = "assessments.interpret.Interpreter"
 CATALYST_ANSWERS_CONFIRMED_HOOK = "assessments.clarification.answers_settled"
+# bgl.6 (034 section 3.2 (c)): the optional resolver of replies to threads v2 did not start. After the swap v2 reads the
+# first generation's mailbox, so a reply may answer a first-generation message; correspondence.association asks this
+# module (two functions: `application_for_message_ids` and `application_for_subject`) only when no Message-ID of v2's
+# own matched. The first-generation import app's module when that app is installed, else none (today's behaviour: the
+# reply is an unmatched item for staff). Fixed in code, never from the environment (config.guards.dispatch_problems).
+CATALYST_FOREIGN_THREAD_RESOLVER = "firstgen.threads" if "firstgen" in INSTALLED_APPS else ""
 # The activation version of message-level reply interpretation (018 5.4). 0: off; process_reply creates no
 # `interpret_message` row. The owner turns it on by changing this value in code, then releases earlier replies
 # with `activate_reply_interpretation`. Even when on, no model runs outside tests (CATALYST_ASSESSMENT_MODEL).
@@ -534,9 +540,19 @@ CATALYST_MAIL_SENT_SCAN_LIMIT = number("CATALYST_MAIL_SENT_SCAN_LIMIT", "500")  
 # the synthetic ones and in development, where only loopback (or the named test host) is ever allowed.
 CATALYST_MAIL_ALLOWED_HOSTS = [h.strip().lower() for h in os.environ.get("CATALYST_MAIL_ALLOWED_HOSTS", "").split(",") if h.strip()]
 # 9kg.49: SHA-256 digests (lower-case hex) of mailbox logins that may never be configured as this service's
-# mailbox: the first-generation service's own mailbox, so v2 can never become a second poller or reader of it.
+# mailbox: the first-generation service's own mailbox, so v2 can never become a second poller or reader of it (until
+# the swap lifts the denial: CATALYST_MAIL_TAKEOVER below).
 # Digests, not names: the repository is public and names nothing.
 CATALYST_MAIL_DENIED_USER_SHA256 = [d.strip().lower() for d in os.environ.get("CATALYST_MAIL_DENIED_USER_SHA256", "").split(",") if d.strip()]
+# bgl.6 (034 section 3.2; the owner's answer of 2026-10-31): the mailbox takeover at the swap. The denied digest above is
+# the default protection: while the first generation still polls its mailbox, v2 must never become a SECOND reader of it
+# (M8, P6-D-10, 211.7.3: two pollers would duplicate and race). Clearing that guard is the swap act, taken only after
+# the first generation's poll is stopped and v2's cursor is set (`catalyst_mail_cursor_start`): production sets this to
+# exactly "first-generation-poll-stopped", which lifts the denial (the digests stay configured, so unsetting the value
+# restores it). Start-up then requires the mailbox v2 reads to be the one it sends from (CATALYST_MAIL_USER and its pin
+# equal CATALYST_FROM_EMAIL) and refuses any other value (config.guards.takeover_problems); collection refuses a cursor
+# the start command did not set (correspondence.inbound.takeover_refusal).
+CATALYST_MAIL_TAKEOVER = os.environ.get("CATALYST_MAIL_TAKEOVER", "").strip()
 # 9kg.49 (security review): the positive pin of the one v2 mailbox login, a SHA-256 hex digest CATALYST_MAIL_USER must
 # hash to; required in a live environment, re-checked before any login. Private: never pasted into a PR or a doc.
 CATALYST_MAIL_USER_SHA256 = os.environ.get("CATALYST_MAIL_USER_SHA256", "").strip().lower()
@@ -741,3 +757,10 @@ EMAIL_BACKEND = env(
 )
 EMAIL_FILE_PATH = os.environ.get("CATALYST_EMAIL_FILE_PATH") or None  # the filebased sink's private directory
 DEFAULT_FROM_EMAIL = env("CATALYST_FROM_EMAIL", "onboarding@example.invalid")  # synthetic (POL-17)
+# bgl.6 (034 rows 10 and 22, section 3.2; the owner's answer of 2026-10-31): the display name in the From header and the
+# Reply-To of every applicant mail (the P2 sender and the three Django link mails; config.mail.from_header and
+# reply_to). Empty, the default, keeps today's headers: the bare address and no Reply-To. Checked at start-up
+# (config.guards.sender_problems): the name is one short line with no address in it; Reply-To is one plain address, and
+# in a live environment the From address itself, so replies reach the mailbox v2 reads.
+CATALYST_FROM_DISPLAY_NAME = os.environ.get("CATALYST_FROM_DISPLAY_NAME", "").strip()
+CATALYST_REPLY_TO = os.environ.get("CATALYST_REPLY_TO", "").strip()

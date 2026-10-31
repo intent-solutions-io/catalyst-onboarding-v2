@@ -36,6 +36,7 @@ from django.views.decorators.debug import sensitive_variables
 from applications.links import SETUP_PATH
 from applications.models import Application, Stage
 from applications.stages import transition
+from config.mail import from_header, reply_to
 from correspondence.messages import verified_address
 from workflow import ledger
 from workflow.models import PendingAction
@@ -168,7 +169,7 @@ class SendSetupInvitation(_Action):
         token = secrets.token_urlsafe(32)  # minted now; only its hash is ever stored
         digest = token_hash(token)
         message = EmailMessage(
-            subject=SUBJECT, to=[setup.recipient],
+            subject=SUBJECT, to=[setup.recipient], from_email=from_header(), reply_to=reply_to(),
             body=BODY.format(name=setup.request.application.display_name, link=setup_link(token)),
             headers={"Message-ID": make_msgid(domain=urlsplit(settings.CATALYST_PUBLIC_BASE_URL).hostname)})
         try:
