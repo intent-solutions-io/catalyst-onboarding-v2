@@ -188,6 +188,7 @@ class InterpretResult:
 @dataclass(frozen=True)
 class InterpretUnavailable:
     code: str  # a reason code: the reply goes to staff without a proposal
+    retry_after: int = 0  # provider throttling delays the job without recording a staff-only outcome
 
 
 class ReplyInterpreter(Protocol):
@@ -498,10 +499,11 @@ class InterpretMessage:
                 ledger.fence(claim)
                 early, prepared = self.precall(claim)
                 if early is not None:
-                    status, code = early
+                    status, code, *wait = early
                     # A pause before anything is recorded returns the attempt (the 3B.2 rule for runs).
-                    ledger.finish(claim, self, status=status, error=code, refund_attempt=code == "automation_paused",
-                                  due_in=timedelta(seconds=settings.CATALYST_WORKER_POLL_SECONDS) if status == Status.QUEUED else None)
+                    ledger.finish(claim, self, status=status, error=code, refund_attempt=code in ("automation_paused", "provider_rate_limited"),
+                                  due_in=timedelta(seconds=wait[0] if wait else settings.CATALYST_WORKER_POLL_SECONDS)
+                                  if status == Status.QUEUED else None)
                     return
         except ledger.LeaseLost:
             return
@@ -511,6 +513,12 @@ class InterpretMessage:
                 outcome = interpreter.interpret(request)  # outside any transaction
         except ledger.LeaseLost:
             return  # another claim owns the action: nothing further is requested or recorded here
+        if isinstance(outcome, InterpretUnavailable) and outcome.retry_after and not claim.final:
+            ledger.finish(claim, self, status=Status.QUEUED, error="provider_rate_limited",
+                          due_in=max(ledger.retry_delay(claim.attempt), timedelta(seconds=outcome.retry_after)),
+                          write=lambda: ReplyInterpretation.objects.filter(pk=interpretation.pk).update(
+                              status=ReplyInterpretation.Status.ABANDONED, code="provider_rate_limited", finished_at=Now()))
+            return
         ledger.finish(claim, self, status=Status.DONE, write=lambda: self._record(interpretation, request, questions, outcome))
 
     def precall(self, claim):
@@ -548,6 +556,9 @@ class InterpretMessage:
                                                text_sha256=message.derived_text_sha256, status="unavailable", code=refusal,
                                                finished_at=Now())
             return (Status.DONE, refusal), None
+        delay = getattr(interpreter, "rate_wait", lambda: 0)()
+        if delay:
+            return (Status.QUEUED, "provider_rate_limited", delay), None
         interpretation = ReplyInterpretation.objects.create(
             message=message, application=application, attempt=attempt, text_sha256=message.derived_text_sha256,
             reserved_requests=interpreter.requests_per_attempt)

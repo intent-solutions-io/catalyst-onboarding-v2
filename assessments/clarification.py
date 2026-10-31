@@ -23,13 +23,14 @@ from correspondence.common import Refused
 from correspondence.models import Question
 from correspondence.questions import create_question
 
+from .quotas import exceeds
 from .models import AssessmentRun
 
 OPEN = (Question.Status.OPEN, Question.Status.REPLY_PENDING)
 
 
 def propose_from_run(run, output) -> int:
-    if run.round >= settings.CATALYST_ASSESSMENT_ROUNDS:
+    if exceeds(run.round + 1, settings.CATALYST_ASSESSMENT_ROUNDS):
         return 0  # a question asked in the last round could never be reassessed
     already = Question.objects.filter(application_id=run.application_id, origin=Question.Origin.MODEL, round=run.round).count()
     created = 0
@@ -63,7 +64,7 @@ def answers_settled(application) -> None:
     if Question.objects.filter(application=application, approval_state=Question.Approval.APPROVED, status__in=OPEN).exists():
         return  # the round is not finished
     last = current_round(application)
-    if last >= settings.CATALYST_ASSESSMENT_ROUNDS:
+    if exceeds(last + 1, settings.CATALYST_ASSESSMENT_ROUNDS):
         transition(application.pk, (Stage.AWAITING_ANSWERS,), Stage.AWAITING_DECISION, event_kind="clarification_round_cap",
                    data={"round": last})
         return

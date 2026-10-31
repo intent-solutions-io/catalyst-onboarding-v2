@@ -65,6 +65,7 @@ from correspondence.common import Refused as NoteRefused
 from correspondence.staff_items import clean_note as _clean_note, resolve_item
 from workflow.models import AutomationPause, PendingAction
 
+from .quotas import exceeds
 from . import decline as declines, pack as packs, snapshot
 from .models import AssessmentRun, EvidenceItem, QualificationDecision
 from .services import Refused
@@ -170,7 +171,7 @@ def human_only_code(application, run, current: str, succeeded, in_flight: bool) 
     if application.stage in (Stage.AWAITING_DECISION, Stage.ON_HOLD):
         return "returned_without_reassessment"  # handed back without a reassessment (the round cap, or none could be queued)
     if (application.stage == Stage.ASSESSING  # no run can be queued any more: the run cap is reached
-            and AssessmentRun.objects.filter(application=application).count() >= settings.CATALYST_ASSESSMENT_RUNS_PER_APPLICATION):
+            and exceeds(AssessmentRun.objects.filter(application=application).count() + 1, settings.CATALYST_ASSESSMENT_RUNS_PER_APPLICATION)):
         return "run_cap_reached" if capped_exit else ""
     return ""
 

@@ -27,6 +27,7 @@ from pydantic import Field
 from correspondence.models import Question
 from correspondence.question_screen import question_problems, text_key, unsafe
 
+from .quotas import exceeds
 from . import agent, approval, pack as packs, snapshot
 from .schema import Strict, Text
 
@@ -134,4 +135,4 @@ def packs_for() -> tuple:
 
 
 def rounds_left(run) -> bool:
-    return run.round < settings.CATALYST_ASSESSMENT_ROUNDS
+    return not exceeds(run.round + 1, settings.CATALYST_ASSESSMENT_ROUNDS)

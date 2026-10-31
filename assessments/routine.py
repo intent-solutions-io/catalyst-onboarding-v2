@@ -45,6 +45,8 @@ from workflow import ledger
 from workflow.keeper import LeaseKeeper
 from workflow.models import AutomationPause, PendingAction
 
+from .quotas import exceeds
+from . import rate_limits
 from . import agent, clarify, decisions, pack as packs, policy
 from .models import AssessmentInvocation, AssessmentRun, EvidenceItem
 from .schema import AssessmentOutput
@@ -128,7 +130,8 @@ class RoutineAdvance:
                 early, work = self.precall(claim)
                 if early is not None:
                     status, reason, write, due = early
-                    ledger.finish(claim, self, status=status, error=reason, write=write, due_in=due)
+                    ledger.finish(claim, self, status=status, error=reason, write=write, due_in=due,
+                                  refund_attempt=reason == "provider_rate_limited")
                     return
         except ledger.LeaseLost:
             logger.warning("action %s (%s): lease lost before the call; nothing called", claim.id, claim.kind)
@@ -143,6 +146,10 @@ class RoutineAdvance:
             return
         except (agent.ModelUnavailable, agent.InvalidOutput, agent.BudgetStop, agent.ProviderError) as exc:
             code = exc.code if isinstance(exc, agent.InvalidOutput) else str(exc)
+            if isinstance(exc, agent.ProviderError) and exc.retry_after and not claim.final:
+                ledger.finish(claim, self, status=Status.QUEUED, error="provider_rate_limited",
+                              due_in=max(ledger.retry_delay(claim.attempt), timedelta(seconds=exc.retry_after)))
+                return
             self._hold(claim, application, run, f"self_caused:{type(exc).__name__}:{code}"[:120])
             return
         usage = {"draft": [draft.requests, draft.input_tokens + draft.output_tokens],
@@ -171,7 +178,7 @@ class RoutineAdvance:
                 event(application, "routine_clarification_refused", {"run": str(run.public_id), "verdict": "automation_paused",
                                                                      **provenance})
                 return
-            if sends_today() + 1 > settings.CATALYST_ROUTINE_DAILY_SENDS:
+            if exceeds(sends_today() + 1, settings.CATALYST_ROUTINE_DAILY_SENDS):
                 self._stop(application, run, "routine_send_cap_reached", "daily_send_cap")[2]()
                 return
             try:
@@ -221,9 +228,9 @@ class RoutineAdvance:
 
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(%s)", [GLOBAL_LOCK])
-        if sends_today() + 1 > settings.CATALYST_ROUTINE_DAILY_SENDS:
+        if exceeds(sends_today() + 1, settings.CATALYST_ROUTINE_DAILY_SENDS):
             return self._stop(application, run, "routine_send_cap_reached", "daily_send_cap"), None
-        if daily_requests_used() + REQUESTS > settings.CATALYST_ASSESSMENT_DAILY_REQUESTS:
+        if exceeds(daily_requests_used() + REQUESTS, settings.CATALYST_ASSESSMENT_DAILY_REQUESTS):
             return self._stop(application, run, "routine_request_cap_reached", "daily_request_cap"), None
         try:
             clarify_pack, check_pack = clarify.packs_for()
@@ -235,6 +242,10 @@ class RoutineAdvance:
                          .exclude(status=Question.Status.WITHDRAWN).order_by("id")[:len(verdict.questions)])
         if not proposals:
             return (Status.DONE, "no_proposal_to_send", None, None), None
+        delay = rate_limits.reserve(REQUESTS, 2 * agent.attempt_tokens(),
+                                    REQUESTS * settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS)
+        if delay:
+            return (Status.QUEUED, "provider_rate_limited", None, timedelta(seconds=delay)), None
         # Earlier draft or check invocations whose attempt never finished were possibly billed: counted, abandoned.
         AssessmentInvocation.objects.filter(run=run, attempt__gte=DRAFT_ATTEMPT, status="started").update(
             status="abandoned", finished_at=Now())

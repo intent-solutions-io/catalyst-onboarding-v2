@@ -629,3 +629,22 @@ def test_the_screen_shows_the_advisory_run_and_never_preselects_it(a, monkeypatc
     section = page.split("Assessment (advisory)")[1].split("<h2>Clarification</h2>")[0]
     assert "Advisory recommendation: hold" in section and "not a decision" in section and QUOTE in section
     assert "<option" not in section and "checked" not in section  # shown, never pre-selected
+
+
+def test_owner_uncapped_usage_keeps_assessment_working_without_daily_or_applicant_quota(a, monkeypatch, settings):
+    for name in ("CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT", "CATALYST_ASSESSMENT_RUNS_PER_APPLICATION",
+                 "CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION", "CATALYST_ASSESSMENT_DAILY_REQUESTS",
+                 "CATALYST_ASSESSMENT_ROUNDS"):
+        setattr(settings, name, None)
+    app, run, seen = assessed(a, monkeypatch, valid())
+    assert run.status == "succeeded" and seen["calls"] == 1
+
+
+def test_provider_pacing_queues_assessment_without_call_or_consuming_an_attempt(a, monkeypatch, settings):
+    app, run, seen = queued(a, monkeypatch, settings, valid())
+    monkeypatch.setattr(runs.rate_limits, "reserve", lambda *args: 90)
+    claim = claim_run()
+    runs.RunAssessment().run(claim)
+    action = PendingAction.objects.get(pk=claim.id)
+    assert (action.status, action.last_error, action.attempts, seen["calls"]) == ("queued", "provider_rate_limited", 0, 0)
+    assert not AssessmentInvocation.objects.exists()

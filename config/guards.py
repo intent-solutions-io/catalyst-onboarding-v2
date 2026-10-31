@@ -405,6 +405,14 @@ def assessment_problems(settings, environ: Mapping[str, str]) -> list[str]:
             problems += Thresholds.from_settings(settings).problems()
         except AttributeError:
             problems.append("the routine-advance thresholds must be set when CATALYST_ROUTINE_ADVANCE_ACTIVATION is on")
+    if environment == "production" and live_activation >= 1:
+        # The largest job drafts and checks one clarification (two bounded attempts).
+        if getattr(settings, "CATALYST_MINIMAX_REQUESTS_PER_MINUTE", 0) < 4:
+            problems.append("CATALYST_MINIMAX_REQUESTS_PER_MINUTE must cover one bounded clarification job")
+        tokens = 2 * (2 * getattr(settings, "CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST", 16000)
+                      + getattr(settings, "CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT", 8000))
+        if getattr(settings, "CATALYST_MINIMAX_TOKENS_PER_MINUTE", 0) < tokens:
+            problems.append("CATALYST_MINIMAX_TOKENS_PER_MINUTE must cover one bounded clarification job")
     return problems + attempt_lease_problems(settings)
 
 

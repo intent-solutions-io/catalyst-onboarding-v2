@@ -26,6 +26,7 @@ of evidence, 019 section 5): no evidence means capability unknown, never a lack 
 
 from dataclasses import dataclass
 
+from .quotas import exceeds
 from .schema import AssessmentOutput, ProposedQuestion
 
 VERSION = "1"  # recorded with every verdict and every automatic decision; bump on any change to `decide`
@@ -71,7 +72,7 @@ class Facts:
     required: frozenset = frozenset()  # the rubric's required criterion ids
     flags: tuple = ()  # the run's soft flags (schema.flags)
     round: int = 1  # the run's clarification round
-    rounds: int = 3  # CATALYST_ASSESSMENT_ROUNDS
+    rounds: int | None = 3  # CATALYST_ASSESSMENT_ROUNDS
     room: int = 0  # questions this round may still send (CATALYST_QUESTIONS_PER_ROUND minus those approved)
     cohort_boundary: bool = True
     identity_item_open: bool = True
@@ -126,12 +127,12 @@ def decide(output: AssessmentOutput, facts: Facts, thresholds: Thresholds | None
     short = meets_advance(output, facts, thresholds)
     if not short:
         return Verdict(HOLD, blocked) if blocked else Verdict(ADVANCE, "routine_admit")
-    if output.proposed_questions and facts.round < facts.rounds and facts.room > 0:
+    if output.proposed_questions and not exceeds(facts.round + 1, facts.rounds) and facts.room > 0:
         if blocked:
             return Verdict(HOLD, blocked)
         return Verdict(ASK, "evidence_gap", tuple(output.proposed_questions[:facts.room]))
     if output.proposed_questions:
-        return Verdict(NEEDS_HUMAN, "rounds_exhausted" if facts.round >= facts.rounds else "round_full")
+        return Verdict(NEEDS_HUMAN, "rounds_exhausted" if exceeds(facts.round + 1, facts.rounds) else "round_full")
     return Verdict(NEEDS_HUMAN, "hold_recommended" if output.recommendation == "hold" else short)
 
 

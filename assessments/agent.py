@@ -49,7 +49,7 @@ from pydantic_ai.models.wrapper import WrapperModel
 from config import guards
 from workflow import keeper as keepers, ledger
 
-from . import approval, live
+from . import approval, live, rate_limits
 from .schema import AssessmentOutput, problems
 
 _models.ALLOW_MODEL_REQUESTS = False  # 018 5.5, first layer: no request to a non-test model, in any environment
@@ -73,6 +73,10 @@ class BudgetStop(Exception):
 
 class ProviderError(Exception):
     """A failure of the model call itself (transient by default)."""
+
+    def __init__(self, code, retry_after=0):
+        super().__init__(code)
+        self.retry_after = retry_after
 
 
 @dataclass(frozen=True)
@@ -227,7 +231,7 @@ def run_checked(system: str, prompt: str, output_type, check, use: "approval.Use
     except (ModelUnavailable, InvalidOutput, BudgetStop):
         raise
     except live.transport_errors() as exc:  # the provider client failed (connection, timeout, status): never adverse
-        raise ProviderError(type(exc).__name__) from None
+        raise ProviderError(type(exc).__name__, retry_after=rate_limits.record_throttle(exc)) from None
     except RuntimeError as exc:
         if "ALLOW_MODEL_REQUESTS" in str(exc):
             raise ModelUnavailable("model_requests_disabled") from None

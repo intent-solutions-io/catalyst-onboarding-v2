@@ -27,6 +27,8 @@ from correspondence.models import InboundMessage, ReplyInterpretation
 from correspondence.processing import (InterpretResult, InterpretUnavailable, Provenance, QuestionProposal, Span,
                                        own_text_ranges)
 
+from .quotas import exceeds
+from . import rate_limits
 from . import agent, approval, pack as packs, snapshot
 from .models import AssessmentInvocation
 from .schema import Strict
@@ -157,11 +159,15 @@ class Interpreter:
             return str(exc)
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(%s)", [GLOBAL_LOCK])
-        if daily_requests_used() + self.requests_per_attempt > settings.CATALYST_ASSESSMENT_DAILY_REQUESTS:
+        if exceeds(daily_requests_used() + self.requests_per_attempt, settings.CATALYST_ASSESSMENT_DAILY_REQUESTS):
             return "daily_request_budget"
-        if _today(ReplyInterpretation, application) + self.requests_per_attempt > settings.CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION:
+        if exceeds(_today(ReplyInterpretation, application) + self.requests_per_attempt, settings.CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION):
             return "application_daily_request_budget"  # one applicant's replies cannot starve everyone else
         return ""
+
+    def rate_wait(self) -> int:
+        return rate_limits.reserve(self.requests_per_attempt, agent.attempt_tokens(),
+                                   self.requests_per_attempt * settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS)
 
     def reserved(self) -> None:
         """Called by the correspondence side once its reservation row is written (inside that transaction)."""
@@ -207,7 +213,7 @@ class Interpreter:
         except agent.BudgetStop as exc:
             return InterpretUnavailable(str(exc))
         except agent.ProviderError as exc:
-            return InterpretUnavailable(f"provider_{exc}")
+            return InterpretUnavailable(f"provider_{exc}", retry_after=exc.retry_after)
         proposals = tuple(
             QuestionProposal(question_id=aliases[a.question_alias].id, outcome=a.outcome,
                              spans=tuple(_locate(q, request) for q in a.quotes))

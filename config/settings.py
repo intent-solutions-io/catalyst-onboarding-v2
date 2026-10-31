@@ -450,23 +450,40 @@ if CATALYST_EVIDENCE_DEADLINE_SECONDS * 2 > CATALYST_WORKER_LEASE_SECONDS:
 # test model; a live value "<provider>:<model id>" is accepted only in a synthetic environment under
 # CATALYST_ASSESSMENT_LIVE_ACTIVATION below (config.guards.assessment_problems). Fixed in code, never from the environment.
 CATALYST_ASSESSMENT_MODEL = "none"
+
+
+def usage_quota(name: str, synthetic_default: str):
+    """Owner 2026-10-31: production has no cumulative model/correspondence quota.
+
+    Explicit numeric limits remain available for synthetic checks and operator policy. Zero
+    still means no allowance; only the literal unlimited removes a quota. Rate limits and
+    request/retry bounds are separate and always finite.
+    """
+    default = "unlimited" if CATALYST_ENV == "production" else synthetic_default
+    if os.environ.get(name, default).strip().lower() == "unlimited":
+        return None
+    return number(name, default, minimum=0)
+
 CATALYST_ASSESSMENT_ATTEMPTS = number("CATALYST_ASSESSMENT_ATTEMPTS", "2")
-CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT = number("CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT", "4")
-CATALYST_ASSESSMENT_RUNS_PER_APPLICATION = number("CATALYST_ASSESSMENT_RUNS_PER_APPLICATION", "6")
-CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION = number("CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION", "150000")
+CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT = usage_quota("CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT", "4")
+CATALYST_ASSESSMENT_RUNS_PER_APPLICATION = usage_quota("CATALYST_ASSESSMENT_RUNS_PER_APPLICATION", "6")
+CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION = usage_quota("CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION", "150000")
 CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST = number("CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST", "16000")
 CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT = number("CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT", "8000")
 CATALYST_ASSESSMENT_CONCURRENT_RUNS = number("CATALYST_ASSESSMENT_CONCURRENT_RUNS", "2")
+# Set from the actual account/model limits at activation; zero refuses live traffic.
+CATALYST_MINIMAX_REQUESTS_PER_MINUTE = number("CATALYST_MINIMAX_REQUESTS_PER_MINUTE", "0", minimum=0)
+CATALYST_MINIMAX_TOKENS_PER_MINUTE = number("CATALYST_MINIMAX_TOKENS_PER_MINUTE", "0", minimum=0)
 # oc4.9 / oc4.10 item 7: the wall time of one model request, enforced by Catalyst around the call (agent.run_checked)
 # and passed to the provider client. One attempt (the call and the repair) must fit in half the worker lease
 # (config.guards.assessment_problems), so a lease is never reclaimed while an attempt is in flight.
 # Unset: a quarter of the lease, at most 60 s (018 section 6).
 CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS = number(
     "CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS", str(min(60.0, CATALYST_WORKER_LEASE_SECONDS / 4)), cast=float, minimum=0.1)
-# Fail-closed: no run proceeds until the owner sets a daily budget (018 6).
-CATALYST_ASSESSMENT_DAILY_REQUESTS = number("CATALYST_ASSESSMENT_DAILY_REQUESTS", "0", minimum=0)
+# Production usage is uncapped by owner instruction; activation and per-minute rate checks still apply.
+CATALYST_ASSESSMENT_DAILY_REQUESTS = usage_quota("CATALYST_ASSESSMENT_DAILY_REQUESTS", "0")
 # Clarification (018 section 6 and step 5): at most 3 assessment rounds per application, 3 proposals per round.
-CATALYST_ASSESSMENT_ROUNDS = number("CATALYST_ASSESSMENT_ROUNDS", "3")
+CATALYST_ASSESSMENT_ROUNDS = usage_quota("CATALYST_ASSESSMENT_ROUNDS", "3")
 # The qualification decision (018 section 7; P3 3B.4). Who may decide is POL-05: until the owner records it this
 # stays unset (None) and every decision is refused, superusers included. The one value the code implements is
 # "explicit_permission" (assessments.record_qualification_decision, granted to named people only, by
@@ -493,7 +510,7 @@ if CATALYST_CAPPED_EXIT not in ("human_only", "none"):
     raise ImproperlyConfigured("CATALYST_CAPPED_EXIT must be 'human_only' or 'none'")
 CATALYST_QUESTIONS_PER_ROUND = number("CATALYST_QUESTIONS_PER_ROUND", "3")
 # Reply interpretation may use at most this many of the shared daily requests per application (3B.3 review).
-CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION = number("CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION", "10")
+CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION = usage_quota("CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION", "10")
 # bgl.12 (034 section 2.2 rows 15 to 19): the live model branch and the routine-advance policy, both OFF in code and
 # refused in a live environment (config.guards.assessment_problems). Nothing below changes what production does:
 # D-53 ("no model") and the launch-wide suspension hold at these defaults.
@@ -514,7 +531,7 @@ CATALYST_ROUTINE_ADVANCE_OTHER_RATING = os.environ.get("CATALYST_ROUTINE_ADVANCE
 # Daily caps (the first generation capped runs and sends per UTC day): sends default to 0, fail-closed, like the daily
 # request budget; a cap is a hard stop that records why and opens a staff item. Requests share
 # CATALYST_ASSESSMENT_DAILY_REQUESTS with the assessment and the reply interpreter.
-CATALYST_ROUTINE_DAILY_SENDS = number("CATALYST_ROUTINE_DAILY_SENDS", "0", minimum=0)
+CATALYST_ROUTINE_DAILY_SENDS = usage_quota("CATALYST_ROUTINE_DAILY_SENDS", "0")
 # A hold (automation paused, contact unverified, a question open, evidence pending) or a self-caused failure of the draft
 # or the check retries after this many seconds, at most this many times, then opens a staff item.
 CATALYST_ROUTINE_RETRY_AFTER_SECONDS = number("CATALYST_ROUTINE_RETRY_AFTER_SECONDS", "3600", minimum=0)
