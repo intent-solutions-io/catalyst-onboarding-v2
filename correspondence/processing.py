@@ -89,7 +89,10 @@ ACKNOWLEDGE_ONLY = {"processing_error", "message_id_conflict", "mailbox_uidvalid
                     "decline_notice_refused", "decline_notice_member_on_file",
                     # 9kg.66: the staff resend resolves it, and the sweep closes it once the applicant is verified or
                     # the application closed; an acknowledgement records that staff saw it
-                    "verification_expired"}
+                    "verification_expired",
+                    # bgl.12: the routine-advance policy stopped (a daily cap, exhausted retries); the case is on the
+                    # decision screen either way, so an acknowledgement records that staff saw it
+                    "routine_advance_failed", "routine_send_cap_reached", "routine_request_cap_reached"}
 # 9kg.41 (owner decision on the PR #93 review): a suspended or capped snapshot closes only through the human-only
 # decision on the decision screen (which resolves it) or a later successful run, never by an acknowledgement that would
 # leave the case looking as if a run were coming.
