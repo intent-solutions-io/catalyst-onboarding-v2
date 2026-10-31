@@ -11,8 +11,11 @@ class Migration(migrations.Migration):
 
     initial = True
 
+    # After erasure 0004, so the tables never exist below it: reversing erasure past 0004 removes them first, and each
+    # earlier erasure migration's reverse then regenerates its functions for a schema without them.
     dependencies = [
         ("applications", "0009_tombstone_keys_unique"),
+        ("erasure", "0004_erase_replay"),
     ]
 
     operations = [

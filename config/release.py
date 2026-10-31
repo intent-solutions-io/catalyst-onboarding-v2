@@ -64,6 +64,7 @@ BASELINE: dict[str, str] = {
     "correspondence": "0016_welcome_kind", "provisioning": "0006_revocation_and_withdrawal_protection",
     "workflow": "0004_restore_hold_protection",
     "erasure": "",  # 9kg.32: the app came after the guard, so every one of its migrations is scanned
+    "firstgen": "",  # bgl.16: likewise
 }
 # Later migrations that contracting() flags but a reviewer found safe for the previous image, with the reason.
 EXPAND_SAFE: dict[str, str] = {

@@ -46,7 +46,7 @@ def unprotect(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("firstgen", "0001_initial"), ("erasure", "0002_erasure_path")]
+    dependencies = [("firstgen", "0001_initial")]  # 0001 follows erasure 0004, which brings the erasable refusal
     operations = [
         migrations.RunPython(grant_forward, grant_reverse),
         migrations.RunPython(backup_sequences, no_backup_sequences),

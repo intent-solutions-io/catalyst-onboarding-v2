@@ -36,6 +36,9 @@ synthetic first-generation database in `tests/firstgen_v1.py`.
   credential, details, a mailbox) on an already imported case is kept as a record and reported
   (`late_row_not_applied:<table>`), never applied over the existing v2 records.
 - **Dry run.** `--dry-run` runs everything inside one transaction (each person a savepoint) and rolls it back.
+- **Schema.** `firstgen` 0001 and 0002 create the three tables after erasure 0004, append-only and readable by the
+  application, retention and backup roles; erasure 0005 reinstalls the generated erasure functions with the record
+  table's `data` column. Expand-only: the previous image never reads these tables.
 - **Nothing automatic.** The import queues no pending action and sends nothing. Every imported application in an open
   stage gets an automation pause (`workflow.AutomationPause`, reason: imported, awaiting staff review), so no v2
   automation reaches an imported person until staff resume it. `--schedule-followups` is refused: no v2 action can
