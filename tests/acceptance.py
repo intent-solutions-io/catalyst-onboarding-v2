@@ -2111,6 +2111,27 @@ P6_SUPPORTING = {
         "test_agreement_parity::test_bgl8_address_quality_codes_and_the_staff_screen_shows_them",
         "test_agreement_parity::test_bgl8_the_distribution_and_layout_settings_are_guarded",
     ],
+    # bgl.9 (034 rows 30 and 36; first-generation decisions 12 and 13, owner YES 2026-10-31): the automated company
+    # countersignature under a single-writer claim and the automatic release, both off by default.
+    "bgl.9 automated company countersignature with a single-writer claim, and the automatic release (034 rows 30, 36)": [
+        "test_countersign_release::test_bgl9_the_company_countersigns_once_after_the_applicant_and_the_read_path_verifies",
+        "test_countersign_release::test_bgl9_a_countersignature_is_verified_by_a_fresh_read_not_by_the_call",
+        "test_countersign_release::test_bgl9_two_workers_one_claim_one_signature",
+        "test_countersign_release::test_bgl9_the_claim_is_unique_per_envelope_and_only_for_v2_keys",
+        "test_countersign_release::test_bgl9_a_foreign_envelope_is_refused_and_never_touched",
+        "test_countersign_release::test_bgl9_a_failure_is_retried_and_the_retry_signs_once",
+        "test_countersign_release::test_bgl9_after_thirty_minutes_of_failure_the_owner_countersigns_by_hand",
+        "test_countersign_release::test_bgl9_a_paused_case_is_never_countersigned",
+        "test_countersign_release::test_bgl9_both_modes_off_by_default_leave_todays_behaviour",
+        "test_countersign_release::test_bgl9_under_manual_the_company_recipient_waits_for_the_owner",
+        "test_countersign_release::test_bgl9_the_new_settings_are_guarded",
+        "test_countersign_release::test_bgl9_the_release_runs_once_without_a_person_and_queues_the_welcome",
+        "test_countersign_release::test_bgl9_the_hand_off_queues_the_release_itself",
+        "test_countersign_release::test_bgl9_each_blocking_condition_refuses_once_with_one_staff_item",
+        "test_countersign_release::test_bgl9_a_resolved_condition_releases_on_the_next_check",
+        "test_countersign_release::test_bgl9_a_reviewed_address_exception_waits_for_the_named_approver",
+        "test_countersign_release::test_bgl9_end_to_end_countersigned_agreements_release_without_a_person",
+    ],
 }
 
 # Cases with no pytest evidence of their own: shown only by a live script (026 section 16).

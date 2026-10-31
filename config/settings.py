@@ -290,6 +290,10 @@ CATALYST_ACTION_HANDLERS = {
     "provision_revoke": "provisioning.closure.RevokeAccess",
     "provision_withdraw_send": "provisioning.closure.SendWithdrawalLink",
     "clear_sessions": "accounts.staff_access.ClearSessions",  # 6B.9: expired staff sessions, hourly
+    # bgl.9 (034 rows 30, 36): the automated countersignature and release; each does nothing unless its mode is on.
+    "countersign_sweep": "agreements.countersign.CountersignSweep",
+    "countersign_agreement": "agreements.countersign.CountersignAgreement",
+    "auto_release": "provisioning.auto_release.AutoRelease",
 }
 # P5 provisioning (023; D-47). Synthetic only: the adapter is a local fake set by tests, the domain a `.test` domain
 # (P5-D-1), and the limits labelled synthetic defaults (P5-D-2), never unlimited. A live adapter, a provider key and
@@ -546,6 +550,32 @@ if CATALYST_AGREEMENT_LIST_PAGE_SIZE > 100:
     raise ImproperlyConfigured("CATALYST_AGREEMENT_LIST_PAGE_SIZE is at most 100 (the installed API's limit)")
 if CATALYST_AGREEMENT_MAX_BYTES > 16 * 1024 * 1024 or CATALYST_AGREEMENT_LIST_PAGES > 20:
     raise ImproperlyConfigured("CATALYST_AGREEMENT_MAX_BYTES is at most 16 MiB and CATALYST_AGREEMENT_LIST_PAGES at most 20")
+
+# bgl.9 (034 rows 30 and 36; first-generation decisions 12 and 13, owner YES 2026-10-31). Both off by default, so
+# today's behaviour holds: the owner countersigns by hand and releases with `activate_provisioning`. Each mode is fixed
+# in code, never read from the environment (config.guards), like CATALYST_INTAKE_MODE: the v1-to-v2 swap flips them in
+# a release.
+# The company countersignature: "manual" (the owner signs at the provider) or "automatic" (agreements.countersign signs
+# as the company recipient once the applicant has signed). "automatic" needs the company recipient below.
+CATALYST_AGREEMENT_COUNTERSIGN = "manual"
+# The company recipient (P4-D-3, POL-08): added at order 2 to every agreement whose template version has a `<ROLE>:2`
+# slot, once the address is set. ROLE is "APPROVER" (the first generation's service templates) or "SIGNER". The address,
+# the name and the typed signature text are provider identity: fixed in code and empty outside `test` and `staging`
+# until the Documenso canary (config.guards), like the provider URL.
+CATALYST_AGREEMENT_COMPANY_EMAIL = ""
+CATALYST_AGREEMENT_COMPANY_NAME = ""
+CATALYST_AGREEMENT_COMPANY_ROLE = "APPROVER"
+CATALYST_AGREEMENT_COUNTERSIGN_SIGNATURE = ""  # the typed signature the company's signature fields receive
+CATALYST_AGREEMENT_COUNTERSIGN_SWEEP_SECONDS = 600  # the first generation's timer: every 10 minutes
+CATALYST_AGREEMENT_COUNTERSIGN_RETRY_SECONDS = 600
+CATALYST_AGREEMENT_COUNTERSIGN_HANDOFF_SECONDS = 1800  # then the owner countersigns by hand (one staff item)
+CATALYST_AGREEMENT_COUNTERSIGN_ATTEMPTS = 4  # with the retry interval: about the hand-off window
+# The release: "owner" (the owner-run `activate_provisioning` releases each held hand-off, P4-D-13, and a named approver
+# approves the mailbox, P5-D-3) or "automatic" (provisioning.auto_release releases, approves the derived address and
+# lets the welcome follow, with no person, under decision 13). A refused automatic release is checked again after
+# CATALYST_RELEASE_RECHECK_SECONDS.
+CATALYST_RELEASE_MODE = "owner"
+CATALYST_RELEASE_RECHECK_SECONDS = 600
 
 # ADR-18 (D-19): the custom user model exists before the first migration.
 AUTH_USER_MODEL = "accounts.User"

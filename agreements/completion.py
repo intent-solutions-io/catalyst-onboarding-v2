@@ -350,6 +350,9 @@ def apply_read(claim, instance_id: int, env: provider.Envelope, fields=()) -> No
     elif instance.signing_status == "signing_complete_observed":
         status(signing_status="partially_signed" if any(r.signing_status == "SIGNED" for r in env.recipients)
                else "not_started")  # a webhook claimed completion that the read does not show
+    from .countersign import after_read
+
+    after_read(instance, env)  # bgl.9: under the automatic countersignature, the applicant's signature queues it now
     _sweep_on(instance)  # the sweep
 
 
@@ -561,9 +564,13 @@ class AdvanceAgreements:
                        data={"prerequisites": refs, "digest": digest}, actor_ref=f"pending_action:{claim.id}")
         except StageConflict:
             return
-        PendingAction.objects.create(kind=HANDOFF, subject_type="application", subject_id=application.public_ref,
-                                     input_ref=f"agreements:{digest}", idempotency_key=f"{HANDOFF}:{application.public_ref}",
-                                     status=Status.HELD)
+        handoff = PendingAction.objects.create(
+            kind=HANDOFF, subject_type="application", subject_id=application.public_ref, input_ref=f"agreements:{digest}",
+            idempotency_key=f"{HANDOFF}:{application.public_ref}", status=Status.HELD)
+        if settings.CATALYST_RELEASE_MODE == "automatic":  # bgl.9: the release runs without a person (decision 13)
+            from provisioning.auto_release import enqueue as enqueue_release
+
+            enqueue_release(application, handoff)
 
     def issue(self, claim, application, previous, next_type, env) -> None:
         actor = f"pending_action:{claim.id}"

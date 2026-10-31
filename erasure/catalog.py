@@ -116,6 +116,9 @@ TABLES = {
     "agreements_storeddocument": Table(other=(  # the PDF itself is in custody: registry row signed_documents (9kg.34)
         "id public_id envelope_id item_id version storage_key sha256 size stored_at application_id instance_id"
         " observation_id")),
+    "agreements_countersignclaim": Table(other=(  # bgl.9: the single-writer claim; references, codes and times only
+        "id envelope_id external_key holder action_id state attempts last_code first_failure_at claimed_at updated_at"
+        " finished_at instance_id")),
     "agreements_custodyenvelope": Table(other=(  # 9kg.34: random references, digests and sizes; no key material
         "id storage_key scheme key_ref wrapping_key_id cipher_sha256 cipher_size migrated sealed_at document_id")),
     # --- applications --------------------------------------------------------------------------------------------

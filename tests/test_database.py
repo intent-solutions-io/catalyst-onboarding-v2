@@ -79,6 +79,7 @@ APPROVED_MIGRATIONS = {
     ("firstgen", "0001_initial"), ("firstgen", "0002_protection"), ("erasure", "0005_first_generation_import"),
     # bgl.8: a details version read back from the signed envelope, and the service-sent signing-link templates
     ("agreements", "0011_details_from_envelope"), ("correspondence", "0021_agreement_link_templates"),
+    ("agreements", "0012_countersign_claim"),  # bgl.9: the single-writer countersign claim
 }
 
 

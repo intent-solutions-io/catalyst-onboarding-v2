@@ -34,6 +34,7 @@ DEFAULT_EMAIL = {k: True for k in ("recipientSigningRequest", "recipientRemoved"
                                    "documentCompleted", "documentDeleted", "ownerDocumentCompleted",
                                    "ownerRecipientExpired", "ownerDocumentCreated")}
 BASE = "/api/v2"
+TRPC = "/api/trpc/"  # bgl.9: the token-authenticated recipient routes (the provider's own signing page uses them)
 
 
 class FakeDocumenso:
@@ -179,6 +180,8 @@ class FakeDocumenso:
                 if m == method and route.startswith(BASE + prefix) and entries:
                     fault = entries.pop(0)
                     break
+        if route.startswith(TRPC):  # bgl.9: the recipient-token routes the company countersignature uses
+            return self._trpc(handler, method, route, body)
         if fault and fault[0] == "drop_before":
             handler.close_connection = True
             return
@@ -280,6 +283,76 @@ class FakeDocumenso:
             env = self.envelopes.get(route[len(BASE + "/envelope/"):])
             return (200, env, json_) if env else (404, {"message": "Not found"}, json_)
         return 404, {"message": "Not found"}, json_
+
+    # --- bgl.9: the company countersignature through the recipient-token routes ------------------------------------
+
+    def add_field(self, envelope_id, index, kind="SIGNATURE", inserted=False):
+        """A field the recipient at `index` owns (the installed version reports them in the envelope read's `fields`)."""
+        with self._lock:
+            env = self.envelopes[envelope_id]
+            self._fields = getattr(self, "_fields", 50_000) + 1
+            env.setdefault("fields", []).append({"id": self._fields, "envelopeId": envelope_id, "type": kind,
+                                                 "recipientId": env["recipients"][index]["id"], "page": 1,
+                                                 "customText": "", "inserted": inserted})
+            return self._fields
+
+    def trpc_fault(self, route, *entries):
+        """Faults for a recipient route ("envelope.field.sign" or "recipient.completeDocumentWithToken"): ("status",
+        code) answers without processing, ("drop_after",) processes and answers nothing, ("slow", seconds) waits."""
+        self.__dict__.setdefault("trpc_faults", {}).setdefault(route, []).extend(entries)
+
+    def _trpc(self, handler, method, route, body):
+        name = route[len(TRPC):]
+        with self._lock:
+            entries = self.__dict__.setdefault("trpc_faults", {}).get(name) or []
+            fault = entries.pop(0) if entries else None
+        if fault and fault[0] == "slow":
+            time.sleep(fault[1])
+        if fault and fault[0] == "status":
+            return self._send(handler, fault[1], {"error": {"json": {"data": {"code": "SYNTHETIC"}}}})
+        # The installed version's CSRF check: a token-authenticated mutation carries the instance's own Origin and, here,
+        # never the API key (the API key must not reach a recipient route).
+        if (method != "POST" or handler.headers.get("Authorization")
+                or handler.headers.get("Origin") != f"https://documenso.example.test:{self.port}"):
+            return self._send(handler, 403, {"error": {"json": {"data": {"code": "FORBIDDEN"}}}})
+        payload = (json.loads(body or b"{}").get("json") or {})
+        with self._lock:
+            status, answer = self._recipient_route(name, payload)
+        if fault and fault[0] == "drop_after":
+            handler.close_connection = True
+            return
+        return self._send(handler, status, answer)
+
+    def _recipient_route(self, name, payload):
+        found = [(env, r) for env in self.envelopes.values() for r in env["recipients"] if r["token"] == payload.get("token")]
+        if not found:
+            return 404, {"error": {"json": {"data": {"code": "NOT_FOUND"}}}}
+        env, recipient = found[0]
+        earlier = [r for r in env["recipients"] if (r.get("signingOrder") or 0) < (recipient.get("signingOrder") or 0)]
+        if env["status"] != "PENDING" or any(r["signingStatus"] != "SIGNED" for r in earlier):
+            return 400, {"error": {"json": {"data": {"code": "INVALID_REQUEST"}}}}
+        own = [f for f in env.get("fields", []) if f["recipientId"] == recipient["id"]]
+        if name == "envelope.field.sign":
+            field = next((f for f in own if f["id"] == payload.get("fieldId")), None)
+            value = payload.get("fieldValue") or {}
+            if field is None or value.get("type") != field["type"] or not value.get("value"):
+                return 400, {"error": {"json": {"data": {"code": "INVALID_REQUEST"}}}}
+            field["inserted"], field["customText"] = True, value["value"]
+            return 200, {"result": {"data": {"json": {}}}}
+        if name == "recipient.completeDocumentWithToken":
+            if f"document_{payload.get('documentId')}" != env["secondaryId"]:
+                return 400, {"error": {"json": {"data": {"code": "INVALID_REQUEST"}}}}
+            if recipient["signingStatus"] == "SIGNED":
+                return 200, {"result": {"data": {"json": {"status": "ALREADY_SIGNED"}}}}
+            if any(f["type"] == "SIGNATURE" and not f["inserted"] for f in own):
+                return 400, {"error": {"json": {"data": {"code": "FIELDS_MISSING"}}}}
+            recipient["signingStatus"] = "SIGNED"
+            env.setdefault("_countersigned", []).append(recipient["email"])
+            if all(r["signingStatus"] == "SIGNED" for r in env["recipients"]):
+                env["status"] = "COMPLETED"
+                self._mail(env, "documentCompleted", "completed_copy", lambda r: True)
+            return 200, {"result": {"data": {"json": {"status": "SIGNED"}}}}
+        return 404, {"error": {"json": {"data": {"code": "NOT_FOUND"}}}}
 
     def _send(self, handler, status, payload, extra=None):
         data = json.dumps(payload).encode()

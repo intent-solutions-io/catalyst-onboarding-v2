@@ -91,6 +91,11 @@ def _next_action(application, instances) -> tuple[str, str]:
     if reason == "waiting_for_gate":
         if any(r["instance"].signing_status == "partially_signed" and r["instance"].replaced_at is None for r in instances):
             # 9kg.41: the countersignature wait (029 section 5.1) is named, not shown as the applicant's
+            from django.conf import settings
+
+            if settings.CATALYST_AGREEMENT_COUNTERSIGN == "automatic":  # bgl.9: by hand only after the hand-off item
+                return ("Waiting for the remaining required signer (the countersignature, signed automatically; by hand"
+                        " at the provider if it is handed off), then custody", "the system, then the countersigner")
             return ("Waiting for the remaining required signer (the countersignature, signed by hand at the provider),"
                     " then custody", "the countersigner, then the system")
         return "Waiting for the applicant to sign, and for custody", "applicant, then the system"

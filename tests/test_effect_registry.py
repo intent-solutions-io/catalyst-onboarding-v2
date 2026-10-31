@@ -38,7 +38,7 @@ PACKAGES = ("accounts", "agreements", "applications", "assessments", "config", "
 IMPLEMENTATIONS = {"workflow/journal.py", "agreements/provider.py", "correspondence/transport.py",
                    "correspondence/imap.py", "provisioning/adapter.py"}
 JOURNAL_CALLS = {"append", "record", "prepare"}
-DOCUMENSO_WRITES = {"create_from_template", "distribute", "cancel"}
+DOCUMENSO_WRITES = {"create_from_template", "distribute", "cancel", "countersign"}  # bgl.9: countersign
 DOCUMENSO_READS = {"read", "find"}
 MAILHOST_WRITES = {"create", "set_password", "delete_forwarder"}
 MAILHOST_READS = {"read", "list_forwarders", "read_catch_all"}
