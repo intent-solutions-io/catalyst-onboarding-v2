@@ -5,12 +5,15 @@ Synthetic only, against the scripted SMTP and IMAP servers of tests/test_inbound
 setting `due_at` to the completed-collection watermark, so the watermark rule (4.1) is always exercised.
 """
 
+import uuid
 from datetime import datetime, time, timedelta, timezone
+from importlib import import_module
 
 import pytest
 
 from tests import support
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.db.models.functions import Now
 
 from applications.models import Application, ApplicationEvent
@@ -30,10 +33,11 @@ from correspondence.models import (
 from correspondence.outbound import Refused
 from correspondence.rendering import canonical_digest
 from tests.test_inbound import collect, mailbox, reply, sent_question, tls  # noqa: F401  (fixtures and helpers)
-from tests.test_outbound import ask, p2, ready, run_worker, staff, verified_application  # noqa: F401
-from workflow import ledger
+from tests.test_outbound import QUESTION_SUBJECT, ask, p2, ready, run_worker, staff, verified_application  # noqa: F401
+from workflow import business_days, ledger
 from workflow.models import AutomationPause, PendingAction
 
+LAPSE_MIGRATION = import_module("correspondence.migrations.0021_lapse_note")
 REMINDER_SUBJECT = "A reminder about your application"
 REMINDER_BODY = ("Hello $display_name,\n\nWe are still waiting for your answer to this question:\n\n$question_text\n\n"
                  "Please reply to this message.\n")
@@ -44,7 +48,9 @@ def remind(mailbox, settings):
     """`mailbox` plus an approved reminder template and synthetic cadence settings: reminders are scheduled far
     ahead, so each test decides when one falls due; no quiet hours and no gap unless a test sets them."""
     settings.CATALYST_REMINDER_MAX = 2
+    settings.CATALYST_REMINDER_INTERVAL_BUSINESS_DAYS = 0  # the seconds interval below (the pre-bgl.7 synthetic cadence)
     settings.CATALYST_REMINDER_INTERVAL_SECONDS = 3600
+    settings.CATALYST_LAPSE_AFTER_BUSINESS_DAYS = 0  # no lapse unless a test (the bgl.7 group) turns it on
     settings.CATALYST_REMINDER_MIN_GAP_SECONDS = 0
     settings.CATALYST_REMINDER_QUIET_START_HOUR = settings.CATALYST_REMINDER_QUIET_END_HOUR = 0
     settings.CATALYST_REMINDER_RESUME_GRACE_SECONDS = 60
@@ -101,9 +107,16 @@ def fire(kind=None):
     run_worker()
 
 
+def mails(env, subject=None, prefix=None):
+    """The automated mails the SMTP fake received, by exact subject or by subject prefix."""
+    parsed = [env.server.parsed(i) for i in range(len(env.server.messages))]
+    return [m for m in parsed if m["Auto-Submitted"] == "auto-generated"
+            and (subject is None or m["Subject"] == subject) and (prefix is None or str(m["Subject"]).startswith(prefix))]
+
+
 def reminder_mails(env):
-    return [env.server.parsed(i) for i in range(len(env.server.messages))
-            if env.server.parsed(i)["Subject"] == "A reminder about your application"]
+    """Reminders reply in the question's thread (bgl.7): `Re: ` plus the question mail's subject."""
+    return mails(env, prefix="Re: ")
 
 
 def paused(env, app=None):
@@ -800,3 +813,192 @@ def test_p2_45_a_confirmed_staff_message_to_a_non_test_host_is_refused_before_an
     assert opened == [] and remind.server.commands == before  # no connection, so no AUTH, MAIL or DATA
     assert message.disposition == "transport_blocked"
     assert StaffItem.objects.filter(approved_message=message, reason_code="smtp_transport_blocked").count() == 1
+
+
+# --- bgl.7: the first-generation follow-up cadence (034 rows 20 and 21) ------------------------------------------------
+
+LAPSE_SUBJECT = "Your application"
+
+
+def lapse_template(env):
+    """The `lapse_note` placeholder, re-seeded if the test reset truncated the migration's row, approved by the owner."""
+    version = MessageTemplateVersion.objects.filter(template__key="lapse_note", version=1).first()
+    if version is None:
+        LAPSE_MIGRATION.create_template(MessageTemplate, MessageTemplateVersion)
+        version = MessageTemplateVersion.objects.get(template__key="lapse_note", version=1)
+    return outbound.approve_template_version(version.pk, env.owner)
+
+
+@pytest.fixture
+def parity(remind, settings):
+    """`remind` at the first-generation cadence: one reminder after five business days, the lapse after ten quiet ones,
+    approved closing wording, and the application waiting in `awaiting_answers` (the stage a question lapses from)."""
+    settings.CATALYST_REMINDER_MAX = 1
+    settings.CATALYST_REMINDER_INTERVAL_BUSINESS_DAYS = 5
+    settings.CATALYST_LAPSE_AFTER_BUSINESS_DAYS = 10
+    lapse_template(remind)
+    Application.objects.filter(pk=remind.app.pk).update(stage="awaiting_answers")
+    remind.app.refresh_from_db()
+    return remind
+
+
+def lapse_actions():
+    return list(PendingAction.objects.filter(kind="lapse").order_by("id"))
+
+
+def stage(env):
+    return Application.objects.get(pk=env.app.pk).stage
+
+
+def test_bgl7_one_reminder_five_business_days_on_in_the_questions_thread_then_the_escalation_and_the_lapse(parity):
+    question, message = sent_question(parity)
+    [action] = actions(question)
+    # Scheduled in the acceptance transaction from the database clock: midnight UTC of the fifth business day on.
+    assert action.due_at == business_days.after(action.created_at, 5) and action.due_at.time() == time(0, 0)
+    assert business_days.business_days_between(action.created_at, action.due_at) == 5
+    run_worker()  # not due yet: the claim rule leaves it where it is
+    assert states(question) == [("1", "queued")] and reminder_mails(parity) == []
+    fire()
+    [mail] = reminder_mails(parity)
+    assert mail["Subject"] == f"Re: {QUESTION_SUBJECT}"
+    assert mail["In-Reply-To"] == mail["References"] == outbound.message_id(message.send_ref)
+    reminder = ApprovedMessage.objects.get(kind="reminder")
+    assert reminder.frozen_subject == f"Re: {QUESTION_SUBJECT}" and reminder.disposition == "accepted_by_server"
+    assert canonical_digest(reminder.frozen_subject, reminder.frozen_body) == reminder.content_sha256
+    # After the one reminder: the staff escalation as before, and the lapse ten business days on, both from that acceptance.
+    assert states(question) == [("1", "done"), ("escalate", "queued")]
+    [lapse] = lapse_actions()
+    assert lapse.input_ref == f"question:{question.public_id}" and lapse.status == "queued"
+    assert lapse.due_at == business_days.after(lapse.created_at, 10)
+    fire()  # the escalation; the lapse is not touched by `fire` and not due
+    assert states(question) == [("1", "done"), ("escalate", "done")] and len(reminder_mails(parity)) == 1
+    assert StaffItem.objects.filter(reason_code="escalate_unanswered", question_id=question.pk, status="open").count() == 1
+    fire()
+    assert len(reminder_mails(parity)) == 1 and lapse_actions()[0].status == "queued" and stage(parity) == "awaiting_answers"
+
+
+def test_bgl7_the_lapse_falls_exactly_at_ten_quiet_business_days_moves_the_stage_and_sends_one_note_in_the_thread(parity):
+    question, _ = sent_question(parity)
+    fire()
+    reminder = ApprovedMessage.objects.get(kind="reminder")
+    [lapse] = lapse_actions()
+    PendingAction.objects.filter(pk=lapse.pk).update(due_at=Now() + timedelta(seconds=60))  # not yet due
+    run_worker()
+    lapse.refresh_from_db()
+    assert lapse.status == "queued" and stage(parity) == "awaiting_answers" and mails(parity, LAPSE_SUBJECT) == []
+    fire(kind="lapse")  # due at the completed-collection watermark: quiet is proven, not assumed
+    assert stage(parity) == "lapsed"
+    [moved] = ApplicationEvent.objects.filter(kind="application_lapsed")
+    assert moved.data == {"from": "awaiting_answers", "to": "lapsed", "trigger": f"question:{question.public_id}"}
+    [note] = ApprovedMessage.objects.filter(kind="lapse_note")
+    assert note.disposition == "accepted_by_server" and note.frozen_subject == LAPSE_SUBJECT
+    assert "PLACEHOLDER" in note.frozen_body and parity.app.display_name in note.frozen_body
+    [mail] = mails(parity, LAPSE_SUBJECT)
+    assert mail["In-Reply-To"] == mail["References"] == outbound.message_id(reminder.send_ref)  # the last thing we said
+    lapse.refresh_from_db()
+    assert lapse.status == "done"
+    # A second run changes nothing: the action is finished, and a replayed claim would find the stage already lapsed.
+    fire(kind="lapse")
+    run_worker()
+    assert ApprovedMessage.objects.filter(kind="lapse_note").count() == 1
+    assert ApplicationEvent.objects.filter(kind="application_lapsed").count() == 1 and len(mails(parity, LAPSE_SUBJECT)) == 1
+    # Lapsed is open, not closed: the email key is still held, so a second open application is refused.
+    assert Application.objects.filter(email_key=parity.app.email_key).count() == 1
+    with pytest.raises(Exception):
+        with transaction.atomic():
+            Application.objects.create(email=parity.app.email, email_key=parity.app.email_key, display_name="Again")
+
+
+def test_bgl7_a_replayed_lapse_on_an_already_lapsed_application_cancels_itself(parity):
+    """The one-writer rule under a retry: a second lapse action for the same application (the signing trigger, or a
+    duplicate from a restore) finds the stage already lapsed and ends cancelled without a second note."""
+    question, _ = sent_question(parity)
+    fire()
+    fire(kind="lapse")
+    assert stage(parity) == "lapsed"
+    scheduling.create_action("lapse", f"lapse:question:{uuid.uuid4()}", parity.app.public_ref,
+                             f"question:{question.public_id}", Now())
+    run_worker()
+    assert [a.status for a in lapse_actions()] == ["done", "cancelled"]
+    assert lapse_actions()[1].last_error == "already_lapsed" and ApprovedMessage.objects.filter(kind="lapse_note").count() == 1
+
+
+def test_bgl7_a_trusted_reply_reopens_a_lapsed_application_to_the_stage_it_lapsed_from(parity):
+    question, message = sent_question(parity)
+    fire()
+    fire(kind="lapse")
+    assert stage(parity) == "lapsed"
+    parity.imap.deliver(reply(message, body="Sorry for the silence; here is my answer."))
+    collect()
+    assert stage(parity) == "awaiting_answers"
+    [reopened] = ApplicationEvent.objects.filter(kind="application_reopened")
+    assert reopened.data["from"] == "lapsed" and reopened.data["to"] == "awaiting_answers"
+    assert reopened.data["trigger"].startswith("reply:") and reopened.actor_type == "applicant"
+    question.refresh_from_db()
+    assert question.status == "reply_pending"  # the normal loop continues: staff decide the outcome
+    assert lapse_actions()[0].status == "done"  # the finished lapse is never revived; one chain, one note
+    collect()
+    assert ApplicationEvent.objects.filter(kind="application_reopened").count() == 1
+
+
+def test_bgl7_quiet_hours_hold_the_closing_note_and_a_pending_reply_holds_the_lapse(parity, settings, clock):
+    question, message = sent_question(parity)
+    fire()
+    settings.CATALYST_REMINDER_QUIET_START_HOUR, settings.CATALYST_REMINDER_QUIET_END_HOUR = 1, 2
+    clock.now = clock.tomorrow(1, 30)
+    fire(kind="lapse")
+    [lapse] = lapse_actions()
+    assert (lapse.status, lapse.last_error, lapse.attempts) == ("queued", "quiet_hours", 0)
+    assert lapse.due_at - lapse.updated_at == timedelta(minutes=30) and stage(parity) == "awaiting_answers"
+    clock.now = None
+    settings.CATALYST_REMINDER_QUIET_START_HOUR = settings.CATALYST_REMINDER_QUIET_END_HOUR = 0
+    parity.imap.deliver(reply(message))  # a reply arrives before the lapse runs again
+    collect()
+    lapse.refresh_from_db()
+    assert (lapse.status, lapse.last_error) == ("held", "reply_pending")  # E3 covers the lapse as it covers reminders
+    fire(kind="lapse")
+    assert stage(parity) == "awaiting_answers" and ApprovedMessage.objects.filter(kind="lapse_note").count() == 0
+    processing.confirm_question_outcome(QuestionReplyLink.objects.get(question=question).inbound_message_id,
+                                        {question.pk: "satisfied"}, parity.operator)
+    lapse.refresh_from_db()
+    assert (lapse.status, lapse.last_error) == ("cancelled", "question_satisfied")
+
+
+def test_bgl7_without_approved_closing_wording_the_lapse_waits_with_one_staff_item(remind, settings):
+    settings.CATALYST_REMINDER_MAX = 1
+    settings.CATALYST_LAPSE_AFTER_BUSINESS_DAYS = 10
+    Application.objects.filter(pk=remind.app.pk).update(stage="awaiting_answers")
+    question, _ = sent_question(remind)
+    fire()
+    for _ in range(2):
+        fire(kind="lapse")
+        [lapse] = lapse_actions()
+        assert (lapse.status, lapse.last_error, lapse.attempts) == ("queued", "no_approved_lapse_note_template", 0)
+        assert StaffItem.objects.filter(reason_code="lapse_note_refused", status="open").count() == 1
+    assert stage(remind) == "awaiting_answers" and not ApprovedMessage.objects.filter(kind="lapse_note").exists()
+    lapse_template(remind)  # the owner approves: the next look lapses
+    fire(kind="lapse")
+    assert stage(remind) == "lapsed" and ApprovedMessage.objects.filter(kind="lapse_note").count() == 1
+
+
+def test_bgl7_a_zero_business_day_interval_keeps_the_seconds_cadence_and_a_zero_lapse_never_lapses(remind):
+    """What staging keeps with CATALYST_REMINDER_MAX=2 CATALYST_REMINDER_INTERVAL_BUSINESS_DAYS=0 (the `remind` fixture)."""
+    question, _ = sent_question(remind)
+    [action] = actions(question)
+    assert action.due_at - action.created_at == timedelta(seconds=3600)
+    fire()
+    fire()
+    assert states(question) == [("1", "done"), ("2", "done"), ("escalate", "queued")] and lapse_actions() == []
+
+
+def test_bgl7_the_lapse_handler_is_registered_redeliverable_and_automated_and_the_defaults_are_the_first_generations():
+    import os
+
+    handler = ledger.handlers()["lapse"]
+    assert type(handler).__name__ == "Lapse" and handler.automated and handler.redeliverable
+    # The shipped defaults (config/settings.py) are the first-generation production cadence, unless this environment set
+    # its own values (none of these is set by compose.yaml).
+    for name, default in (("CATALYST_REMINDER_MAX", 1), ("CATALYST_REMINDER_INTERVAL_BUSINESS_DAYS", 5),
+                          ("CATALYST_LAPSE_AFTER_BUSINESS_DAYS", 10), ("CATALYST_SIGNING_REMINDER_MAX", 1),
+                          ("CATALYST_SIGNING_REMINDER_BUSINESS_DAYS", 5)):
+        assert name in os.environ or getattr(__import__("config.settings", fromlist=[name]), name) == default, name
