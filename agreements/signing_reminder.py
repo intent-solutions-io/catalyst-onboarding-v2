@@ -33,7 +33,7 @@ from .models import AgreementInstance
 
 Status = PendingAction.Status
 Decision = reminders.Decision
-REMIND_SIGNING = "remind_signing"
+REMIND_SIGNING = scheduling.REMIND_SIGNING
 UNAVAILABLE_ITEM = "signing_reminder_unavailable"
 REFUSED_ITEM = "signing_reminder_refused"
 FAILED_ITEM = "signing_reminder_failed"

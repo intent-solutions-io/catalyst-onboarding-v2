@@ -2063,6 +2063,7 @@ P6_SUPPORTING = {
         "test_reminders::test_bgl7_a_replayed_lapse_on_an_already_lapsed_application_cancels_itself",
         "test_reminders::test_bgl7_a_trusted_reply_reopens_a_lapsed_application_to_the_stage_it_lapsed_from",
         "test_reminders::test_bgl7_quiet_hours_hold_the_closing_note_and_a_pending_reply_holds_the_lapse",
+        "test_reminders::test_bgl7_a_pause_holds_the_lapse_and_a_resume_spreads_it_instead_of_sending_the_note_at_once",
         "test_reminders::test_bgl7_without_approved_closing_wording_the_lapse_waits_with_one_staff_item",
         "test_reminders::test_bgl7_a_zero_business_day_interval_keeps_the_seconds_cadence_and_a_zero_lapse_never_lapses",
         "test_reminders::test_bgl7_the_lapse_handler_is_registered_redeliverable_and_automated_and_the_defaults_are_the_first_generations",
@@ -2070,6 +2071,7 @@ P6_SUPPORTING = {
         "test_signing_reminder::test_bgl7_without_a_service_signing_mail_the_reminder_records_once_that_the_applicant_was_not_reminded",
         "test_signing_reminder::test_bgl7_through_the_seam_the_reminder_goes_once_and_the_lapse_and_the_signature_follow",
         "test_signing_reminder::test_bgl7_a_signature_before_the_reminder_cancels_it_and_a_pause_holds_it",
+        "test_post_restore::test_bgl7_the_last_reminder_left_after_the_backup_still_leads_to_the_escalation_and_the_lapse",
         "test_data_model::test_open_stage_set_matches_the_journey",
     ],
 }

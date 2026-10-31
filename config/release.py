@@ -81,6 +81,21 @@ EXPAND_SAFE: dict[str, str] = {
         "a revert sends nothing it should not; nothing is removed or renamed. Reversing the migration itself (not "
         "needed to run a previous image) needs no `decline` rows, because the narrower CHECK would refuse them; its "
         "reverse step returns the `send_decline` rows it cancelled to held"),
+    "applications.0010_lapsed_stage": (
+        "widens the stage CHECK and the field's choices by one value (`lapsed`, bgl.7) and rebuilds the one-open-per-"
+        "email-key partial unique index with `lapsed` among the open stages; the choices change is state only, every row "
+        "a previous image writes satisfies the wider CHECK, and no `lapsed` row exists until a lapse runs, which needs "
+        "owner-approved `lapse_note` wording. A previous image that meets a `lapsed` application links a reply to it as "
+        "usual without reopening it, refuses a repeat submission from that address on the unique index (nothing written, "
+        "never a second open application), and leaves the `lapse` and `remind_signing` actions queued (no handler); "
+        "nothing is removed or renamed. Reversing the migration itself needs no `lapsed` rows"),
+    "correspondence.0021_lapse_note": (
+        "widens the approved-message kind CHECK and the field's choices by one value (`lapse_note`, bgl.7) and seeds an "
+        "unapproved draft template; the choices change is state only and every row a previous image writes already "
+        "satisfies the wider CHECK. A previous image that meets a queued `lapse_note` send sends the frozen message "
+        "without the thread headers (its digest check covers only the frozen subject and body), as it would a reminder "
+        "frozen with its `Re:` subject; nothing is removed or renamed. Reversing the migration itself needs no "
+        "`lapse_note` rows, because the narrower CHECK would refuse them"),
 }
 
 

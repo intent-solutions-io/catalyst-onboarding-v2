@@ -964,6 +964,24 @@ def test_bgl7_quiet_hours_hold_the_closing_note_and_a_pending_reply_holds_the_la
     assert (lapse.status, lapse.last_error) == ("cancelled", "question_satisfied")
 
 
+def test_bgl7_a_pause_holds_the_lapse_and_a_resume_spreads_it_instead_of_sending_the_note_at_once(parity, settings):
+    question, _ = sent_question(parity)
+    fire()
+    staff_actions.pause(parity.app.pk, parity.operator, "Checking the applicant's details first")
+    fire(kind="lapse")  # fell due during the pause: an automated kind is never claimed while paused
+    [lapse] = lapse_actions()
+    assert lapse.status == "queued" and stage(parity) == "awaiting_answers"
+    PendingAction.objects.filter(pk=lapse.pk).update(due_at=Now() - timedelta(days=1))
+    staff_actions.resume(parity.app.pk, parity.operator, "Details checked, carry on")
+    lapse.refresh_from_db()
+    grace = timedelta(seconds=settings.CATALYST_REMINDER_RESUME_GRACE_SECONDS)
+    assert lapse.due_at - reminders.db_now() > grace - timedelta(seconds=5)  # E4: no closing note right after a resume
+    run_worker()
+    assert stage(parity) == "awaiting_answers" and not ApprovedMessage.objects.filter(kind="lapse_note").exists()
+    fire(kind="lapse")
+    assert stage(parity) == "lapsed" and ApprovedMessage.objects.filter(kind="lapse_note").count() == 1
+
+
 def test_bgl7_without_approved_closing_wording_the_lapse_waits_with_one_staff_item(remind, settings):
     settings.CATALYST_REMINDER_MAX = 1
     settings.CATALYST_LAPSE_AFTER_BUSINESS_DAYS = 10

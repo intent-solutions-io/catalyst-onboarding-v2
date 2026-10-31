@@ -32,7 +32,9 @@ Status = PendingAction.Status
 REMIND = "remind"
 ESCALATE = "escalate_unanswered"
 LAPSE = "lapse"  # the handler is correspondence.lapse; agreements.signing_reminder schedules it for a signing wait
+REMIND_SIGNING = "remind_signing"  # agreements.signing_reminder's kind (named here so this leaf module imports no service)
 REMINDER_KINDS = (REMIND, ESCALATE)
+FOLLOW_UP_KINDS = REMINDER_KINDS + (LAPSE, REMIND_SIGNING)  # what a resume spreads (E4; bgl.7 adds the lapse and signing)
 SEND_MESSAGE = "send_message"  # the outbound kind (named here so this leaf module imports no service)
 LIVE = (Status.QUEUED, Status.HELD)
 STILL_ASKED = (Question.Status.OPEN, Question.Status.PARTIALLY_ANSWERED, Question.Status.REPLY_PENDING)
@@ -105,11 +107,18 @@ def schedule_after_acceptance(message: ApprovedMessage) -> None:
         if n <= settings.CATALYST_REMINDER_MAX:
             _create(REMIND, remind_key(question, n), question, f"{question.public_id}:{n}")
         else:
-            _create(ESCALATE, escalate_key(question), question, str(question.public_id))
-            due = lapse_due()
-            if due is not None:  # bgl.7: the quiet period before the closing note starts here
-                _create(LAPSE, lapse_key(question), question, f"question:{question.public_id}", due_at=due)
+            schedule_after_last(question)
         sync_reminders(question, question.status)  # a reply already pending holds the new action at once
+
+
+def schedule_after_last(question) -> None:
+    """After the last reminder (or the question itself when none is configured): the staff escalation and, with it, the
+    lapse (bgl.7: the quiet period before the closing note starts here). Also called by the restore replay
+    (correspondence.restore), so a reminder that left after the backup still leads to its lapse."""
+    _create(ESCALATE, escalate_key(question), question, str(question.public_id))
+    due = lapse_due()
+    if due is not None:
+        _create(LAPSE, lapse_key(question), question, f"question:{question.public_id}", due_at=due)
 
 
 def sync_reminders(question, status: str) -> int:
@@ -129,12 +138,14 @@ def sync_reminders(question, status: str) -> int:
 
 def reschedule_on_resume(application) -> int:
     """E4: queued reminders that fell due during the pause get now + grace + rank x the minimum gap. Held
-    reminders, counts and question statuses are untouched; no catch-up copies are made."""
+    reminders, counts and question statuses are untouched; no catch-up copies are made. Since bgl.7 the lapse and the
+    signing reminder are spread the same way, so a resume never sends a closing note or a signing reminder at once."""
     reminder_refs = [str(r) for r in ApprovedMessage.objects.filter(
-        application=application, kind=ApprovedMessage.Kind.REMINDER).values_list("send_ref", flat=True)]
-    # Reminders that fell due, and frozen reminder mails whose send waited behind the pause (2B.4 review).
+        application=application, kind__in=(ApprovedMessage.Kind.REMINDER, ApprovedMessage.Kind.LAPSE_NOTE),
+    ).values_list("send_ref", flat=True)]
+    # Follow-ups that fell due, and frozen reminder or closing-note mails whose send waited behind the pause (2B.4 review).
     due = list(PendingAction.objects.select_for_update(of=("self",)).filter(
-        Q(kind__in=REMINDER_KINDS) | Q(kind=SEND_MESSAGE, input_ref__in=reminder_refs),
+        Q(kind__in=FOLLOW_UP_KINDS) | Q(kind=SEND_MESSAGE, input_ref__in=reminder_refs),
         subject_type="application", subject_id=application.public_ref,
         status=Status.QUEUED, due_at__lte=Now()).order_by("due_at", "id"))
     grace, gap = settings.CATALYST_REMINDER_RESUME_GRACE_SECONDS, settings.CATALYST_REMINDER_MIN_GAP_SECONDS

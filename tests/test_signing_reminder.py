@@ -15,9 +15,9 @@ from django.utils import timezone
 
 from agreements import signing_mail, signing_reminder
 from applications.models import Application, ApplicationEvent
-from correspondence import outbound
+from correspondence import outbound, staff_actions
 from correspondence.models import ApprovedMessage, MailboxCursor, MessageTemplate, MessageTemplateVersion, StaffItem
-from correspondence.roles import TEMPLATE_OWNER
+from correspondence.roles import OPERATOR, TEMPLATE_OWNER
 from tests.test_agreements import (  # noqa: F401  (fixture chain and helpers)
     a, admitted, approve, c, d, ev, g, issued, nda, p2, run_worker, tls,
 )
@@ -102,7 +102,7 @@ def test_bgl7_without_a_service_signing_mail_the_reminder_records_once_that_the_
     assert withheld.data == {"instance": str(instance.public_id), "n": 1, "reason": signing_mail.NOT_AVAILABLE}
     assert StaffItem.objects.filter(application=app, reason_code="signing_reminder_unavailable", status="open").count() == 1
     assert lapses() == [] and not events(app, "signing_reminder_queued")  # nothing was sent, so nothing lapses
-    assert len(s.fake.emails) == 1  # Documenso's own distribution mail; the service sent nothing more
+    assert [m["kind"] for m in s.fake.emails] == ["signing_request"]  # Documenso's own distribution; nothing more
     due_now("remind_signing")
     run_worker()
     assert len(events(app, "signing_reminder_withheld")) == 1 and len(reminders_for(instance)) == 1
@@ -150,14 +150,13 @@ def test_bgl7_through_the_seam_the_reminder_goes_once_and_the_lapse_and_the_sign
 
 
 def test_bgl7_a_signature_before_the_reminder_cancels_it_and_a_pause_holds_it(s, monkeypatch):
-    from workflow.models import AutomationPause
-
     app = issued(s, monkeypatch)
     instance = nda(app)
-    AutomationPause.objects.create(subject_type="application", subject_id=app.public_ref, reason="test", actor_ref="test")
+    operator = staff(s, "signing-reminder-operator", OPERATOR)
+    staff_actions.pause(app.pk, operator, "Checking the applicant's details first")  # the audited staff pause (F)
     due_now("remind_signing")
     assert reminders_for(instance)[0].status == "queued"  # an automated kind is never claimed while paused
-    AutomationPause.objects.filter(subject_id=app.public_ref).delete()
+    staff_actions.resume(app.pk, operator, "Details checked, carry on")
     s.fake.sign(instance.envelope_id)
     reads_now()
     assert nda(app).signing_status == "signing_complete_verified"
