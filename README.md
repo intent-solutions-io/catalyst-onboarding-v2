@@ -9,8 +9,8 @@ Intent Solutions is a Claude Partner Network Select Services Partner.
 > **Status (2026-10-31):** wave one has a recorded production launch under D-53: invitation, form,
 > verification mail, confirmation and staff dossier. Beads records its move to the dedicated US host on
 > 2026-10-31. The complete first-generation replacement remains **in development**: public intake and form
-> parity are merged, while the combined signing, model, mailbox and correspondence changes are a local
-> integration candidate awaiting complete verification and production admission. The owner's nine parity
+> parity are merged, while the combined signing, model, mailbox and correspondence changes are in draft
+> integration PR #161 awaiting passing required CI, provider activation and legacy-case continuity. The owner's nine parity
 > choices are already recorded (D-54); the provider canaries, import handoff and Learn cutover are separate.
 > See [current workflow evidence](000-docs/006-LS-STAT-status.md) for the dated snapshot and its limits.
 

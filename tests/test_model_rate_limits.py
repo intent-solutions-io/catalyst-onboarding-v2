@@ -101,3 +101,27 @@ def test_throttle_cleanup_preserves_a_future_provider_cooldown(limits):
     RequestThrottle.objects.update(updated_at=Now() - timedelta(days=2))
     throttle.sweep()
     assert rate_limits.reserve(1, 1, 1) > 86400
+
+
+
+def test_request_token_reservation_covers_text_and_output_schema_before_dispatch():
+    from pydantic_ai.messages import ModelRequest, UserPromptPart
+    from pydantic_ai.models import ModelRequestParameters
+    from pydantic_ai.tools import ToolDefinition
+
+    from assessments import agent
+
+    message = ModelRequest(parts=[UserPromptPart("x" * 80000)])
+    parameters = ModelRequestParameters(output_tools=[ToolDefinition(name="synthetic", parameters_json_schema={
+        "type": "object", "description": "s" * 2000})])
+    assert agent._request_tokens([message], {"max_tokens": 4000}, parameters) > 90000
+
+
+def test_a_request_larger_than_the_configured_token_rate_is_refused_before_dispatch(monkeypatch):
+    from assessments import agent
+
+    def unavailable(*args, **kwargs):
+        raise ValueError("minimax_rate_capacity_below_one_attempt")
+    monkeypatch.setattr(rate_limits, "reserve", unavailable)
+    with pytest.raises(agent.ModelUnavailable, match="rate_capacity_below_request"):
+        agent._request_capacity(1, 20000)

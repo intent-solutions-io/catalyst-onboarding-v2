@@ -4,13 +4,13 @@
 |---|---|
 | Document | `006-LS-STAT-status` |
 | Last updated | 2026-10-31 |
-| Source revision | `main` `61e48d1`; integration candidate `496ee7b` (local); Beads and GitHub readbacks of 2026-10-31 |
+| Source revision | `main` `61e48d1`; integration PR #161 (including production admission `5401078`); host, Beads and GitHub readbacks of 2026-10-31 |
 | Classification | Public |
 
 > **Current evidence snapshot (2026-10-31): wave one is deployed; the full first-generation replacement is not release-ready.**
 > D-53 authorized the bounded invitation/verification journey. Bead `bgl.19` records its move to the dedicated US
-> host on image `5e8eaf8`; this documentation review did not independently inspect that host. Public intake and form
-> parity are merged on `main`; the remaining combined workflow is local on `feat/parity-integration` at `496ee7b`.
+> host on image `5e8eaf8`, independently confirmed by the subsequent readback. Public intake and form
+> parity are merged on `main`; the remaining combined workflow is published in draft PR #161.
 > The owner's nine parity decisions are already recorded in `bgl.1` and mirrored as D-54 in `011`; they are not nine new
 > approval requests. Live provider proofs, production admission, legacy-case continuation and the cutover remain
 > distinct from those decisions. Task state and subsequent verification belong in Beads.
@@ -19,15 +19,15 @@
 
 | Workflow boundary | Evidence and implementation state | Production limit |
 |---|---|---|
-| Invitation, form, verification mail, explicit confirmation, staff dossier | Existing: D-53; live browser proof in `9kg.87` on 2026-10-30; US move recorded in `bgl.19` on 2026-10-31 | The US host and staff access were not reverified by this review; `bgl.19` still names staff tailnet/certificate and off-host backup work. |
-| Public URLs, open-intake setting, bot checks and first-generation form fields | Merged: PR #148 (`77faf17`) and #151 (`61e48d1`) | Merged code does not establish a Learn route switch or an enabled production setting; `bgl.20` records the proxy/client rate-limit defect. |
+| Invitation, form, verification mail, explicit confirmation, staff dossier | Existing: D-53; live browser proof in `9kg.87` on 2026-10-30; US move recorded in `bgl.19` on 2026-10-31 | The US stack is running and Tailscale reports online without a health warning. Staff login recovery and the off-host backup leg remain separately tracked in `bgl.19`. |
+| Public URLs, open-intake setting, bot checks and first-generation form fields | Merged: PR #148 (`77faf17`) and #151 (`61e48d1`) | Learn is not switched. Candidate `825353b` fixes trusted-proxy client identity; exact deployment proxy trust and a live check remain in `bgl.20`. |
 | CAT reference and receipt before confirmation | In development: `bgl.5`, local `feat/parity-reference-receipt` at `361e9b5` | Not in the integration candidate at this snapshot. |
 | Residence/phone screening and talent search | Open: `bgl.4`, `bgl.15`; no corresponding implementation found in the integration candidate | Do not describe them as delivered parity. GitHub research (`bgl.13`) is explicitly deferred by the owner's instruction, not a launch blocker. |
-| Model review, routine advance and clarification | In development: PR #149, included in the local integration candidate | Production admission is tracked in `bgl.22`: live activation and routine advance remain zero; model mode is `none`. Provider proof and model data-use wording are not established by the synthetic tests. |
+| Model review, routine advance and clarification | In development: PR #149, included in draft integration PR #161 | Candidate production admission exists behind a pinned profile (`bgl.22`); deployed activation remains off. Production cumulative usage is uncapped by default, with shared provider pacing. An approved production rubric, model-use records and provider proof remain required. |
 | NDA then User Agreement, service-sent links, details, company countersign and automatic release | In development: PRs #150 and #155, included in the integration candidate | Distribution remains `provider`, countersigning `manual`, release `owner`; live signing/custody prerequisites and canary `9kg.31.2` remain separate. |
-| Mailbox creation, first-name naming and one-time-password welcome | In development: PR #152, included in the integration candidate | The production adapter/domain are empty and guards still restrict its values to synthetic environments; canary `9kg.31.3` remains open. |
-| Business-day reminders, lapse/reopen, sender/Reply-To, HTML wording and Twenty | In development: PRs #154, #156, #157 and #158, included in the integration candidate | Owner-approved wording must be loaded; mailbox polling has one owner; Twenty remains off and restricted to synthetic environments. |
-| Legacy records | In development: PR #153; import mapping document `035` exists on that branch and the integration branch | Import is synthetic-tested, not production-run. It pauses open cases, queues no jobs and does not turn open legacy envelopes into v2 agreement instances. Continuation is tracked separately in `bgl.23` and requires the explicit case handoff in the swap plan. |
+| Mailbox creation, first-name naming and one-time-password welcome | In development: PR #152, included in the integration candidate | The candidate admits the specified production adapter through the pinned profile; the deployed adapter/domain are empty and canary `9kg.31.3` remains open. |
+| Business-day reminders, lapse/reopen, sender/Reply-To, HTML wording and Twenty | In development: PRs #154, #156, #157 and #158, included in the integration candidate | Owner-approved wording must be loaded; mailbox polling has one owner; Twenty remains off in production; the candidate has an opt-in production boundary. |
+| Legacy records | In development: PR #153; import mapping document `035` exists on that branch and the integration branch | Import is synthetic-tested, not production-run. It pauses open cases, queues no jobs and does not turn open legacy envelopes into v2 agreement instances. Read-only legacy status found 19 open cases, including 12 signing paths. Continuation is tracked in `bgl.23`; those cases cannot be orphaned at retirement. |
 | Full cutover | Open: `bgl.17` rehearsal and `bgl.18` live cutover | No completed replacement-workflow canary or cutover receipt was found in the reviewed records. |
 
 ## Verification and record reconciliation (2026-10-31)
@@ -38,8 +38,14 @@
   A full synthetic run at `f47632d` collected 2,258 tests and exposed two erasure failures; it was stopped for repair.
   A focused diagnostic confirmed `provisioning_credentialsetup.mode` was absent from the erasure catalog. The mode
   migration also replaced the trigger without preserving its erasure branch. Repair `f908358` passed seven targeted schema, erasure, migration round-trip and credential-identity checks.
-  Candidate `496ee7b` includes current `main`; its full run is pending in `bgl.21.1`. No successful complete
-  integration run is claimed here.
+  The subsequent full CI run `41246997416` failed: 26 failures, 2,233 passes and 375 errors. Its first failure
+  compared an obsolete migration baseline; failure cleanup left the schema reversed and caused cascading errors.
+  Two independent failures concerned fixture-name coverage and the notice-source import boundary. The repairs
+  passed 95 focused checks, including erasure reversal/reapply and legacy import. The next full run is still
+  required; `bgl.21` tracks it, and the failed run is not release evidence. No successful complete integration run is claimed here.
+- Production-configuration checks passed 38 tests. Final provider request/token pacing, payload-bound,
+  repair-call and live-safety checks passed 42 tests; configured account limits and live canaries remain deployment prerequisites.
+  See `deploy/production/README.md` for the profile and shared-credential rate-allocation constraint.
 - GitHub readback confirms an active `main` ruleset: PRs, linear history and both required CI checks, with zero
   required approving reviews. Older statements that `main` has no protection are historical (`032` section 1.8).
 - The erasure key was created on 2026-10-30 (`032` section 3.12). The canary record still leaves the first erasure

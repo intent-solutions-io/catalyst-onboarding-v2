@@ -38,8 +38,9 @@ PostgreSQL limiter coordinates only workers using this Catalyst database.
 All assessment, clarification-draft, checking and reply-interpretation requests share
 the same provider bucket. Preflight checks delay jobs without spending their retry
 attempt. Each actual request, including a repair, reserves capacity immediately before
-calling MiniMax. Reservations count conservatively through the request timeout plus
-60 seconds. SDK retries are disabled; the job ledger controls finite retries.
+calling MiniMax. Input reservations use serialized request bytes, including tool schemas,
+plus framing and the output allowance; they do not rely on a post-response SDK limit.
+Reservations count conservatively through the request timeout plus 60 seconds. SDK retries are disabled; the job ledger controls finite retries.
 
 A provider throttle creates a shared cooldown, honoring `Retry-After` and recognized
 MiniMax throttle codes. A later, shorter response cannot shorten the cooldown. A

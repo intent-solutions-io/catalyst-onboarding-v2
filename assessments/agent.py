@@ -39,6 +39,7 @@ from dataclasses import dataclass
 
 from django.conf import settings
 from django.db import connections
+from pydantic_core import to_json
 from pydantic_ai import Agent, ModelRetry, UsageLimits
 from pydantic_ai import models as _models
 from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
@@ -146,7 +147,8 @@ class _Guarded(WrapperModel):
                 raise approval.NotApproved("approval_check_timeout") from None
         if rate_limits.enabled():
             try:
-                delay = await asyncio.wait_for(asyncio.to_thread(_request_capacity, self.timeout), timeout=self.timeout)
+                tokens = _request_tokens(messages, model_settings, model_request_parameters)
+                delay = await asyncio.wait_for(asyncio.to_thread(_request_capacity, self.timeout, tokens), timeout=self.timeout)
             except TimeoutError:
                 raise ProviderError("rate_store_timeout", retry_after=60) from None
             if delay:
@@ -161,11 +163,27 @@ class _Guarded(WrapperModel):
         raise ModelUnavailable("streaming_not_allowed")
 
 
-def _request_capacity(timeout):
+def _request_tokens(messages, model_settings, parameters):
+    """Conservative text/tool-schema input bound plus output allowance, before dispatch.
+
+    Byte length deliberately overcounts text tokens; the extra 4096 covers provider
+    framing. This path sends text and tool schemas only. SDK usage checks can run
+    after a response, so their configured input limit is not a rate reservation.
+    """
+    try:
+        size = len(to_json({"messages": messages, "parameters": parameters}))
+    except (TypeError, ValueError):
+        raise ModelUnavailable("rate_input_unserializable") from None
+    return size + 4096 + int((model_settings or MODEL_SETTINGS).get("max_tokens", MODEL_SETTINGS["max_tokens"]))
+
+
+def _request_capacity(timeout, tokens):
     """Reserve one actual request, including repairs, using the same shared provider bucket."""
     try:
-        tokens = settings.CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST + MODEL_SETTINGS["max_tokens"]
-        return rate_limits.reserve(1, tokens, timeout)
+        try:
+            return rate_limits.reserve(1, tokens, timeout)
+        except ValueError:
+            raise ModelUnavailable("rate_capacity_below_request") from None
     finally:
         connections.close_all()
 
