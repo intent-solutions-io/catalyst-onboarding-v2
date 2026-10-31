@@ -83,6 +83,8 @@ APPROVED_MIGRATIONS = {
     # bgl.10: a credential series' mode, and the key of the secret-bearing one-time-password welcome (no version seeded)
     ("provisioning", "0008_credential_setup_mode"), ("correspondence", "0022_password_welcome_template"),
     ("applications", "0010_lapsed_stage"), ("correspondence", "0023_lapse_note"),  # bgl.7: the lapsed stage and the closing note
+    # bgl.14 (034 rows 42 and 43): the Twenty link, its grants and the reinstalled erasure functions (the twenty handoff)
+    ("crm", "0001_initial"), ("crm", "0002_grants"), ("erasure", "0006_twenty_projection"),
 }
 
 

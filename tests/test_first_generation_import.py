@@ -261,6 +261,14 @@ def test_bgl16_agreements_details_mailboxes_crm_and_the_decline(v1):
     assert "v1_mailbox_approved_not_created_check_mxroute" in ImportedCase.objects.get(reference="CAT-PV00-0010").findings
     imported = ImportedCase.objects.get(reference="CAT-AC00-0011")
     assert (imported.crm_person_id, imported.crm_note_id) == ("twenty-person-11", "twenty-note-11")
+    # bgl.14 (parity integration): the Twenty projection's own lookup reads this record, so the imported application
+    # continues the first generation's person and note (crm.projection.imported, not a stand-in)
+    from crm import projection
+
+    origin = projection.imported(imported.application)
+    assert (origin.case_id, origin.reference, origin.person_id, origin.note_id) == (
+        imported.v1_case_id, "CAT-AC00-0011", "twenty-person-11", "twenty-note-11")
+    assert origin.requested_at == imported.v1_created_at
     kinds = Counter(ImportedRecord.objects.filter(application=imported.application).values_list("kind", flat=True))
     for kind in ("case_release", "crm_projection", "crm_review_item", "legacy_agreement_import", "ua_details_capture",
                  "agreement", "mailbox_account"):

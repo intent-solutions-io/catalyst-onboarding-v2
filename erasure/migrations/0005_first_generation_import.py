@@ -13,6 +13,10 @@ from django.db import migrations
 from erasure import catalog
 
 IMPORT_TABLES = ("firstgen_importedcase", "firstgen_importedrecord", "firstgen_importrun")
+# Tables whose coverage a later erasure migration adds (0006, the Twenty link, bgl.14). Its table exists while this
+# migration is reversed (crm depends on erasure 0004 only), so the reverse leaves it out too: what 0004 left covers
+# neither the import nor the Twenty link.
+LATER_TABLES = ("crm_twentylink",)
 
 
 def _existing(schema_editor, without_import=False):
@@ -21,7 +25,7 @@ def _existing(schema_editor, without_import=False):
         rows = cursor.fetchall()
     out = {}
     for table, column in rows:
-        if without_import and table in IMPORT_TABLES:
+        if without_import and table in (*IMPORT_TABLES, *LATER_TABLES):
             continue
         out.setdefault(table, set()).add(column)
     return out

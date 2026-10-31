@@ -2237,6 +2237,32 @@ P6_SUPPORTING = {
         "test_post_restore::test_bgl7_the_last_reminder_left_after_the_backup_still_leads_to_the_escalation_and_the_lapse",
         "test_data_model::test_open_stage_set_matches_the_journey",
     ],
+    "bgl.14 the Twenty projection, the applicant file note and the daily details fill, behind the switch (034 rows 42, 43)": [
+        "test_twenty_projection::test_bgl14_with_the_switch_off_nothing_is_queued_and_a_queued_action_calls_nothing",
+        "test_twenty_projection::test_bgl14_an_event_creates_the_person_with_the_first_generation_fields_and_one_applicant_file",
+        "test_twenty_projection::test_bgl14_the_note_is_created_once_and_then_updated_in_place",
+        "test_twenty_projection::test_bgl14_the_stored_person_id_is_used_first",
+        "test_twenty_projection::test_bgl14_an_email_match_is_exact_after_trim_and_case_fold_and_never_fuzzy",
+        "test_twenty_projection::test_bgl14_several_matches_open_one_staff_item_and_write_nothing",
+        "test_twenty_projection::test_bgl14_a_person_linked_to_another_open_application_is_not_taken",
+        "test_twenty_projection::test_bgl14_a_lost_reply_is_recovered_by_reading_and_nothing_is_duplicated",
+        "test_twenty_projection::test_bgl14_an_outage_is_retried_within_the_bound_and_the_last_failure_opens_one_item",
+        "test_twenty_projection::test_bgl14_a_refusal_opens_one_item_and_is_not_retried",
+        "test_twenty_projection::test_bgl14_a_field_edited_in_twenty_opens_one_item_and_is_overwritten",
+        "test_twenty_projection::test_bgl14_the_daily_fill_writes_only_blank_details_and_never_overwrites",
+        "test_twenty_projection::test_bgl14_details_never_overwrite_a_name_the_intake_wrote",
+        "test_twenty_projection::test_bgl14_an_imported_application_continues_its_first_generation_person_and_note",
+        # parity integration: v2's lapsed stage (bgl.7) projects as the first generation's LAPSED state
+        "test_twenty_projection::test_bgl14_a_lapsed_application_is_projected_as_the_first_generations_lapsed_state",
+        # parity integration: an imported person's first-generation Twenty record is owed to the owner at erasure
+        "test_twenty_projection::test_bgl14_an_erased_imported_person_owes_the_twenty_handoff_for_the_first_generations_person",
+        "test_twenty_projection::test_bgl14_an_erased_person_owes_the_twenty_handoff_and_the_link_keeps_no_digest",
+        "test_twenty_projection::test_bgl14_an_erased_application_is_never_projected",
+        "test_twenty_projection::test_bgl14_the_guards_refuse_live_twenty_settings_outside_test_and_staging",
+        "test_twenty_projection::test_bgl14_the_shipped_settings_keep_the_projection_off_and_empty",
+        "test_twenty_projection::test_bgl14_the_client_refuses_an_unpinned_or_unconfigured_target_before_sending",
+        "test_effect_registry::test_9kg62_the_scanner_knows_every_write_method_of_each_provider_client",
+    ],
 }
 
 # Cases with no pytest evidence of their own: shown only by a live script (026 section 16).

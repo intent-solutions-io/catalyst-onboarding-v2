@@ -368,7 +368,7 @@ RUN_IDENTITY = {"marker": f"catalyst-test-run:{uuid.uuid4()}"}
 # Slice data plus staff accounts, their sessions and the admin log (S1-T7); the read-only group and its
 # permissions come from migrations and are kept.
 # The agreement types are the P4-D-1 inventory seeded by migration (like the groups), so the reset keeps them.
-SLICE_TABLES = re.compile(r"^((applications|workflow|correspondence|assessments|provisioning|erasure|firstgen)_|agreements_(?!agreementtype$)|accounts_user"
+SLICE_TABLES = re.compile(r"^((applications|workflow|correspondence|assessments|provisioning|erasure|firstgen|crm)_|agreements_(?!agreementtype$)|accounts_user"
                           r"|django_session$|django_admin_log$|accounts_loginthrottle$|accounts_requestthrottle$|otp_"
                           r"|accounts_staffrolegrant$)")  # 6B.9: throttles and staff devices; 9kg.29; 9kg.30: the grant record
 RESET_TRIGGER = "catalyst_no_truncate"

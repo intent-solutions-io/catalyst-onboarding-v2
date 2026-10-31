@@ -17,6 +17,7 @@ COPY applications/ applications/
 COPY assessments/ assessments/
 COPY config/ config/
 COPY correspondence/ correspondence/
+COPY crm/ crm/
 COPY erasure/ erasure/
 COPY firstgen/ firstgen/
 COPY provisioning/ provisioning/

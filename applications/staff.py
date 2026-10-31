@@ -92,6 +92,13 @@ REASONS = {
     "verification_expired": "the applicant's only verification link expired before they confirmed; no working link is out",
     "agreement_reference_needs_decision": "the NDA is on file from the first generation but the User Agreement is not;"
                                           " nothing is issued until the owner decides",  # 9kg.52, D-15
+    # bgl.14: the Twenty projection's review cases (crm.projection.REVIEW_REASONS; the first generation's crm_review_item)
+    "twenty_ambiguous_match": "several Twenty people match this application; link the right one (catalyst_twenty_link)",
+    "twenty_person_linked_elsewhere": "the Twenty person that matches is linked to another open application",
+    "twenty_linked_person_missing": "the linked Twenty person no longer exists; link another (catalyst_twenty_link)",
+    "twenty_field_overwritten": "a field someone edited in Twenty was overwritten by the projection",
+    "twenty_request_rejected": "Twenty refused a projection request; it is not retried",
+    "twenty_projection_failed": "the Twenty projection failed after its last attempt",
 }
 
 

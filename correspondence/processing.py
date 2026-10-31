@@ -98,7 +98,11 @@ ACKNOWLEDGE_ONLY = {"processing_error", "message_id_conflict", "mailbox_uidvalid
                     "agreement_link_send_failed", "agreement_details_readback_incomplete", "agreement_address_quality",
                     # bgl.12: the routine-advance policy stopped (a daily cap, exhausted retries); the case is on the
                     # decision screen either way, so an acknowledgement records that staff saw it
-                    "routine_advance_failed", "routine_send_cap_reached", "routine_request_cap_reached"}
+                    "routine_advance_failed", "routine_send_cap_reached", "routine_request_cap_reached",
+                    # bgl.14: the Twenty projection's review cases, acknowledged once staff acted in Twenty or linked the
+                    # person (catalyst_twenty_link); the next projection reopens one whose cause remains
+                    "twenty_ambiguous_match", "twenty_person_linked_elsewhere", "twenty_linked_person_missing",
+                    "twenty_field_overwritten", "twenty_request_rejected", "twenty_projection_failed"}
 # 9kg.41 (owner decision on the PR #93 review): a suspended or capped snapshot closes only through the human-only
 # decision on the decision screen (which resolves it) or a later successful run, never by an acknowledgement that would
 # leave the case looking as if a run were coming.

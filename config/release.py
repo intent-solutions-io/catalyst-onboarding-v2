@@ -43,8 +43,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-APPS = ("accounts", "agreements", "applications", "assessments", "correspondence", "erasure", "firstgen", "provisioning",
-        "workflow")
+APPS = ("accounts", "agreements", "applications", "assessments", "correspondence", "crm", "erasure", "firstgen",
+        "provisioning", "workflow")
 DEPLOY_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{3,63}")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 
@@ -65,6 +65,7 @@ BASELINE: dict[str, str] = {
     "workflow": "0004_restore_hold_protection",
     "erasure": "",  # 9kg.32: the app came after the guard, so every one of its migrations is scanned
     "firstgen": "",  # bgl.16: likewise
+    "crm": "",  # bgl.14: likewise
 }
 # Later migrations that contracting() flags but a reviewer found safe for the previous image, with the reason.
 EXPAND_SAFE: dict[str, str] = {

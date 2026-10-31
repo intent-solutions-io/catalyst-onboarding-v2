@@ -30,6 +30,7 @@ class TLSMaterial:
     untrusted: Pair
     evidence: Pair  # P3 3B.1: synthetic evidence hosts, by DNS name
     documenso: Pair  # P4 4B.1: the fake Documenso, by DNS name
+    twenty: Pair  # bgl.14: the Twenty stub, by DNS name
 
 
 def _openssl(*args, cwd):
@@ -65,4 +66,5 @@ def generate(directory: Path) -> TLSMaterial:
         untrusted=_leaf(directory, "untrusted", "IP:127.0.0.1", other),
         evidence=_leaf(directory, "evidence", "DNS:evidence.example.test,DNS:mirror.example.test,DNS:elsewhere.example.test", trusted),
         documenso=_leaf(directory, "documenso", "DNS:documenso.example.test", trusted),
+        twenty=_leaf(directory, "twenty", "DNS:twenty.example.test", trusted),
     )

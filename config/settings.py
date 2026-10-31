@@ -86,6 +86,7 @@ INSTALLED_APPS = [
     "provisioning",  # P5 (023; D-47)
     "erasure",  # 9kg.32 (029 section 6.2): the authorized erasure path
     "firstgen",  # bgl.16 (035): the first-generation import's provenance
+    "crm",  # bgl.14 (034 rows 42 and 43): the Twenty projection, behind CATALYST_TWENTY_PROJECTION
 ]
 MIDDLEWARE = [
     "config.redaction.PrivateConfirmationResponses",  # outermost: covers responses built outside the view
@@ -299,6 +300,10 @@ CATALYST_ACTION_HANDLERS = {
     "countersign_sweep": "agreements.countersign.CountersignSweep",
     "countersign_agreement": "agreements.countersign.CountersignAgreement",
     "auto_release": "provisioning.auto_release.AutoRelease",
+    # bgl.14 (034 rows 42 and 43): the Twenty projection and the daily User Agreement details fill. Queued only while
+    # CATALYST_TWENTY_PROJECTION is on; a queued one finds the switch off and does nothing.
+    "twenty_project": "crm.projection.ProjectApplication",
+    "twenty_details_fill": "crm.projection.FillDetails",
 }
 # P5 provisioning (023; D-47). Synthetic only: the adapter is a local fake set by tests, the domain a `.test` domain
 # (P5-D-1), and the limits labelled synthetic defaults (P5-D-2), never unlimited. A live adapter, a provider key and
@@ -656,6 +661,27 @@ CATALYST_AGREEMENT_COUNTERSIGN_ATTEMPTS = 4  # with the retry interval: about th
 # CATALYST_RELEASE_RECHECK_SECONDS.
 CATALYST_RELEASE_MODE = "owner"
 CATALYST_RELEASE_RECHECK_SECONDS = 600
+
+# bgl.14 (034 rows 42 and 43; owner answer of 2026-10-31, which reverses D-08 on activation): the Twenty projection. Off
+# by default. The switch, the URL, the pinned address and the trust store are fixed in code, never from the environment,
+# and the guards refuse each of them, and the token file, outside `test` and `staging` (config.guards.twenty_problems):
+# the swap to production is its own reviewed code change. The token is a secret file (`twenty_token`) outside test and
+# development, never a setting value here.
+CATALYST_TWENTY_PROJECTION = False
+CATALYST_TWENTY_URL = ""  # e.g. https://twenty.example.test:<port> in tests
+CATALYST_TWENTY_ADDRESS = ""  # the literal address the Twenty host is pinned to
+CATALYST_TWENTY_CA_FILE = ""
+CATALYST_TWENTY_TOKEN = secret("CATALYST_TWENTY_TOKEN", "")
+# One exchange's deadline (half the lease at most, like every provider call), the response cap, the attempts of one
+# projection (the first generation's 8: about two hours of outage at the worker's doubling backoff) and the interval of
+# the details fill (daily, as the first generation's).
+CATALYST_TWENTY_DEADLINE_SECONDS = number("CATALYST_TWENTY_DEADLINE_SECONDS",
+                                          str(max(1, min(10, CATALYST_WORKER_LEASE_SECONDS // 2))))
+CATALYST_TWENTY_MAX_BYTES = number("CATALYST_TWENTY_MAX_BYTES", "1048576")
+CATALYST_TWENTY_ATTEMPTS = number("CATALYST_TWENTY_ATTEMPTS", "8")
+CATALYST_TWENTY_FILL_SECONDS = number("CATALYST_TWENTY_FILL_SECONDS", "86400", minimum=60)
+if CATALYST_TWENTY_DEADLINE_SECONDS * 2 > CATALYST_WORKER_LEASE_SECONDS:
+    raise ImproperlyConfigured("CATALYST_TWENTY_DEADLINE_SECONDS must be at most half of CATALYST_WORKER_LEASE_SECONDS")
 
 # ADR-18 (D-19): the custom user model exists before the first migration.
 AUTH_USER_MODEL = "accounts.User"
