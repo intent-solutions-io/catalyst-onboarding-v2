@@ -217,3 +217,32 @@ def test_bgl7_under_the_service_distribution_the_reminder_sends_the_signing_link
     with transaction.atomic():
         assert signing_mail.resend_link(instance, actor_ref="t", series=1) == signing_mail.action_key(instance, 1)
     assert PendingAction.objects.filter(kind=signing_mail.KIND, idempotency_key=signing_mail.action_key(instance, 1)).count() == 1
+
+
+def test_bgl11_the_lapse_note_is_sent_multipart_and_greets_by_first_name(s, monkeypatch):
+    """bgl.11 x bgl.7 (parity integration): the closing note goes through the frozen-message path, so an approved
+    version with an HTML part is frozen with its values and sent as text plus HTML."""
+    from correspondence.rendering import version_digest
+
+    app = issued(s, monkeypatch)
+    instance = nda(app)
+    if not MessageTemplateVersion.objects.filter(template__key="lapse_note", version=1).exists():
+        LAPSE_MIGRATION.create_template(MessageTemplate, MessageTemplateVersion)
+    template = MessageTemplate.objects.get(key="lapse_note")
+    subject, body, page = "Your application", "Hello $first_name,\nSet aside.\n", "<p>Hello $first_name,</p><p>Set aside.</p>\n"
+    version = MessageTemplateVersion.objects.create(
+        template=template, version=2, subject=subject, body_text=body, body_html=page, variables=["first_name"],
+        content_sha256=version_digest(subject, body, page))
+    outbound.approve_template_version(version.pk, staff(s, "lapse-html-owner", TEMPLATE_OWNER))
+    collection_complete()
+    signing_reminder.schedule_lapse(instance)
+    due_now("lapse")
+    run_worker()
+    first = app.display_name.split()[0]
+    [note] = ApprovedMessage.objects.filter(application=app, kind="lapse_note")
+    assert note.frozen_body == f"Hello {first},\nSet aside.\n" and note.reproducible_inputs["html_values"] == {"first_name": first}
+    assert note.disposition == "accepted_by_server"
+    sent = s.server.parsed()
+    assert sent.get_content_type() == "multipart/alternative"
+    text, html = (part.get_content().replace("\r\n", "\n") for part in sent.iter_parts())
+    assert text == note.frozen_body and html == f"<p>Hello {first},</p><p>Set aside.</p>\n"

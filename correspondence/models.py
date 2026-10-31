@@ -96,6 +96,10 @@ class MessageTemplateVersion(models.Model):
     version = models.PositiveIntegerField()
     subject = models.CharField(max_length=200)  # static: no variables in subjects (016 A1)
     body_text = models.TextField()
+    # bgl.11: the optional HTML alternative (blank: a text-only message). The same `$name` allow-list as the text; a
+    # value is HTML-escaped when substituted, and a link variable may stand only in an href the author wrote
+    # (correspondence.rendering). Part of content_sha256 when not blank, so an approved version stays immutable.
+    body_html = models.TextField(blank=True, default="", db_default="")
     variables = models.JSONField(default=list)  # the allow-list of $names the body may use
     # Copied from the template at creation (code keeps them equal) so the database can enforce 3.1's rule.
     secret_bearing = models.BooleanField(default=False)

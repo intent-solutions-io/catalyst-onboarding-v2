@@ -49,7 +49,7 @@ from .models import (
 )
 from .common import DECIDABLE, Refused, actor_ref, require  # noqa: F401  (re-exported for callers)
 from .messages import build_email, enqueue_file_copy, message_id, thread_headers, verified_address  # noqa: F401
-from .rendering import TemplateRefused, canonical_digest, check_version, render
+from .rendering import TemplateRefused, canonical_digest, check_version, frozen_html, html_inputs, render
 from .questions import sent_text
 from .scheduling import schedule_after_acceptance
 from .staff_items import event, hard_bounce_open, open_item, resolve_item
@@ -139,7 +139,7 @@ def _freeze(application, kind, recipient, version, values, authorized_by, author
     return ApprovedMessage.objects.create(
         kind=kind, application=application, recipient=recipient, template_version=version, frozen_subject=subject,
         frozen_body=body, content_sha256=canonical_digest(subject, body), authorized_by=authorized_by,
-        authority=authority, supersedes=supersedes,
+        authority=authority, supersedes=supersedes, reproducible_inputs=html_inputs(version, values),
     )
 
 
@@ -398,7 +398,11 @@ class SendMessage:
             if digest != message.content_sha256:
                 return refuse("content_digest_mismatch")
             try:
-                payload = build_email(message, subject, body, thread_headers(message))  # bgl.7: a reply in its thread
+                page = frozen_html(message)  # bgl.11: multipart when the approved version has an HTML part
+            except TemplateRefused as exc:
+                return refuse(str(exc))
+            try:
+                payload = build_email(message, subject, body, thread_headers(message), html=page)  # bgl.7: in its thread
             except ValueError:
                 return refuse("message_refused_by_header_policy")
             number = (OutboundMessage.objects.filter(approved_message=message).aggregate(n=Max("attempt_number"))["n"] or 0) + 1

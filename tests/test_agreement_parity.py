@@ -435,3 +435,42 @@ def test_bgl8_the_distribution_and_layout_settings_are_guarded():
                for p in problems(env="production", CATALYST_AGREEMENT_FIELD_LAYOUTS={"user_agreement:1": UA_LAYOUT}))
     assert django_settings.CATALYST_ACTION_HANDLERS["send_signing_link"] == "agreements.signing_mail.SendSigningLink"
     assert signing_mail.SendSigningLink.automated and signing_mail.SendSigningLink.redeliverable
+
+
+# --- bgl.11 x bgl.8 (parity integration): the HTML part and the first name -----------------------------------------
+
+def link_version(env, key, body, page):
+    from correspondence import outbound
+    from correspondence.rendering import version_digest
+    from correspondence.roles import TEMPLATE_OWNER
+
+    template = MessageTemplate.objects.get(key=key)
+    subject = f"Synthetic {key}"
+    version = MessageTemplateVersion.objects.create(
+        template=template, version=template.versions.count() + 1, subject=subject, body_text=body, body_html=page,
+        variables=["first_name", "link"], secret_bearing=True, content_sha256=version_digest(subject, body, page))
+    outbound.approve_template_version(version.pk, staff(env, f"link-owner-{key}", TEMPLATE_OWNER))
+    return version
+
+
+def test_bgl11_the_signing_link_and_the_cover_are_sent_multipart_and_greet_by_first_name(s, monkeypatch):
+    import html
+
+    body, page = "Hello $first_name,\nSign here: $link\n", '<p>Hello $first_name,</p><p><a href="$link">Sign</a></p>\n'
+    for key in ("agreement_link_nda", "agreement_link_user_agreement"):
+        link_version(s, key, body, page)
+    try:
+        app, ua = issue_user_agreement(s, monkeypatch)
+        first = app.display_name.split()[0]
+        sent = [m for m in mail.outbox if "/sign/" in m.body]
+        assert [m.subject for m in sent] == ["Synthetic agreement_link_nda", "Synthetic agreement_link_user_agreement"]
+        for message, envelope_id in zip(sent, (nda(app).envelope_id, ua.envelope_id)):
+            link = f"{SIGNING_HOST}/sign/{token_of(s, envelope_id)}"
+            assert message.body == f"Hello {first},\nSign here: {link}\n"
+            assert [tuple(a) for a in message.alternatives] == [
+                (f'<p>Hello {html.escape(first)},</p><p><a href="{link}">Sign</a></p>\n', "text/html")]
+            wire = message.message()
+            assert wire.get_content_type() == "multipart/alternative"
+            assert [part.get_content_type() for part in wire.get_payload()] == ["text/plain", "text/html"]
+    finally:
+        reset_gate(s)

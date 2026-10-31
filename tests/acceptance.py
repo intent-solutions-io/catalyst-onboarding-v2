@@ -1833,6 +1833,28 @@ P6_SUPPORTING = {
     "D-53 the real wave 1 wording is added as drafts, never approved by code, and served live only once the owner approves it (033)": [
         "test_wave1_wording::test_d53_the_real_wording_is_added_as_drafts_once_and_served_live_only_after_the_owner_approves",
     ],
+    "bgl.11 the first generation's wording loads from a private source as new versions with their HTML part, approved only through the staff service, and v2 sends multipart mail (034)": [
+        "test_firstgen_wording::test_bgl11_conversion_maps_variables_drops_unmapped_lines_and_resolves_includes",
+        "test_firstgen_wording::test_bgl11_token_assets_map_to_v2_variables_and_the_pilot_card_is_removed",
+        "test_firstgen_wording::test_bgl11_subjects_fill_an_allowed_constant_and_branches_follow_the_flags",
+        "test_firstgen_wording::test_bgl11_unsupported_template_constructs_are_refused",
+        "test_firstgen_wording::test_bgl11_html_values_are_escaped_and_text_values_are_plain",
+        "test_firstgen_wording::test_bgl11_links_only_in_an_authored_href_and_nothing_inside_tags_scripts_or_styles",
+        "test_firstgen_wording::test_bgl11_the_content_digest_covers_the_html_and_is_unchanged_without_it",
+        "test_firstgen_wording::test_bgl11_dry_run_writes_nothing_prints_no_wording_and_skips_missing_keys",
+        "test_firstgen_wording::test_bgl11_loads_new_drafts_with_both_parts_and_a_rerun_skips_identical_content",
+        "test_firstgen_wording::test_bgl11_approve_as_uses_the_staff_approval_service_and_the_new_version_becomes_current",
+        "test_firstgen_wording::test_bgl11_a_variable_outside_the_allow_list_is_refused_and_nothing_is_written",
+        "test_firstgen_wording::test_bgl11_a_source_inside_the_repository_is_refused",
+        "test_firstgen_wording::test_bgl11_an_approved_html_part_is_final_for_every_role",
+        "test_firstgen_wording::test_bgl11_a_version_with_html_is_sent_multipart_and_one_without_as_text_only",
+        # parity integration: the first-name greeting and the HTML part of the four senders outside the frozen path
+        "test_firstgen_wording::test_bgl11_the_greeting_takes_the_first_word_of_the_name_and_falls_back_to_the_display_name",
+        "test_firstgen_wording::test_bgl11_a_question_frozen_from_a_first_name_version_greets_by_the_first_word",
+        "test_agreement_parity::test_bgl11_the_signing_link_and_the_cover_are_sent_multipart_and_greet_by_first_name",
+        "test_parity_mxroute::test_bgl11_the_one_time_password_welcome_is_sent_multipart_and_greets_by_first_name",
+        "test_signing_reminder::test_bgl11_the_lapse_note_is_sent_multipart_and_greets_by_first_name",
+    ],
     "9kg.87 the live browser canary records no address or token, follows only this run's verification mail on the exact origin, and cleans up one message by UID (032)": [
         "test_live_canary::test_9kg_87_redaction_removes_every_token_and_every_form_of_the_login_address_and_password",
         "test_live_canary::test_9kg_87_a_failed_command_is_described_without_its_command_line",

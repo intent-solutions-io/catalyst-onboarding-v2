@@ -38,7 +38,7 @@ from string import Template
 from urllib.parse import urlsplit
 
 from django.conf import settings
-from django.core.mail import EmailMessage
+from django.core.mail import EmailMultiAlternatives
 from django.db import IntegrityError, connection, transaction
 from django.db.models.functions import Now
 from django.views.decorators.debug import sensitive_variables
@@ -204,9 +204,13 @@ class SendSigningLink:
             self._stop(claim, Stop(Status.QUEUED, str(refused)[:64], WORDING_RECHECK_SECONDS))
             return
         message_id = make_msgid(idstring=f"l{claim.attempt}", domain=urlsplit(settings.CATALYST_PUBLIC_BASE_URL).hostname)
-        message = EmailMessage(subject=mail.subject, body=mail.display, to=[decision.recipient],
-                               from_email=from_header(), reply_to=reply_to(),  # bgl.6: the configured sender (config.mail)
-                               headers={"Message-ID": message_id, "Auto-Submitted": "auto-generated"})
+        # bgl.11 (parity integration): multipart/alternative (text, then HTML) when the approved version has an HTML
+        # part, rendered by correspondence.rendering.render_html through applications.notices; text only otherwise.
+        message = EmailMultiAlternatives(subject=mail.subject, body=mail.display, to=[decision.recipient],
+                                         from_email=from_header(), reply_to=reply_to(),  # bgl.6: config.mail
+                                         headers={"Message-ID": message_id, "Auto-Submitted": "auto-generated"})
+        if mail.html:
+            message.attach_alternative(mail.html, "text/html")
         outbound = dict(application_id=decision.application_id, pending_action_id=claim.id, attempt_number=claim.attempt,
                         template_key=mail.key, template_version=f"{mail.version}:{mail.sha256[:24]}",
                         recipient=decision.recipient, message_id=message_id)

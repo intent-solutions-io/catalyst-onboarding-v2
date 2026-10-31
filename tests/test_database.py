@@ -73,6 +73,7 @@ APPROVED_MIGRATIONS = {
     ("applications", "0009_tombstone_keys_unique"), ("erasure", "0001_initial"), ("erasure", "0002_erasure_path"),
     ("correspondence", "0019_decline_notice"),  # oc4.11: the decline kind and template; held send_decline cancelled
     ("correspondence", "0020_verification_template"),  # 9kg.80: the verification mail as an approvable template
+    ("correspondence", "0024_template_html_part"),  # bgl.11: the optional HTML alternative, frozen once approved
     ("agreements", "0010_custody_envelope"), ("erasure", "0003_custody_keys"),  # 9kg.34: custody sealed at rest
     ("workflow", "0006_restore_hold_insert_guard"), ("erasure", "0004_erase_replay"),  # 9kg.25: the replay variant of the erase function, under the restore hold only
     # bgl.16 (035): the first-generation import's provenance tables, their protection and the reinstalled erasure functions

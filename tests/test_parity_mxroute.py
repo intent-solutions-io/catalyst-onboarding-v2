@@ -455,10 +455,10 @@ def test_bgl10_an_uncertain_welcome_send_is_never_repeated_with_the_same_passwor
     settings.CATALYST_SETUP_INVITE_MAX_SERIES = 1
     password_template(otp)
 
-    class Unanswered(password_welcome.EmailMessage):
+    class Unanswered(password_welcome.EmailMultiAlternatives):  # the welcome is built multipart-capable (bgl.11)
         def send(self, fail_silently=False):
             raise ConnectionError("synthetic: the sink did not answer")
-    monkeypatch.setattr(password_welcome, "EmailMessage", Unanswered)
+    monkeypatch.setattr(password_welcome, "EmailMultiAlternatives", Unanswered)
     app, request = approved(otp, monkeypatch)
     run_worker()
     assert setups(request) == [("one_time_password", "superseded")]
@@ -596,3 +596,31 @@ def test_bgl10_live_host_settings_are_refused_outside_test_and_staging_and_bound
     assert (settings.CATALYST_PROVISIONING_NAMING_POLICY, settings.CATALYST_PROVISIONING_NAMING_HOST_CHECK,
             settings.CATALYST_PROVISIONING_CREDENTIAL_MODE) == ("first_last", False, "set_your_own")
     assert not any(getattr(settings, name) for name in guards.PROVISIONING_TEST_ONLY[2:])
+
+
+def test_bgl11_the_one_time_password_welcome_is_sent_multipart_and_greets_by_first_name(otp, monkeypatch):
+    """bgl.11 x bgl.10 (parity integration): an approved welcome version with an HTML part sends text plus HTML, the
+    password in both and in neither record; the greeting is the first word of the name."""
+    from correspondence.rendering import version_digest
+
+    template, _ = MessageTemplate.objects.get_or_create(key=password_welcome.TEMPLATE, defaults={
+        "purpose": "synthetic", "secret_bearing": True})
+    subject, body = "Your mailbox", "Hi $first_name,\nUser $mailbox_username\nPass $password\n"
+    page = "<p>Hi $first_name,</p><p><code>$password</code></p>\n"
+    version = MessageTemplateVersion.objects.create(
+        template=template, version=template.versions.count() + 1, subject=subject, body_text=body, body_html=page,
+        variables=["first_name", "mailbox_username", "password"], secret_bearing=True,
+        content_sha256=version_digest(subject, body, page))
+    outbound.approve_template_version(version.pk, staff(otp, "welcome-html-owner", TEMPLATE_OWNER))
+    app, request = approved(otp, monkeypatch)
+    run_worker()
+    password = otp.stub.passwords_seen[-1]
+    welcome = mail.outbox[-1]
+    first = app.display_name.split()[0]
+    assert welcome.body == f"Hi {first},\nUser ada.example\nPass {password}\n"
+    assert [tuple(a) for a in welcome.alternatives] == [(f"<p>Hi {first},</p><p><code>{password}</code></p>\n", "text/html")]
+    wire = welcome.message()
+    assert wire.get_content_type() == "multipart/alternative"
+    assert [part.get_content_type() for part in wire.get_payload()] == ["text/plain", "text/html"]
+    assert setups(request) == [("one_time_password", "completed")]
+    nowhere_in_the_database(password)  # the HTML part is built and sent in memory, like the text

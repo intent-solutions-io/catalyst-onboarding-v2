@@ -32,14 +32,14 @@ from email.utils import make_msgid
 from urllib.parse import urlsplit
 
 from django.conf import settings
-from django.core.mail import EmailMessage
+from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
 from django.db.models.functions import Now
 from django.views.decorators.debug import sensitive_variables
 
 from config.mail import from_header, reply_to
 from correspondence.outbound import current_template_version
-from correspondence.rendering import TemplateRefused, render
+from correspondence.rendering import TemplateRefused, first_name, render, render_html
 from workflow import ledger
 from workflow.models import PendingAction
 
@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 Status = PendingAction.Status
 
 TEMPLATE = "provisioning_welcome_password"
-VARIABLES = frozenset({"display_name", "mailbox_address", "mailbox_username", "password"})  # what a version may declare
+VARIABLES = frozenset({"display_name", "first_name", "mailbox_address", "mailbox_username", "password"})  # what a version may declare
 PASSWORD_LENGTH = 20
 ALPHABET = string.ascii_letters + string.digits
 UNCERTAIN = ("password_set_uncertain", "welcome_send_uncertain")
@@ -138,7 +138,7 @@ class SendPasswordWelcome(_Action):
         except Exception as exc:
             raise ledger.LeftForRecovery from exc
 
-    @sensitive_variables("password", "values", "body", "message")
+    @sensitive_variables("password", "values", "body", "page", "message")  # page: the HTML carries the password
     def _exchange(self, setup, version) -> str:
         """Set the password, check the login, send the welcome. Returns "" or a reason code. The password is a local of
         this frame only; every exception is reduced to a code or a class name before it leaves."""
@@ -161,19 +161,23 @@ class SendPasswordWelcome(_Action):
             return "login_check_error"
         if not accepted:
             return "login_check_failed"
-        available = {"display_name": setup.request.application.display_name, "mailbox_address": reservation.address,
+        name = setup.request.application.display_name
+        available = {"display_name": name, "first_name": first_name(name), "mailbox_address": reservation.address,
                      "mailbox_username": local, "password": password}
         values = {name: available[name] for name in version.variables}
         try:
             subject, body = render(version, values)
+            page = render_html(version, values)  # bgl.11 (parity integration): the HTML part, or "" for text only
         except TemplateRefused as refused:
             return f"welcome_{refused}"
         finally:
             del values, password
-        message = EmailMessage(subject=subject, to=[setup.recipient], body=body,
+        message = EmailMultiAlternatives(subject=subject, to=[setup.recipient], body=body,
                                from_email=from_header(), reply_to=reply_to(),  # bgl.6: the configured sender (config.mail)
                                headers={"Message-ID": make_msgid(domain=urlsplit(settings.CATALYST_PUBLIC_BASE_URL).hostname)})
-        del body
+        if page:
+            message.attach_alternative(page, "text/html")
+        del body, page
         try:
             sent = message.send(fail_silently=False) == 1
         except Exception as exc:
