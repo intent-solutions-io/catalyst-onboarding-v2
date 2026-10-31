@@ -144,6 +144,13 @@ class _Guarded(WrapperModel):
                 await asyncio.wait_for(asyncio.to_thread(self.check), timeout=self.timeout)
             except TimeoutError:
                 raise approval.NotApproved("approval_check_timeout") from None
+        if rate_limits.enabled():
+            try:
+                delay = await asyncio.wait_for(asyncio.to_thread(_request_capacity, self.timeout), timeout=self.timeout)
+            except TimeoutError:
+                raise ProviderError("rate_store_timeout", retry_after=60) from None
+            if delay:
+                raise ProviderError("rate_limited", retry_after=delay)
         response = await asyncio.wait_for(self.wrapped.request(messages, model_settings, model_request_parameters),
                                           timeout=self.timeout)
         if self.after is not None:
@@ -152,6 +159,15 @@ class _Guarded(WrapperModel):
 
     def request_stream(self, *args, **kwargs):
         raise ModelUnavailable("streaming_not_allowed")
+
+
+def _request_capacity(timeout):
+    """Reserve one actual request, including repairs, using the same shared provider bucket."""
+    try:
+        tokens = settings.CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST + MODEL_SETTINGS["max_tokens"]
+        return rate_limits.reserve(1, tokens, timeout)
+    finally:
+        connections.close_all()
 
 
 def _recheck(use):

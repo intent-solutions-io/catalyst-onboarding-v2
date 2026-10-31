@@ -642,7 +642,7 @@ def test_owner_uncapped_usage_keeps_assessment_working_without_daily_or_applican
 
 def test_provider_pacing_queues_assessment_without_call_or_consuming_an_attempt(a, monkeypatch, settings):
     app, run, seen = queued(a, monkeypatch, settings, valid())
-    monkeypatch.setattr(runs.rate_limits, "reserve", lambda *args: 90)
+    monkeypatch.setattr(runs.rate_limits, "reserve", lambda *args, **kwargs: 90)
     claim = claim_run()
     runs.RunAssessment().run(claim)
     action = PendingAction.objects.get(pk=claim.id)

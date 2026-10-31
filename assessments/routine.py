@@ -243,7 +243,7 @@ class RoutineAdvance:
         if not proposals:
             return (Status.DONE, "no_proposal_to_send", None, None), None
         delay = rate_limits.reserve(REQUESTS, 2 * agent.attempt_tokens(),
-                                    REQUESTS * settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS)
+                                    REQUESTS * settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS, commit=False)
         if delay:
             return (Status.QUEUED, "provider_rate_limited", None, timedelta(seconds=delay)), None
         # Earlier draft or check invocations whose attempt never finished were possibly billed: counted, abandoned.

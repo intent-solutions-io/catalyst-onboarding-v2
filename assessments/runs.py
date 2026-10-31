@@ -255,7 +255,7 @@ class RunAssessment:
                 _finish_run(run, Run.REFUSED, error_code="fields_not_approved"),
                 _staff(application, "assessment_failed", run)), None), None, None
         delay = rate_limits.reserve(REQUESTS_PER_ATTEMPT, agent.attempt_tokens(),
-                                    REQUESTS_PER_ATTEMPT * settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS)
+                                    REQUESTS_PER_ATTEMPT * settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS, commit=False)
         if delay:
             return (Status.QUEUED, "provider_rate_limited", True, None, timedelta(seconds=delay)), None, None
         AssessmentInvocation.objects.create(

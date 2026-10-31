@@ -167,7 +167,7 @@ class Interpreter:
 
     def rate_wait(self) -> int:
         return rate_limits.reserve(self.requests_per_attempt, agent.attempt_tokens(),
-                                   self.requests_per_attempt * settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS)
+                                   self.requests_per_attempt * settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS, commit=False)
 
     def reserved(self) -> None:
         """Called by the correspondence side once its reservation row is written (inside that transaction)."""

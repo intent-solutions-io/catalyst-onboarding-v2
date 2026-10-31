@@ -1,7 +1,7 @@
 """Shared MiniMax request/token pacing, independent of cumulative usage quotas.
 
-Uses the existing non-personal throttle store. Reservations remain counted through the
-maximum duration of the attempt plus a minute, so a late repair cannot escape its window.
+Uses the existing non-personal throttle store. Reservations are made at each request boundary and remain counted through the
+request timeout plus a minute. Preflight capacity checks do not reserve or call a provider.
 No payload, applicant identifier, model output or credential enters this store.
 """
 
@@ -31,7 +31,7 @@ def _now():
         return cursor.fetchone()[0]
 
 
-def reserve(requests: int, tokens: int, seconds: float) -> int:
+def reserve(requests: int, tokens: int, seconds: float, *, commit=True) -> int:
     """Zero reserves capacity; otherwise wait this many seconds without calling the provider."""
     if not enabled():
         return 0
@@ -55,6 +55,8 @@ def reserve(requests: int, tokens: int, seconds: float) -> int:
                 waits.append(max(1, math.ceil((rows.order_by('window_start').first().window_start - now).total_seconds())))
         if waits:
             return max(waits)
+        if not commit:
+            return 0
         until = now + timedelta(seconds=60 + seconds)
         for prefix, amount in ((REQUEST_PREFIX, requests), (TOKEN_PREFIX, tokens)):
             RequestThrottle.objects.create(key=prefix + hashlib.sha256(uuid.uuid4().bytes).hexdigest()[16:], count=amount, window_start=until)
@@ -65,6 +67,7 @@ def retry_after(error) -> int:
     """Read only throttling metadata from SDK/wrapper errors, never preserve their body."""
     seen = set()
     current = error
+    longest = 0
     while current is not None and id(current) not in seen:
         seen.add(id(current))
         status = getattr(current, 'status_code', None)
@@ -78,22 +81,23 @@ def retry_after(error) -> int:
         throttled = status == 429 or code in {'1002', '1039', '1041', '1045', '2045', '2046', '2047', '2056', '2062'}
         if throttled:
             fallback = 5 * 3600 if code == '2056' else 60
+            longest = max(longest, fallback)
             raw = str(getattr(response, 'headers', {}).get('retry-after', '')).strip()
             try:
                 delay = float(raw)
                 if math.isfinite(delay) and delay >= 0:
-                    return max(fallback, math.ceil(delay))
+                    longest = max(longest, math.ceil(delay))
             except ValueError:
                 pass
             try:
                 when = parsedate_to_datetime(raw)
                 if when.tzinfo is None:
                     when = when.replace(tzinfo=UTC)
-                return max(fallback, math.ceil((when - datetime.now(UTC)).total_seconds()))
+                longest = max(longest, math.ceil((when - datetime.now(UTC)).total_seconds()))
             except (ValueError, TypeError, OverflowError):
-                return fallback
+                pass
         current = current.__cause__ or current.__context__
-    return 0
+    return longest
 
 
 def record_throttle(error) -> int:
@@ -108,5 +112,5 @@ def record_throttle(error) -> int:
         until = _now() + timedelta(seconds=delay)
         row, _ = RequestThrottle.objects.get_or_create(key=COOLDOWN, defaults={'count': 1, 'window_start': until})
         if row.window_start < until:
-            RequestThrottle.objects.filter(pk=row.pk).update(window_start=until)
+            RequestThrottle.objects.filter(pk=row.pk).update(window_start=until, updated_at=_now())
     return delay

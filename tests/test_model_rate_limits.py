@@ -60,3 +60,44 @@ def test_an_unconfigured_limit_refuses_without_reserving_or_calling(limits, sett
         rate_limits.reserve(1, 1, 1)
     assert RequestThrottle.objects.count() == 0
     assert connection.in_atomic_block  # the test transaction remains usable
+
+
+def test_wrapped_throttle_preserves_the_longest_retry_after():
+    outer = error(retry='')
+    outer.__cause__ = error(retry='3600')
+    assert rate_limits.retry_after(outer) == 3600
+    outer.__cause__.__cause__ = outer  # malformed exception chain cannot loop
+    assert rate_limits.retry_after(outer) == 3600
+
+
+def test_each_actual_request_checks_capacity_including_a_repair(privileged_reset, limits, settings, monkeypatch):
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from pydantic_ai.models.test import TestModel
+
+    from assessments import agent
+
+    settings.CATALYST_MINIMAX_REQUESTS_PER_MINUTE = 1
+    settings.CATALYST_MINIMAX_TOKENS_PER_MINUTE = 50000
+    wrapped = TestModel()
+    request = AsyncMock(return_value='synthetic response')
+    monkeypatch.setattr(wrapped, 'request', request)
+    guarded = agent._Guarded(wrapped, fence=None, check=None, after=None, timeout=1)
+    assert rate_limits.reserve(1, 1, 1, commit=False) == 0
+    assert RequestThrottle.objects.count() == 0  # a preflight check does not spend capacity
+    assert asyncio.run(guarded.request([], None, None)) == 'synthetic response'
+    with pytest.raises(agent.ProviderError) as refusal:
+        asyncio.run(guarded.request([], None, None))
+    assert refusal.value.retry_after >= 60
+    assert request.await_count == 1
+
+
+@pytest.mark.django_db
+def test_throttle_cleanup_preserves_a_future_provider_cooldown(limits):
+    from config import throttle
+
+    assert rate_limits.record_throttle(error(retry='172800')) == 172800
+    RequestThrottle.objects.update(updated_at=Now() - timedelta(days=2))
+    throttle.sweep()
+    assert rate_limits.reserve(1, 1, 1) > 86400
