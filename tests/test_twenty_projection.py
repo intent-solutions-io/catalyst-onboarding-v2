@@ -6,6 +6,7 @@ driven through the ledger (`workflow.ledger.run_one`) with the two Twenty handle
 erasure case commits through its own connections (the privileged reset).
 """
 
+import uuid
 from datetime import date
 from types import SimpleNamespace
 
@@ -207,14 +208,14 @@ def test_bgl14_several_matches_open_one_staff_item_and_write_nothing(tw):
 
 @pytest.mark.django_db
 def test_bgl14_a_person_linked_to_another_open_application_is_not_taken(tw):
-    first = application()
-    event(first)
-    drain()
-    Application.objects.filter(pk=first.pk).update(email_key="other@example.test")  # its person keeps the address
+    person = tw.add_person("ada@example.test")
+    first = application(email="earlier@example.test", name="Earlier Application")  # open, linked to that person
+    TwentyLink.objects.create(application=first, person_id=person, link_method="staff")
     second = application()
     event(second)
     drain()
     assert items(second, "twenty_person_linked_elsewhere").count() == 1 and len(tw.people) == 1
+    assert tw.writes() == [] and not TwentyLink.objects.get(application=second).person_id
 
 
 # --- idempotency under retry -------------------------------------------------------------------------------------------
@@ -371,8 +372,9 @@ def test_bgl14_an_erased_person_owes_the_twenty_handoff_and_the_link_keeps_no_di
 
 @pytest.mark.django_db
 def test_bgl14_an_erased_application_is_never_projected(tw):
-    app = application()
-    Application.objects.filter(pk=app.pk).update(email_key=f"erased:{app.public_ref}", stage="withdrawn")
+    ref = uuid.uuid4()
+    app = Application.objects.create(public_ref=ref, email="[erased]", email_key=f"erased:{ref}", display_name="[erased]",
+                                     stage="withdrawn")
     event(app)
     drain()
     assert tw.requests == [] and actions().get().last_error == "nothing_to_project"

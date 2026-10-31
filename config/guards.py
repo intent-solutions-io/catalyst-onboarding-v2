@@ -254,9 +254,9 @@ def dispatch_problems(settings, environ: Mapping[str, str]) -> list[str]:
             problems.append(f"{name} must name an assessments object")
     for kind, path in (getattr(settings, "CATALYST_ACTION_HANDLERS", None) or {}).items():
         if not str(path).startswith(("correspondence.", "workflow.", "assessments.", "agreements.", "provisioning.",
-                                     "accounts.")):  # accounts: the session clean-up (6B.9)
+                                     "accounts.", "crm.")):  # accounts: the session clean-up (6B.9); crm: bgl.14
             problems.append(f"CATALYST_ACTION_HANDLERS[{kind!r}] must name a correspondence, workflow, assessments, "
-                            "agreements, provisioning or accounts handler")
+                            "agreements, provisioning, accounts or crm handler")
     return problems
 
 

@@ -45,7 +45,7 @@ from datetime import datetime, timedelta
 
 from django.apps import apps as django_apps
 from django.conf import settings
-from django.db import connection, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models.functions import Now
 from django.db.models.signals import post_save
 from django.utils import timezone
@@ -79,17 +79,25 @@ def enabled() -> bool:
 
 def enqueue(application, trigger: str) -> bool:
     """Queue one projection for the application unless one is already queued. Safe inside any transaction: a
-    duplicate key is ignored, never raised. True when one was queued."""
+    duplicate key is ignored in a savepoint, never raised. True when one was queued."""
     if not enabled():
         return False
     if PendingAction.objects.filter(kind=PROJECT, subject_type="application", subject_id=application.public_ref,
                                     status=Status.QUEUED).exists():
         return False
-    created = PendingAction.objects.bulk_create([PendingAction(
-        kind=PROJECT, subject_type="application", subject_id=application.public_ref, input_ref="",
-        idempotency_key=f"{PROJECT}:{application.public_ref}:{trigger}"[:200],
-        max_attempts=settings.CATALYST_TWENTY_ATTEMPTS)], ignore_conflicts=True)
-    return bool(created and created[0].pk)
+    return _create(kind=PROJECT, subject_type="application", subject_id=application.public_ref, input_ref="",
+                   idempotency_key=f"{PROJECT}:{application.public_ref}:{trigger}"[:200],
+                   max_attempts=settings.CATALYST_TWENTY_ATTEMPTS)
+
+
+def _create(**fields) -> bool:
+    """Insert one action in a savepoint: a duplicate key leaves the caller's transaction intact and returns False."""
+    try:
+        with transaction.atomic():
+            PendingAction.objects.create(**fields)
+    except IntegrityError:
+        return False
+    return True
 
 
 def _on_event(sender, instance, created, raw=False, **kwargs):
@@ -109,10 +117,8 @@ def schedule_details_fill(n: int | None = None, delay: float = 0.0) -> bool:
     if n is None and active.exists():
         return False
     n = n if n is not None else PendingAction.objects.filter(kind=FILL).count() + 1
-    created = PendingAction.objects.bulk_create([PendingAction(
-        kind=FILL, subject_type=FILL_SUBJECT[0], subject_id=FILL_SUBJECT[1], input_ref="",
-        idempotency_key=f"{FILL}:{n}", due_at=Now() + timedelta(seconds=delay))], ignore_conflicts=True)
-    return bool(created and created[0].pk)
+    return _create(kind=FILL, subject_type=FILL_SUBJECT[0], subject_id=FILL_SUBJECT[1], input_ref="",
+                   idempotency_key=f"{FILL}:{n}", due_at=Now() + timedelta(seconds=delay))
 
 
 # --- what the records say --------------------------------------------------------------------------------------------
