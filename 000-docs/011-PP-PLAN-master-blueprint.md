@@ -3,8 +3,8 @@
 | Field | Value |
 |---|---|
 | Document | `011-PP-PLAN-master-blueprint` (the only master blueprint for this repository) |
-| Version | 1.4.0 (D-51, the council record `030` adopting the `029` section 14 decisions provisionally, 2026-10-23; 1.3.0 recorded D-50, the gate boundaries for one internal production launch and the PL-A task table, 2026-10-23; 1.2.0 corrected the status and added the selection-quality contract, section 11, 2026-10-14; 1.1.0 recorded the ADR decisions of 2026-10-10) |
-| Status | **APPROVED IN SCOPE** (section 10): project direction, amended requirements and the bounded synthetic first-slice scope; later owner decisions D-16 to D-50 are recorded in section 4. **Current (2026-10-23):** GATE-S1 (D-26) and GATE-P2 (D-33) signed off for synthetic work; P3 accepted for synthetic work: GATE-P3 signed off 2026-10-17 (D-36); P4 accepted for synthetic work: GATE-P4 signed off 2026-10-18 (D-45); P5 accepted for synthetic work: GATE-P5 signed off 2026-10-18 (D-48); P6 specification `026` approved 2026-10-19 (D-49); 6B built and drilled on the dev box; GATE-STAGING signed off 2026-10-22 for synthetic staging on the dev box (D-50); the internal production launch (the owner's dogfooding pilot) is planned in `029` (handoff PL-A, merged 2026-10-23) and not authorized; its decision brief was adopted provisionally by the council of 2026-10-23 (D-51, `030`) and the repo-only work graph is in progress. **Not approved:** the open policies of section 6 beyond their recorded synthetic decisions, live model use, real applicant data, provider writes, deployment and release; implementation only as each handoff is released. Items marked PROPOSED stay proposals; section 11 and `019` were approved on 2026-10-14 (D-35). |
+| Version | 1.5.0 (D-54 mirrored from the owner decision notes in `bgl.1`, status reconciled 2026-10-31; 1.4.0 recorded D-51, the council record `030` adopting the `029` section 14 decisions provisionally, 2026-10-23; 1.3.0 recorded D-50, the gate boundaries for one internal production launch and the PL-A task table, 2026-10-23; 1.2.0 corrected the status and added the selection-quality contract, section 11, 2026-10-14; 1.1.0 recorded the ADR decisions of 2026-10-10) |
+| Status | **APPROVED IN SCOPE** (section 10 and dated decisions in section 4). P1-P5 and staging have their recorded synthetic sign-offs. D-53 authorized bounded wave-one production on 2026-10-29; D-54 mirrors the owner's nine parity decisions recorded in Beads on 2026-10-31, effective at activation under the swap plan and provider canaries. The full replacement workflow is not verified live. Current evidence is in `006`; open policies retain their recorded limits. |
 | Owner | Jeremy Longshore (product owner and approver) |
 | Reviewers | `catalyst-django-architect` (build design), `catalyst-independent-qa` (independent review); results in section 9 |
 | Date | 2026-10-09 |
@@ -12,12 +12,11 @@
 | Conventions | Intent Blueprint Docs 3.0.0 (stable IDs, evidence status, lifecycle links); doc-filing v4.5 |
 | Supersedes | nothing; the earlier planning drafts named in section 2 were not available |
 
-> **Status (2026-10-23): synthetic only; the internal production launch is planned, not authorized.** P1 to P5
-> are built and accepted for synthetic work; P6 staging is built, drilled on the dev box and signed off (D-50).
-> Nothing is deployed and no real applicant data is used. The first production deployment is an internal cohort
-> (the owner's dogfooding pilot), planned in `029` with its own gate (GATE-PILOT), its own decisions and its own
-> go. An assistant recommendation in this document is a proposal, never an owner decision. (Until 2026-10-10 this banner read "PRELIMINARY, subject to
-> review", with code limited to the 1B.1 skeleton; history in sections 4 and 10.)
+> **Status reconciled 2026-10-31:** wave one has a recorded production launch under D-53. The full first-generation
+> replacement is in development and has no completed cutover proof in the reviewed records. Read `006` for the
+> dated evidence snapshot and Beads for current task state. Earlier synthetic-only statements describe their
+> original scopes; later owner decisions apply only as recorded. D-54 mirrors existing owner answers, not new
+> agent-created approvals.
 
 ## 1. How to read the build contract
 
@@ -418,6 +417,7 @@ summary a reader needs first.
 | D-31 | POL-19 fail-closed: a mismatched or unverifiable identity produces a staff exception with no automatic positive effect and no identity or dossier change; only the decision-maker resolves identity-affecting cases | OWNER-DECIDED 2026-10-12 | section 4.1; `016` C3, C4, F |
 | D-34 | `018` (P3 evidence, assessment and qualification specification) version 0.2.1 approved with its recommended defaults `P3-D-1` to `P3-D-16` for synthetic P3; 3B.1 (`catalyst-v2-oc4.2`) released. Not authorized: a live model call, real fetching, real applicant data, 3B.2 to 3C (each needs its own release), a versioned release or a deployment. The decisions marked for GATE-PILOT or later (real fetching, the applicant notice, retention, live model use) stay conditions at those gates | OWNER-DECIDED 2026-10-14 | section 4.1; `018` section 8 |
 | D-53 | Wave 1 goes live before counsel answers. Owner's words (2026-10-29): "we need this to go live, act as counsel make the call", then "Yes, go" to one question covering four acts: (1) launch wave 1 before counsel answers, the owner accepting the legal risk, on the session's recommendation (not legal advice): wave 1 only (the owner plus members with both agreements on file), nothing signed, rated or declined, no model, owner-only access, erasure within 30 days of a request, the strictest common US notice and access rules where location is unknown; (2) the host go: host preparation, the dark deploy with intake locked, the restore drill and the erasure of the synthetic subjects; (3) the agent's shell access to the production host accepted for wave 1 (D-52 Q8 binding met by written acceptance); (4) a note to counsel replacing the facts sheet, which no record holds (sent 2026-10-29). Also "you can keep your github access": the `032` section 1 step 3 residual (the agent's login keeps administrator rights) accepted. Still the owner's: approving the three applicant wordings on the template screen, generating the erasure key outside any agent session, and wave 2 (signing, members without both agreements), which waits for counsel. The provisional lock is cleared by a reviewed release after the owner approves the wording | OWNER-DECIDED 2026-10-29 | owner, in session; `032` sections 1.8 and 2.3 |
+| D-54 | The nine first-generation parity choices are decided as recorded in `bgl.1` on 2026-10-31; see section 4.3. Reversals take effect only at activation under the swap plan and provider canaries. Model data-use wording and counsel-dependent items remain distinct. | OWNER ANSWERS RECORDED IN BEADS; mirrored 2026-10-31 | `catalyst-v2-bgl.1` notes; `034` section 3.6 |
 | D-52 | The 211.7.x decision backlog adopted provisionally by the seven-seat council with two non-voting legal advisors on 2026-10-28 (`033`): POL-10 as proposed in `031` section 2 with R4 running from receipt, R3 from an owner-recorded engagement end, an agreement-obligations hold before key destruction and "pseudonymous record" wording; the registry filled now behind a coded "provisional" lock that refuses invitations and intake until counsel answers; anonymize-and-replay accepted for the cohort with POL-18 empty and refused if not; the counsel packet recommended for sending now; custody as `031` section 3 with the escrow outside every agent-reachable key; option (a) only where counsel clears it; the wording returned for rework, not approved; owner-only, unrated results; D-51 coexistence final in three parts; the owner as sole staff, agent shell access to production removed or accepted before real intake; built defaults with a 24-hour challenge and corrected quiet hours; a two-wave launch (wave 1: the owner plus members with both agreements on file, signing off; wave 2 adds signing). Counsel-dependent values stay provisional until counsel answers; the counsel packet was sent on 2026-10-28. Not authorized: wording approval, any host, provider, real-data or launch act | OWNER-RATIFIED 2026-10-28 (two waves adopted; counsel packet sent) | `033` |
 | D-51 | The `029` section 14 decision brief (D-A to D-M) adopted provisionally by the seven-seat council of 2026-10-23 (`030`), with binding minority constraints: a dedicated v2 host name; a separate Documenso team or agreements disabled; the erasure chain built now with values "undecided: refuse" and POL-10/POL-09 before the first real submission; the legal posture with per-member verified completion; provisional starting values with named holds; both gates hard; protections now by the owner's hand with a scoped agent token and the repository move after launch or never; the cohort not candidate-impacting selection on four flip conditions with the data notice, decline notice, POL-10 and scorecard not deferred. Authority: the repo-only batch, the erasure chain and go preparation proceed; three bundled goes remain the owner's (host, providers, launch). Not authorized: any host, provider, real-data or launch act | COUNCIL-ADOPTED 2026-10-23, PROVISIONAL (owner ratification pending) | owner's designation in session; `030`; `029` section 14 |
 | D-50 | GATE-STAGING signed off for synthetic staging on the dev box: the full-run gate at PR #80's final head (CI run 39797287619, counts in the PR #80 comment; GATE-STAGING PASS 38 with every other gate PASS) and the live drills in `026` section 16; the 17 partly proven cases accepted with their gaps carried on beads (`9kg.27`, `9kg.25`, and `9kg.20` and `9kg.22` re-homed to `9kg.28`); TEST-P6-26 proven on a stand-in only. Not authorized: a persistent staging or pilot host, a production deploy, reading or changing Learn's live proxy configuration, the webhook or real inbound mail, live provider keys, real applicants or real personal data in any backup. Open: RPO and RTO, alert thresholds, rotation intervals, the scan policy | OWNER-DECIDED 2026-10-22 | owner, in session ("i sign off gate-staging, go build the pilot plan"); `028` section 9; section 4.1 |
@@ -443,6 +443,28 @@ summary a reader needs first.
 
 1. `README.md` promised a Twenty projection and an unnamed email and LLM provider. Corrected in this
    change to match D-04, D-06 and D-08.
+
+### 4.3 D-54: recorded parity decisions (2026-10-31)
+
+Source: the owner-answer notes already recorded on `catalyst-v2-bgl.1` on 2026-10-31. This section mirrors that
+record to close its documentation gap; it does not claim a fresh owner decision or completed production action.
+
+| Choice | Recorded answer | Earlier boundary affected at activation |
+|---|---|---|
+| Keep the same Learn entry address | Yes | D-51 and `211.7.3`: the swap may move the onboarding entry. |
+| Let the model advance routine applicants to the NDA | Yes | D-53's no-model condition; model data-use wording remains with `211.7.4`. |
+| Have Catalyst send signing mail and the cover, with provider distribution off | Yes (the later note resolves the initially pending item 3) | P4-D-4 and P4-D-14. |
+| Automate company countersigning | Yes | Carry the first-generation decision 12 as recorded in the bead. |
+| Release automatically after the required agreements and details | Yes | P4-D-13. |
+| Send the one-time mailbox password in the welcome | Yes | P5-D-6. |
+| Include the Discord invite and full welcome content | Yes | P5-D-7 for the invite; this does not establish automated Discord role grants. |
+| Use the agreements sender and take over its replies at the swap | Yes | P6-D-10/M8; the single-writer mailbox handover still has to be executed. |
+| Project records to Twenty | Yes | D-08. |
+
+The bead explicitly retains activation with the swap plan (`bgl.17`, `bgl.18`) and provider canaries. These answers
+do not prove template approval, live provider compatibility, completed import, preservation of in-flight cases,
+backup/restore readiness, counsel clearance or a successful cutover. They must not be presented as unanswered
+product choices, or as evidence that the associated code is already enabled.
 
 ## 5. Who may authorize what
 

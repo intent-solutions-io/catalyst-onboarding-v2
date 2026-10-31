@@ -5,7 +5,7 @@
 - **Documentation**: Check the [README](README.md) and [000-docs/](000-docs/) directory
 - **Bug Reports**: [Open an issue](https://github.com/intent-solutions-io/catalyst-onboarding-v2/issues/new?template=bug_report.md)
 - **Feature Requests**: [Open an issue](https://github.com/intent-solutions-io/catalyst-onboarding-v2/issues/new?template=feature_request.md)
-- **Discussions**: [GitHub Discussions](https://github.com/intent-solutions-io/catalyst-onboarding-v2/discussions)
+- **General questions**: [GitHub Issues](https://github.com/intent-solutions-io/catalyst-onboarding-v2/issues)
 - **Security Issues**: See [SECURITY.md](SECURITY.md) — do NOT open public issues
 
 ## Response Times

@@ -6,17 +6,13 @@
 Intent Solutions is a Claude Partner Network Select Services Partner.
 <!-- intent-select-partner:end -->
 
-> **Status (2026-10-30):** phases P1 to P5 are built and their acceptance gates are signed off for synthetic work
-> (GATE-S1, GATE-P2, GATE-P3, GATE-P4, GATE-P5); P6 staging is built, drilled on the dev box and signed off
-> (GATE-STAGING, D-50). **Wave one is deployed to production** under the owner's go of 2026-10-29 (D-53,
-> `000-docs/033`): the production stack serves `catalyst-v2.intentsolutions.io` from an attested image of `main`, with
-> the staff site on the tailnet behind two-factor. Wave-one scope is the invitation-only journey for the internal
-> cohort: a real invitation, the public form, a real verification mail from v2's own mailbox, explicit confirmation,
-> and the staff dossier. Signing, model use, evidence fetching, mailbox provisioning, the public Learn cutover and
-> wider enrolment stay disabled (D-51, D-53). The live browser canary (`scripts/live_canary.py`) walked that journey
-> against production on 2026-10-30 and passed every step; its erasure step waits on the production erasure key
-> (`000-docs/032` section 3.11, owner decision 211.7.1). Counsel's answers on retention (POL-10) are pending: the
-> registry ships provisional values, and no real cohort data enters a backup before they are recorded.
+> **Status (2026-10-31):** wave one has a recorded production launch under D-53: invitation, form,
+> verification mail, confirmation and staff dossier. Beads records its move to the dedicated US host on
+> 2026-10-31. The complete first-generation replacement remains **in development**: public intake and form
+> parity are merged, while the combined signing, model, mailbox and correspondence changes are a local
+> integration candidate awaiting complete verification and production admission. The owner's nine parity
+> choices are already recorded (D-54); the provider canaries, import handoff and Learn cutover are separate.
+> See [current workflow evidence](000-docs/006-LS-STAT-status.md) for the dated snapshot and its limits.
 
 A documentation-first, Django-native Solution Catalyst onboarding platform for Intent Solutions.
 
@@ -35,14 +31,14 @@ from first contact, in one progressive dossier in PostgreSQL.
 | P6 | An attested image, a staging stack with its own roles and secrets read from files, staff two-factor, an egress-controlled evidence fetcher, a deploy that reverts itself, health checks that alert to Buzz, a backup restored and measured, the Learn cutover rehearsed on a stand-in | built and drilled on the dev box; GATE-STAGING signed off 2026-10-22 (D-50; `000-docs/000-aars/028`, 17 of 38 cases partly proven) |
 | PL and the internal launch | Coexistence with the live first-generation service; the first production deployment for an invited internal cohort | **wave one deployed** 2026-10-29 under D-53 (`000-docs/033`, host and release record `000-docs/032`); the wave-one journey proven live by the browser canary 2026-10-30; wave two (signing) and the go/no-go for wider enrolment remain the owner's |
 
-**Live in production (wave one):** invitation-only intake, the public form, verification mail through v2's own
-mailbox, explicit confirmation, the staff dossier, health checks, the pre-deploy backup and the deploy that reverts
-itself. **Built, disabled or waiting on an owner act:** Documenso signing (a separate team, wave two), the MiniMax
-assessment (off: D-53 "no model"), evidence fetching, mailbox provisioning and activation, the Learn routing cutover
-(D-51: Learn is unchanged), and the first production erasure (the erasure chain is built; the production erasure key
-is not yet created, `000-docs/032` section 3.11). **Pending with counsel:** retention and erasure values (POL-10,
-provisional in the registry), custody (POL-09) and the applicant notices; the carried production limits are listed in
-`000-docs/000-aars/022` section 9, `000-docs/024` and `000-docs/031`.
+**Recorded production scope (wave one):** invitation-only intake, form submission, verification mail through
+v2's mailbox, explicit confirmation and the staff dossier. The US-host handoff is recorded in Beads; this
+repository's latest documentation reconciliation did not independently inspect that host. **In development:**
+the D-54 replacement workflow, including model-driven routine advance, signing, automatic release, mailbox
+provisioning, the full welcome and Twenty projection. Those product choices are decided; their production
+admission, canaries and the Learn cutover are not proved by a synthetic gate. The erasure key exists (`032`
+section 3.12), but the canary's first erasure remains unfinished in its record. Counsel-dependent policy items
+remain separately recorded in `211.7.1` and `211.7.4`.
 
 How the selection standard itself is governed and improved is set out in `000-docs/011` section 11 and
 `000-docs/019` (approved D-35). Software gates passing is not evidence of selection quality.

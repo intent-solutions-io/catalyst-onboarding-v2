@@ -108,7 +108,7 @@ Use [Conventional Commits](https://www.conventionalcommits.org/):
 
 ## Community
 
-- **Questions**: [GitHub Discussions](https://github.com/intent-solutions-io/catalyst-onboarding-v2/discussions)
+- **Questions**: [GitHub Issues](https://github.com/intent-solutions-io/catalyst-onboarding-v2/issues)
 - **Bugs**: [Issue Tracker](https://github.com/intent-solutions-io/catalyst-onboarding-v2/issues)
 - **Email**: jeremy@intentsolutions.io
 
