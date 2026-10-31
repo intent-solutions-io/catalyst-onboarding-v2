@@ -684,8 +684,11 @@ def test_oc4_9_no_unpatched_http_or_provider_library_enters_the_dependencies():
              for line in Path(support.ROOT, "requirements", "base.txt").read_text().splitlines()
              if re.match(r"^[A-Za-z0-9_.-]+==", line)}
     assert names, "requirements/base.txt was not parsed"
-    found = names & {"openai", "anthropic", "requests", "aiohttp", "httpx"}
+    found = names & {"anthropic", "requests", "aiohttp", "httpx"}
     assert not found, f"{sorted(found)}: extend the raising transport in tests/conftest.py first, then this list"
+    # bgl.12: `openai` is the live branch's client (assessments/live.py); it uses httpx2, which the fixture refuses, and
+    # it must not bring another HTTP library with it (the set above would catch requests or httpx).
+    assert "openai" in names and "tiktoken" not in names
 
 
 def test_oc4_9_only_the_agent_module_builds_a_pydantic_ai_agent():
