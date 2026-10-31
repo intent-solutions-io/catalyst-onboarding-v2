@@ -415,8 +415,11 @@ def test_no_provider_client_or_network_library_is_imported_by_assessments():
 
     for path in Path(support.ROOT, "assessments").rglob("*.py"):
         text = path.read_text().lower()
+        # bgl.12: the live branch (assessments/live.py) alone names the provider and imports its client, behind an
+        # activation that is off in code; the fetcher and everything else stay free of any client or network library
+        allowed = ("import openai", "from openai", "minimax") if path.name == "live.py" else ()
         for banned in ("import openai", "from openai", "anthropic", "minimax", "import requests", "import httpx", "urllib.request"):
-            assert banned not in text, (path.name, banned)
+            assert banned in allowed or banned not in text, (path.name, banned)
 
 
 
