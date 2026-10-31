@@ -19,7 +19,7 @@ from correspondence import outbound, staff_actions
 from correspondence.models import ApprovedMessage, MailboxCursor, MessageTemplate, MessageTemplateVersion, StaffItem
 from correspondence.roles import OPERATOR, TEMPLATE_OWNER
 from tests.test_agreements import (  # noqa: F401  (fixture chain and helpers)
-    a, admitted, approve, c, d, ev, g, issued, nda, p2, run_worker, tls,
+    a, admitted, approve, c, d, ev, g, grant, issued, nda, p2, run_worker, tls,
 )
 from tests.test_outbound import staff
 from workflow import business_days
@@ -164,3 +164,18 @@ def test_bgl7_a_signature_before_the_reminder_cancels_it_and_a_pause_holds_it(s,
     [reminder] = reminders_for(instance)
     assert (reminder.status, reminder.last_error) == ("cancelled", "agreement_moved")
     assert not events(app, "signing_reminder_withheld") and not events(app, "signing_reminder_queued") and lapses() == []
+
+
+def test_bgl7_closing_the_application_cancels_its_signing_reminder_and_its_lapse(s, monkeypatch):
+    """A closed or withdrawn application is reminded of nothing and never lapses; left queued (under a pause, for good)
+    the follow-ups would also keep the person's erasure refused as open work (9kg.87's rule)."""
+    from provisioning import closure
+
+    app = issued(s, monkeypatch)
+    instance = nda(app)
+    signing_reminder.schedule_lapse(instance)  # as after a reminder went out through the seam
+    closer = grant(s, staff(s, "signing-closer"), "close_application")
+    closure.close_application(app.pk, closer, "closed", "Programme ended for this applicant")
+    assert Application.objects.get(pk=app.pk).stage == "closed"
+    assert [(x.kind, x.status, x.last_error) for x in reminders_for(instance) + lapses()] == [
+        ("remind_signing", "cancelled", "application_closed"), ("lapse", "cancelled", "application_closed")]

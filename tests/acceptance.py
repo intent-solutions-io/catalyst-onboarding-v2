@@ -2071,6 +2071,7 @@ P6_SUPPORTING = {
         "test_signing_reminder::test_bgl7_without_a_service_signing_mail_the_reminder_records_once_that_the_applicant_was_not_reminded",
         "test_signing_reminder::test_bgl7_through_the_seam_the_reminder_goes_once_and_the_lapse_and_the_signature_follow",
         "test_signing_reminder::test_bgl7_a_signature_before_the_reminder_cancels_it_and_a_pause_holds_it",
+        "test_signing_reminder::test_bgl7_closing_the_application_cancels_its_signing_reminder_and_its_lapse",
         "test_post_restore::test_bgl7_the_last_reminder_left_after_the_backup_still_leads_to_the_escalation_and_the_lapse",
         "test_data_model::test_open_stage_set_matches_the_journey",
     ],
