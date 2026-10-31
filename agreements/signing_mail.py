@@ -21,6 +21,12 @@ At least once, like the verification mail (D-20): an interrupted attempt may be 
 token is the same one, so a repeat discloses nothing new. The series number is the seam for the signing reminder
 (bgl.7): series 0 is the first delivery, a reminder is `enqueue_signing_link(instance, series=n)`; this handler already
 skips once the applicant has signed. Under distribution "provider" the action is never queued, and a queued one skips.
+
+The signing reminder (agreements.signing_reminder, bgl.7) asks `available()` and calls `resend_link` inside its fenced
+transaction: under distribution "service" that queues this same send as series n (database rows only, no provider or
+SMTP call, so the reminder stays redeliverable) and returns its key as the send reference; under "provider" there is no
+service path that sends the link again (a second distribute of a PENDING envelope is NOT VERIFIED), so it returns
+`NOT_AVAILABLE` and the reminder records that the applicant was not reminded.
 """
 
 import logging
@@ -78,6 +84,27 @@ def enqueue_signing_link(instance, series: int = 0) -> PendingAction | None:
     except IntegrityError as exc:
         only_duplicate_key(exc)
         return None
+
+
+NOT_AVAILABLE = "no_service_signing_mail"  # the reminder's outcome when the service does not send the link itself
+
+
+def available() -> bool:
+    """Whether the service sends the signing link itself (bgl.8): only under distribution "service"."""
+    return settings.CATALYST_AGREEMENT_DISTRIBUTION == "service"
+
+
+def resend_link(instance, *, actor_ref: str, series: int = 1) -> str:
+    """The signing reminder's seam (bgl.7): inside the caller's transaction, queue the link mail once more for
+    `instance` as `series` (n >= 1; the reminder's number) and return its key as the send reference. A repeat of the
+    same series queues nothing and returns the same key. `NOT_AVAILABLE` when the service does not send the link
+    (distribution "provider"). `actor_ref` is the reminder's; the send records its own history when it runs."""
+    if not available():
+        return NOT_AVAILABLE
+    if series < 1:
+        raise ValueError("a reminder is series 1 or later; series 0 is the first delivery")
+    enqueue_signing_link(instance, series=series)
+    return action_key(instance, series)
 
 
 def signing_link(token: str) -> str:

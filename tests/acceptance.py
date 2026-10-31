@@ -2122,6 +2122,8 @@ P6_SUPPORTING = {
         "test_countersign_release::test_bgl9_a_failure_is_retried_and_the_retry_signs_once",
         "test_countersign_release::test_bgl9_after_thirty_minutes_of_failure_the_owner_countersigns_by_hand",
         "test_countersign_release::test_bgl9_a_paused_case_is_never_countersigned",
+        # parity integration: a lapsed case (bgl.7) is never countersigned; the signature that reopens it resumes it
+        "test_countersign_release::test_bgl9_a_lapsed_case_is_never_countersigned_and_the_signature_that_reopens_it_resumes_it",
         "test_countersign_release::test_bgl9_both_modes_off_by_default_leave_todays_behaviour",
         "test_countersign_release::test_bgl9_under_manual_the_company_recipient_waits_for_the_owner",
         "test_countersign_release::test_bgl9_the_new_settings_are_guarded",
@@ -2162,6 +2164,34 @@ P6_SUPPORTING = {
         "test_parity_mxroute::test_bgl10_closing_the_application_cancels_a_queued_password_welcome_before_any_password_is_set",
         "test_parity_mxroute::test_bgl10_the_password_generator_is_strong_and_within_the_documented_bounds",
         "test_parity_mxroute::test_bgl10_live_host_settings_are_refused_outside_test_and_staging_and_bounded_inside",
+    ],
+    # bgl.7 (034 rows 20, 21 and 34): the first-generation follow-up cadence. Business days are Monday to Friday by the
+    # UTC date; one clarification reminder five business days on, in the question's thread; the lapse ten quiet business
+    # days after the last reminder with one closing note from owner-approved wording, reopened by a trusted reply or a
+    # signature; one signing reminder five business days after an envelope is issued unsigned, through the seam bgl.8 fills.
+    "bgl.7 the follow-up cadence matches the first generation: business days, one reminder in the thread, the lapse and its reopening, the signing reminder": [
+        "test_business_days::test_bgl7_only_monday_to_friday_count_and_the_start_day_itself_never_does",
+        "test_business_days::test_bgl7_after_is_midnight_utc_of_the_day_the_business_days_have_passed",
+        "test_business_days::test_bgl7_zero_days_is_the_start_itself_and_negative_or_naive_input_is_refused",
+        "test_business_days::test_bgl7_another_zone_is_read_by_its_utc_date",
+        "test_reminders::test_bgl7_one_reminder_five_business_days_on_in_the_questions_thread_then_the_escalation_and_the_lapse",
+        "test_reminders::test_bgl7_the_lapse_falls_exactly_at_ten_quiet_business_days_moves_the_stage_and_sends_one_note_in_the_thread",
+        "test_reminders::test_bgl7_a_replayed_lapse_on_an_already_lapsed_application_cancels_itself",
+        "test_reminders::test_bgl7_a_trusted_reply_reopens_a_lapsed_application_to_the_stage_it_lapsed_from",
+        "test_reminders::test_bgl7_quiet_hours_hold_the_closing_note_and_a_pending_reply_holds_the_lapse",
+        "test_reminders::test_bgl7_a_pause_holds_the_lapse_and_a_resume_spreads_it_instead_of_sending_the_note_at_once",
+        "test_reminders::test_bgl7_without_approved_closing_wording_the_lapse_waits_with_one_staff_item",
+        "test_reminders::test_bgl7_a_zero_business_day_interval_keeps_the_seconds_cadence_and_a_zero_lapse_never_lapses",
+        "test_reminders::test_bgl7_the_lapse_handler_is_registered_redeliverable_and_automated_and_the_defaults_are_the_first_generations",
+        "test_signing_reminder::test_bgl7_issuing_an_envelope_schedules_one_signing_reminder_five_business_days_on",
+        "test_signing_reminder::test_bgl7_without_a_service_signing_mail_the_reminder_records_once_that_the_applicant_was_not_reminded",
+        "test_signing_reminder::test_bgl7_through_the_seam_the_reminder_goes_once_and_the_lapse_and_the_signature_follow",
+        "test_signing_reminder::test_bgl7_a_signature_before_the_reminder_cancels_it_and_a_pause_holds_it",
+        "test_signing_reminder::test_bgl7_closing_the_application_cancels_its_signing_reminder_and_its_lapse",
+        # parity integration: under the service distribution (bgl.8) the reminder sends the signing link once more
+        "test_signing_reminder::test_bgl7_under_the_service_distribution_the_reminder_sends_the_signing_link_once_more",
+        "test_post_restore::test_bgl7_the_last_reminder_left_after_the_backup_still_leads_to_the_escalation_and_the_lapse",
+        "test_data_model::test_open_stage_set_matches_the_journey",
     ],
 }
 

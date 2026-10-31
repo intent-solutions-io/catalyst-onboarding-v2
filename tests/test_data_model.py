@@ -57,7 +57,7 @@ def test_one_open_application_per_email_key_but_terminal_ones_do_not_count():
 
 
 def test_open_stage_set_matches_the_journey():
-    assert len(OPEN_STAGES) == 12 and "active" in OPEN_STAGES and "declined" not in OPEN_STAGES
+    assert len(OPEN_STAGES) == 13 and "active" in OPEN_STAGES and "lapsed" in OPEN_STAGES and "declined" not in OPEN_STAGES
 
 
 def test_unknown_stage_and_non_positive_counter_are_refused():

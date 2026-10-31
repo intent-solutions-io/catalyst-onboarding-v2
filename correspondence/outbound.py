@@ -48,7 +48,7 @@ from .models import (
     StaffItem,
 )
 from .common import DECIDABLE, Refused, actor_ref, require  # noqa: F401  (re-exported for callers)
-from .messages import build_email, enqueue_file_copy, message_id, verified_address  # noqa: F401
+from .messages import build_email, enqueue_file_copy, message_id, thread_headers, verified_address  # noqa: F401
 from .rendering import TemplateRefused, canonical_digest, check_version, render
 from .questions import sent_text
 from .scheduling import schedule_after_acceptance
@@ -128,8 +128,12 @@ def current_template_version(key: str) -> MessageTemplateVersion | None:
             .filter(template__key=key, status=MessageTemplateVersion.Status.APPROVED).order_by("-version").first())
 
 
-def _freeze(application, kind, recipient, version, values, authorized_by, authority, supersedes=None) -> ApprovedMessage:
-    subject, body = render(version, values)
+def _freeze(application, kind, recipient, version, values, authorized_by, authority, supersedes=None,
+            subject: str | None = None) -> ApprovedMessage:
+    """`subject` replaces the template's static subject for a threaded reply (bgl.7: a reminder's `Re: <the question's
+    subject>`); the digest covers what is frozen, so the send check still proves the wire message is the frozen one."""
+    rendered_subject, body = render(version, values)
+    subject = rendered_subject if subject is None else subject
     if version.secret_bearing:
         raise Refused("secret_bearing_kind_not_in_this_task")  # reproducible-inputs kinds arrive with their task
     return ApprovedMessage.objects.create(
@@ -350,7 +354,7 @@ class SendMessage:
             if digest != message.content_sha256:
                 return refuse("content_digest_mismatch")
             try:
-                payload = build_email(message, subject, body)
+                payload = build_email(message, subject, body, thread_headers(message))  # bgl.7: a reply in its thread
             except ValueError:
                 return refuse("message_refused_by_header_policy")
             number = (OutboundMessage.objects.filter(approved_message=message).aggregate(n=Max("attempt_number"))["n"] or 0) + 1

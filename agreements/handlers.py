@@ -94,6 +94,12 @@ def _cancel_after_send(instance) -> None:
     event(instance.application, "agreement_cancel_after_send", {"instance": str(instance.public_id)})
 
 
+def _schedule_signing_reminder(instance) -> None:
+    from . import signing_reminder  # builds on this module
+
+    signing_reminder.schedule(instance)
+
+
 def _start_sweep(instance) -> None:
     """An envelope became issued: the first read, at the sweep interval (4B.2; webhooks may bring it forward), and,
     under CATALYST_AGREEMENT_DISTRIBUTION "service" (bgl.8), the service-sent signing link, because the provider was
@@ -585,6 +591,7 @@ class DistributeAgreement(_ProviderStep):
                 if current.issue_status == "distribute_pending" and not current.cancel_requested_at:
                     AgreementInstance.objects.filter(pk=instance.pk).update(issue_status="issued", updated_at=Now())
                     _start_sweep(instance)
+                    _schedule_signing_reminder(instance)  # bgl.7: one reminder after five business days unsigned
                 elif current.issue_status in ("distribute_pending", "cancelled"):
                     # The envelope went out although a stop or cancel was requested meanwhile (D-42): it happened, so
                     # it is recorded as sent and then cancelled through the reconciled cancel.

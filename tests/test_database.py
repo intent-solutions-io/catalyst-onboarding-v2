@@ -82,6 +82,7 @@ APPROVED_MIGRATIONS = {
     ("agreements", "0012_countersign_claim"),  # bgl.9: the single-writer countersign claim
     # bgl.10: a credential series' mode, and the key of the secret-bearing one-time-password welcome (no version seeded)
     ("provisioning", "0008_credential_setup_mode"), ("correspondence", "0022_password_welcome_template"),
+    ("applications", "0010_lapsed_stage"), ("correspondence", "0023_lapse_note"),  # bgl.7: the lapsed stage and the closing note
 }
 
 

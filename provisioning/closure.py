@@ -33,6 +33,7 @@ from django.db.models.functions import Now
 from applications.links import WITHDRAW_PATH
 from applications.models import TERMINAL_STAGES, Application, ApplicationEvent, Stage
 from applications.stages import transition
+from correspondence import scheduling
 from correspondence.messages import verified_address
 from workflow import journal, ledger
 from workflow.models import PendingAction
@@ -102,6 +103,11 @@ def close_locked(application, outcome: str, reason: str, actor_ref: str, actor_t
     from applications.confirmation import START_EVIDENCE_COLLECTION
 
     PendingAction.objects.filter(kind=START_EVIDENCE_COLLECTION, subject_type="application",
+                                 subject_id=application.public_ref, status__in=(Status.QUEUED, Status.HELD)).update(
+        status=Status.CANCELLED, completed_at=Now(), updated_at=Now(), last_error="application_closed")
+    # bgl.7: the follow-ups of a closed or withdrawn application never run (a lapse is not a closure, and nothing is
+    # reminded after one); left queued under a pause, they too would keep the person's erasure refused.
+    PendingAction.objects.filter(kind__in=(scheduling.LAPSE, scheduling.REMIND_SIGNING), subject_type="application",
                                  subject_id=application.public_ref, status__in=(Status.QUEUED, Status.HELD)).update(
         status=Status.CANCELLED, completed_at=Now(), updated_at=Now(), last_error="application_closed")
     WithdrawalConfirmation.objects.filter(application=application, state__in=("pending", "sent", "uncertain")).update(

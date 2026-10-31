@@ -55,6 +55,14 @@ REASONS = {
     "assessment_suspended": "refused by suspension: model advice is disabled, a human-only assessment applies (oc4.12)",
     # 9kg.41: plain words for the launch's other common items (the dossier and the staff item page share them)
     "escalate_unanswered": "a question stayed unanswered after the last reminder",
+    # bgl.7: the lapse after the last reminder and the signing reminder
+    "lapse_note_refused": "the application should lapse but its closing note could not be prepared (no approved wording"
+                          " or no verified address); it looks again by itself",
+    "lapse_failed": "the lapse could not be recorded; the application still waits",
+    "signing_reminder_unavailable": "a signing reminder was due but the service has no way to send the signing link"
+                                    " again yet; the applicant was not reminded",
+    "signing_reminder_refused": "a signing reminder could not be prepared (the recipient is not the verified address)",
+    "signing_reminder_failed": "the signing reminder could not be recorded",
     "evidence_required_unavailable": "a required evidence item could not be read; re-fetch it or proceed without it",
     "claims_missing": "the adopted submission carries no claim fields; a new submission with claims is needed",
     "agreement_declined": "an agreement was declined at the provider; automation is paused",
@@ -209,6 +217,8 @@ def next_steps(application) -> list[Step]:
         return steps + [Step("Staff", "Awaiting the qualification decision: record it on the decision screen", attention=True)]
     if application.stage == "on_hold":
         return steps + [Step("Staff", "On hold: the way on is an admit or a decline on the decision screen", attention=True)]
+    if application.stage == "lapsed":  # bgl.7: quiet, not closed
+        return steps + [Step("Applicant", "Lapsed after the last reminder went unanswered; a reply or a signature reopens it")]
     if action.status == PendingAction.Status.HELD:
         return steps + [Step("Blocked", "Start evidence collection is held until the owner releases it (activation command, 018 4.1)")]
     return steps + [Step("Blocked", f"Start evidence collection is {action.status}")]

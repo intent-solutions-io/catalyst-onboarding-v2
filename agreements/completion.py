@@ -29,6 +29,7 @@ from django.db.models.functions import Greatest, Least, Now
 from applications import members
 from applications.models import Application, Stage
 from applications.stages import StageConflict, transition
+from correspondence import lapse
 from correspondence.models import StaffItem
 from correspondence.staff_items import event, open_item
 from workflow import journal, ledger
@@ -310,6 +311,9 @@ def apply_read(claim, instance_id: int, env: provider.Envelope, fields=()) -> No
         return
     if instance.issue_status != "issued" or instance.signing_status == "signing_complete_verified":
         return
+    if application.stage == Stage.LAPSED and any(r.signing_status == "SIGNED" for r in env.recipients):
+        # bgl.7: a signature reopens a lapsed application to `agreements` before anything advances (034 row 21)
+        lapse.reopen(application, trigger=f"signature:{ref}", actor_ref=actor)
     if env.status == "COMPLETED":
         if data["all_required_signed"]:
             status(signing_status="signing_complete_verified", custody_status="pending")

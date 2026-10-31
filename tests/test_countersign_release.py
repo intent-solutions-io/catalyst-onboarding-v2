@@ -252,6 +252,40 @@ def test_bgl9_a_paused_case_is_never_countersigned(cs, monkeypatch):
     assert countersign_actions().get().status == "queued" and not trpc(cs, "envelope.field.sign")
 
 
+def test_bgl9_a_lapsed_case_is_never_countersigned_and_the_signature_that_reopens_it_resumes_it(cs, monkeypatch):
+    """bgl.9 x bgl.7 (parity integration): a lapsed application is not in `agreements`, so neither the sweep, nor a
+    queued countersign, signs for the company; the applicant's signature reopens it on the next read and the
+    countersignature follows at once."""
+    from applications.models import Stage
+    from applications.stages import transition
+    from correspondence import lapse
+
+    app = issued(cs, monkeypatch)
+    instance = of(app, "nda").get()
+    with transaction.atomic():  # as correspondence.lapse does after ten quiet business days
+        transition(app.pk, (Stage.AGREEMENTS,), Stage.LAPSED, event_kind=lapse.LAPSED_EVENT,
+                   data={"trigger": f"agreement:{instance.public_id}"}, actor_ref="test")
+    applicant_signs(cs, app)
+    fresh = AgreementInstance.objects.select_related("application").get(pk=instance.pk)
+    assert countersign.eligible(fresh) == "not_in_agreements"
+    with transaction.atomic():
+        assert countersign.enqueue(fresh) is None
+    assert list(countersign.candidates()) == []  # the sweep finds nothing
+    stale = PendingAction.objects.create(  # one queued before the lapse: it runs, signs nothing, and ends
+        kind=countersign.COUNTERSIGN, subject_type="application", subject_id=app.public_ref, input_ref=str(instance.public_id),
+        idempotency_key=f"{countersign.COUNTERSIGN}:{instance.public_id}:1", max_attempts=4)
+    run_worker()
+    assert (PendingAction.objects.get(pk=stale.pk).status, PendingAction.objects.get(pk=stale.pk).last_error) == (
+        "done", "not_in_agreements")
+    assert not CountersignClaim.objects.exists() and not trpc(cs, "envelope.field.sign")
+    reads_now()  # the read sees the applicant's signature: reopened to `agreements`, then countersigned
+    [reopened] = ApplicationEvent.objects.filter(application=app, kind=lapse.REOPENED_EVENT)
+    assert reopened.data["trigger"] == f"signature:{instance.public_id}"
+    claim = CountersignClaim.objects.get()
+    assert claim.state == "signed" and len(trpc(cs, "recipient.completeDocumentWithToken")) == 1
+    assert cs.fake.envelopes[instance.envelope_id]["status"] == "COMPLETED"
+
+
 def test_bgl9_both_modes_off_by_default_leave_todays_behaviour(pv, monkeypatch, settings):
     import config.settings as defaults
 
