@@ -260,7 +260,8 @@ def test_the_evidence_manifest_names_every_state_and_a_new_failed_run_changes_th
     scripted(monkeypatch, valid())
     app = collect(d, work_url_1=url(d, "/w"), work_url_2=url(d, "/big"), work_url_3=url(d, "/x", host=ELSEWHERE),
                   cred_name_1="Cert", cred_identifier_1="ID-7", cred_url_1=url(d, "/down"),
-                  cred_name_2="Private certificate", cred_identifier_2="ID-8", contribution="I wrote the parser.")
+                  cred_name_2="Private certificate", cred_identifier_2="ID-8", contribution="I wrote the parser.",
+                  no_certifications="")  # bgl.3: credential rows, so the "none" tick is cleared
     run_worker()
     run_worker()  # the 503 retries, then the item is unavailable; the assessment runs on the complete collection
     app.refresh_from_db()

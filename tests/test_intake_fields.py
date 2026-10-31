@@ -25,7 +25,7 @@ from workflow.models import PendingAction
 
 # Rows in place of the "none" ticks: one education entry and one certification with an identifier.
 ROWS = {"edu_institution_1": "Synthetic Institute", "edu_credential_1": "BSc Computing", "no_degree": "",
-        "cred_name_1": "Synthetic Practitioner", "cred_issuer_1": "Synthetic Board", "cred_identifier_1": "SP-0001",
+        "cred_name_1": "Synthetic practitioner cert", "cred_issuer_1": "Synthetic Board", "cred_identifier_1": "SP-0001",
         "no_certifications": ""}
 
 
@@ -34,7 +34,7 @@ ROWS = {"edu_institution_1": "Synthetic Institute", "edu_credential_1": "BSc Com
 @pytest.mark.django_db
 def test_parity_form_a_valid_submission_stores_every_answer(client):
     response = post(client, marketing_opt_in="on", **ROWS, edu_institution_2="Second College", edu_credential_2="Diploma",
-                    cred_name_2="Second Cert", cred_url_2="https://verify.example.test/c2")
+                    cred_name_2="Second cert", cred_url_2="https://verify.example.test/c2")
     assert response.status_code == 302
     version = SubmissionVersion.objects.get()
     assert version.submitted_fields == {
@@ -46,8 +46,8 @@ def test_parity_form_a_valid_submission_stores_every_answer(client):
         "no_degree": False, "no_certifications": False,
         "verification_consent": True, "verification_wording_version": VERIFICATION_WORDING_VERSION,
         "claims": {"work": [], "contribution": "", "experience": "", "confidential": False, "confidential_description": "",
-                   "credentials": [{"name": "Synthetic Practitioner", "issuer": "Synthetic Board", "identifier": "SP-0001", "url": ""},
-                                   {"name": "Second Cert", "issuer": "", "identifier": "", "url": "https://verify.example.test/c2"}]},
+                   "credentials": [{"name": "Synthetic practitioner cert", "issuer": "Synthetic Board", "identifier": "SP-0001", "url": ""},
+                                   {"name": "Second cert", "issuer": "", "identifier": "", "url": "https://verify.example.test/c2"}]},
     }
     assert (MARKETING_WORDING_VERSION, VERIFICATION_WORDING_VERSION) == ("marketing-updates.v1", "credential-verification.v1")
 
@@ -194,7 +194,7 @@ def test_parity_form_erasure_clears_the_answers_with_the_submission(privileged_r
 
     assert post(Client(), marketing_opt_in="on", **ROWS).status_code == 302
     app = Application.objects.get()
-    markers = ("442079460958", "Synthetic Institute", "BSc Computing", "SP-0001", "Synthetic Practitioner")
+    markers = ("442079460958", "Synthetic Institute", "BSc Computing", "SP-0001", "Synthetic practitioner cert")
     owner = privileged_reset.connect("owner", autocommit=True)
     assert owner_scan(owner, *markers), "the answers are stored before the erasure"
     # The subject closes out: the applicant withdraws and the queued verification send is cancelled (nothing in flight).
