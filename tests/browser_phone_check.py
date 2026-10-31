@@ -54,7 +54,8 @@ PHONE = {"viewport": {"width": 375, "height": 667}, "is_mobile": True, "has_touc
 DESKTOP = {"viewport": {"width": 1280, "height": 800}}
 WIDTHS = {"phone": PHONE, "desktop": DESKTOP}
 LONG_LINK = "https://work.example.test/" + "unbrokensyntheticpathsegment" * 8  # no hyphen or slash to break at
-CONTROLS = "main input:not([type=hidden]), main textarea, main select, main button"
+# bgl.2: the honeypot (applications.abuse) is off screen and out of the tab order on purpose: no person reaches it.
+CONTROLS = "main input:not([type=hidden]):not([name=website]), main textarea, main select, main button"
 
 
 @contextlib.contextmanager

@@ -449,7 +449,8 @@ def live_problems(settings) -> list[str]:
     """9kg.31.11 (029 sections 4.1, 7 and 13; the owner directive of 2026-10-26): the rails a live environment adds,
     failing closed (security review of PR #118: a deny-list of bad hosts let `\\@`, percent-encoding and ports past).
 
-    - Intake stays invitation-only: open intake is the public cutover, separately authorized.
+    - The intake mode is not a live rail: "invitation" or "open" is checked for every environment (intake_problems);
+      open intake on the first-generation URLs is the owner's switch (034 row 2, bgl.2).
     - The public base URL is exactly `https://<host>`: no user part, port, path, query or fragment, and nothing a
       browser could read differently from Python (a backslash, a percent sign, white space).
     - The public host and the staff host are distinct plain DNS names, never the learning site's host, the apex of
@@ -460,8 +461,6 @@ def live_problems(settings) -> list[str]:
     if getattr(settings, "CATALYST_ENV", "") not in LIVE_ENVIRONMENTS:
         return []
     problems = []
-    if getattr(settings, "CATALYST_INTAKE_MODE", None) != "invitation":
-        problems.append("CATALYST_INTAKE_MODE must be 'invitation' in a live environment (open intake is the public cutover)")
     base = str(getattr(settings, "CATALYST_PUBLIC_BASE_URL", "") or "")
     match = re.fullmatch(r"https://([^/?#@\\%\s:]+)", base)
     public = match.group(1) if match else ""
@@ -691,19 +690,26 @@ def custody_key_problems(settings, kind: str) -> list[str]:
     return problems
 
 
-INTAKE_FIXED = ("CATALYST_INTAKE_MODE", "CATALYST_CLIENT_IDENTITY")
+INTAKE_FIXED = ("CATALYST_CLIENT_IDENTITY",)
 INTAKE_MODES = ("invitation", "open")
 CLIENT_IDENTITY_SOURCES = ("proxy", "direct")
 
 
 def intake_problems(settings, environ: Mapping[str, str]) -> list[str]:
-    """9kg.29 and 9kg.43: the intake mode and the client-identity source are fixed in code, never from the
-    environment; the mode is "invitation" (the default) or "open", nothing else, so an unset or mistyped value refuses
-    start-up instead of opening the form; the identity source is "proxy" everywhere the web process listens on the
-    proxy's socket (026 section 8) and may be "direct" only in test and development."""
+    """9kg.29, 9kg.43 and bgl.2: the intake mode comes from the environment and is "invitation" (the default when
+    unset) or "open", nothing else, so an empty or mistyped value refuses start-up instead of opening the form; the
+    form checks are fixed in code and on outside the test suite; the client-identity source is fixed in code, never
+    from the environment, "proxy" everywhere the web process listens on the proxy's socket (026 section 8) and
+    "direct" only in test and development."""
     problems = [f"{name} may not be set from the environment" for name in INTAKE_FIXED if name in environ]
     if getattr(settings, "CATALYST_INTAKE_MODE", None) not in INTAKE_MODES:
         problems.append("CATALYST_INTAKE_MODE must be 'invitation' (the default) or 'open'")
+    if getattr(settings, "CATALYST_INTAKE_FORM_CHECKS", True) is not True and getattr(settings, "CATALYST_ENV", "") != "test":
+        problems.append("CATALYST_INTAKE_FORM_CHECKS must be on outside the test suite")
+    low, high = (getattr(settings, name, None) for name in ("CATALYST_INTAKE_FORM_MIN_AGE_SECONDS",
+                                                             "CATALYST_INTAKE_FORM_MAX_AGE_SECONDS"))
+    if isinstance(low, int) and isinstance(high, int) and low >= high:
+        problems.append("CATALYST_INTAKE_FORM_MIN_AGE_SECONDS must be below CATALYST_INTAKE_FORM_MAX_AGE_SECONDS")
     source = getattr(settings, "CATALYST_CLIENT_IDENTITY", None)
     if source not in CLIENT_IDENTITY_SOURCES:
         problems.append("CATALYST_CLIENT_IDENTITY must be 'proxy' or 'direct'")

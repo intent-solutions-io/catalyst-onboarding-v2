@@ -69,7 +69,7 @@ def test_all_problems_combines_every_rule():
                      "must list the first-generation mailbox", "must pin the v2 mailbox login",
                      "must be the Sent-folder reader", "CATALYST_STAFF_HOST is required",
                      "CATALYST_WORKER_HEARTBEAT_FILE must be", "CATALYST_SECRETS_DIR must be",
-                     "CATALYST_EFFECT_JOURNAL_DIR must be", "must be 'invitation' in a live environment",
+                     "CATALYST_EFFECT_JOURNAL_DIR must be",  # bgl.2: the mode is no live rail, intake_problems checks it
                      "must be exactly https://<the dedicated v2 host name>"):
         assert any(expected in p for p in problems), expected
     assert not any("is not allowed; use one of" in p for p in problems)
@@ -408,9 +408,10 @@ def test_9kg_31_11_production_keeps_model_advice_fetching_agreements_and_provisi
     assert guards.assessment_problems(SimpleNamespace(**{**vars(quiet), "CATALYST_ASSESSMENT_MODEL": "none"}), {}) == []
 
 
-def test_9kg_31_11_production_runs_invitation_only_on_its_own_host():
+def test_9kg_31_11_production_runs_on_its_own_host_in_either_intake_mode():
     assert guards.live_problems(production()) == []
-    assert any("must be 'invitation'" in p for p in guards.live_problems(production(CATALYST_INTAKE_MODE="open")))
+    # bgl.2 (034 row 2): open intake is the owner's switch on the host; the mode is checked for every environment.
+    assert guards.live_problems(production(CATALYST_INTAKE_MODE="open")) == []
     # Fail closed (security review of PR #118): exactly https://<host>, nothing a browser could read differently.
     for base in ("", "http://catalyst-v2.example.test", "https://", "https://catalyst-v2.example.test/",
                  "https://catalyst-v2.example.test:443", "https://u@catalyst-v2.example.test",

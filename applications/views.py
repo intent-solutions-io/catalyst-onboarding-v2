@@ -15,6 +15,10 @@ an unavailable throttle store refuses the POST with the 503 page (fail closed fo
 redirect as an accepted one; the view logs a reason code only. While the erasure registry is provisional (9kg.84), a
 live environment withholds the page (the one 503 page, reason code `registry_provisional`); so does a live environment
 without an approved, non-synthetic verification mail (9kg.80, reason code `verification_template_unapproved`).
+Bot checks and global caps (bgl.2, 034 rows 4 and 5): a missing, forged, stale or too-fast render time gets the form back
+(400) and a filled honeypot gets the accepted redirect; neither records anything (applications.abuse). A new application
+over the hourly or daily cap is accepted and stored, and its verification mail waits for the cap's next window
+(applications.services). The form answers on the first generation's exact `/request-access` as well as the slash form.
 
 The confirmation view (005 S1.2 Confirm; J-03) carries the signed token in its path. Every response under
 that path, including the ones Django builds outside the view, is sent with `Referrer-Policy: same-origin`
@@ -39,7 +43,7 @@ from config import guards, throttle
 from config.client_identity import client_identity
 from erasure import registry
 
-from . import confirmation, invitations, notices, services
+from . import abuse, confirmation, invitations, notices, services
 from .forms import AccessRequestForm
 from .identity import email_key
 
@@ -90,6 +94,14 @@ def request_access(request):
             throttle.enforce(request, ("intake-client", client_identity(request), settings.CATALYST_THROTTLE_INTAKE_PER_CLIENT),
                              issuance=True, unavailable=TRY_AGAIN)
             form = AccessRequestForm(request.POST)
+            checked = abuse.check_token(request.POST.get(abuse.TOKEN_FIELD)) if abuse.enabled() else abuse.OK
+            if checked != abuse.OK:  # bgl.2: the form comes back with its values and a fresh token; nothing recorded
+                logger.info("intake refused: form_%s; nothing recorded", checked)
+                form.add_error(None, FORM_AGAIN)
+                return _form_page(request, form, notice, status=400)
+            if abuse.enabled() and abuse.honeypot_tripped(request.POST):
+                logger.info("intake refused: honeypot; nothing recorded")  # the accepted response, nothing stored
+                return _received(request)
             if form.is_valid():
                 throttle.enforce(request, ("intake-address", email_key(form.cleaned_data["email"]),
                                            settings.CATALYST_THROTTLE_INTAKE_PER_ADDRESS), issuance=True, unavailable=TRY_AGAIN)
@@ -102,16 +114,31 @@ def request_access(request):
                     # "not saved": if the commit acknowledgment was lost, the submission may have committed.
                     logger.warning("intake submission did not complete: %s", type(exc).__name__)
                     return render(request, TRY_AGAIN, status=503)
-                return redirect("applications:request_access_received")
+                return _received(request)
         except throttle.Refused as refused:
             return refused.response
     else:
         form = AccessRequestForm()
+    return _form_page(request, form, notice)
+
+
+FORM_AGAIN = "Please check your details and send the form again."
+
+
+def _form_page(request, form, notice, status=200):
     # 9kg.80: the form's own sentences are unapproved copy, so a live environment shows none of them; the approved
-    # data notice is what a real person reads there.
+    # data notice is what a real person reads there. bgl.2: every rendering carries a fresh signed render time.
     return render(request, "applications/request_access.html",
                   {"form": form, "invitation_only": invitations.required(), "notice": notice,
-                   "placeholder_copy": guards.draft_wording_allowed(settings.CATALYST_ENV)})
+                   "placeholder_copy": guards.draft_wording_allowed(settings.CATALYST_ENV),
+                   "form_token": abuse.issue_token(), "honeypot": abuse.HONEYPOT_FIELD}, status=status)
+
+
+def _received(request):
+    """POST-redirect-GET to the received page on the path form the applicant used: the first generation's exact
+    `/request-access` leads to `/request-access/received`, the slash form to the slash form (034 row 1, bgl.2)."""
+    exact = not request.path.endswith("/")
+    return redirect("applications:request_access_received_exact" if exact else "applications:request_access_received")
 
 
 @require_safe

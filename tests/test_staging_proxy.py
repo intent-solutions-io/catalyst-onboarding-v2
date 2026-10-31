@@ -73,7 +73,8 @@ def test_6b8_every_token_bearing_route_is_a_private_path():
 def test_6b8_the_public_site_serves_only_the_applicant_routes():
     public = site(renderer().render(), "CATALYST_PUBLIC_HOST")
     allowed = re.search(r"@applicant path (.+)", public).group(1).split()
-    assert allowed == ["/request-access/", "/request-access/received/", *(p + "*" for p in PRIVATE_PATHS)]
+    assert allowed == ["/request-access/", "/request-access/received/", "/request-access", "/request-access/received",
+                       *(p + "*" for p in PRIVATE_PATHS)]  # bgl.2: the first generation's exact paths too
     for absent in ("/staff", "/admin", "/healthz", "/readyz", "/static", "/hooks"):
         assert absent not in public
     assert "import catalyst_not_found" in public and "max_size 128KB" in public

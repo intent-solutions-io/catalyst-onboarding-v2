@@ -97,6 +97,9 @@ COMMON_ENV = {
     # code defaults: the authority unset (everyone refused), three resends, the three paging wait classes.
     "CATALYST_QUALIFICATION_AUTHORITY": "${CATALYST_QUALIFICATION_AUTHORITY:-}",
     "CATALYST_VERIFICATION_RESEND_LIMIT": "${CATALYST_VERIFICATION_RESEND_LIMIT:-3}",
+    # bgl.2 (034 row 2): who may apply, the host's switch without a release. Unset is invitation-only; "open" is the
+    # public entry; anything else refuses start-up (config.guards). Every process reads it, so web and worker agree.
+    "CATALYST_INTAKE_MODE": "${CATALYST_INTAKE_MODE:-invitation}",
     "CATALYST_HEALTH_AGED_WAITS_PAGE": "${CATALYST_HEALTH_AGED_WAITS_PAGE:-replies_awaiting_processing,issued_agreements,provisioning_activation}",
     "CATALYST_HEALTH_PENDING_AGE_SECONDS": "${CATALYST_HEALTH_PENDING_AGE_SECONDS:-3600}",
 }

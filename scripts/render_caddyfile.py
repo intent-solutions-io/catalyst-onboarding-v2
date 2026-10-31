@@ -32,7 +32,8 @@ def _link_paths() -> tuple[str, ...]:
 
 
 PRIVATE_PATHS = _link_paths()
-PUBLIC_EXACT = ("/request-access/", "/request-access/received/")
+# bgl.2 (034 row 1): the first generation's exact paths too, which every link in the wild uses; both forms are routes in v2.
+PUBLIC_EXACT = ("/request-access/", "/request-access/received/", "/request-access", "/request-access/received")
 TARGET = ROOT / "deploy" / "staging" / "Caddyfile"
 # 9kg.31.11: the production stack mounts the same file beside its compose definition (the sites take their names from
 # the environment, so one rendering serves both).

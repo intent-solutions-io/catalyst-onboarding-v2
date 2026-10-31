@@ -313,6 +313,7 @@ def main() -> int:
                     page.locator("#id_email").fill(address)
                     page.locator("#id_reason").fill("Live canary check of the deployed service.")
                     shot("filled")
+                    page.wait_for_timeout(4000)  # bgl.2: the form refuses a submission under 3 s after rendering
                     page.get_by_role("button", name="Send request").click()
                     expect(page.locator("h1")).to_have_text("Request received")
                     shot("received")
