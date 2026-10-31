@@ -24,7 +24,7 @@ from collections import Counter, defaultdict
 from datetime import timedelta
 
 from django.conf import settings
-from django.db import DatabaseError, connection, transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 from agreements.models import AgreementDetailsVersion, AgreementType
@@ -158,7 +158,7 @@ class Importer:
                     self.member_on_file(cases, done)
                     with connection.cursor() as cursor:
                         cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")  # the decision backstop, before the commit
-            except (PersonFailed, DatabaseError, ValueError) as exc:
+            except Exception as exc:  # any failure of one person is reported with a code; the others go on
                 self._restore(saved)  # nothing of this person committed: neither do its counts
                 code = str(exc) if isinstance(exc, PersonFailed) else _error_code(exc)
                 for case, _ in cases:
