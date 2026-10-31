@@ -11,6 +11,8 @@ import re
 from urllib.parse import urlsplit
 from collections.abc import Mapping
 
+from config import parity
+
 POSTGRESQL_ENGINE = "django.db.backends.postgresql"
 
 # The secrets Catalyst reads (6B.5, 026 section 5): one list, used by settings to read them and by the guards to refuse
@@ -19,7 +21,7 @@ SECRET_ENV_NAMES = ("CATALYST_SECRET_KEY", "CATALYST_VERIFICATION_KEY", "CATALYS
                     "CATALYST_DB_PASSWORD", "CATALYST_MAIL_PASSWORD", "CATALYST_ERASURE_KEY",
                     "CATALYST_CUSTODY_WRAPPING_KEY", "CATALYST_CUSTODY_NEXT_WRAPPING_KEY",
                     "CATALYST_ASSESSMENT_API_KEY",  # bgl.12: the live model key, a file outside test and development
-                    "CATALYST_TWENTY_TOKEN")  # bgl.14: the Twenty token, a file outside test and development
+                    "CATALYST_TWENTY_TOKEN", "CATALYST_AGREEMENT_PROVIDER_TOKEN")  # bgl.14: the Twenty token, a file outside test and development
 
 # Environments Catalyst may run in. `staging` (026 P6-D-2, D-49) is synthetic like `test`: the same fakes under the
 # same strict rules, never a real provider. `production` (9kg.31.11, 026 section 18) is admitted in code with every
@@ -380,10 +382,10 @@ def assessment_problems(settings, environ: Mapping[str, str]) -> list[str]:
     elif mode != "none":
         from assessments.approval import parse_model
 
-        if parse_model(mode) is None or not synthetic(environment) or live_activation < 1:
+        if parse_model(mode) is None or not (synthetic(environment) or parity.enabled(settings)) or live_activation < 1:
             problems.append("CATALYST_ASSESSMENT_MODEL must be 'none' or 'test', or name '<provider>:<model id>' in a synthetic "
                             "environment with CATALYST_ASSESSMENT_LIVE_ACTIVATION on; live model use is not authorized here")
-    if not synthetic(environment):
+    if not synthetic(environment) and not parity.enabled(settings):
         for name in LIVE_MODEL_TEST_ONLY:
             if getattr(settings, name, ""):
                 problems.append(f"{name} is allowed only in the test and staging environments (no live model elsewhere)")
@@ -413,6 +415,12 @@ def assessment_problems(settings, environ: Mapping[str, str]) -> list[str]:
                       + getattr(settings, "CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT", 8000))
         if getattr(settings, "CATALYST_MINIMAX_TOKENS_PER_MINUTE", 0) < tokens:
             problems.append("CATALYST_MINIMAX_TOKENS_PER_MINUTE must cover one bounded clarification job")
+    if parity.enabled(settings):
+        problems += parity.endpoint_problems(settings, "CATALYST_ASSESSMENT_LIVE_BASE_URL")
+        if live_activation not in (0, 1):
+            problems.append("CATALYST_ASSESSMENT_LIVE_ACTIVATION must be 0 or 1")
+        if mode not in ("none", "test") and not mode.startswith("minimax:"):
+            problems.append("the production model provider must be minimax")
     return problems + attempt_lease_problems(settings)
 
 
@@ -501,13 +509,17 @@ def agreement_problems(settings, environ: Mapping[str, str]) -> list[str]:
     can answer."""
     problems = [f"{name} may not be set from the environment" for name in AGREEMENT_TEST_ONLY if name in environ]
     problems += _distribution_problems(settings, environ)
-    if not synthetic(getattr(settings, "CATALYST_ENV", "")):
+    if not synthetic(getattr(settings, "CATALYST_ENV", "")) and not parity.enabled(settings):
         for name in AGREEMENT_TEST_ONLY:
             if getattr(settings, name, ""):
                 problems.append(f"{name} is allowed only in the test and staging environments (synthetic agreements only)")
         return problems
     url = getattr(settings, "CATALYST_AGREEMENT_PROVIDER_URL", "")
-    if url:
+    if parity.enabled(settings):
+        problems += parity.endpoint_problems(settings, "CATALYST_AGREEMENT_PROVIDER_URL",
+                                             pinned="CATALYST_AGREEMENT_PROVIDER_ADDRESS", trust="CATALYST_AGREEMENT_PROVIDER_CA_FILE")
+        problems += parity.endpoint_problems(settings, "CATALYST_AGREEMENT_SIGNING_BASE_URL", origin=True)
+    elif url:
         if not url.startswith("https://"):
             problems.append("CATALYST_AGREEMENT_PROVIDER_URL must be https")
         host = (urlsplit(url).hostname or "") if url.startswith("https://") else ""
@@ -550,14 +562,18 @@ def automation_problems(settings, environ: Mapping[str, str]) -> list[str]:
         problems.append("CATALYST_RELEASE_MODE must be 'owner' or 'automatic'")
     if getattr(settings, "CATALYST_AGREEMENT_COMPANY_ROLE", "APPROVER") not in ("APPROVER", "SIGNER"):
         problems.append("CATALYST_AGREEMENT_COMPANY_ROLE must be 'APPROVER' or 'SIGNER'")
-    if not synthetic(getattr(settings, "CATALYST_ENV", "")):
+    if not synthetic(getattr(settings, "CATALYST_ENV", "")) and not parity.enabled(settings):
         for name in COMPANY_TEST_ONLY:
             if getattr(settings, name, ""):
                 problems.append(f"{name} is allowed only in the test and staging environments (synthetic agreements only)")
-    else:
+    elif not parity.enabled(settings):
         email = getattr(settings, "CATALYST_AGREEMENT_COMPANY_EMAIL", "") or ""
         if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.test", email.lower()):
             problems.append("CATALYST_AGREEMENT_COMPANY_EMAIL must be an address at a .test domain")
+    if parity.enabled(settings):
+        email = getattr(settings, "CATALYST_AGREEMENT_COMPANY_EMAIL", "")
+        if email and not re.fullmatch(r"[^@\s]+@intentsolutions\.io", email):
+            problems.append("the company recipient must be at the approved company domain")
     if mode == "automatic" and not (getattr(settings, "CATALYST_AGREEMENT_COMPANY_EMAIL", "")
                                     and getattr(settings, "CATALYST_AGREEMENT_COUNTERSIGN_SIGNATURE", "")):
         problems.append("CATALYST_AGREEMENT_COUNTERSIGN 'automatic' needs CATALYST_AGREEMENT_COMPANY_EMAIL and "
@@ -600,17 +616,17 @@ def provisioning_problems(settings, environ: Mapping[str, str]) -> list[str]:
         problems.append("CATALYST_PROVISIONING_NAMING_POLICY must be first_last or first_name")
     if getattr(settings, "CATALYST_PROVISIONING_CREDENTIAL_MODE", "set_your_own") not in CREDENTIAL_MODES:
         problems.append("CATALYST_PROVISIONING_CREDENTIAL_MODE must be set_your_own or one_time_password")
-    if not synthetic(environment):
+    if not synthetic(environment) and not parity.enabled(settings):
         for name in PROVISIONING_TEST_ONLY:
             if getattr(settings, name, ""):
                 problems.append(f"{name} is allowed only in the test and staging environments (synthetic provisioning only)")
         return problems
     adapter = getattr(settings, "CATALYST_PROVISIONING_ADAPTER", "")
-    if adapter and not adapter.startswith("tests."):
+    if adapter and not adapter.startswith("tests.") and not parity.enabled(settings):
         problems.append("CATALYST_PROVISIONING_ADAPTER must name a test fake")
-    problems += _live_host_problems(settings)
+    problems += parity.provisioning_problems(settings) if parity.enabled(settings) else _live_host_problems(settings)
     domain = getattr(settings, "CATALYST_PROVISIONING_DOMAIN", "")
-    if domain and not domain.lower().endswith(".test"):
+    if domain and not domain.lower().endswith(".test") and not parity.enabled(settings):
         problems.append("CATALYST_PROVISIONING_DOMAIN must be a .test domain")
     if getattr(settings, "CATALYST_PROVISIONING_METHOD", "api") not in ("api", "checklist"):
         problems.append("CATALYST_PROVISIONING_METHOD must be api or checklist")
@@ -664,13 +680,16 @@ def twenty_problems(settings, environ: Mapping[str, str], kind: str = "") -> lis
     token = getattr(settings, "CATALYST_TWENTY_TOKEN", "")
     if token and (kind == "web" or getattr(settings, "CATALYST_PROCESS_ROLE", "") in TWENTY_TOKEN_DENIED_ROLES):
         problems.append("CATALYST_TWENTY_TOKEN may be given only to the worker and the owner-run commands")
-    if not synthetic(getattr(settings, "CATALYST_ENV", "")):
+    if not synthetic(getattr(settings, "CATALYST_ENV", "")) and not parity.enabled(settings):
         for name in (*TWENTY_TEST_ONLY, "CATALYST_TWENTY_TOKEN"):
             if getattr(settings, name, ""):
                 problems.append(f"{name} is allowed only in the test and staging environments until the Twenty swap")
         return problems
     url = getattr(settings, "CATALYST_TWENTY_URL", "")
-    if url:
+    if parity.enabled(settings):
+        problems += parity.endpoint_problems(settings, "CATALYST_TWENTY_URL",
+                                             pinned="CATALYST_TWENTY_ADDRESS", trust="CATALYST_TWENTY_CA_FILE")
+    elif url:
         parts = urlsplit(url) if url.startswith("https://") else None
         if parts is None:
             problems.append("CATALYST_TWENTY_URL must be https")
@@ -1018,6 +1037,7 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + custody_key_problems(settings, _process_kind())
         + intake_problems(settings, environ)
         + automation_problems(settings, environ)
+        + parity.process_problems(settings, _process_kind())
     )
 
 

@@ -116,6 +116,10 @@ class MXrouteHost(MailHost):
     # --- configuration and the key --------------------------------------------------------------------------------
 
     def _base(self) -> str:
+        from config import parity
+
+        if parity.enabled(settings) and parity.provisioning_problems(settings):
+            raise AdapterError("mail_host_target_not_approved", sent=False)
         base = (settings.CATALYST_PROVISIONING_API_URL or "").rstrip("/")
         if not (base and settings.CATALYST_PROVISIONING_API_SERVER and settings.CATALYST_PROVISIONING_API_ACCOUNT
                 and settings.CATALYST_PROVISIONING_API_KEY_FILE):

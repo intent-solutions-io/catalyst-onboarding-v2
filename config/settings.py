@@ -807,3 +807,7 @@ DEFAULT_FROM_EMAIL = env("CATALYST_FROM_EMAIL", "onboarding@example.invalid")  #
 # in a live environment the From address itself, so replies reach the mailbox v2 reads.
 CATALYST_FROM_DISPLAY_NAME = os.environ.get("CATALYST_FROM_DISPLAY_NAME", "").strip()
 CATALYST_REPLY_TO = os.environ.get("CATALYST_REPLY_TO", "").strip()
+
+# D-54 production wiring is opt-in and digest-bound; no profile preserves wave one.
+from config.parity import configure as configure_parity  # noqa: E402
+configure_parity(globals(), os.environ, secret)

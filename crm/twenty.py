@@ -83,6 +83,11 @@ def _target():
     parts = urlsplit(url)
     if parts.scheme != "https" or not parts.hostname or parts.query or parts.fragment or parts.username:
         raise TwentyError("twenty_url_invalid", sent=False)
+    from config import parity
+
+    if parity.enabled(settings) and parity.endpoint_problems(
+            settings, "CATALYST_TWENTY_URL", pinned="CATALYST_TWENTY_ADDRESS", trust="CATALYST_TWENTY_CA_FILE"):
+        raise TwentyError("twenty_target_not_approved", sent=False)
     address = settings.CATALYST_TWENTY_ADDRESS
     try:
         parsed = ipaddress.ip_address(address)

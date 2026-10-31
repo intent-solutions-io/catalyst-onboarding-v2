@@ -30,7 +30,7 @@ from django.conf import settings
 from pydantic_ai import models as _models
 from pydantic_ai.exceptions import ModelHTTPError
 
-from config import guards
+from config import guards, parity
 
 from . import approval
 
@@ -44,7 +44,7 @@ def named():
 
 def activated() -> bool:
     """The live activation is on and the environment is one that may hold it (test, staging)."""
-    return int(getattr(settings, "CATALYST_ASSESSMENT_LIVE_ACTIVATION", 0) or 0) >= 1 and guards.synthetic(settings.CATALYST_ENV)
+    return int(getattr(settings, "CATALYST_ASSESSMENT_LIVE_ACTIVATION", 0) or 0) >= 1 and (guards.synthetic(settings.CATALYST_ENV) or parity.enabled(settings))
 
 
 def base_url_problem(url: str) -> str:
@@ -66,6 +66,8 @@ def configured() -> str:
         return "model_not_authorized"
     if model[0] != PROVIDER:
         return "provider_not_supported"
+    if parity.enabled(settings) and parity.endpoint_problems(settings, "CATALYST_ASSESSMENT_LIVE_BASE_URL"):
+        return "live_target_not_approved"
     problem = base_url_problem(getattr(settings, "CATALYST_ASSESSMENT_LIVE_BASE_URL", ""))
     if problem:
         return problem

@@ -1,0 +1,40 @@
+# Optional D-54 activation overlay, loaded only at the authorized replacement.
+# The base production stack remains sufficient for wave one. This file never supplies
+# credentials or policy text; it mounts the operator's digest-bound configuration.
+x-parity-env: &parity-env
+  CATALYST_PARITY_CONFIG: /run/catalyst-parity/config.json
+  CATALYST_PARITY_SHA256: ${CATALYST_PARITY_SHA256:?the reviewed configuration digest}
+x-parity-file: &parity-file
+  ${CATALYST_PARITY_CONFIG:?the reviewed configuration file}:/run/catalyst-parity/config.json:ro
+x-custody: &custody
+  catalyst-custody:/var/lib/catalyst/custody
+x-keys: &keys
+  ${CATALYST_CUSTODY_KEY_PATH:?the managed key directory}:/var/lib/catalyst/keys
+x-key-mirror: &key-mirror
+  ${CATALYST_CUSTODY_KEY_MIRROR_PATH:?the separate key mirror}:/var/lib/catalyst/key-mirror
+services:
+  web:
+    environment: *parity-env
+    volumes: [*parity-file, *custody, *keys, *key-mirror]
+    secrets: [custody_wrapping_key]
+  worker:
+    environment: *parity-env
+    volumes: [*parity-file, *custody, *keys, *key-mirror]
+    secrets: [custody_wrapping_key, agreement_provider_token, assessment_api_key, twenty_token, provisioning_api_key]
+  migrate:
+    environment: *parity-env
+    volumes: [*parity-file, *custody, *keys, *key-mirror]
+    secrets: [custody_wrapping_key, agreement_provider_token, assessment_api_key, twenty_token, provisioning_api_key]
+    # Owner-run provider setup uses the same bounded egress as the worker, never the fetcher.
+    networks: [backend, mail]
+secrets:
+  custody_wrapping_key:
+    file: ${CATALYST_PRODUCTION_SECRETS:?}/custody_wrapping_key
+  agreement_provider_token:
+    file: ${CATALYST_PRODUCTION_SECRETS:?}/agreement_provider_token
+  assessment_api_key:
+    file: ${CATALYST_PRODUCTION_SECRETS:?}/assessment_api_key
+  twenty_token:
+    file: ${CATALYST_PRODUCTION_SECRETS:?}/twenty_token
+  provisioning_api_key:
+    file: ${CATALYST_PRODUCTION_SECRETS:?}/provisioning_api_key

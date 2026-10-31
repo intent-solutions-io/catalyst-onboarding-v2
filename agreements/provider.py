@@ -151,7 +151,13 @@ def _target():
         loopback = ipaddress.ip_address(address).is_loopback
     except ValueError:
         loopback = False
-    if not loopback:  # re-checked here, not only at start-up: synthetic P4 talks to a local fake only
+    from config import parity
+
+    if parity.enabled(settings):
+        if parity.endpoint_problems(settings, "CATALYST_AGREEMENT_PROVIDER_URL",
+                                    pinned="CATALYST_AGREEMENT_PROVIDER_ADDRESS", trust="CATALYST_AGREEMENT_PROVIDER_CA_FILE"):
+            raise ProviderError("provider_target_not_approved", sent=False)
+    elif not loopback:  # synthetic P4 talks to a local fake only
         raise ProviderError("provider_address_not_pinned", sent=False)
     if not settings.CATALYST_AGREEMENT_PROVIDER_CA_FILE:
         raise ProviderError("provider_trust_store_missing", sent=False)  # never the system store, never SSL_CERT_* vars
