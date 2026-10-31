@@ -84,7 +84,8 @@ def close_locked(application, outcome: str, reason: str, actor_ref: str, actor_t
             fields["status"] = "stopping" if request.status in ("create_pending", "create_uncertain") else "stopped"
         ProvisioningRequest.objects.filter(pk=request.pk).update(**fields)
         PendingAction.objects.filter(input_ref=str(request.public_id), status__in=(Status.QUEUED, Status.HELD),
-                                     kind__in=(core.CREATE, "provision_invite", "provision_activate")).update(
+                                     kind__in=(core.CREATE, "provision_invite", "provision_welcome_password",
+                                               "provision_activate")).update(
             status=Status.CANCELLED, completed_at=Now(), updated_at=Now(), last_error="application_closed")
         CredentialSetup.objects.filter(request=request, state__in=("invitation_pending", "invited", "presented")).update(
             state="cancelled", updated_at=Now())

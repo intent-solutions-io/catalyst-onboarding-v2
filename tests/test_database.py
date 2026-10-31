@@ -80,6 +80,8 @@ APPROVED_MIGRATIONS = {
     # bgl.8: a details version read back from the signed envelope, and the service-sent signing-link templates
     ("agreements", "0011_details_from_envelope"), ("correspondence", "0021_agreement_link_templates"),
     ("agreements", "0012_countersign_claim"),  # bgl.9: the single-writer countersign claim
+    # bgl.10: a credential series' mode, and the key of the secret-bearing one-time-password welcome (no version seeded)
+    ("provisioning", "0008_credential_setup_mode"), ("correspondence", "0022_password_welcome_template"),
 }
 
 

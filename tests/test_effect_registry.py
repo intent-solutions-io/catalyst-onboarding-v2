@@ -67,6 +67,8 @@ OUTWARD = {
     "config/release.py": "the deploy adapter's release bookkeeping files",
     "correspondence/imap.py": "the IMAP client (its writes are the imap family)",
     "correspondence/transport.py": "the SMTP client (the smtp family)",
+    "provisioning/mxroute.py": "the live MXroute client (its writes are the mailhost family) and the IMAP login check of a "
+                               "one-time password; reached only through a stub transport until the owner's canary",
     "workflow/heartbeat.py": "the worker's heartbeat file",
     "workflow/journal.py": "the effect journal",
     "workflow/shipping.py": "the effect journal's off-host copy",
@@ -434,7 +436,7 @@ def outward(sources) -> dict:
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 imported = [alias.name for alias in node.names] if isinstance(node, ast.Import) else [node.module or ""]
                 hits |= {f"import {name}" for name in imported
-                         if name in NETWORK_MODULES or name.split(".")[0] in {"httpx", "requests", "aiohttp", "urllib3"}}
+                         if name in NETWORK_MODULES or name.split(".")[0] in {"httpx", "httpx2", "requests", "aiohttp", "urllib3"}}
             elif isinstance(node, ast.Call):
                 called = _dotted(node.func, names)
                 if called in FILE_CALLS:

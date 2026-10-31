@@ -50,6 +50,10 @@ Status = PendingAction.Status
 INVITE = "provision_invite"
 SWEEP = "provision_setup_sweep"  # also the expiry check of an unused link (key setup_expire:...)
 ACTIVATE = "provision_activate"
+# The first-generation alternative to the link (034 row 39; `provisioning.password_welcome`): one round sets a
+# generated password, checks it by an IMAP login and sends the welcome that carries it. P5-D-6 stays the default.
+OTP_WELCOME = "provision_welcome_password"
+ONE_TIME_PASSWORD = "one_time_password"
 WELCOME_TEMPLATE = "provisioning_welcome"
 ITEM_SETUP = "provisioning_setup_needs_staff"
 ITEM_ACTIVATION = "provisioning_activation_blocked"
@@ -93,11 +97,15 @@ def open_setup(request, actor_ref: str) -> CredentialSetup | None:
         core.item(ITEM_SETUP, request)
         return None
     series = request.setups.count()
-    setup = CredentialSetup.objects.create(request=request, series=series, recipient=recipient)
+    mode = settings.CATALYST_PROVISIONING_CREDENTIAL_MODE  # fixed on the row: a later switch never changes a live series
+    setup = CredentialSetup.objects.create(request=request, series=series, recipient=recipient, mode=mode)
     core.set_status(request, "setup_pending")
-    core.enqueue(INVITE, request, f"setup_invite:{setup.public_id}:{series}")
-    core.record(request.application, "provisioning_setup_opened", {"request": str(request.public_id), "series": series},
-                actor_ref)
+    if mode == ONE_TIME_PASSWORD:
+        core.enqueue(OTP_WELCOME, request, f"otp_welcome:{setup.public_id}:{series}")
+    else:
+        core.enqueue(INVITE, request, f"setup_invite:{setup.public_id}:{series}")
+    core.record(request.application, "provisioning_setup_opened", {"request": str(request.public_id), "series": series,
+                                                                   "mode": mode}, actor_ref)
     return setup
 
 
@@ -390,15 +398,18 @@ class Activate(_Action):
         if application.stage != Stage.PROVISIONING:
             return  # already active, or no longer provisioning: nothing more (the lock is held, so this stands)
         problem = fresh_problem or core.database_problem(application, request)
-        completed = request.setups.filter(state="completed", completed_at__isnull=False).exists()
+        completed = request.setups.filter(state="completed", completed_at__isnull=False).order_by("-series").first()
         verified = application.events.filter(kind="provisioning_verified", data__request=str(request.public_id)).exists()
         if not problem and (request.status != "setup_complete" or not (completed and verified)):
             problem = "not_ready"
-        version = current_template_version(WELCOME_TEMPLATE)
-        if not problem and version is None:
+        # A one-time-password series already sent its welcome (the one carrying the credential, 034 row 39): activation
+        # sends no second one. The link flow's welcome is frozen and queued here.
+        with_password = completed is not None and completed.mode == ONE_TIME_PASSWORD
+        version = None if with_password else current_template_version(WELCOME_TEMPLATE)
+        if not problem and version is None and not with_password:
             problem = "no_approved_welcome_template"
         message = None
-        if not problem:
+        if not problem and not with_password:
             try:  # the welcome is frozen first: no activation without a welcome to send (security review)
                 message = _freeze(application, ApprovedMessage.Kind.WELCOME, verified_address(application), version,
                                   {"display_name": application.display_name,
@@ -412,9 +423,11 @@ class Activate(_Action):
                                                                          "reason": problem}, actor)
             return
         transition(application.pk, (Stage.PROVISIONING,), Stage.ACTIVE, event_kind="provisioning_activated",
-                   data={"request": str(request.public_id)}, actor_ref=actor)
+                   data={"request": str(request.public_id), "welcome": "sent_with_password" if with_password else "queued"},
+                   actor_ref=actor)
         core.set_status(request, "active")
-        enqueue_send(message, 0)  # the P2 sender sends it later, outside this transaction, with its own checks
+        if message is not None:
+            enqueue_send(message, 0)  # the P2 sender sends it later, outside this transaction, with its own checks
 
 
 def retry_activation(request_id: int, user, reason: str) -> None:

@@ -302,7 +302,7 @@ DATABASE_CONSTRAINTS = {
     "provisioning_attempt_outcome_valid",
     "provisioning_one_open_create",
     "setup_series_unique", "setup_one_live_per_request", "setup_token_unique", "setup_state_valid",  # 5B.2
-    "setup_invited_has_token", "setup_completed_consistent",
+    "setup_invited_has_token", "setup_completed_consistent", "setup_mode_valid",  # bgl.10
     "revocation_one_per_kind", "revocation_kind_valid", "revocation_state_valid", "revocation_exception_decided",  # 5B.3
     "withdrawal_token_unique", "withdrawal_one_live_per_application", "withdrawal_state_valid", "withdrawal_has_requester",
     "invitation_one_live_per_email_key", "invitation_expires_after_issue", "invitation_has_issuer",  # 9kg.43

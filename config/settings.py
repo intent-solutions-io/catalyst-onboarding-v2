@@ -286,6 +286,8 @@ CATALYST_ACTION_HANDLERS = {
     "provision_invite": "provisioning.credentials.SendSetupInvitation",
     "provision_setup_sweep": "provisioning.credentials.SweepSetup",
     "provision_activate": "provisioning.credentials.Activate",
+    # First-generation parity (034 row 39): the one-time-password welcome, run only when the credential mode selects it.
+    "provision_welcome_password": "provisioning.password_welcome.SendPasswordWelcome",
     # P5 5B.3 (023 sections 6 and 11.6)
     "provision_revoke": "provisioning.closure.RevokeAccess",
     "provision_withdraw_send": "provisioning.closure.SendWithdrawalLink",
@@ -304,6 +306,7 @@ CATALYST_PROVISIONING_METHOD = "api"  # P5-D-4: API-first against the fake; "che
 CATALYST_PROVISIONING_QUOTA_MB = 1024  # synthetic default (P5-D-2)
 CATALYST_PROVISIONING_SEND_LIMIT = 100  # synthetic default (P5-D-2)
 CATALYST_PROVISIONING_RESERVED_LOCAL_PARTS = []
+CATALYST_PROVISIONING_RESERVED_PREFIXES = []  # 034 row 38: a local part starting with one is reserved (owner's list)
 CATALYST_PROVISIONING_ATTEMPTS = 3
 CATALYST_PROVISIONING_RECONCILE_CHECKS = 3
 CATALYST_PROVISIONING_RECONCILE_GRACE_SECONDS = 30
@@ -313,6 +316,26 @@ CATALYST_SETUP_LINK_SECONDS = 86400
 CATALYST_SETUP_INVITE_MAX_SERIES = 3  # 023 11.2: then staff decide (OWNER: the production bound)
 CATALYST_SETUP_SET_ATTEMPTS = 3  # 023 11.11: definite password rejections before a new series
 CATALYST_SETUP_SET_TIMEOUT_SECONDS = 60  # a set_pending older than this is set_uncertain (023 11.5)
+# First-generation parity (034 rows 37 to 39; bead catalyst-v2-bgl.10). Every value is fixed in code, never read from
+# the environment; the live-host values are empty by default and refused outside the test and staging environments
+# (config.guards), where the adapter must still name a test fake. Nothing here activates a live mail host: the live
+# canary is a separate, owner-gated act.
+# The drop-in swap (owner, 2026-10-31: production uses the first-generation policy and the one-time-password welcome)
+# flips exactly NAMING_POLICY to "first_name", NAMING_HOST_CHECK to True and CREDENTIAL_MODE to "one_time_password",
+# with the live-host values below and the owner's RESERVED_LOCAL_PARTS and RESERVED_PREFIXES lists; the code defaults
+# stay P5's until that separate, owner-gated swap.
+CATALYST_PROVISIONING_NAMING_POLICY = "first_last"  # P5-D-1; "first_name" is the first-generation convention (row 38)
+CATALYST_PROVISIONING_NAMING_HOST_CHECK = False  # read each candidate at the host (mailboxes, forwarders) before reserving it
+CATALYST_PROVISIONING_CREDENTIAL_MODE = "set_your_own"  # P5-D-6, the default; "one_time_password" is the alternative (row 39)
+CATALYST_PROVISIONING_API_URL = ""  # the mail host's API origin: https on a .test host, or http on loopback, in test and staging
+CATALYST_PROVISIONING_API_SERVER = ""  # the X-Server header
+CATALYST_PROVISIONING_API_ACCOUNT = ""  # the X-Username header: one hosting user, never a reseller (023 11.1)
+CATALYST_PROVISIONING_API_KEY_FILE = ""  # an absolute path to the key's file: a reference, read by the adapter at call time only
+CATALYST_PROVISIONING_API_CONNECT_SECONDS = 5.0
+CATALYST_PROVISIONING_API_READ_SECONDS = 20.0
+CATALYST_PROVISIONING_IMAP_HOST = ""  # the login check of a one-time password: implicit TLS, certificate verified
+CATALYST_PROVISIONING_IMAP_PORT = 993
+CATALYST_PROVISIONING_IMAP_TIMEOUT_SECONDS = 20.0
 # The one seam through which the applications app opens a staff item for a `needs_staff_attention` event
 # (016 3.8; 2B.3). Like the handler mapping, a fixed dotted path in code, so `applications` never imports
 # `correspondence` (003 ADR-01) and the creation logic exists once.
