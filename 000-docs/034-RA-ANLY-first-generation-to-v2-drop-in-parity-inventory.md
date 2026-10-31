@@ -220,7 +220,7 @@ agreements on file, nothing signed, rated or declined, no model.
 | 7 | Duplicate from same address → stored revision, no second receipt | SAME in substance (one open application per address; repeat becomes a version; after verification flagged for staff) | no | — | `applications/services.py:7-19` |
 | 8 | Sanctions screen on residence/phone → owner hold, applicant never told | MISSING (no residence or phone collected) | O: yes | M | none |
 | 9 | Receipt email at once: `We received your request [CAT-XXXX-XXXX]`, reference, interest answer, "reply to withdraw" | DIFFERENT: `Confirm your email address`, an explicit confirm-by-POST link valid 24 h; the application does not proceed until clicked; no `CAT-` reference in the subject. v1 has the same idea behind `INTAKE_EMAIL_VERIFICATION_ENABLED`, which is OFF | A: yes (extra click, different words, no reference) | S to M (wording, or add a v1-style receipt) | `correspondence/wording.py:53-60`; `applications/views.py:129-160` |
-| 10 | Applicant mail From `Intent Solutions Agreements <agreements@intentsolutions.io>`, Reply-To the same, partner badge | DIFFERENT: From `CATALYST_FROM_EMAIL` (v2's own mailbox by decision), **no Reply-To**, no partner badge found | A: yes (sender address/name) | S config + reversed decision (`211.7.3`) | `config/settings.py:603`; `correspondence/messages.py:6` |
+| 10 | Applicant mail From "Intent Solutions Agreements" at the agreements address, Reply-To the same, partner badge | DIFFERENT: From `CATALYST_FROM_EMAIL` (v2's own mailbox by decision), **no Reply-To**, no partner badge found | A: yes (sender address/name) | S config + reversed decision (`211.7.3`) | `config/settings.py:603`; `correspondence/messages.py:6` |
 | 11 | Owner dossier email per request (`New applicant: <Name>, <country>`) | MISSING by decision (staff queue instead). Note: v1 has had it **switched off** since 2026-10-24 (decision 30 kill file) | O: no today | S-M | `029:113,158` |
 | 12 | Talent capture: credentials stored, `talent.verify` queued (verification flag OFF in v1) | DIFFERENT: credentials collected as claims; verification and full-text talent search not found | O: yes (no `talent search`) | M | `applications/forms.py:41-45` |
 
@@ -301,7 +301,7 @@ agreements on file, nothing signed, rated or declined, no model.
 
 ### 3.2 Sender address and mailbox
 
-- v1: SMTP From `agreements@intentsolutions.io`, display name "Intent Solutions Agreements", Reply-To the
+- v1: SMTP From the agreements address, display name "Intent Solutions Agreements", Reply-To the
   same, and the same mailbox is polled by IMAP (`v1:CLAUDE.md:151-158`, `v1:intake/receipt.py:122-124`). The
   same mailbox also carries the pilot bridge's sends and every existing member's replies.
 - v2: From `CATALYST_FROM_EMAIL`, no Reply-To, its own mailbox, and the v1 login is actively refused by digest
