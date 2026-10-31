@@ -10,6 +10,7 @@ from django.test import Client
 from django.urls import reverse
 
 from applications.links import CONFIRM_PATH, SETUP_PATH, WITHDRAW_PATH
+from tests import support
 
 FORM = reverse("applications:request_access")
 pytestmark = pytest.mark.django_db
@@ -28,7 +29,7 @@ def test_9kg_87_a_form_post_with_origin_null_is_what_the_csrf_check_refuses():
     page = client.get(FORM)
     token = page.cookies[settings.CSRF_COOKIE_NAME].value
     base = {"name": "Ada Example", "email": "ada@example.test", "reason": "Synthetic reason for access.",
-            "csrfmiddlewaretoken": token}
+            "csrfmiddlewaretoken": token, **support.INTAKE_ANSWERS}
     refused = client.post(FORM, base, HTTP_ORIGIN="null", secure=True)
     assert refused.status_code == 403
     accepted = client.post(FORM, base, HTTP_ORIGIN="https://testserver", secure=True)

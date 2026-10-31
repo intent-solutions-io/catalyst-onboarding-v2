@@ -50,7 +50,7 @@ REGISTERED = ["applications_application", "workflow_pendingaction", "workflow_au
 
 
 def intake(**fields):
-    response = Client().post(FORM, urlencode({**VALID, **fields}), content_type="application/x-www-form-urlencoded")
+    response = Client().post(FORM, urlencode({**VALID, **support.INTAKE_ANSWERS, **fields}), content_type="application/x-www-form-urlencoded")
     assert response.status_code == 302
     return Application.objects.get(email_key=fields.get("email", VALID["email"]))
 

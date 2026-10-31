@@ -48,7 +48,8 @@ REPEAT_REASON = "A synthetic repeat after verification."
 
 
 def submit(client=None, **fields):
-    return (client or Client()).post(FORM, urlencode({**VALID, **fields}), content_type="application/x-www-form-urlencoded")
+    return (client or Client()).post(FORM, urlencode({**VALID, **support.INTAKE_ANSWERS, **fields}),
+                                     content_type="application/x-www-form-urlencoded")
 
 
 def run_worker():
@@ -135,7 +136,7 @@ def test_s1_15_no_one_can_change_or_delete_versions_or_events_through_the_admin(
     assert 'name="versions-0-DELETE"' not in page and 'name="_save"' not in page
     version.refresh_from_db()
     event.refresh_from_db()
-    assert version.submitted_fields == VALID and event.kind == "submission_received"
+    assert version.submitted_fields == {**VALID, **support.STORED_ANSWERS} and event.kind == "submission_received"
 
 
 # --- TEST-S1-16: no token, address or name in any log record across the whole flow ---------------------------------

@@ -6,6 +6,17 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# bgl.3 (034 row 3): the first-generation answers the request form requires, as a browser posts them, for every test
+# that submits the form beside its own name, email and reason. The phone is a reserved fictional number (the UK's
+# drama range), the country a real code, the "none" ticks stand in for education and certification rows; a test about
+# rows posts them and clears the matching tick. STORED_ANSWERS is what the service records for INTAKE_ANSWERS.
+INTAKE_ANSWERS = {"residence_country": "GB", "phone_country": "GB", "phone": "+44 20 7946 0958", "interest_track": "cert_only",
+                  "age_attested": "on", "no_degree": "on", "no_certifications": "on", "verification_consent": "on"}
+STORED_ANSWERS = {"residence_country": "GB", "phone_e164": "+442079460958", "phone_country": "GB", "interest_track": "cert_only",
+                  "marketing_opt_in": False, "marketing_wording_version": "marketing-updates.v1", "age_attested": True,
+                  "education": [], "no_degree": True, "no_certifications": True, "verification_consent": True,
+                  "verification_wording_version": "credential-verification.v1"}
 ADMIN_PREFIX = "CATALYST_DB_ADMIN_"
 # 6hl.10: the test process never holds CATALYST_DB_ADMIN_* (compose.yaml and ci.yml give it to the provisioning
 # step alone). The superuser-refusal probes, and the tests that must act as the administrator, take the login from
