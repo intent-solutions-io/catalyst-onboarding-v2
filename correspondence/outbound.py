@@ -200,7 +200,7 @@ def approve_questions_by_policy(application_id: int, question_ids: list, *, body
         raise Refused("question_not_approvable")
     if application.stage != Stage.AWAITING_DECISION:
         raise Refused("application_not_awaiting_decision")
-    if StaffItem.objects.filter(question__in=questions, reason_code="restore_effect_unknown_send",
+    if StaffItem.objects.filter(question_id__in=[q.pk for q in questions], reason_code="restore_effect_unknown_send",
                                 status=StaffItem.Status.OPEN).exists():
         raise Refused("sent_after_backup_pending_review")
     recipient = verified_address(application)

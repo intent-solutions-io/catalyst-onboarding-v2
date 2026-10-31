@@ -18,8 +18,9 @@ generation's acting review did, rebuilt beside v2's human decision and behind an
 2. the two model calls (`clarify.draft`, then `clarify.check`), outside any transaction, under a `LeaseKeeper`, through
    `agent.run_checked`: the approval, the lease fence, the timeout and the limits apply to each. A failure of the
    model or the budget here is a self-caused hold: the action retries like a hold, bounded;
-3. the record transaction: the invocations complete; a `pass` approves the proposals the policy chose as one frozen
-   message with the checked body (`correspondence.outbound.approve_questions_by_policy`, authority `system_policy`) and
+3. the record transaction: the invocations complete; a `pass`, with the case still unpaused and the daily send cap
+   re-checked under the global lock (another worker may have spent the last send meanwhile), approves the proposals
+   the policy chose as one frozen message with the checked body (`correspondence.outbound.approve_questions_by_policy`, authority `system_policy`) and
    opens the round; anything else records the verdict and leaves the proposals on the screen, unsent.
 
 Nothing a model wrote leaves without the check and the activation (P3-D-5 holds everywhere else); a decline is never
@@ -81,7 +82,7 @@ def enqueue(run) -> PendingAction | None:
 def sends_today() -> int:
     """Clarifications the policy sent today (the database's UTC date), against CATALYST_ROUTINE_DAILY_SENDS."""
     return (ApprovedMessage.objects.filter(kind=ApprovedMessage.Kind.QUESTION, authority=ApprovedMessage.Authority.SYSTEM_POLICY)
-            .annotate(day=TruncDate("created_at")).filter(day=TruncDate(Now())).aggregate(n=Count("id"))["n"] or 0)
+            .annotate(day=TruncDate("authorized_at")).filter(day=TruncDate(Now())).aggregate(n=Count("id"))["n"] or 0)
 
 
 def facts(application, run, pack) -> policy.Facts:
@@ -146,6 +147,10 @@ class RoutineAdvance:
             return
         usage = {"draft": [draft.requests, draft.input_tokens + draft.output_tokens],
                  "check": [check.requests, check.input_tokens + check.output_tokens]}
+        # provenance on every post-call event, sent or not: the model, its provider and the two pinned prompt packs
+        provenance = {"usage": usage, "provider": draft.provider, "model_id": draft.model_id[:100],
+                      "packs": [uses["clarify"].name, uses["check"].name],
+                      "pack_sha256": [uses["clarify"].sha256, uses["check"].sha256]}
 
         def write():
             for attempt, (requests, tokens) in zip(uses["attempts"], (usage["draft"], usage["check"])):
@@ -153,18 +158,30 @@ class RoutineAdvance:
             verdict = check.output.verdict
             if verdict != "pass":
                 event(application, "routine_clarification_refused", {"run": str(run.public_id), "verdict": verdict,
-                                                                     "issues": list(check.output.issues), "usage": usage})
+                                                                     "issues": list(check.output.issues), **provenance})
+                return
+            # Re-checked at the send itself, under the same lock order as the pre-call (application, then the global
+            # advisory lock): another worker may have spent the day's last send, or a person paused the case, while the
+            # model was drafting. Either way nothing is sent and the proposals stay on the screen.
+            from .interpret import GLOBAL_LOCK  # imported where used, as in the pre-call
+
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(%s)", [GLOBAL_LOCK])
+            if AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists():
+                event(application, "routine_clarification_refused", {"run": str(run.public_id), "verdict": "automation_paused",
+                                                                     **provenance})
+                return
+            if sends_today() + 1 > settings.CATALYST_ROUTINE_DAILY_SENDS:
+                self._stop(application, run, "routine_send_cap_reached", "daily_send_cap")[2]()
                 return
             try:
                 message = outbound.approve_questions_by_policy(application.pk, [q.pk for q in proposals], body=draft.output.body, actor=ACTOR)
             except OutboundRefused as exc:
                 event(application, "routine_clarification_refused", {"run": str(run.public_id), "verdict": "send_refused",
-                                                                     "reason": str(exc), "usage": usage})
+                                                                     "reason": str(exc), **provenance})
                 return
             event(application, "routine_clarification_sent", {"run": str(run.public_id), "send_ref": str(message.send_ref),
-                                                              "questions": [str(q.public_id) for q in proposals], "usage": usage,
-                                                              "provider": draft.provider, "model_id": draft.model_id[:100],
-                                                              "packs": [uses["clarify"].name, uses["check"].name]})
+                                                              "questions": [str(q.public_id) for q in proposals], **provenance})
         ledger.finish(claim, self, status=Status.DONE, write=write)
 
     def precall(self, claim):
