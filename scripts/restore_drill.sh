@@ -62,7 +62,9 @@ apply() {  # apply <port> <email>: one synthetic applicant through the public fo
     -H "Referer: $url/request-access/" -H "Origin: $url" --data-urlencode "csrfmiddlewaretoken=$csrf" \
     --data-urlencode "form_token=$form_token" \
     --data-urlencode "name=Synthetic Applicant" --data-urlencode "email=$2" \
-    --data-urlencode "reason=Synthetic reason for access." "$url/request-access/"
+    --data-urlencode "reason=Synthetic reason for access." \
+    --data-urlencode 'residence_country=GB' --data-urlencode 'phone_country=GB' --data-urlencode 'phone=+44 20 7946 0958' --data-urlencode 'interest_track=cert_only' --data-urlencode 'age_attested=on' --data-urlencode 'no_degree=on' --data-urlencode 'no_certifications=on' --data-urlencode 'verification_consent=on' \
+    "$url/request-access/"  # bgl.3: the first-generation answers the form requires
 }
 offered() {  # offered <port> <path>: whether the confirmation page offers its form (the link still opens)
   curl -sk --resolve "catalyst.staging.test:$1:127.0.0.1" "https://catalyst.staging.test:$1$2" | grep -q 'name="version"'

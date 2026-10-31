@@ -244,6 +244,8 @@ def accept_submission(data) -> Outcome:
     email = data["email"]  # EmailField has already trimmed it
     key = email_key(email)
     fields = {"name": data["name"], "email": email, "reason": data["reason"]}
+    if data.get("answers"):
+        fields.update(data["answers"])  # 034 row 3: the first-generation answers, versioned with the rest (bgl.3)
     if data.get("claims"):
         fields["claims"] = data["claims"]  # 018 section 2: claims live in the same versioned submission
     with transaction.atomic():

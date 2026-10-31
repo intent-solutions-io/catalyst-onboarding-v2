@@ -493,7 +493,8 @@ def populated(a, monkeypatch, settings):
     app, run, _ = queued(a, monkeypatch, settings, valid(), work_note_1="A synthetic parser page",
                          work_url_2=url(a, "/sentinel-work-url"), experience="Synthetic experience.", confidential="on",
                          confidential_description="Synthetic private tooling work.", cred_name_1="Synthetic cert",
-                         cred_issuer_1="Synthetic issuer", cred_identifier_1="SENTINEL-CRED-ID")
+                         cred_issuer_1="Synthetic issuer", cred_identifier_1="SENTINEL-CRED-ID",
+                         no_certifications="")  # bgl.3: a credential row, so the "none" tick is cleared
     # A confirmed answer needs the P2 loop; its texts are supplied directly, and the real builder does the rest.
     monkeypatch.setattr(snapshot, "_answer_texts", lambda answers: [(["Which part did you write?"], ["satisfied"],
                                                                      "I wrote the synthetic tokenizer.")])

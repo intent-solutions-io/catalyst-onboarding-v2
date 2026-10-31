@@ -2068,6 +2068,21 @@ P6_SUPPORTING = {
         "test_db_roles::test_6hl10_the_probe_login_is_read_by_the_test_support_module_only",
         "test_db_roles::test_child_processes_do_not_receive_the_administrator_login",
     ],
+    # bgl.3 (034 rows 3 and 12): the first-generation form fields, stored with the submission, shown on the dossier and
+    # erased with it; every refusal a form error that records nothing.
+    "bgl.3 the request form collects the first-generation fields with their limits (parity track 034 row 3)": [
+        "test_intake_fields::test_parity_form_a_valid_submission_stores_every_answer",
+        "test_intake_fields::test_parity_form_the_none_ticks_stand_in_for_rows_and_keep_the_s1_shape",
+        "test_intake_fields::test_parity_form_none_ticks_versus_rows",
+        "test_intake_fields::test_parity_form_each_limit_is_refused_and_records_nothing",
+        "test_intake_fields::test_parity_form_the_row_counts_and_text_limits_are_the_first_generation_ones",
+        "test_intake_fields::test_parity_form_phone_numbers_are_normalised_to_e164",
+        "test_intake_fields::test_parity_form_unreadable_phone_numbers_are_refused_with_a_reason",
+        "test_intake_fields::test_parity_form_a_national_north_american_number_is_stored_international",
+        "test_intake_fields::test_parity_form_the_country_table_is_the_iso_3166_set_with_calling_codes",
+        "test_intake_fields::test_parity_form_the_dossier_shows_the_answers_of_each_version",
+        "test_intake_fields::test_parity_form_erasure_clears_the_answers_with_the_submission",
+    ],
 }
 
 # Cases with no pytest evidence of their own: shown only by a live script (026 section 16).

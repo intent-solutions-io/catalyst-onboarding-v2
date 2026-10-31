@@ -250,7 +250,8 @@ def test_m9_staff_attention_reads_open_items_and_resolving_clears_it(mailbox):
     from django.urls import reverse
 
     Client().post(reverse("applications:request_access"), urlencode({"name": "Ada Example", "email": "ada@example.test",
-                                                                     "reason": "A repeat after verification."}),
+                                                                     "reason": "A repeat after verification.",
+                                                                     **support.INTAKE_ANSWERS}),
                   content_type="application/x-www-form-urlencoded")
     [item] = StaffItem.objects.filter(reason_code="repeat_after_verification")
     assert item.application_id == mailbox.app.pk and item.dedupe_key.startswith("event:")

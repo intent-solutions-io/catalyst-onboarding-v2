@@ -106,7 +106,7 @@ def request_access(request):
                 throttle.enforce(request, ("intake-address", email_key(form.cleaned_data["email"]),
                                            settings.CATALYST_THROTTLE_INTAKE_PER_ADDRESS), issuance=True, unavailable=TRY_AGAIN)
                 try:
-                    services.accept_submission({**form.cleaned_data, "claims": form.claims()})
+                    services.accept_submission({**form.cleaned_data, "claims": form.claims(), "answers": form.answers()})
                 except services.NotInvited:
                     logger.info("intake refused: not_invited; nothing recorded")  # the reason code only, never the address
                 except DatabaseError as exc:

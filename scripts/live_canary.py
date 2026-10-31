@@ -320,6 +320,13 @@ def main() -> int:
                     page.locator("#id_name").fill("Live Canary")
                     page.locator("#id_email").fill(address)
                     page.locator("#id_reason").fill("Live canary check of the deployed service.")
+                    # bgl.3 (034 row 3): the first-generation answers the form requires; a reserved fictional number.
+                    page.locator("#id_residence_country").select_option("GB")
+                    page.locator("#id_phone_country").select_option("GB")
+                    page.locator("#id_phone").fill("+44 20 7946 0958")
+                    page.locator("#id_interest_track").select_option("undecided")
+                    for box in ("#id_no_degree", "#id_no_certifications", "#id_verification_consent", "#id_age_attested"):
+                        page.locator(box).check()
                     shot("filled")
                     page.wait_for_timeout(4000)  # bgl.2: the form refuses a submission under 3 s after rendering
                     page.get_by_role("button", name="Send request").click()

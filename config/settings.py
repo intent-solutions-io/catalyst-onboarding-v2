@@ -127,7 +127,7 @@ TEMPLATES = [
 # The form has 25 fields plus the CSRF token (the three S1 fields and the optional P3 claim fields, 018 section 2);
 # 128 KiB covers their longest percent-encoded values.
 DATA_UPLOAD_MAX_MEMORY_SIZE = 128 * 1024
-DATA_UPLOAD_MAX_NUMBER_FIELDS = 32
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 64  # the request form posts 45 fields with the 034 row 3 answers (bgl.3); was 32
 DATA_UPLOAD_MAX_NUMBER_FILES = 0  # the memory limit excludes file parts; no form here accepts a file
 WSGI_APPLICATION = "config.wsgi.application"
 
