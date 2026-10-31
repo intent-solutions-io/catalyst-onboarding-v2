@@ -51,6 +51,7 @@ from applications import notices
 from applications.links import verification_link
 from applications.models import OPEN_STAGES, Application, ApplicationEvent, ContactChallenge
 from applications.services import SEND_VERIFICATION, send_verification_key
+from config.mail import from_header, reply_to
 from workflow import ledger
 from workflow.models import AutomationPause, PendingAction
 
@@ -151,7 +152,9 @@ class SendVerification:
         message = EmailMessage(
             subject=mail.subject,
             body=mail.display,
+            from_email=from_header(),  # bgl.6: the configured sender's name and Reply-To (config.mail)
             to=[decision.recipient],
+            reply_to=reply_to(),
             headers={"Message-ID": message_id},
         )
         outbound = dict(

@@ -3,7 +3,8 @@
 - `message_id`: <c{send_ref hex}@{CATALYST_MAIL_DOMAIN}>, recomputable after any crash.
 - `verified_address`: the address the applicant proved control of (the challenge named by the adoption).
 - `build_email`: static headers from the frozen record only. The standard-library header policy refuses a CR
-  or LF in any header value, so no input can add a header (TEST-P2-38). No CC or BCC exists.
+  or LF in any header value, so no input can add a header (TEST-P2-38). No CC or BCC exists. The From header and
+  Reply-To are the configured sender's (config.mail, bgl.6), identical on every applicant mail.
 - `enqueue_file_copy`: queues the filing of a mailbox copy of an accepted send (016 A4); never for a
   secret-bearing message.
 """
@@ -15,6 +16,7 @@ from email.utils import formatdate
 from django.conf import settings
 from django.db import IntegrityError, transaction
 
+from config.mail import from_header, reply_to
 from workflow.models import PendingAction
 
 FILE_COPY = "file_copy"
@@ -33,7 +35,9 @@ def verified_address(application) -> str | None:
 
 def build_email(message, subject: str, body: str, extra_headers: dict | None = None) -> bytes:
     email = EmailMessage(policy=SMTP_POLICY)
-    email["From"] = settings.DEFAULT_FROM_EMAIL
+    email["From"] = from_header()
+    if reply_to():
+        email["Reply-To"] = ", ".join(reply_to())
     email["To"] = message.recipient
     email["Subject"] = subject
     email["Message-ID"] = message_id(message.send_ref)

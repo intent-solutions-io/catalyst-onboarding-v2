@@ -11,6 +11,10 @@ Synthetic only.
   X-Catalyst-Filed-Copy. It searches before APPEND (not exactly-once), retries the APPEND only, and never
   sends SMTP. A filed copy is never evidence of acceptance.
 - `bootstrap_mailbox` and `recover_mailbox` (B0): explicit start modes; recovery never skips.
+- `start_cursor` (bgl.6, the swap): sets the cursor at a named UIDVALIDITY and UID without logging in, so v2 takes
+  over the first generation's mailbox where its poller stopped instead of reprocessing the inbox. Refused when a
+  cursor or collected locations exist, unless the operator overrides. A cursor it set must see that UIDVALIDITY on its
+  first pass or it blocks; under CATALYST_MAIL_TAKEOVER, collection refuses any cursor it did not set.
 
 Collection never marks a question answered and never cancels a reminder (J-07).
 """
@@ -24,6 +28,7 @@ from django.db import DataError, IntegrityError, InterfaceError, OperationalErro
 from django.db.models.functions import Now
 
 from applications.models import TERMINAL_STAGES, Application
+from config import guards
 from workflow import ledger
 from workflow.models import PendingAction
 
@@ -52,7 +57,11 @@ COLLECT = "collect"
 PROCESS_REPLY = "process_reply"
 DECLINE_NOT_NOTIFIED = "decline_not_notified"  # oc4.11: the decline notice bounced permanently
 CURSOR_SUBJECT = "mailbox_cursor"
-BLOCKING = ("auth_failed", "tls_refused", "peer_refused", "not_configured")
+# bgl.6: the two takeover refusals block like a configuration fault: an operator acts (`catalyst_mail_cursor_start`).
+TAKEOVER_NOT_STARTED = "takeover_cursor_not_set"
+TAKEOVER_VALIDITY = "takeover_uidvalidity_mismatch"
+TAKEOVER_START = "takeover"  # the cursor's start_mode when `start_cursor` set it
+BLOCKING = ("auth_failed", "tls_refused", "peer_refused", "not_configured", TAKEOVER_NOT_STARTED, TAKEOVER_VALIDITY)
 ANSWERABLE = (Question.Status.OPEN, Question.Status.PARTIALLY_ANSWERED, Question.Status.REPLY_PENDING)
 
 
@@ -126,13 +135,23 @@ def _associate(message: InboundMessage, derived) -> None:
     classification = "bounce" if derived.is_bounce else ("automatic" if association.is_automatic(derived.auto_markers) else "human")
     InboundMessage.objects.filter(pk=message.pk).update(classification=classification)
     if approved is None:
-        _exception(message, "unmatched")
-        return
-    application = Application.objects.select_for_update(of=("self",)).get(pk=approved.application_id)
-    questions = list(Question.objects.select_for_update(of=("self",))
-                     .filter(message_links__approved_message=approved).order_by("id"))
-    InboundMessage.objects.filter(pk=message.pk).update(application_id=application.pk, approved_message_id=approved.pk)
-    if classification == "bounce" and approved.kind == ApprovedMessage.Kind.DECLINE and not derived.dsn_status.startswith("4"):
+        # bgl.6: a reply to a first-generation thread (an imported case) associates through the optional resolver; it
+        # links no v2 question and is otherwise processed like any reply to that application, trust rules unchanged.
+        foreign = association.foreign_application_id(derived)
+        application = (Application.objects.select_for_update(of=("self",)).filter(pk=foreign).first()
+                       if foreign is not None else None)
+        if application is None:
+            _exception(message, "unmatched")
+            return
+        questions = []
+        InboundMessage.objects.filter(pk=message.pk).update(application_id=application.pk)
+    else:
+        application = Application.objects.select_for_update(of=("self",)).get(pk=approved.application_id)
+        questions = list(Question.objects.select_for_update(of=("self",))
+                         .filter(message_links__approved_message=approved).order_by("id"))
+        InboundMessage.objects.filter(pk=message.pk).update(application_id=application.pk, approved_message_id=approved.pk)
+    if (approved is not None and classification == "bounce" and approved.kind == ApprovedMessage.Kind.DECLINE
+            and not derived.dsn_status.startswith("4")):
         # oc4.11: a declined application is terminal, so reply processing never runs for it; a permanent bounce of the
         # decline notice would otherwise surface only as "a reply arrived for a closed application". It says first
         # that the applicant was not notified. Only a delayed (4.x.x) report is not a failure and gets only the
@@ -303,6 +322,10 @@ class Collect:
                 self._blocked_or_backoff(claim, cursor, classify(exc).code)
                 return
             target = uidnext - 1
+            refusal = takeover_refusal(cursor, validity)
+            if refusal:
+                self._blocked_or_backoff(claim, cursor, refusal)  # nothing read: never a resync of the whole inbox
+                return
             if cursor.uidvalidity is None or cursor.uidvalidity != validity:
                 self._new_validity(claim, cursor, validity)
                 cursor.refresh_from_db()
@@ -388,6 +411,53 @@ def bootstrap_mailbox(start_mode: str, start_uid: int | None = None) -> MailboxC
             # Messages already in the mailbox are explicitly out of scope, and that is recorded (016 B0).
             open_item("mailbox_history_out_of_scope", f"cursor:{cursor.public_id}:bootstrap")
         enqueue_pass(cursor, 1)
+    return cursor
+
+
+def takeover_refusal(cursor, validity: int) -> str:
+    """bgl.6: under CATALYST_MAIL_TAKEOVER the mailbox is the first generation's, so a cursor from v2's own mailbox (or
+    a bootstrap) would meet a new UIDVALIDITY and resynchronize from UID 1, reprocessing every message ever received:
+    collection refuses any cursor `start_cursor` did not set. A cursor it set must find the UIDVALIDITY it was given
+    until its first completed pass (a mistyped value, or a pass against the wrong mailbox, blocks instead of resyncing);
+    after that the ordinary rules apply (016 4.1)."""
+    if guards.takeover(settings) and cursor.start_mode != TAKEOVER_START:
+        return TAKEOVER_NOT_STARTED
+    if cursor.start_mode == TAKEOVER_START and cursor.complete_through_at is None and cursor.uidvalidity != validity:
+        return TAKEOVER_VALIDITY
+    return ""
+
+
+def start_cursor(from_uid: int, uidvalidity: int, override: bool = False) -> MailboxCursor:
+    """bgl.6 (the swap): the configured mailbox's cursor starts at `from_uid` under `uidvalidity` (the first generation's
+    own cursor: its UIDVALIDITY and its last UID plus one), recorded with start mode `takeover`. Nothing connects to the
+    mailbox: the command runs before the deploy that switches the login. Messages below `from_uid` are out of scope,
+    and that is recorded for staff (016 B0).
+
+    Refused when a cursor or collected locations exist for the mailbox, unless `override`: then the existing cursor is
+    moved to the new position (a new epoch, the watermark and any block cleared). Refused even then when a location is
+    already known at or after `from_uid` under that UIDVALIDITY (walking back over collected mail is `recover`)."""
+    mailbox_ref, folder = settings.CATALYST_MAIL_MAILBOX_REF, settings.CATALYST_MAIL_COLLECT_FOLDER
+    if not isinstance(from_uid, int) or not isinstance(uidvalidity, int) or from_uid < 1 or uidvalidity < 1:
+        raise Refused("from_uid_and_uidvalidity_must_be_positive")
+    with transaction.atomic():
+        cursor = MailboxCursor.objects.select_for_update(of=("self",)).filter(mailbox_ref=mailbox_ref, folder=folder).first()
+        if (cursor is not None or _locations_exist(mailbox_ref, folder)) and not override:
+            raise Refused("cursor_already_set_use_override")
+        if InboundMessageLocation.objects.filter(mailbox_ref=mailbox_ref, folder=folder, uidvalidity=uidvalidity,
+                                                 uid__gte=from_uid).exists():
+            raise Refused("locations_known_at_or_after_from_uid_use_recover")
+        position = dict(uidvalidity=uidvalidity, last_uid=from_uid - 1, start_mode=TAKEOVER_START, state=State.OK,
+                        complete_through_uid=None, complete_through_at=None, blocked_reason="", last_error_code="",
+                        consecutive_failures=0)
+        if cursor is None:
+            cursor = MailboxCursor.objects.create(mailbox_ref=mailbox_ref, folder=folder, **position)
+        else:
+            MailboxCursor.objects.filter(pk=cursor.pk).update(epoch=cursor.epoch + 1, **position)
+        open_item("mailbox_history_out_of_scope", f"cursor:{cursor.public_id}:start:{uidvalidity}:{from_uid}")
+        if not PendingAction.objects.filter(kind=COLLECT, subject_id=cursor.public_id,
+                                            status__in=(Status.QUEUED, Status.RUNNING)).exists():
+            enqueue_pass(cursor, PendingAction.objects.filter(kind=COLLECT, subject_id=cursor.public_id).count() + 1)
+    cursor.refresh_from_db()
     return cursor
 
 

@@ -3,6 +3,11 @@
 - C0: automatic messages and bounces are recognized first, from headers alone (RFC 3834 markers, list
   headers, delivery-status reports). A bounce is matched only through the original Message-ID it embeds.
 - C1: association is an exact match of In-Reply-To, then References, against our own Message-IDs.
+- C1 for first-generation threads (bgl.6, 034 section 3.2 (c)): when none of our own Message-IDs matched, an
+  optional resolver (CATALYST_FOREIGN_THREAD_RESOLVER: the first-generation import app's module when installed) is
+  asked for the application of the Message-IDs v2 did not issue, then (never for a bounce, C0) of a `[CAT-...]`
+  subject reference. A match only associates; C2 and C3 below decide trust exactly as for any reply. No resolver:
+  today's behaviour (the message is unmatched, for staff).
 - C2: `From` must hold exactly one mailbox equal to the verified address (case-folded ASCII or IDNA form);
   any address that Unicode normalization would change counts as a mismatch, so a look-alike never matches.
 - C3: only the topmost `Authentication-Results` header whose authserv-id equals the configured trusted id is
@@ -14,6 +19,7 @@ No decision here changes the verified identity, the recipient, adopted evidence 
 import re
 import unicodedata
 import uuid
+from importlib import import_module
 
 from django.conf import settings
 
@@ -53,6 +59,37 @@ def candidate_refs(derived) -> list:
         if ref is not None and ref not in refs:
             refs.append(ref)
     return refs
+
+
+def foreign_message_ids(derived) -> list[str]:
+    """The Message-IDs a reply points at that v2 did not issue, in C1 order (In-Reply-To, then References newest
+    first; for a bounce, the ones it embeds), each once."""
+    ids = derived.embedded_message_ids if derived.is_bounce else [*derived.in_reply_to, *reversed(derived.references)]
+    found = []
+    for message_id in ids:
+        if message_id and send_ref_of(message_id) is None and message_id not in found:
+            found.append(message_id)
+    return found
+
+
+def foreign_resolver():
+    """The configured resolver module, or None. Loaded by the code-fixed path only (config.guards.dispatch_problems),
+    so the first-generation app is never imported where it is not installed."""
+    path = getattr(settings, "CATALYST_FOREIGN_THREAD_RESOLVER", "")
+    return import_module(path) if path else None
+
+
+def foreign_application_id(derived) -> int | None:
+    """The application a reply to a first-generation thread belongs to, or None (no resolver, no match, or an
+    ambiguous one: the resolver answers None when its match names more than one application)."""
+    resolver = foreign_resolver()
+    if resolver is None:
+        return None
+    ids = foreign_message_ids(derived)
+    found = resolver.application_for_message_ids(ids) if ids else None
+    if found is None and not derived.is_bounce and derived.subject:
+        found = resolver.application_for_subject(derived.subject)
+    return found
 
 
 def _ascii_form(address: str) -> str | None:
