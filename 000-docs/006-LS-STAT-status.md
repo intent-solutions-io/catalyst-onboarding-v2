@@ -23,7 +23,7 @@
 | Public URLs, open-intake setting, bot checks and first-generation form fields | Merged: PR #148 (`77faf17`) and #151 (`61e48d1`) | Learn is not switched. Candidate `825353b` fixes trusted-proxy client identity; exact deployment proxy trust and a live check remain in `bgl.20`. |
 | CAT reference and receipt before confirmation | In development: `bgl.5`, local `feat/parity-reference-receipt` at `361e9b5` | Not in the integration candidate at this snapshot. |
 | Residence/phone screening and talent search | Open: `bgl.4`, `bgl.15`; no corresponding implementation found in the integration candidate | Do not describe them as delivered parity. GitHub research (`bgl.13`) is explicitly deferred by the owner's instruction, not a launch blocker. |
-| Model review, routine advance and clarification | In development: PR #149, included in draft integration PR #161 | Candidate production admission exists behind a pinned profile (`bgl.22`); deployed activation remains off. Production cumulative usage is uncapped by default, with shared provider pacing. An approved production rubric, model-use records and provider proof remain required. |
+| Model review, routine advance and clarification | In development: PR #149, included in draft integration PR #161 | Candidate production admission exists behind a pinned profile (`bgl.22`); deployed activation remains off. Production token usage is uncapped, with shared request-rate pacing. An approved production rubric, model-use records and provider proof remain required. |
 | NDA then User Agreement, service-sent links, details, company countersign and automatic release | In development: PRs #150 and #155, included in the integration candidate | Distribution remains `provider`, countersigning `manual`, release `owner`; live signing/custody prerequisites and canary `9kg.31.2` remain separate. |
 | Mailbox creation, first-name naming and one-time-password welcome | In development: PR #152, included in the integration candidate | The candidate admits the specified production adapter through the pinned profile; the deployed adapter/domain are empty and canary `9kg.31.3` remains open. |
 | Business-day reminders, lapse/reopen, sender/Reply-To, HTML wording and Twenty | In development: PRs #154, #156, #157 and #158, included in the integration candidate | Owner-approved wording must be loaded; mailbox polling has one owner; Twenty remains off in production; the candidate has an opt-in production boundary. |
@@ -41,10 +41,13 @@
   The subsequent full CI run `41246997416` failed: 26 failures, 2,233 passes and 375 errors. Its first failure
   compared an obsolete migration baseline; failure cleanup left the schema reversed and caused cascading errors.
   Two independent failures concerned fixture-name coverage and the notice-source import boundary. The repairs
-  passed 95 focused checks, including erasure reversal/reapply and legacy import. The next full run is still
-  required; `bgl.21` tracks it, and the failed run is not release evidence. No successful complete integration run is claimed here.
-- Production-configuration checks passed 38 tests. Final provider request/token pacing, payload-bound,
-  repair-call and live-safety checks passed 42 tests; configured account limits and live canaries remain deployment prerequisites.
+  passed 95 focused checks, including erasure reversal/reapply and legacy import. Full CI `41250209345` then
+  passed 2,270 tests with four failures in existing test registries and the provider import check. Those checks
+  are corrected in the current update; passing full CI on the final head is still required (`bgl.21`).
+- Production-configuration checks passed 38 tests. The earlier request/token pacing revision passed 42 focused
+  checks. The owner subsequently removed all local token limits. Request-rate pacing and provider Retry-After
+  remain. The request-rate-only update passed 233 focused checks, including the four prior CI failures.
+  The account RPM allocation and live canaries remain deployment prerequisites.
   See `deploy/production/README.md` for the profile and shared-credential rate-allocation constraint.
 - GitHub readback confirms an active `main` ruleset: PRs, linear history and both required CI checks, with zero
   required approving reviews. Older statements that `main` has no protection are historical (`032` section 1.8).

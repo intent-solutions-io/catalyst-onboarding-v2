@@ -254,7 +254,7 @@ class RunAssessment:
             return (Status.DONE, "fields_not_approved", False, lambda: (
                 _finish_run(run, Run.REFUSED, error_code="fields_not_approved"),
                 _staff(application, "assessment_failed", run)), None), None, None
-        delay = rate_limits.reserve(REQUESTS_PER_ATTEMPT, agent.attempt_tokens(),
+        delay = rate_limits.reserve(REQUESTS_PER_ATTEMPT,
                                     REQUESTS_PER_ATTEMPT * settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS, commit=False)
         if delay:
             return (Status.QUEUED, "provider_rate_limited", True, None, timedelta(seconds=delay)), None, None
@@ -280,7 +280,7 @@ class RunAssessment:
         # A call whose usage is unknown (failed, invalid, abandoned) counts at its full reservation.
         used = invocations.filter(application=application).aggregate(
             t=Sum(Coalesce("used_tokens", "reserved_tokens")))["t"] or 0
-        if exceeds(used + agent.attempt_tokens(), settings.CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION):
+        if agent.token_limits_enabled() and exceeds(used + agent.attempt_tokens(), settings.CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION):
             return "application_token_budget"
         from .interpret import daily_requests_used
 

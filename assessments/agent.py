@@ -4,16 +4,17 @@ Live model use is refused in three layers (018 5.5): `pydantic_ai.models.ALLOW_M
 this module is imported, which is the only way any code reaches a model (it costs about 2 s to import, so it is not
 done in every process's `ready()`); `build_model` returns a test model only when `CATALYST_ASSESSMENT_MODEL == "test"`
 in a synthetic environment, and reaches the live branch (`assessments.live`, parity track bgl.12) only when the live
-activation is on in a synthetic environment, the setting names a live model, the owner's recorded approval of exactly
+activation is on in a synthetic environment or the pinned production profile, the setting names a live model, the owner's recorded approval of exactly
 this use stands, the client is configured and the worker entry point has switched the request flag on; and
-`config.guards.assessment_problems` refuses any live value, base URL, key or activation outside `test` and `staging`.
+`config.guards.assessment_problems` refuses live settings outside those explicit boundaries.
 At the default configuration no live branch is reachable anywhere (D-53, "no model"). Agent instrumentation is never
 enabled.
 
 One attempt = at most 2 model requests (the call and one repair, `retries=1`): an output that fails
 `schema.problems` raises `ModelRetry` once, then `UnexpectedModelBehavior` ends the attempt as invalid output.
 SDK and transport retries do not exist here (the live client is built with zero retries); the ledger's attempt bound
-is the only other retry layer, so the requests per snapshot are bounded by 2 x the attempt bound (018 6).
+is the only other retry layer. Production has no local input/output/cumulative token cap; provider request-rate
+pacing and Retry-After apply to each actual request, including repairs.
 
 oc4.9, the live-call protections (018 section 21), all in the one checked-run path the assessment, the reply
 interpreter and the clarification draft and check share:
@@ -39,7 +40,6 @@ from dataclasses import dataclass
 
 from django.conf import settings
 from django.db import connections
-from pydantic_core import to_json
 from pydantic_ai import Agent, ModelRetry, UsageLimits
 from pydantic_ai import models as _models
 from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
@@ -91,8 +91,8 @@ class Outcome:
     output_mode: str = "tool"  # the default output mode for a pydantic output type
 
 
-# Bounds a live model would also need (018 6); passed on every run so they are already exercised. The timeout is
-# filled from CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS on every call (oc4.9).
+# Synthetic token-budget fixture (018 6). model_settings() omits the token cap in production.
+# The finite request timeout is added on every call, independently of token usage.
 MODEL_SETTINGS = {"max_tokens": 4000, "temperature": 0.0}
 
 
@@ -147,8 +147,7 @@ class _Guarded(WrapperModel):
                 raise approval.NotApproved("approval_check_timeout") from None
         if rate_limits.enabled():
             try:
-                tokens = _request_tokens(messages, model_settings, model_request_parameters)
-                delay = await asyncio.wait_for(asyncio.to_thread(_request_capacity, self.timeout, tokens), timeout=self.timeout)
+                delay = await asyncio.wait_for(asyncio.to_thread(_request_capacity, self.timeout), timeout=self.timeout)
             except TimeoutError:
                 raise ProviderError("rate_store_timeout", retry_after=60) from None
             if delay:
@@ -163,29 +162,30 @@ class _Guarded(WrapperModel):
         raise ModelUnavailable("streaming_not_allowed")
 
 
-def _request_tokens(messages, model_settings, parameters):
-    """Conservative text/tool-schema input bound plus output allowance, before dispatch.
-
-    Byte length deliberately overcounts text tokens; the extra 4096 covers provider
-    framing. This path sends text and tool schemas only. SDK usage checks can run
-    after a response, so their configured input limit is not a rate reservation.
-    """
+def _request_capacity(timeout):
+    """Reserve one actual request, including repairs, in the shared RPM bucket."""
     try:
-        size = len(to_json({"messages": messages, "parameters": parameters}))
-    except (TypeError, ValueError):
-        raise ModelUnavailable("rate_input_unserializable") from None
-    return size + 4096 + int((model_settings or MODEL_SETTINGS).get("max_tokens", MODEL_SETTINGS["max_tokens"]))
-
-
-def _request_capacity(timeout, tokens):
-    """Reserve one actual request, including repairs, using the same shared provider bucket."""
-    try:
-        try:
-            return rate_limits.reserve(1, tokens, timeout)
-        except ValueError:
-            raise ModelUnavailable("rate_capacity_below_request") from None
+        return rate_limits.reserve(1, timeout)
     finally:
         connections.close_all()
+
+
+def token_limits_enabled():
+    """Synthetic budget probes remain available; production has no local token caps."""
+    return settings.CATALYST_ENV != "production"
+
+
+def model_settings():
+    return dict(MODEL_SETTINGS) if token_limits_enabled() else {"temperature": MODEL_SETTINGS["temperature"]}
+
+
+def usage_limits():
+    limits = UsageLimits(request_limit=approval.REQUESTS_PER_ATTEMPT, tool_calls_limit=approval.REQUESTS_PER_ATTEMPT)
+    if token_limits_enabled():
+        limits.per_request_input_tokens_limit = settings.CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST
+        limits.output_tokens_limit = settings.CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT
+        limits.total_tokens_limit = attempt_tokens()
+    return limits
 
 
 def _recheck(use):
@@ -206,7 +206,12 @@ def _usage(result):
 
 
 def attempt_tokens() -> int:
-    """The most one attempt may spend: two requests' input plus the attempt's output (018 6)."""
+    """Synthetic reservation only; zero means no reservation in uncapped production.
+
+    Actual returned usage is still recorded; unknown usage remains unknown, not billed as zero.
+    """
+    if not token_limits_enabled():
+        return 0
     return 2 * settings.CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST + settings.CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT
 
 
@@ -247,12 +252,9 @@ def run_checked(system: str, prompt: str, output_type, check, use: "approval.Use
             raise ModelRetry("The output broke these rules; fix them and answer again: " + ", ".join(found))
         return output
 
-    limits = UsageLimits(request_limit=approval.REQUESTS_PER_ATTEMPT, tool_calls_limit=approval.REQUESTS_PER_ATTEMPT,
-                         per_request_input_tokens_limit=settings.CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST,
-                         output_tokens_limit=settings.CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT,
-                         total_tokens_limit=attempt_tokens())
+    limits = usage_limits()
     try:
-        result = agent.run_sync(prompt, usage_limits=limits, model_settings={**MODEL_SETTINGS, "timeout": timeout})
+        result = agent.run_sync(prompt, usage_limits=limits, model_settings={**model_settings(), "timeout": timeout})
     except ledger.LeaseLost:
         raise
     except approval.NotApproved as exc:

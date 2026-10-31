@@ -1,4 +1,4 @@
-"""Shared MiniMax request/token pacing, independent of cumulative usage quotas.
+"""Shared MiniMax request-rate pacing, independent of cumulative usage quotas.
 
 Uses the existing non-personal throttle store. Reservations are made at each request boundary and remain counted through the
 request timeout plus a minute. Preflight capacity checks do not reserve or call a provider.
@@ -17,7 +17,6 @@ from django.db.models import Sum
 
 LOCK = 0x4341544D
 REQUEST_PREFIX = hashlib.sha256(b'minimax:requests').hexdigest()[:16]
-TOKEN_PREFIX = hashlib.sha256(b'minimax:tokens').hexdigest()[:16]
 COOLDOWN = hashlib.sha256(b'minimax:cooldown').hexdigest()
 
 
@@ -31,15 +30,14 @@ def _now():
         return cursor.fetchone()[0]
 
 
-def reserve(requests: int, tokens: int, seconds: float, *, commit=True) -> int:
+def reserve(requests: int, seconds: float, *, commit=True) -> int:
     """Zero reserves capacity; otherwise wait this many seconds without calling the provider."""
     if not enabled():
         return 0
     from accounts.models import RequestThrottle
 
     rpm = settings.CATALYST_MINIMAX_REQUESTS_PER_MINUTE
-    tpm = settings.CATALYST_MINIMAX_TOKENS_PER_MINUTE
-    if rpm < requests or tpm < tokens:
+    if rpm < requests:
         raise ValueError('minimax_rate_capacity_below_one_attempt')
     with transaction.atomic():
         with connection.cursor() as cursor:
@@ -48,18 +46,14 @@ def reserve(requests: int, tokens: int, seconds: float, *, commit=True) -> int:
         cooldown = RequestThrottle.objects.filter(key=COOLDOWN, window_start__gt=now).first()
         if cooldown:
             return max(1, math.ceil((cooldown.window_start - now).total_seconds()))
-        waits = []
-        for prefix, amount, limit in ((REQUEST_PREFIX, requests, rpm), (TOKEN_PREFIX, tokens, tpm)):
-            rows = RequestThrottle.objects.filter(key__startswith=prefix, window_start__gt=now)
-            if (rows.aggregate(n=Sum('count'))['n'] or 0) + amount > limit:
-                waits.append(max(1, math.ceil((rows.order_by('window_start').first().window_start - now).total_seconds())))
-        if waits:
-            return max(waits)
+        rows = RequestThrottle.objects.filter(key__startswith=REQUEST_PREFIX, window_start__gt=now)
+        if (rows.aggregate(n=Sum('count'))['n'] or 0) + requests > rpm:
+            return max(1, math.ceil((rows.order_by('window_start').first().window_start - now).total_seconds()))
         if not commit:
             return 0
         until = now + timedelta(seconds=60 + seconds)
-        for prefix, amount in ((REQUEST_PREFIX, requests), (TOKEN_PREFIX, tokens)):
-            RequestThrottle.objects.create(key=prefix + hashlib.sha256(uuid.uuid4().bytes).hexdigest()[16:], count=amount, window_start=until)
+        RequestThrottle.objects.create(key=REQUEST_PREFIX + hashlib.sha256(uuid.uuid4().bytes).hexdigest()[16:],
+                                       count=requests, window_start=until)
     return 0
 
 

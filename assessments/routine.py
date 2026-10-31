@@ -242,7 +242,7 @@ class RoutineAdvance:
                          .exclude(status=Question.Status.WITHDRAWN).order_by("id")[:len(verdict.questions)])
         if not proposals:
             return (Status.DONE, "no_proposal_to_send", None, None), None
-        delay = rate_limits.reserve(REQUESTS, 2 * agent.attempt_tokens(),
+        delay = rate_limits.reserve(REQUESTS,
                                     REQUESTS * settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS, commit=False)
         if delay:
             return (Status.QUEUED, "provider_rate_limited", None, timedelta(seconds=delay)), None

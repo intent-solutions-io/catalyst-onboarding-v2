@@ -61,7 +61,7 @@ BUDGETS = (
     "CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION", "CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST",
     "CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT", "CATALYST_ASSESSMENT_CONCURRENT_RUNS",
     "CATALYST_ASSESSMENT_DAILY_REQUESTS", "CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION",
-    "CATALYST_MINIMAX_REQUESTS_PER_MINUTE", "CATALYST_MINIMAX_TOKENS_PER_MINUTE",
+    "CATALYST_MINIMAX_REQUESTS_PER_MINUTE",
 )
 _PROVIDER = re.compile(r"^[a-z][a-z0-9-]{1,39}$")
 _MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
@@ -121,7 +121,7 @@ def builder() -> dict:
                      "interpret.REPLY_CHARS": interpret.REPLY_CHARS,
                      "interpret.MIN_QUOTE_CHARS": interpret.MIN_QUOTE_CHARS,
                      "schema.MIN_QUOTE_CHARS": schema.MIN_QUOTE_CHARS},
-            "model_settings": dict(sorted(agent.MODEL_SETTINGS.items())),
+            "model_settings": dict(sorted(agent.model_settings().items())),
             "rounds": settings.CATALYST_ASSESSMENT_ROUNDS,
             "request_limit": REQUESTS_PER_ATTEMPT, "tool_calls_limit": REQUESTS_PER_ATTEMPT}
 

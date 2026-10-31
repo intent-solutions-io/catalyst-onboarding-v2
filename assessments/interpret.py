@@ -166,7 +166,7 @@ class Interpreter:
         return ""
 
     def rate_wait(self) -> int:
-        return rate_limits.reserve(self.requests_per_attempt, agent.attempt_tokens(),
+        return rate_limits.reserve(self.requests_per_attempt,
                                    self.requests_per_attempt * settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS, commit=False)
 
     def reserved(self) -> None:

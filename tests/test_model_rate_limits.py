@@ -15,18 +15,16 @@ def limits(settings):
     settings.CATALYST_ENV = 'production'
     settings.CATALYST_ASSESSMENT_MODEL = 'minimax:synthetic'
     settings.CATALYST_MINIMAX_REQUESTS_PER_MINUTE = 4
-    settings.CATALYST_MINIMAX_TOKENS_PER_MINUTE = 100
 
 
 @pytest.mark.django_db
-def test_requests_and_tokens_share_capacity_until_attempt_and_window_expire(limits):
-    assert rate_limits.reserve(2, 40, 5) == 0
-    assert rate_limits.reserve(2, 40, 5) == 0
-    assert rate_limits.reserve(1, 1, 5) >= 60
-    assert RequestThrottle.objects.count() == 4
+def test_requests_share_capacity_until_request_and_window_expire(limits):
+    assert rate_limits.reserve(2, 5) == 0
+    assert rate_limits.reserve(2, 5) == 0
+    assert rate_limits.reserve(1, 5) >= 60
+    assert RequestThrottle.objects.count() == 2
     RequestThrottle.objects.update(window_start=Now() - timedelta(seconds=1))
-    assert rate_limits.reserve(1, 90, 5) == 0
-    assert rate_limits.reserve(1, 11, 5) >= 60  # token pressure despite request capacity
+    assert rate_limits.reserve(1, 5) == 0
 
 
 def error(status=429, retry='120', body=None):
@@ -41,7 +39,7 @@ def error(status=429, retry='120', body=None):
 def test_provider_retry_after_blocks_other_jobs_and_a_shorter_error_cannot_shorten_it(limits):
     assert rate_limits.record_throttle(error(retry='180')) == 180
     assert rate_limits.record_throttle(error(retry='70')) == 70
-    assert rate_limits.reserve(1, 1, 1) >= 175
+    assert rate_limits.reserve(1, 1) >= 175
     assert RequestThrottle.objects.count() == 1
 
 
@@ -57,7 +55,7 @@ def test_retry_after_and_minimax_body_codes_are_recognized_without_logging_paylo
 def test_an_unconfigured_limit_refuses_without_reserving_or_calling(limits, settings):
     settings.CATALYST_MINIMAX_REQUESTS_PER_MINUTE = 0
     with pytest.raises(ValueError, match='rate_capacity'):
-        rate_limits.reserve(1, 1, 1)
+        rate_limits.reserve(1, 1)
     assert RequestThrottle.objects.count() == 0
     assert connection.in_atomic_block  # the test transaction remains usable
 
@@ -79,12 +77,11 @@ def test_each_actual_request_checks_capacity_including_a_repair(privileged_reset
     from assessments import agent
 
     settings.CATALYST_MINIMAX_REQUESTS_PER_MINUTE = 1
-    settings.CATALYST_MINIMAX_TOKENS_PER_MINUTE = 50000
     wrapped = TestModel()
     request = AsyncMock(return_value='synthetic response')
     monkeypatch.setattr(wrapped, 'request', request)
     guarded = agent._Guarded(wrapped, fence=None, check=None, after=None, timeout=1)
-    assert rate_limits.reserve(1, 1, 1, commit=False) == 0
+    assert rate_limits.reserve(1, 1, commit=False) == 0
     assert RequestThrottle.objects.count() == 0  # a preflight check does not spend capacity
     assert asyncio.run(guarded.request([], None, None)) == 'synthetic response'
     with pytest.raises(agent.ProviderError) as refusal:
@@ -100,28 +97,30 @@ def test_throttle_cleanup_preserves_a_future_provider_cooldown(limits):
     assert rate_limits.record_throttle(error(retry='172800')) == 172800
     RequestThrottle.objects.update(updated_at=Now() - timedelta(days=2))
     throttle.sweep()
-    assert rate_limits.reserve(1, 1, 1) > 86400
+    assert rate_limits.reserve(1, 1) > 86400
 
 
 
-def test_request_token_reservation_covers_text_and_output_schema_before_dispatch():
-    from pydantic_ai.messages import ModelRequest, UserPromptPart
-    from pydantic_ai.models import ModelRequestParameters
-    from pydantic_ai.tools import ToolDefinition
+def test_production_model_call_has_no_local_token_caps(monkeypatch, settings):
+    from pydantic_ai.messages import ModelResponse, TextPart
+    from pydantic_ai.models.function import FunctionModel
+    from pydantic_ai.usage import RequestUsage
 
     from assessments import agent
 
-    message = ModelRequest(parts=[UserPromptPart("x" * 80000)])
-    parameters = ModelRequestParameters(output_tools=[ToolDefinition(name="synthetic", parameters_json_schema={
-        "type": "object", "description": "s" * 2000})])
-    assert agent._request_tokens([message], {"max_tokens": 4000}, parameters) > 90000
+    settings.CATALYST_ENV = 'production'
+    settings.CATALYST_ASSESSMENT_MODEL = 'none'  # synthetic transport only
+    settings.CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST = 1
+    settings.CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT = 1
+    seen = []
 
-
-def test_a_request_larger_than_the_configured_token_rate_is_refused_before_dispatch(monkeypatch):
-    from assessments import agent
-
-    def unavailable(*args, **kwargs):
-        raise ValueError("minimax_rate_capacity_below_one_attempt")
-    monkeypatch.setattr(rate_limits, "reserve", unavailable)
-    with pytest.raises(agent.ModelUnavailable, match="rate_capacity_below_request"):
-        agent._request_capacity(1, 20000)
+    def respond(messages, info):
+        seen.append(info.model_settings)
+        return ModelResponse(parts=[TextPart('complete')],
+                             usage=RequestUsage(input_tokens=1000000, output_tokens=100000))
+    monkeypatch.setattr(agent, 'build_model', lambda use: FunctionModel(respond))
+    result = agent.run_checked('synthetic system', 'synthetic input', str, lambda output: [])
+    assert result.output == 'complete' and result.input_tokens == 1000000 and result.output_tokens == 100000
+    assert 'max_tokens' not in seen[0] and 'max_completion_tokens' not in seen[0]
+    assert agent.attempt_tokens() == 0  # no reservation, not an estimate of actual usage
+    assert agent.usage_limits().request_limit == 2  # finite repairs remain separate from tokens

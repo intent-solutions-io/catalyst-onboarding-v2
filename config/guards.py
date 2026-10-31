@@ -411,10 +411,6 @@ def assessment_problems(settings, environ: Mapping[str, str]) -> list[str]:
         # The largest job drafts and checks one clarification (two bounded attempts).
         if getattr(settings, "CATALYST_MINIMAX_REQUESTS_PER_MINUTE", 0) < 4:
             problems.append("CATALYST_MINIMAX_REQUESTS_PER_MINUTE must cover one bounded clarification job")
-        tokens = 2 * (2 * getattr(settings, "CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST", 16000)
-                      + getattr(settings, "CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT", 8000))
-        if getattr(settings, "CATALYST_MINIMAX_TOKENS_PER_MINUTE", 0) < tokens:
-            problems.append("CATALYST_MINIMAX_TOKENS_PER_MINUTE must cover one bounded clarification job")
     if parity.enabled(settings):
         problems += parity.endpoint_problems(settings, "CATALYST_ASSESSMENT_LIVE_BASE_URL")
         if live_activation not in (0, 1):

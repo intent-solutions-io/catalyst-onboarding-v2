@@ -1336,7 +1336,7 @@ P6_CASES = {
         "test_web_security::test_6b2_every_page_carries_the_csp_and_framing_headers",
         "test_web_security::test_6b2_an_anonymous_page_creates_no_session",
         "test_startup::test_6b2_staging_cookies_are_secure_host_only_and_sessions_idle_out",
-        "test_staging_proxy::test_6b8_caddy_trusts_no_proxy_and_sets_the_forwarded_values_itself",
+        "test_staging_proxy::test_6b8_caddy_trusts_only_configured_proxies_and_sets_the_forwarded_values_itself",
         "test_staging_proxy::test_6b8_caddy_responses_carry_safe_headers_and_slow_clients_time_out",
         "test_cutover::test_6b11_the_snippets_overwrite_the_forwarded_headers_and_default_to_the_web_socket",
         "test_web_security::test_6b2_an_idle_staff_session_is_refused_after_30_minutes",

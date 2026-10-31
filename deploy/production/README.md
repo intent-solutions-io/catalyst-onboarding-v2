@@ -20,27 +20,25 @@ unknown setting or invalid provider target refuses startup.
 
 ## MiniMax usage and pacing
 
-Production defaults to unlimited cumulative assessment requests, tokens, assessment
-rounds, reply interpretations and routine correspondence. An explicit numeric quota
-still applies when configured; `unlimited` means no cumulative quota and `0` means no
-allowance. Remove obsolete deployment overrides before activation.
+Production has no application-imposed input, output, cumulative or per-minute token
+limits. No `max_tokens` is sent to MiniMax. Returned token usage is still recorded;
+unknown usage stays unknown. The provider's model/context limits and throttling apply.
+Synthetic environments retain token-budget fixtures for regression checks.
 
-Set these profile values from the actual MiniMax account and model allocation:
+Assessment rounds, reply interpretations and routine correspondence default to unlimited
+cumulative usage. Request timeouts, finite retries and duplicate-send protection remain.
 
-- `CATALYST_MINIMAX_REQUESTS_PER_MINUTE`
-- `CATALYST_MINIMAX_TOKENS_PER_MINUTE`
+Set `CATALYST_MINIMAX_REQUESTS_PER_MINUTE` from the actual account allocation. It defaults
+to zero, refusing activation until configured. The profile no longer accepts
+`CATALYST_MINIMAX_TOKENS_PER_MINUTE`. A credential shared with another application needs
+a reserved request-rate allocation or a shared upstream limiter; this PostgreSQL limiter
+coordinates only workers using this Catalyst database.
 
-Both default to zero, which refuses live activation until configured. The published
-provider ceiling is not proof of this account's allocation. A credential shared with
-another application requires a reserved allocation or shared upstream limiter; this
-PostgreSQL limiter coordinates only workers using this Catalyst database.
-
-All assessment, clarification-draft, checking and reply-interpretation requests share
-the same provider bucket. Preflight checks delay jobs without spending their retry
-attempt. Each actual request, including a repair, reserves capacity immediately before
-calling MiniMax. Input reservations use serialized request bytes, including tool schemas,
-plus framing and the output allowance; they do not rely on a post-response SDK limit.
-Reservations count conservatively through the request timeout plus 60 seconds. SDK retries are disabled; the job ledger controls finite retries.
+Assessment, clarification-draft, checking and reply-interpretation calls share one request
+bucket. Preflight checks delay jobs without spending a retry attempt. Every actual call,
+including repairs, reserves a request immediately before dispatch. Reservations count
+through the request timeout plus 60 seconds. SDK retries are disabled; the job ledger
+controls finite retries.
 
 A provider throttle creates a shared cooldown, honoring `Retry-After` and recognized
 MiniMax throttle codes. A later, shorter response cannot shorten the cooldown. A
