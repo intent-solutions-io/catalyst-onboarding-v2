@@ -52,12 +52,15 @@ invite() {  # invite <a|b> <email>: 9kg.43, intake is invitation-only, so the ow
     --note "synthetic drill applicant" 2>/dev/null | grep -q '"issued": true'
 }
 apply() {  # apply <port> <email>: one synthetic applicant through the public form; prints the response code
-  local port="$1" jar="$work/jar" page csrf url="https://catalyst.staging.test:$1"
+  local port="$1" jar="$work/jar" page csrf form_token url="https://catalyst.staging.test:$1"
   rm -f "$jar"
   page="$(curl -sk -c "$jar" --resolve "catalyst.staging.test:$port:127.0.0.1" "$url/request-access/")"
   csrf="$(grep -oE 'name="csrfmiddlewaretoken" value="[^"]+"' <<<"$page" | head -1 | sed 's/.*value="//; s/"$//')"
+  form_token="$(grep -oE 'name="form_token" value="[^"]+"' <<<"$page" | head -1 | sed 's/.*value="//; s/"$//')"
+  sleep 4  # bgl.2: the form refuses a submission faster than its minimum age (3 seconds) after rendering
   curl -sk -b "$jar" -o /dev/null -w '%{http_code}' --resolve "catalyst.staging.test:$port:127.0.0.1" \
     -H "Referer: $url/request-access/" -H "Origin: $url" --data-urlencode "csrfmiddlewaretoken=$csrf" \
+    --data-urlencode "form_token=$form_token" \
     --data-urlencode "name=Synthetic Applicant" --data-urlencode "email=$2" \
     --data-urlencode "reason=Synthetic reason for access." \
     --data-urlencode 'residence_country=GB' --data-urlencode 'phone_country=GB' --data-urlencode 'phone=+44 20 7946 0958' --data-urlencode 'interest_track=cert_only' --data-urlencode 'age_attested=on' --data-urlencode 'no_degree=on' --data-urlencode 'no_certifications=on' --data-urlencode 'verification_consent=on' \

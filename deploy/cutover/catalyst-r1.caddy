@@ -1,7 +1,7 @@
 # R1, the entry routes (026 section 9): the access-request form and its received page go to Catalyst v2. Imported into
 # the Learn site for the cutover, before any other handle, route, rewrite or redir that could match these paths;
 # removing this file alone, then a reload, is the R1 rollback (the import must be a glob, which tolerates no match).
-@catalyst_r1 path /request-access/ /request-access/received/
+@catalyst_r1 path /request-access/ /request-access/received/ /request-access /request-access/received
 handle @catalyst_r1 {
 	# The default is the v2 web socket the host's proxy shares (026 section 4). A placeholder is read when Caddy
 	# starts, never at a reload, so the default (not an exported variable) is what a reload of the live site uses.

@@ -141,8 +141,13 @@ def effect_journal(tmp_path, monkeypatch, settings):
 # config/settings.py). The suite's journeys submit the public form freely from one test client, so each test starts
 # with the mode open and every limit far above any burst a journey makes; tests/test_invitation.py and
 # tests/test_throttle.py set the values they prove, and the shipped defaults are checked from a fresh process there.
+# bgl.2: the same holds for the request form's bot checks and the global intake caps; tests/test_public_intake.py
+# turns them back on and proves them.
 SUITE_PUBLIC_ENTRY = {
     "CATALYST_INTAKE_MODE": "open",
+    "CATALYST_INTAKE_FORM_CHECKS": False,
+    "CATALYST_INTAKE_GLOBAL_PER_HOUR": 100_000,
+    "CATALYST_INTAKE_GLOBAL_PER_DAY": 100_000,
     **{name: 100_000 for name in ("CATALYST_THROTTLE_INTAKE_PER_CLIENT", "CATALYST_THROTTLE_INTAKE_PER_ADDRESS",
                                   "CATALYST_THROTTLE_LINK_PER_CLIENT", "CATALYST_THROTTLE_LINK_PER_TOKEN",
                                   "CATALYST_THROTTLE_WEBHOOK_PER_CLIENT")},

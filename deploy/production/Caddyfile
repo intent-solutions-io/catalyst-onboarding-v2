@@ -62,8 +62,25 @@
 	request_body {
 		max_size 128KB
 	}
-	@applicant path /request-access/ /request-access/received/ /confirm/* /setup/* /withdraw/*
+	@applicant path /request-access/ /request-access/received/ /request-access /request-access/received /confirm/* /setup/* /withdraw/*
 	handle @applicant {
+		import catalyst_web
+	}
+	handle {
+		import catalyst_not_found
+	}
+}
+
+# bgl.2: the public host aliases (the learning host's names), for the public request pages only. Never the staff
+# screens, the token paths or the health paths. The compose file always gives the proxy a value (a placeholder name
+# when no alias is set), so this block always has an address.
+{$CATALYST_PUBLIC_HOST_ALIASES:alias.staging.test} {
+	import catalyst_site
+	request_body {
+		max_size 128KB
+	}
+	@alias path /request-access/ /request-access/received/ /request-access /request-access/received
+	handle @alias {
 		import catalyst_web
 	}
 	handle {

@@ -9,6 +9,11 @@
 {% endif %}{% if placeholder_copy %}<p><strong class="draft-marker">Placeholder copy.</strong> The optional fields below describe your work and credentials.{% if not invitation_only %} We check only the links you give, on approved sites; a private or unavailable link never counts against you.{% endif %} Never include client secrets, credentials or confidential material. A person makes every decision.</p>
 {% endif %}<form method="post" novalidate>
   {% csrf_token %}
+  <input type="hidden" name="form_token" value="{{ form_token }}">
+  <div aria-hidden="true" style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden">
+    <label for="id_{{ honeypot }}">Leave this empty</label>
+    <input type="text" name="{{ honeypot }}" id="id_{{ honeypot }}" value="" tabindex="-1" autocomplete="off">
+  </div>
   {{ form.as_div }}
   <button type="submit">Send request</button>
 </form>

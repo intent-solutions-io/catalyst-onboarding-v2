@@ -97,6 +97,11 @@ COMMON_ENV = {
     # code defaults: the authority unset (everyone refused), three resends, the three paging wait classes.
     "CATALYST_QUALIFICATION_AUTHORITY": "${CATALYST_QUALIFICATION_AUTHORITY:-}",
     "CATALYST_VERIFICATION_RESEND_LIMIT": "${CATALYST_VERIFICATION_RESEND_LIMIT:-3}",
+    # bgl.2 (034 row 2): who may apply, the host's switch without a release. Unset is invitation-only; "open" is the
+    # public entry; anything else refuses start-up (config.guards). Every process reads it, so web and worker agree.
+    "CATALYST_INTAKE_MODE": "${CATALYST_INTAKE_MODE:-invitation}",
+    # bgl.2: the learning host's names for the public request pages (config.settings); empty is none.
+    "CATALYST_PUBLIC_HOST_ALIASES": "${CATALYST_PUBLIC_HOST_ALIASES:-}",
     "CATALYST_HEALTH_AGED_WAITS_PAGE": "${CATALYST_HEALTH_AGED_WAITS_PAGE:-replies_awaiting_processing,issued_agreements,provisioning_activation}",
     "CATALYST_HEALTH_PENDING_AGE_SECONDS": "${CATALYST_HEALTH_PENDING_AGE_SECONDS:-3600}",
 }
@@ -291,6 +296,8 @@ def definition(env: str = "staging") -> dict:
                 "cap_add": ["NET_BIND_SERVICE"],
                 "environment": {"CATALYST_HTTPS_PORT": str(PUBLIC_PORT),
                                 "CATALYST_PUBLIC_HOST": "${CATALYST_PUBLIC_HOST:?}",
+                                # bgl.2: the alias site needs an address; a placeholder name when none is set.
+                                "CATALYST_PUBLIC_HOST_ALIASES": "${CATALYST_PUBLIC_HOST_ALIASES:-alias.staging.test}",
                                 "CATALYST_STAFF_HOST": "${CATALYST_STAFF_HOST:?}",
                                 "CATALYST_STAFF_PORT": str(STAFF_PORT),
                                 # Inside the container every interface is the container's own: the host publish
