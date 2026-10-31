@@ -61,7 +61,9 @@ RESERVED_DOMAINS = ("test", "example", "invalid", "localhost", "example.com", "e
 FIXTURE_NAMES = ("Ada Example", "Ada Two", "Ada Three", "Ada Changed", "Calm Example", "Verified Example",
                  "Queued Example", "Paused Example", "Other Example", "Lost Example", "Failed Example",
                  "Expired Example", "Cancelled Example", "Grace Example", "Hedy Example", "Joan Example",  # 9kg.32
-                 "Mary Example", "Opal Example", "Bea Example", "Flo Example", "Sid Example")
+                 "Mary Example", "Opal Example", "Bea Example", "Flo Example", "Sid Example",
+                 "Ada Other", "Blank Person", "Conflict Person", "Earlier Application",
+                 "Grace Hopper", "Intake Name", "Partial Person")
 FIXTURE_LABELS = ("Synthetic Applicant", "Someone Else")
 STREET_WORDS = ("Street", "St", "Avenue", "Ave", "Road", "Rd", "Drive", "Dr", "Lane", "Ln", "Boulevard", "Blvd",
                 "Court", "Ct", "Place", "Pl", "Way", "Terrace", "Square", "Sq", "Close", "Crescent")

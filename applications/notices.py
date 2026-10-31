@@ -126,9 +126,7 @@ def wording(key: str, values: dict | None = None) -> Wording:
     draft = _source("draft")(key)
     if draft is None:
         raise Unavailable(f"{key}_missing")
-    from correspondence.rendering import fit_greeting  # the greeting pair, as for an approved version
-
-    values = fit_greeting(draft.variables, values)
+    values = _source("fit_greeting")(draft.variables, values)
     if set(values) != set(draft.variables):
         raise Unavailable(f"{key}_values_do_not_match_allow_list")
     try:
