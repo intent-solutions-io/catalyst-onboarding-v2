@@ -77,6 +77,7 @@ INSTALLED_APPS = [
     "agreements",  # P4 (021; D-37)
     "provisioning",  # P5 (023; D-47)
     "erasure",  # 9kg.32 (029 section 6.2): the authorized erasure path
+    "firstgen",  # bgl.16 (035): the first-generation import's provenance
 ]
 MIDDLEWARE = [
     "config.redaction.PrivateConfirmationResponses",  # outermost: covers responses built outside the view

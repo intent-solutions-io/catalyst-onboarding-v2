@@ -256,6 +256,14 @@ TABLES = {
     "otp_totp_totpdevice": Table(secret="key", other=(
         "id name confirmed step t0 digits tolerance drift last_t user_id throttling_failure_count"
         " throttling_failure_timestamp created_at last_used_at")),
+    # --- the first-generation import (bgl.16, 035): provenance; the record's data is the person's history ----------
+    "firstgen_importedcase": Table(other=(  # identifiers, verbatim states, CRM references, finding codes, times
+        "id v1_case_id reference v1_state v1_resume_state v1_cohort v1_created_at v1_state_changed_at mapped_stage"
+        " crm_person_id crm_note_id findings run_ref imported_at application_id")),
+    "firstgen_importedrecord": Table(
+        selector=APP, subject={"data": S("history_events", OBJECT)},  # a row without an application holds nothing personal
+        other="id v1_table v1_id kind occurred_at message_id target run_ref imported_at application_id"),
+    "firstgen_importrun": Table(staff="actor_ref", other="id public_id source_ref report recorded_at"),  # counts and codes
     # --- provisioning --------------------------------------------------------------------------------------------
     "provisioning_accessrevocation": Table(
         selector=REQUEST, subject={"note": S("staff_notes")}, staff="decided_by",

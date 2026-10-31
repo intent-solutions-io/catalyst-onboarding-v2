@@ -43,7 +43,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-APPS = ("accounts", "agreements", "applications", "assessments", "correspondence", "erasure", "provisioning", "workflow")
+APPS = ("accounts", "agreements", "applications", "assessments", "correspondence", "erasure", "firstgen", "provisioning",
+        "workflow")
 DEPLOY_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{3,63}")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 
