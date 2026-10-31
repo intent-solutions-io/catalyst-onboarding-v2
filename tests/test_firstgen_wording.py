@@ -29,7 +29,7 @@ SYNTHETIC = {
     "src/catalyst/templates/email/_partner_badge.txt": "{#- synthetic -#}\nSynthetic Signer\n{{ partner_badge.name }}\n",
     "src/catalyst/templates/email/_partner_badge.html": (
         "<td><p>Synthetic Signer</p><a href=\"{{ partner_badge.url }}\">{{ partner_badge.name }}</a></td>\n"),
-    "src/catalyst/branding.py": 'PARTNER_BADGE = Badge(name="Synthetic Badge", url="https://badge.example.test/b")\n',
+    "src/catalyst/branding.py": 'PARTNER_BADGE = Badge(name="Synthetic badge", url="https://badge.example.test/b")\n',
     "src/catalyst/templates/email/intake_receipt.txt": (
         "{#- synthetic header -#}\n"
         "{{ _('Synthetic heading') }}\n\n"
@@ -123,7 +123,7 @@ def test_bgl11_conversion_maps_variables_drops_unmapped_lines_and_resolves_inclu
     assert "Synthetic confirm: $link\n" in text and "Hello,\n" in text  # no name variable: the fallback branch
     assert "Synthetic reference line" not in text and "Synthetic Sender\n" in text  # unmapped lines dropped
     assert "Synthetic price $$5" in text  # a literal dollar is escaped, so only $link is a placeholder
-    assert "Synthetic Badge" in text and "{{" not in text and "{%" not in text  # the include resolved at load time
+    assert "Synthetic badge" in text and "{{" not in text and "{%" not in text  # the include resolved at load time
     page = converted.body_html
     assert '<a href="$link">Synthetic confirm</a>' in page and 'lang="en"' in page
     assert "Synthetic it&#39;s" in page  # autoescaped as the first generation's HTML was

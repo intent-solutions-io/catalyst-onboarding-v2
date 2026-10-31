@@ -42,7 +42,7 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.conf import settings
-from django.core.mail import EmailMessage, EmailMultiAlternatives
+from django.core.mail import EmailMessage, EmailMultiAlternatives  # noqa: F401 (EmailMessage: its send is the one tests patch)
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Q
 from django.db.models.functions import Now
@@ -148,8 +148,9 @@ class SendVerification:
             self._stop(claim, Stop(Status.QUEUED, str(refused), WORDING_RECHECK_SECONDS))
             return
         message_id = make_msgid(idstring=f"a{claim.attempt}", domain=urlsplit(settings.CATALYST_PUBLIC_BASE_URL).hostname)
-        # bgl.11: multipart/alternative (text, then HTML) when the approved version has an HTML part; text otherwise.
-        message = (EmailMultiAlternatives if mail.html else EmailMessage)(
+        # bgl.11: multipart/alternative (text, then HTML) when the approved version has an HTML part; with no
+        # alternative attached, EmailMultiAlternatives sends the same single text/plain part EmailMessage did.
+        message = EmailMultiAlternatives(
             subject=mail.subject,
             body=mail.display,
             to=[decision.recipient],
