@@ -154,7 +154,9 @@ def test_bgl8_under_the_service_distribution_the_provider_mails_nobody_and_the_s
 def test_bgl8_the_user_agreement_gets_the_branded_cover_with_its_own_link(s, monkeypatch):
     try:
         app, ua = issue_user_agreement(s, monkeypatch)
-        assert ua.issue_status == "issued" and s.fake.emails == []
+        assert ua.issue_status == "issued"
+        # the provider sent no signing request for either envelope; only the NDA's completed copy (P4-D-14)
+        assert [m["kind"] for m in s.fake.emails] == ["completed_copy"]
         cover = link_mails()[-1]
         assert cover.subject == signing_mail.SEED.COVER_SUBJECT and cover.to == [ua.recipients.get(who="applicant").email]
         assert f"{SIGNING_HOST}/sign/{token_of(s, ua.envelope_id)}" in cover.body
@@ -330,11 +332,12 @@ def test_bgl8_no_layout_reads_nothing_back_and_an_unreadable_field_list_is_a_pro
         app, ua = issue_user_agreement(s, monkeypatch)
         type_fields(s, ua)
         s.fake.sign(ua.envelope_id)
-        reads_before = len(s.fake.calls("GET", f"/envelope/{ua.envelope_id}"))
+        field_reads = []
+        monkeypatch.setattr(provider, "read_fields", lambda envelope_id: field_reads.append(envelope_id) or ())
         reads_now()
         assert user_agreement(app).signing_status == "signing_complete_verified"
         assert not AgreementDetailsVersion.objects.filter(application=app).exists()
-        assert len(s.fake.calls("GET", f"/envelope/{ua.envelope_id}")) == reads_before + 1  # one read, no fields read
+        assert field_reads == []  # no layout: the typed fields are never even read
     finally:
         reset_gate(s)
     assert provider.typed_fields({"fields": [{"type": "TEXT", "inserted": True, "page": 1, "positionX": 1, "positionY": 2,
@@ -346,7 +349,7 @@ def test_bgl8_no_layout_reads_nothing_back_and_an_unreadable_field_list_is_a_pro
         provider.TypedField(5, "TEXT", 1, 1.0, 2.0, "x" * provider.MAX_FIELD_TEXT),)
     with pytest.raises(provider.ProviderError, match="response_unreadable"):
         provider.typed_fields({"fields": "not a list"})
-    assert "x" not in repr(provider.TypedField(5, "TEXT", 1, 1.0, 2.0, "xxxx"))  # never the text
+    assert "Synthetic-Typed-Value" not in repr(provider.TypedField(5, "TEXT", 1, 1.0, 2.0, "Synthetic-Typed-Value"))  # never the text
 
 
 def test_bgl8_address_quality_codes_and_the_staff_screen_shows_them(s, monkeypatch):

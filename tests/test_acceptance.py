@@ -309,6 +309,8 @@ DATABASE_CONSTRAINTS = {
     "member_on_file_covers_something", "member_on_file_has_recorder",
     "stored_document_one_per_item", "stored_document_signed_only", "document_access_outcome_valid",  # 4B.3
     "details_one_per_version", "details_status_valid", "details_confirmed_has_actor",
+    # bgl.8: an envelope-sourced details version names its envelope, once per instance
+    "details_source_valid", "details_envelope_names_its_instance", "details_one_envelope_read_per_instance",
     "application_tombstone_key_unique", "invitation_tombstone_key_unique", "member_on_file_tombstone_key_unique",  # 9kg.32
     "erasure_audit_authority_is_a_code", "erasure_audit_reason_is_a_code",
     "custody_envelope_scheme_known", "custody_envelope_cipher_sha256_hex", "custody_envelope_key_ref_hex",  # 9kg.34
