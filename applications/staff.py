@@ -66,6 +66,13 @@ REASONS = {
     "agreement_integrity_hold": "a signed agreement no longer matches what was verified; it is held",
     "agreement_custody_failed": "the signed copy could not be stored; retry custody on the agreements screen",
     "agreement_provider_unavailable": "the signing provider could not be reached",
+    # bgl.8 (034 rows 27, 32, 33): the service-sent link, the read-back of typed details and their address quality
+    "agreement_link_send_failed": "the signing-link mail could not be sent, or the applicant was not found on the envelope;"
+                                  " check the agreements screen and the provider",
+    "agreement_details_readback_incomplete": "not every detail could be read back from the signed agreement; record the"
+                                             " details on the agreements screen from the signed copy",
+    "agreement_address_quality": "the address typed on the signed agreement looks incomplete or its postal code does not fit"
+                                 " its country; nothing is blocked, check it on the agreements screen",
     "provisioning_activation_blocked": "activation is blocked; fix the cause, then retry activation",
     "decline_not_notified": "the decline notice bounced permanently; the applicant was not notified",  # oc4.11
     "decline_notice_refused": "the decline notice could not be prepared. If its wording is not approved for this"

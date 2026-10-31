@@ -2049,6 +2049,24 @@ P6_SUPPORTING = {
         "test_db_roles::test_6hl10_the_probe_login_is_read_by_the_test_support_module_only",
         "test_db_roles::test_child_processes_do_not_receive_the_administrator_login",
     ],
+    # bgl.8 (034 section 2.3 rows 27 to 29, 31 to 33): the first-generation signing behaviour behind the agreements
+    # activation: distribution "service" with the service-sent link and cover, the return page, the 300 s sweep default,
+    # the details read-back as an envelope version a staff correction supersedes, and the address-quality codes.
+    "bgl.8 service-sent signing link and cover, the return page, the 300 s poll, the details read-back and address quality"
+    " (034 section 2.3)": [
+        "test_agreement_parity::test_bgl8_under_the_provider_distribution_nothing_changes_but_the_redirect",
+        "test_agreement_parity::test_bgl8_under_the_service_distribution_the_provider_mails_nobody_and_the_service_sends_the_link",
+        "test_agreement_parity::test_bgl8_the_user_agreement_gets_the_branded_cover_with_its_own_link",
+        "test_agreement_parity::test_bgl8_the_link_waits_while_paused_skips_once_signed_and_a_series_is_sent_once",
+        "test_agreement_parity::test_bgl8_a_signer_missing_from_the_envelope_or_a_changed_address_sends_nothing_and_tells_staff",
+        "test_agreement_parity::test_bgl8_the_return_page_is_public_static_and_carries_no_case_data",
+        "test_agreement_parity::test_bgl8_the_sweep_interval_defaults_to_300_seconds_and_3600_stays_selectable",
+        "test_agreement_parity::test_bgl8_typed_details_are_read_back_as_an_envelope_version_and_a_staff_correction_supersedes_it",
+        "test_agreement_parity::test_bgl8_an_incomplete_read_back_records_nothing_opens_a_staff_item_and_never_holds_the_agreement",
+        "test_agreement_parity::test_bgl8_no_layout_reads_nothing_back_and_an_unreadable_field_list_is_a_provider_error",
+        "test_agreement_parity::test_bgl8_address_quality_codes_and_the_staff_screen_shows_them",
+        "test_agreement_parity::test_bgl8_the_distribution_and_layout_settings_are_guarded",
+    ],
 }
 
 # Cases with no pytest evidence of their own: shown only by a live script (026 section 16).

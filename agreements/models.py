@@ -311,11 +311,19 @@ class AgreementDetailsVersion(models.Model):
     """POL-18 required details for one agreement type, as staff recorded them from what the applicant provided (an
     email is never adopted as an answer by itself) and then explicitly confirmed (021 section 8; 4B.3). Versioned:
     a change is a new version; a confirmed version is frozen. The production field list is undecided (POL-18): only
-    synthetic fields exist."""
+    synthetic fields exist.
+
+    bgl.8 (034 row 32): a version may instead come from the signed envelope itself (`source` envelope, `instance` the
+    agreement it was read from; agreements.details), confirmed by the applicant's signature. A staff correction (D-46)
+    is a later `staff` version; the envelope version stays as read."""
 
     class Status(models.TextChoices):
         DRAFT = "draft"
         CONFIRMED = "confirmed"
+
+    class Source(models.TextChoices):
+        STAFF = "staff"
+        ENVELOPE = "envelope"
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="agreement_details")
@@ -327,6 +335,9 @@ class AgreementDetailsVersion(models.Model):
     recorded_by = models.CharField(max_length=200)
     confirmed_by = models.CharField(max_length=200, blank=True, default="")
     confirmed_at = models.DateTimeField(null=True, blank=True)
+    source = models.CharField(max_length=16, choices=Source.choices, default=Source.STAFF, db_default="staff")
+    instance = models.ForeignKey(AgreementInstance, on_delete=models.PROTECT, null=True, blank=True,
+                                 related_name="details_versions")  # the envelope the values were read from
     created_at = models.DateTimeField(db_default=Now())
 
     class Meta:
@@ -335,4 +346,8 @@ class AgreementDetailsVersion(models.Model):
             models.UniqueConstraint(fields=["application", "agreement_type", "version"], name="details_one_per_version"),
             models.CheckConstraint(condition=Q(status__in=["draft", "confirmed"]), name="details_status_valid"),
             models.CheckConstraint(condition=Q(status="draft") | ~Q(confirmed_by=""), name="details_confirmed_has_actor"),
+            models.CheckConstraint(condition=Q(source__in=["staff", "envelope"]), name="details_source_valid"),
+            models.CheckConstraint(condition=(Q(source="staff", instance__isnull=True) | Q(source="envelope", instance__isnull=False)),
+                                   name="details_envelope_names_its_instance"),
+            models.UniqueConstraint(fields=["instance"], condition=Q(source="envelope"), name="details_one_envelope_read_per_instance"),
         ]

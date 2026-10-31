@@ -75,6 +75,8 @@ APPROVED_MIGRATIONS = {
     ("correspondence", "0020_verification_template"),  # 9kg.80: the verification mail as an approvable template
     ("agreements", "0010_custody_envelope"), ("erasure", "0003_custody_keys"),  # 9kg.34: custody sealed at rest
     ("workflow", "0006_restore_hold_insert_guard"), ("erasure", "0004_erase_replay"),  # 9kg.25: the replay variant of the erase function, under the restore hold only
+    # bgl.8: a details version read back from the signed envelope, and the service-sent signing-link templates
+    ("agreements", "0011_details_from_envelope"), ("correspondence", "0021_agreement_link_templates"),
 }
 
 

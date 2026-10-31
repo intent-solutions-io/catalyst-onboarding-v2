@@ -267,6 +267,8 @@ CATALYST_ACTION_HANDLERS = {
     "advance_agreements": "agreements.completion.AdvanceAgreements",
     "cancel_agreement": "agreements.completion.CancelAgreement",
     "store_agreement": "agreements.custody.StoreAgreement",  # 4B.3 (021 section 7)
+    # bgl.8 (034 rows 27, 28): the service-sent signing link and cover, only under CATALYST_AGREEMENT_DISTRIBUTION "service"
+    "send_signing_link": "agreements.signing_mail.SendSigningLink",
     # P5 5B.1 (023 sections 5 and 11): the held `provision` hand-off stays held until `activate_provisioning`.
     "provision_create": "provisioning.handlers.CreateMailbox",
     "provision_reconcile": "provisioning.handlers.ReconcileMailbox",
@@ -493,6 +495,24 @@ CATALYST_CUSTODY_KEY_MIRROR_DIR = ""
 # Required details per agreement type (POL-18 open: no production field list). Synthetic field names only, set by
 # tests; fixed in code and empty everywhere else.
 CATALYST_AGREEMENT_REQUIRED_DETAILS: dict = {}
+# bgl.8 (034 section 2.3 rows 27 to 29, 31 to 33): the first-generation signing behaviour, selectable, off by default.
+# Who emails the signing request. "provider": Documenso distributes and mails the applicant (P4-D-4, P4-D-14; today's
+# behaviour). "service": the envelope is created and distributed with `distributionMethod: NONE`, so the provider mails
+# nothing, and Catalyst sends the signing link itself (`agreements.signing_mail`, the `agreement_link_<type>` message
+# templates the owner approves) from its own sender. Fixed in code, like CATALYST_INTAKE_MODE: changing it is a code
+# change shipped as a release, never an environment value (config.guards). The owner answered on 2026-10-31 that
+# production will use "service" (distribution NONE); the v1-to-v2 swap flips this value, together with a production
+# signing host below and the read-back layouts once POL-18 names the field list. Until then nothing here activates.
+CATALYST_AGREEMENT_DISTRIBUTION = "provider"
+# The public signing host whose `/sign/<token>` page the service-sent link opens (the provider's public URL, not its
+# API). Synthetic only: fixed in code, empty outside `test` and `staging` like the provider URL; required under "service".
+CATALYST_AGREEMENT_SIGNING_BASE_URL = ""
+# The field layouts that read an applicant's typed details back from a completed envelope (agreements.details), keyed
+# "<type key>:<template version>" so a template change is a new layout, never an edit: {"name": "ua_v24", "tolerance":
+# 2.0, "fields": {"legal_name": {"kind": "TEXT", "page": 4, "x": 12.5, "y": 30.0}, ...}}. Positions are the provider's
+# page percentages (a prefill may replace a label, so labels are never matched). Empty: nothing is read back. Synthetic
+# only until POL-18 names the production field list: fixed in code, empty outside `test` and `staging`.
+CATALYST_AGREEMENT_FIELD_LAYOUTS: dict = {}
 CATALYST_AGREEMENT_DEADLINE_SECONDS = number("CATALYST_AGREEMENT_DEADLINE_SECONDS",
                                              str(max(1, min(10, CATALYST_WORKER_LEASE_SECONDS // 2))))
 CATALYST_AGREEMENT_MAX_BYTES = number("CATALYST_AGREEMENT_MAX_BYTES", "1048576")
@@ -504,7 +524,10 @@ CATALYST_AGREEMENT_LIST_PAGES = number("CATALYST_AGREEMENT_LIST_PAGES", "3")  # 
 CATALYST_AGREEMENT_LIST_PAGE_SIZE = number("CATALYST_AGREEMENT_LIST_PAGE_SIZE", "50")
 CATALYST_AGREEMENT_ORPHAN_CHECKS = number("CATALYST_AGREEMENT_ORPHAN_CHECKS", "6")  # P4-D-19: watching an old key
 CATALYST_AGREEMENT_RETRY_AFTER_MAX_SECONDS = number("CATALYST_AGREEMENT_RETRY_AFTER_MAX_SECONDS", "3600", minimum=0)
-CATALYST_AGREEMENT_READ_INTERVAL_SECONDS = number("CATALYST_AGREEMENT_READ_INTERVAL_SECONDS", "3600", minimum=0)  # the sweep
+# The completion sweep: how often an issued envelope is re-read while it waits for signatures. 300 s is the production
+# default (bgl.8, 034 row 31: the first generation's poll, so the next agreement follows within minutes); the earlier
+# 3600 s stays selectable through the environment. The minimum interval below still bounds webhook-driven reads.
+CATALYST_AGREEMENT_READ_INTERVAL_SECONDS = number("CATALYST_AGREEMENT_READ_INTERVAL_SECONDS", "300", minimum=0)  # the sweep
 CATALYST_AGREEMENT_READ_MIN_INTERVAL_SECONDS = number("CATALYST_AGREEMENT_READ_MIN_INTERVAL_SECONDS", "60", minimum=0)
 CATALYST_AGREEMENT_WEBHOOK_MAX_BYTES = number("CATALYST_AGREEMENT_WEBHOOK_MAX_BYTES", "65536")
 CATALYST_AGREEMENT_MAX_ITEMS = number("CATALYST_AGREEMENT_MAX_ITEMS", "5")  # envelope items stored per agreement

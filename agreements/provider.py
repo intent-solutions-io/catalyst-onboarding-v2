@@ -15,7 +15,10 @@ redirect, an unreadable 2xx) is an **unknown** outcome, reconciled and never ret
 
 Responses are parsed into an allowlist (`Envelope`, `Recipient`). Signing tokens and signing links, which the
 installed version returns from `envelope/use`, `envelope/distribute` and envelope reads, are dropped here and never
-reach a record, a log or a screen (021 section 6, TEST-P4-24).
+reach a record, a log or a screen (021 section 6, TEST-P4-24). Two bgl.8 readers are the exceptions, each for one
+purpose and each kept out of records: `signing_token` hands the applicant's token to the service-sent link mail
+(`signing_mail`, under CATALYST_AGREEMENT_DISTRIBUTION "service") and `read_fields` hands the typed details of a
+completed envelope to the read-back (`details`).
 """
 
 import http.client
@@ -77,6 +80,40 @@ class Recipient:
     signing_order: int | None
     signing_status: str
     expired: bool = False
+    id: int | None = None  # the provider's recipient id (not personal): what a typed field's `recipientId` names (bgl.8)
+
+
+@dataclass(frozen=True)
+class TypedField:
+    """One inserted TEXT or DROPDOWN field of an envelope with what the recipient typed or chose (bgl.8; 034 row 32).
+    Personal data: returned only by `read_fields`, for the details read-back, and never logged or stored raw. Positions
+    are the provider's page percentages; a chosen dropdown option arrives as the field's `customText`."""
+
+    recipient_id: int | None
+    kind: str  # "TEXT" or "DROPDOWN"
+    page: int
+    x: float
+    y: float
+    text: str
+
+    def __repr__(self):  # never the text
+        return f"TypedField({self.kind}, page={self.page}, x={self.x}, y={self.y})"
+
+
+TYPED_KINDS = ("TEXT", "DROPDOWN")
+MAX_FIELDS = 100
+MAX_FIELD_TEXT = 500
+TOKEN = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
+RETURN_PATH = "/signing/return/"  # agreements.views.signing_return (034 row 29); the provider redirects here after signing
+
+
+def return_url() -> str:
+    return f"{settings.CATALYST_PUBLIC_BASE_URL}{RETURN_PATH}"
+
+
+def distribution() -> str:
+    """bgl.8: `EMAIL` (the provider mails the signing request) or `NONE` (the service mails it: `signing_mail`)."""
+    return "NONE" if settings.CATALYST_AGREEMENT_DISTRIBUTION == "service" else "EMAIL"
 
 
 @dataclass(frozen=True)
@@ -263,7 +300,41 @@ def _recipient(raw) -> Recipient:
     order = raw.get("signingOrder")
     return Recipient(email=_text(raw.get("email")), role=_enum(raw.get("role"), ROLES),
                      signing_order=order if isinstance(order, int) and not isinstance(order, bool) else None,
-                     signing_status=_enum(raw.get("signingStatus"), SIGNING), expired=bool(raw.get("expired")))
+                     signing_status=_enum(raw.get("signingStatus"), SIGNING), expired=bool(raw.get("expired")),
+                     id=_int(raw.get("id")))
+
+
+def _int(value) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _number(value) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    try:
+        number = float(value)
+    except ValueError:
+        return None
+    return number if math.isfinite(number) else None
+
+
+def typed_fields(raw) -> tuple:
+    """The inserted TEXT and DROPDOWN fields of an envelope read, with their values (bgl.8). Anything else in `fields`
+    (signatures, initials, uninserted or oddly shaped entries) is dropped; the count and each text are capped."""
+    fields = raw.get("fields", []) if isinstance(raw, dict) else []
+    if not isinstance(fields, list):
+        raise ProviderError("response_unreadable", sent=True, status=200)
+    out = []
+    for item in fields[:MAX_FIELDS]:
+        if not isinstance(item, dict) or item.get("type") not in TYPED_KINDS or item.get("inserted") is not True:
+            continue
+        page, x, y = _int(item.get("page")), _number(item.get("positionX")), _number(item.get("positionY"))
+        text = item.get("customText")
+        if page is None or x is None or y is None or not isinstance(text, str):
+            continue
+        out.append(TypedField(recipient_id=_int(item.get("recipientId")), kind=item["type"], page=page, x=x, y=y,
+                              text=text[:MAX_FIELD_TEXT]))
+    return tuple(out)
 
 
 def envelope(raw) -> Envelope:
@@ -290,10 +361,13 @@ def _multipart(payload: dict) -> tuple[bytes, str]:
 # --- operations (the installed v2.20.0 envelope API; 021 section 15) -------------------------------------------
 
 def create_from_template(template_ref: str, external_key: str, recipients: list[dict]) -> str:
-    """`POST /envelope/use` as a draft (`distributeDocument: false`, P4-D-4). Returns the new envelope id only."""
+    """`POST /envelope/use` as a draft (`distributeDocument: false`, P4-D-4). Returns the new envelope id only. The
+    override carries the distribution method (bgl.8: `NONE` under the service mode, so the provider never mails) and
+    the page the signer lands on afterwards (`redirectUrl`, 034 row 29)."""
     body, content_type = _multipart({"envelopeId": template_ref, "externalId": external_key,
                                      "recipients": recipients, "distributeDocument": False,
-                                     "override": {"emailSettings": dict(EMAIL_SETTINGS)}})
+                                     "override": {"emailSettings": dict(EMAIL_SETTINGS), "distributionMethod": distribution(),
+                                                  "redirectUrl": return_url()}})
     data = _json(exchange("POST", "/envelope/use", body=body, content_type=content_type))
     if not isinstance(data, dict):
         raise ProviderError("response_unreadable", sent=True, status=200)
@@ -301,14 +375,39 @@ def create_from_template(template_ref: str, external_key: str, recipients: list[
 
 
 def distribute(envelope_id: str) -> None:
-    """`POST /envelope/distribute`: Documenso emails the recipients. No subject or message is sent (021 section 10)."""
+    """`POST /envelope/distribute`: the draft becomes pending. With `EMAIL` Documenso emails the recipients; no subject
+    or message is sent (021 section 10). With `NONE` (bgl.8) it mails nothing and the service sends the link."""
     body = json.dumps({"envelopeId": envelope_id,
-                       "meta": {"distributionMethod": "EMAIL", "emailSettings": dict(EMAIL_SETTINGS)}}).encode()
+                       "meta": {"distributionMethod": distribution(), "emailSettings": dict(EMAIL_SETTINGS)}}).encode()
     _json(exchange("POST", "/envelope/distribute", body=body, content_type="application/json"))
 
 
 def read(envelope_id: str) -> Envelope:
     return envelope(_json(exchange("GET", f"/envelope/{quote(envelope_id, safe='')}")))
+
+
+def read_fields(envelope_id: str) -> tuple:
+    """The typed fields of an envelope (bgl.8; 034 row 32): a fresh `GET envelope/{id}` read for the details read-back
+    alone. The envelope's own facts come from `read`; this returns personal data and is called only once a completed
+    envelope is being verified (agreements.completion)."""
+    return typed_fields(_json(exchange("GET", f"/envelope/{quote(envelope_id, safe='')}")))
+
+
+def signing_token(envelope_id: str, email: str) -> str | None:
+    """The signing token of the recipient with this address and the SIGNER role, from a fresh envelope read (bgl.8;
+    034 row 27: the service-sent link). The one place a token crosses the allowlist: it goes straight into the mail
+    body of `agreements.signing_mail`, in memory, and is never recorded or logged. None when that recipient is not
+    on the envelope or the token is not a plain token."""
+    raw = _json(exchange("GET", f"/envelope/{quote(envelope_id, safe='')}"))
+    recipients = raw.get("recipients", []) if isinstance(raw, dict) else []
+    if not isinstance(recipients, list):
+        return None
+    for item in recipients:
+        if (isinstance(item, dict) and item.get("role") == "SIGNER" and isinstance(item.get("email"), str)
+                and item["email"].casefold() == email.casefold()):
+            token = item.get("token")
+            return token if isinstance(token, str) and TOKEN.fullmatch(token) else None
+    return None
 
 
 def find(template_number: int, page: int) -> tuple[list[Envelope], int]:
