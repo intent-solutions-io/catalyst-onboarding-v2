@@ -81,18 +81,20 @@ def _free(application, local_part: str, domain: str) -> bool:
     return not same.filter(released_at__isnull=True).exists() and not tried
 
 
-def _refused(application, reason: str, dry_run: bool) -> str:
+def _refused(application, reason: str, dry_run: bool, actor: str = "owner_command") -> str:
     """023 section 5 step 1: a refusal leaves the hand-off held, with a staff item and an event."""
     if not dry_run and reason not in ("not_held",):
         from correspondence.staff_items import open_item
 
         open_item(core.ITEM_BLOCKED, f"release:{application.public_ref}", application=application)
-        core.record(application, "provisioning_release_refused", {"reason": reason}, "owner_command")
+        core.record(application, "provisioning_release_refused", {"reason": reason}, actor)
     return reason
 
 
-def release(action_id: int, activation_version: int, approval_ref: str, dry_run: bool = False) -> str:
-    """One held hand-off. Returns a reason code ("released" or why it stays held). A dry run writes nothing."""
+def release(action_id: int, activation_version: int, approval_ref: str, dry_run: bool = False,
+            actor: str = "owner_command") -> str:
+    """One held hand-off. Returns a reason code ("released" or why it stays held). A dry run writes nothing. `actor` is
+    the owner's command, or `auto-release` under CATALYST_RELEASE_MODE "automatic" (bgl.9, provisioning.auto_release)."""
     from agreements.completion import fresh_read_problem, prerequisites
     from applications.models import Application
 
@@ -112,17 +114,17 @@ def release(action_id: int, activation_version: int, approval_ref: str, dry_run:
         if action.status != PendingAction.Status.HELD:
             return "not_held"
         if application.stage != Stage.AGREEMENTS_COMPLETE:
-            return _refused(application, "stage_not_agreements_complete", dry_run)
+            return _refused(application, "stage_not_agreements_complete", dry_run, actor)
         problem = core.database_problem(application)
         if problem:
-            return _refused(application, problem, dry_run)
+            return _refused(application, problem, dry_run, actor)
         _, digest, _ = prerequisites(application)
         # The prerequisites must hold today (checked above). If they changed since the P4 hand-off (for example a D-43
         # replacement), that is recorded, and the approver confirms the new snapshot: the approval digest binds
         # today's prerequisite digest, never the hand-off's (QA review of PR #53).
         if action.input_ref.startswith("agreements:") and action.input_ref != f"agreements:{digest}" and not dry_run:
             core.record(application, "provisioning_prerequisites_changed_since_handoff",
-                        {"handoff": action.input_ref.split(":", 1)[1], "now": digest}, "owner_command")
+                        {"handoff": action.input_ref.split(":", 1)[1], "now": digest}, actor)
         # Reuse only a reviewed exception not yet used by any request; otherwise propose a fresh address.
         reservation = AddressReservation.objects.filter(application=application, released_at__isnull=True,
                                                         requests__isnull=True).first()
@@ -149,12 +151,13 @@ def release(action_id: int, activation_version: int, approval_ref: str, dry_run:
             approval_digest=core.approval_digest(reservation.address, quota, limit, method, digest))
         transition(application.pk, (Stage.AGREEMENTS_COMPLETE,), Stage.PROVISIONING, event_kind="provisioning_released",
                    data={"request": str(request.public_id), "activation_version": activation_version,
-                         "approval_ref": approval_ref}, actor_ref="owner_command")
+                         "approval_ref": approval_ref}, actor_ref=actor)
         PendingAction.objects.filter(pk=action.pk).update(status=PendingAction.Status.DONE, completed_at=Now(),
                                                           updated_at=Now(), last_error="released")
         for open_one in StaffItem.objects.filter(reason_code=core.ITEM_BLOCKED, dedupe_key=f"release:{application.public_ref}",
                                                  status=StaffItem.Status.OPEN):
-            resolve_item(open_one, code="released", actor_ref="owner_command")
+            resolve_item(open_one, code="released", actor_ref=actor,
+                         **({} if actor == "owner_command" else {"actor_type": "system"}))
     return "released"
 
 
@@ -204,14 +207,41 @@ def approve(request_id: int, user, expected_digest: str) -> ProvisioningRequest:
         problem = core.database_problem(application, request)
         if problem:
             raise Refused(problem)
-        core.set_status(request, "approved", approved_by=actor(user), approved_at=Now())
-        if request.method == ProvisioningRequest.Method.API:
-            core.enqueue(core.CREATE, request, f"{core.CREATE}:{request.public_id}:0")
-        else:
-            core.item(core.ITEM_CHECKLIST, request)
-        core.record(application, "provisioning_approved", {"request": str(request.public_id), "method": request.method},
-                    actor(user), actor_type="staff")
+        _approved(application, request, actor(user), {}, actor_type="staff")
     return request
+
+
+def _approved(application, request, who: str, extra: dict, **event_fields) -> None:
+    core.set_status(request, "approved", approved_by=who, approved_at=Now())
+    if request.method == ProvisioningRequest.Method.API:
+        core.enqueue(core.CREATE, request, f"{core.CREATE}:{request.public_id}:0")
+    else:
+        core.item(core.ITEM_CHECKLIST, request)
+    core.record(application, "provisioning_approved", {"request": str(request.public_id), "method": request.method,
+                                                       **extra}, who, **event_fields)
+
+
+def approve_automatically(request_id: int, who: str, approval_ref: str) -> str:
+    """bgl.9 (first-generation decision 13): the mailbox approval with no person, under CATALYST_RELEASE_MODE
+    "automatic". The first generation's rule: only the address the naming rule derived (a reviewed exception is a
+    person's choice and waits for the named approver, P5-D-3), the approval digest still the one the release computed,
+    and every effect-boundary check as for a person. Returns "approved" or why the request waits for the approver."""
+    request = ProvisioningRequest.objects.get(pk=request_id)
+    with transaction.atomic():
+        application, request = core.lock(request.application_id, request.pk)
+        if request.status != "awaiting_approval":
+            return "not_awaiting_approval"
+        if request.reservation.basis != AddressReservation.Basis.NAMING_RULE:
+            return "address_needs_approver"
+        shown = core.approval_digest(request.reservation.address, request.quota_mb, request.send_limit, request.method,
+                                     request.prerequisite_digest)
+        if shown != request.approval_digest:
+            return "changed_since_release"
+        problem = core.database_problem(application, request)
+        if problem:
+            return problem
+        _approved(application, request, who, {"approval_ref": approval_ref, "by": "automatic"})
+    return "approved"
 
 
 # --- the checklist path (P5-D-4 fallback, P5-D-5) ------------------------------------------------------------------

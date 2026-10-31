@@ -379,6 +379,43 @@ def agreement_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return problems
 
 
+# bgl.9 (034 rows 30 and 36): the automated countersignature and release. The modes are fixed in code; the company
+# recipient's identity is provider identity, so like the provider URL it is empty outside `test` and `staging`.
+COUNTERSIGN_MODES = ("manual", "automatic")
+RELEASE_MODES = ("owner", "automatic")
+COMPANY_TEST_ONLY = ("CATALYST_AGREEMENT_COMPANY_EMAIL", "CATALYST_AGREEMENT_COMPANY_NAME",
+                     "CATALYST_AGREEMENT_COUNTERSIGN_SIGNATURE")
+AUTOMATION_FIXED = ("CATALYST_AGREEMENT_COUNTERSIGN", "CATALYST_AGREEMENT_COMPANY_ROLE", "CATALYST_RELEASE_MODE")
+
+
+def automation_problems(settings, environ: Mapping[str, str]) -> list[str]:
+    """bgl.9: each mode one of its known values and never from the environment; the company recipient's address, name
+    and typed signature refused outside `test` and `staging`, and in those a `.test` address only; "automatic"
+    countersigning needs the recipient and the signature text."""
+    problems = [f"{name} may not be set from the environment" for name in (*AUTOMATION_FIXED, *COMPANY_TEST_ONLY)
+                if name in environ]
+    mode = getattr(settings, "CATALYST_AGREEMENT_COUNTERSIGN", "manual")
+    if mode not in COUNTERSIGN_MODES:
+        problems.append("CATALYST_AGREEMENT_COUNTERSIGN must be 'manual' or 'automatic'")
+    if getattr(settings, "CATALYST_RELEASE_MODE", "owner") not in RELEASE_MODES:
+        problems.append("CATALYST_RELEASE_MODE must be 'owner' or 'automatic'")
+    if getattr(settings, "CATALYST_AGREEMENT_COMPANY_ROLE", "APPROVER") not in ("APPROVER", "SIGNER"):
+        problems.append("CATALYST_AGREEMENT_COMPANY_ROLE must be 'APPROVER' or 'SIGNER'")
+    if not synthetic(getattr(settings, "CATALYST_ENV", "")):
+        for name in COMPANY_TEST_ONLY:
+            if getattr(settings, name, ""):
+                problems.append(f"{name} is allowed only in the test and staging environments (synthetic agreements only)")
+    else:
+        email = getattr(settings, "CATALYST_AGREEMENT_COMPANY_EMAIL", "") or ""
+        if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.test", email.lower()):
+            problems.append("CATALYST_AGREEMENT_COMPANY_EMAIL must be an address at a .test domain")
+    if mode == "automatic" and not (getattr(settings, "CATALYST_AGREEMENT_COMPANY_EMAIL", "")
+                                    and getattr(settings, "CATALYST_AGREEMENT_COUNTERSIGN_SIGNATURE", "")):
+        problems.append("CATALYST_AGREEMENT_COUNTERSIGN 'automatic' needs CATALYST_AGREEMENT_COMPANY_EMAIL and "
+                        "CATALYST_AGREEMENT_COUNTERSIGN_SIGNATURE")
+    return problems
+
+
 PROVISIONING_TEST_ONLY = ("CATALYST_PROVISIONING_ADAPTER", "CATALYST_PROVISIONING_DOMAIN")
 
 
@@ -732,6 +769,7 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + erasure_key_problems(settings, _process_kind())
         + custody_key_problems(settings, _process_kind())
         + intake_problems(settings, environ)
+        + automation_problems(settings, environ)
     )
 
 

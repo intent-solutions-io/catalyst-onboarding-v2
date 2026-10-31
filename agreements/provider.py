@@ -128,9 +128,15 @@ def _tls_context():
 
 
 def exchange(method: str, path: str, *, query: dict | None = None, body: bytes | None = None,
-             content_type: str = "") -> Response:
-    """One bounded HTTPS exchange. Raises ProviderError for anything but a 2xx or a 4xx response with a body."""
+             content_type: str = "", recipient_route: bool = False) -> Response:
+    """One bounded HTTPS exchange. Raises ProviderError for anything but a 2xx or a 4xx response with a body.
+
+    `recipient_route` (bgl.9, the countersignature): `path` is from the host's root, not under the API base, and the
+    request carries no API key; it sends the instance's own `Origin` instead, the check the installed version applies
+    to a token-authenticated mutation. The credential is the recipient token in the body."""
     host, port, base, address = _target()
+    if recipient_route:
+        base = ""
     deadline = time.monotonic() + settings.CATALYST_AGREEMENT_DEADLINE_SECONDS
     sent = False
     raw, watchdog, expired, live = None, None, threading.Event(), {}
@@ -168,7 +174,10 @@ def exchange(method: str, path: str, *, query: dict | None = None, body: bytes |
         connection.putheader("User-Agent", USER_AGENT)
         connection.putheader("Accept-Encoding", "identity")
         connection.putheader("Connection", "close")
-        connection.putheader("Authorization", settings.CATALYST_AGREEMENT_PROVIDER_TOKEN)
+        if recipient_route:
+            connection.putheader("Origin", f"https://{host}" + ("" if port == 443 else f":{port}"))
+        else:
+            connection.putheader("Authorization", settings.CATALYST_AGREEMENT_PROVIDER_TOKEN)
         if body is not None:
             connection.putheader("Content-Type", content_type)
             connection.putheader("Content-Length", str(len(body)))
@@ -345,6 +354,95 @@ def download(item_id: str) -> bytes:
     if not response.body.startswith(b"%PDF-"):
         raise ProviderError("download_not_pdf", sent=True, status=response.status)
     return response.body
+
+
+# --- the company countersignature (bgl.9; 034 row 30; first-generation decision 12) ----------------------------------
+# The installed version has no API-key route that signs as a recipient. The first generation signs through the routes
+# the provider's own signing page uses, authenticated by the recipient's token: `envelope.field.sign` for each of the
+# company recipient's signature fields, then `recipient.completeDocumentWithToken`. The provider then runs its own
+# checks (pending envelope, signing order, required fields, expiry), writes its own audit log and seals the document.
+# The request and response shapes below are the ones the first generation uses against its installed version; for v2
+# they are NOT VERIFIED until an authorized canary, like every other provider shape here (021 section 15).
+RECIPIENT_TOKEN = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
+DOCUMENT_NUMBER = re.compile(r"^document_([0-9]{1,12})$")
+SIGN_FIELD = "/api/trpc/envelope.field.sign"
+COMPLETE = "/api/trpc/recipient.completeDocumentWithToken"
+UNSIGNED_COMPANY_FIELDS = ("SIGNATURE", "DATE")  # a DATE field is filled by the provider at completion
+
+
+class CountersignRefused(Exception):
+    """A condition for signing does not hold. Nothing was sent: `code` names the failed check."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+def countersign(envelope_id: str, external_key: str, email: str, role: str, signature: str) -> str:
+    """Sign as the company recipient (`email`, `role`, order 2) and complete its part; returns the provider's status
+    for the completion (`SIGNED`, or `ALREADY_SIGNED` when the recipient had completed meanwhile).
+
+    A fresh `GET envelope/{id}` first, and nothing is sent unless it shows our envelope (`externalId` equal to
+    `external_key`, which must be a v2 `ag_` key: an envelope v2 did not create is never touched), PENDING, exactly two
+    recipients in order with the applicant SIGNER signed, the company recipient not signed and not expired, nobody
+    rejected, the company's own unsigned fields only signatures (and dates the provider fills), at least one signature
+    field, and a plain token. Raises CountersignRefused for a failed condition (nothing sent) and ProviderError for an
+    exchange that failed (its `sent` says whether a write may have reached the provider). The recipient token is used
+    in memory for these two calls and never returned, recorded or logged."""
+    if not external_key.startswith("ag_"):
+        raise CountersignRefused("not_a_v2_envelope")
+    raw = _json(exchange("GET", f"/envelope/{quote(envelope_id, safe='')}"))
+    if not isinstance(raw, dict) or raw.get("id") != envelope_id:
+        raise CountersignRefused("identity_mismatch")
+    if raw.get("externalId") != external_key:
+        raise CountersignRefused("not_a_v2_envelope")
+    if raw.get("status") != "PENDING":
+        raise CountersignRefused("envelope_not_pending")
+    recipients = raw.get("recipients")
+    if not isinstance(recipients, list) or len(recipients) != 2 or not all(isinstance(r, dict) for r in recipients):
+        raise CountersignRefused("recipients_unexpected")
+    applicant, company = sorted(recipients, key=lambda r: r.get("signingOrder") if isinstance(r.get("signingOrder"), int) else 99)
+    if (applicant.get("signingOrder"), company.get("signingOrder")) != (1, 2) or applicant.get("role") != "SIGNER":
+        raise CountersignRefused("recipients_unexpected")
+    if (not isinstance(company.get("email"), str) or company["email"].casefold() != email.casefold()
+            or company.get("role") != role):
+        raise CountersignRefused("company_recipient_unexpected")
+    if any(r.get("signingStatus") == "REJECTED" for r in recipients):
+        raise CountersignRefused("rejected")
+    if applicant.get("signingStatus") != "SIGNED":
+        raise CountersignRefused("applicant_not_signed")
+    if company.get("signingStatus") == "SIGNED":
+        return "ALREADY_SIGNED"
+    if company.get("signingStatus") != "NOT_SIGNED" or company.get("expired"):
+        raise CountersignRefused("company_recipient_not_signable")
+    token = company.get("token")
+    if not isinstance(token, str) or not RECIPIENT_TOKEN.fullmatch(token):
+        raise CountersignRefused("recipient_token_missing")
+    number = DOCUMENT_NUMBER.fullmatch(str(raw.get("secondaryId") or ""))
+    if number is None:
+        raise CountersignRefused("document_number_missing")
+    fields = raw.get("fields", [])
+    own = [f for f in fields if isinstance(f, dict) and f.get("recipientId") == company.get("id")] \
+        if isinstance(fields, list) and company.get("id") is not None else []
+    if not any(f.get("type") == "SIGNATURE" for f in own):
+        raise CountersignRefused("company_signature_field_missing")
+    if any(f.get("inserted") is not True and f.get("type") not in UNSIGNED_COMPANY_FIELDS for f in own):
+        raise CountersignRefused("company_fields_unexpected")
+    for field in own:
+        if field.get("type") != "SIGNATURE" or field.get("inserted") is True:
+            continue
+        if not isinstance(field.get("id"), int) or isinstance(field.get("id"), bool):
+            raise CountersignRefused("company_fields_unexpected")
+        body = json.dumps({"json": {"token": token, "fieldId": field["id"],
+                                    "fieldValue": {"type": "SIGNATURE", "value": signature}}}).encode()
+        _json(exchange("POST", SIGN_FIELD, body=body, content_type="application/json", recipient_route=True))
+    body = json.dumps({"json": {"token": token, "documentId": int(number.group(1))}}).encode()
+    data = _json(exchange("POST", COMPLETE, body=body, content_type="application/json", recipient_route=True))
+    result = ((data.get("result") or {}).get("data") or {}).get("json") if isinstance(data, dict) else None
+    status = result.get("status") if isinstance(result, dict) else None
+    if status not in ("SIGNED", "ALREADY_SIGNED"):
+        raise ProviderError("countersign_unexpected_response", sent=True)  # unknown: the next attempt reads first
+    return status
 
 
 EVENTS = ("DOCUMENT_CREATED", "DOCUMENT_SENT", "DOCUMENT_OPENED", "DOCUMENT_SIGNED", "DOCUMENT_RECIPIENT_COMPLETED",

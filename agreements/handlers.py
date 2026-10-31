@@ -169,11 +169,23 @@ def start_agreement(application, version: AgreementTemplateVersion, actor: str) 
         external_key=new_key(), issue_status="create_pending")
     AgreementRecipient.objects.create(instance=instance, role=AgreementRecipient.Role.SIGNER, signing_order=1,
                                       required=True, who="applicant", name=application.display_name, email=recipient)
+    _add_company_recipient(instance, version)
     enqueue_create(instance)
     event(application, "agreement_instance_created",
           {"instance": str(instance.public_id), "type": version.agreement_type.key, "template_version": version.version},
           actor_ref=actor)
     return instance
+
+
+def _add_company_recipient(instance, version: AgreementTemplateVersion) -> None:
+    """P4-D-3 (bgl.9): the company recipient, at order 2 after the applicant, once its identity is configured and the
+    template version has a slot for it (`<role>:2`). Required: the agreement is complete only with both signatures.
+    Nothing is added while CATALYST_AGREEMENT_COMPANY_EMAIL is empty (the default), so today's single-signer agreements
+    are unchanged. Who signs it is CATALYST_AGREEMENT_COUNTERSIGN: the owner by hand, or agreements.countersign."""
+    email, role = settings.CATALYST_AGREEMENT_COMPANY_EMAIL, settings.CATALYST_AGREEMENT_COMPANY_ROLE
+    if email and isinstance((version.recipient_slots or {}).get(f"{role}:2"), int):
+        AgreementRecipient.objects.create(instance=instance, role=role, signing_order=2, required=True, who="staff",
+                                          name=settings.CATALYST_AGREEMENT_COMPANY_NAME, email=email)
 
 
 @dataclass(frozen=True)

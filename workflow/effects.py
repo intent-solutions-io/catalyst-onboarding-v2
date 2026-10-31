@@ -84,6 +84,15 @@ REGISTRY = {
     "agreements.handlers:DistributeAgreement.call": {
         "documenso": Site(CHECKED_BEFORE, "re-reads the envelope and skips one already PENDING",
                           by="agreements.handlers:DistributeAgreement.call")},
+    # bgl.9: the automated countersignature reads the envelope first and signs only for a company recipient that has not
+    # signed (a restored run finds a signature already there); `begun` is appended before the call, `done` on commit.
+    "agreements.countersign:CountersignAgreement.run": {
+        "journal": Site(JOURNALED_BEFORE, "a countersignature begun, appended before the provider call",
+                        ("agreement_countersign",)),
+        "documenso": Site(CHECKED_BEFORE, "reads the envelope first; signs only a company recipient not yet signed",
+                          by="agreements.countersign:CountersignAgreement.run")},
+    "agreements.countersign:CountersignAgreement._signed": {
+        "journal": Site(JOURNALED_AFTER, "a countersignature verified by a fresh read, on commit", ("agreement_countersign",))},
     "agreements.handlers:CancelEnvelope.call": {
         "documenso": Site(PROVIDER_READ, "a restored instance's envelope is read by id; a cancel shows", by=READ_ENVELOPES)},
     # Custody keys (agreements.keystore, catalyst_custody_keys): appended and fsynced before any file is unlinked or
