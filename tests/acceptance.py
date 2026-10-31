@@ -2049,6 +2049,16 @@ P6_SUPPORTING = {
         "test_db_roles::test_6hl10_the_probe_login_is_read_by_the_test_support_module_only",
         "test_db_roles::test_child_processes_do_not_receive_the_administrator_login",
     ],
+    "bgl.16 the first-generation import converts every v1 record, reports every row and keeps the person erasable (035)": [
+        "test_first_generation_import::test_bgl16_a_dry_run_reports_every_row_and_leaves_nothing",
+        "test_first_generation_import::test_bgl16_every_v1_state_maps_to_its_stage_is_paused_and_nothing_is_queued_or_sent",
+        "test_first_generation_import::test_bgl16_agreements_details_mailboxes_crm_and_the_decline",
+        "test_first_generation_import::test_bgl16_replies_to_first_generation_threads_associate_by_message_id_and_reference",
+        "test_first_generation_import::test_bgl16_a_second_run_creates_nothing_and_a_late_row_is_added_once",
+        "test_first_generation_import::test_bgl16_a_failed_person_is_reported_and_everyone_else_is_imported",
+        "test_first_generation_import::test_bgl16_the_command_runs_only_as_the_owner_and_never_schedules_followups",
+        "test_first_generation_import::test_bgl16_erasing_an_imported_person_clears_everything_the_import_wrote",
+    ],
 }
 
 # Cases with no pytest evidence of their own: shown only by a live script (026 section 16).
