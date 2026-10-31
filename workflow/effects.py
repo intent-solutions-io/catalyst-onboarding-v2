@@ -132,6 +132,8 @@ REGISTRY = {
                      by="correspondence.inbound:FileCopy.run")},
     "correspondence.outbound:approve_question": {
         "journal": Site(JOURNALED_AFTER, "an approved question, on commit", ("question_approved",))},
+    "correspondence.outbound:approve_questions_by_policy": {  # bgl.12, registered at the parity integration
+        "journal": Site(JOURNALED_AFTER, "a question the routine-advance policy approved, on commit", ("question_approved",))},
     "correspondence.outbound:SendMessage.run": {
         "journal": Site(JOURNALED_BEFORE, "send_begun, appended after the claim and before SMTP", ("send_begun",)),
         "smtp": Site(PROVIDER_READ, "the Sent folder is read; an unknown copy opens an item", by=READ_SENT)},
@@ -155,6 +157,12 @@ REGISTRY = {
         "journal": Site(JOURNALED_AFTER, "a resolved staff item, on commit", ("staff_item_resolved",))},
     # The contact-confirmation link: the review supersedes every unused challenge and opens an item for an applicant
     # left waiting.
+    # bgl.8, registered at the parity integration: the service-sent signing link carries the applicant's own provider
+    # token. After a restore the envelope is read by id; a signed applicant gets no further link, and a repeated mail
+    # to an unsigned one carries the identical link (at least once, as the verification mail, D-20), disclosing nothing new.
+    "agreements.signing_mail:SendSigningLink.run": {
+        "django_mail": Site(PROVIDER_READ, "the envelope is read by id after a restore; a repeat is the identical link",
+                            by=READ_ENVELOPES)},
     "correspondence.verification:SendVerification.run": {
         "django_mail": Site(COVERED_BY_REVIEW, "the review supersedes every unused confirmation link", by=CLOSE_LINKS)},
     # Erasure (9kg.32, 9kg.25): the durable erasure record; the intent is fsynced before the erasure runs, and an

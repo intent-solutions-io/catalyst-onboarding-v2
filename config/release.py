@@ -97,6 +97,12 @@ EXPAND_SAFE: dict[str, str] = {
         "usual without reopening it, refuses a repeat submission from that address on the unique index (nothing written, "
         "never a second open application), and leaves the `lapse` and `remind_signing` actions queued (no handler); "
         "nothing is removed or renamed. Reversing the migration itself needs no `lapsed` rows"),
+    "provisioning.0008_credential_setup_mode": (
+        "adds `mode` with a database default of `set_your_own` (bgl.10), so every row a previous image inserts gets the "
+        "mode its link flow is; replaces the token CHECK with one that exempts only `one_time_password` rows, which a "
+        "previous image never writes, so every row it writes is held to the same rule as before; adds a mode CHECK that "
+        "the default satisfies; the fixed-identity trigger also fixes the mode, which a previous image never updates. "
+        "Nothing is removed or renamed for any row a previous image writes (recorded at the parity integration)"),
     "correspondence.0023_lapse_note": (
         "widens the approved-message kind CHECK and the field's choices by one value (`lapse_note`, bgl.7) and seeds an "
         "unapproved draft template; the choices change is state only and every row a previous image writes already "
