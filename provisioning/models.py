@@ -165,16 +165,23 @@ LIVE_SETUP = ("invitation_pending", "invitation_sending", "invited", "presented"
 
 
 class CredentialSetup(models.Model):
-    """023 sections 11.2, 11.5 and 11.7 (5B.2): one set-your-own-password invitation series for a verified mailbox.
+    """023 sections 11.2, 11.5 and 11.7 (5B.2): one credential series for a verified mailbox, in one of two modes.
 
-    The token is minted by the worker at send time and only its SHA-256 is stored, once. The recipient is the
-    verified external address at the moment the series was opened, and is fixed. The chosen password is never stored
-    anywhere: it travels only in the POST and the in-process call to the credential operation.
+    `set_your_own` (P5-D-6, the default): a set-your-own-password invitation. The token is minted by the worker at send
+    time and only its SHA-256 is stored, once. `one_time_password` (the first-generation alternative, 034 row 39): the
+    worker sets a generated password, checks it by an IMAP login and sends it in the welcome; no token exists. In both
+    the recipient is the verified external address at the moment the series was opened, and is fixed, and the password
+    is never stored anywhere: it travels only in the POST or the worker's memory and the in-process credential call.
     """
+
+    class Mode(models.TextChoices):
+        SET_YOUR_OWN = "set_your_own"
+        ONE_TIME_PASSWORD = "one_time_password"
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     request = models.ForeignKey(ProvisioningRequest, on_delete=models.PROTECT, related_name="setups")
     series = models.PositiveIntegerField()
+    mode = models.CharField(max_length=24, choices=Mode.choices, default=Mode.SET_YOUR_OWN)
     recipient = models.CharField(max_length=320)
     token_sha256 = models.CharField(max_length=64, blank=True, default="")
     state = models.CharField(max_length=24, default="invitation_pending")
@@ -191,7 +198,10 @@ class CredentialSetup(models.Model):
             models.UniqueConstraint(fields=["request"], condition=Q(state__in=LIVE_SETUP), name="setup_one_live_per_request"),
             models.UniqueConstraint(fields=["token_sha256"], condition=~Q(token_sha256=""), name="setup_token_unique"),
             models.CheckConstraint(condition=Q(state__in=SETUP_STATES), name="setup_state_valid"),
-            models.CheckConstraint(condition=~Q(state__in=["invited", "presented", "set_pending", "completed"])
+            models.CheckConstraint(condition=Q(mode__in=["set_your_own", "one_time_password"]), name="setup_mode_valid"),
+            # A link series carries its token once invited; a one-time-password series never has one.
+            models.CheckConstraint(condition=Q(mode="one_time_password")
+                                   | ~Q(state__in=["invited", "presented", "set_pending", "completed"])
                                    | (~Q(token_sha256="") & Q(expires_at__isnull=False)), name="setup_invited_has_token"),
             models.CheckConstraint(condition=Q(state="completed") | Q(completed_at__isnull=True),
                                    name="setup_completed_consistent"),

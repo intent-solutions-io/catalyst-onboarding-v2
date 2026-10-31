@@ -379,7 +379,13 @@ def agreement_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return problems
 
 
-PROVISIONING_TEST_ONLY = ("CATALYST_PROVISIONING_ADAPTER", "CATALYST_PROVISIONING_DOMAIN")
+PROVISIONING_TEST_ONLY = ("CATALYST_PROVISIONING_ADAPTER", "CATALYST_PROVISIONING_DOMAIN",
+                          # the live mail host's values (034 row 37): fixed in code, empty outside test and staging
+                          "CATALYST_PROVISIONING_API_URL", "CATALYST_PROVISIONING_API_SERVER",
+                          "CATALYST_PROVISIONING_API_ACCOUNT", "CATALYST_PROVISIONING_API_KEY_FILE",
+                          "CATALYST_PROVISIONING_IMAP_HOST")
+NAMING_POLICIES = ("first_last", "first_name")
+CREDENTIAL_MODES = ("set_your_own", "one_time_password")
 
 
 def provisioning_problems(settings, environ: Mapping[str, str]) -> list[str]:
@@ -404,6 +410,10 @@ def provisioning_problems(settings, environ: Mapping[str, str]) -> list[str]:
         for host in getattr(settings, "ALLOWED_HOSTS", []) or []:
             if host.strip() in ("*", ".") or _production_host(host.strip().lstrip(".")):
                 problems.append(f"ALLOWED_HOSTS in staging may not include {host!r}")
+    if getattr(settings, "CATALYST_PROVISIONING_NAMING_POLICY", "first_last") not in NAMING_POLICIES:
+        problems.append("CATALYST_PROVISIONING_NAMING_POLICY must be first_last or first_name")
+    if getattr(settings, "CATALYST_PROVISIONING_CREDENTIAL_MODE", "set_your_own") not in CREDENTIAL_MODES:
+        problems.append("CATALYST_PROVISIONING_CREDENTIAL_MODE must be set_your_own or one_time_password")
     if not synthetic(environment):
         for name in PROVISIONING_TEST_ONLY:
             if getattr(settings, name, ""):
@@ -412,6 +422,7 @@ def provisioning_problems(settings, environ: Mapping[str, str]) -> list[str]:
     adapter = getattr(settings, "CATALYST_PROVISIONING_ADAPTER", "")
     if adapter and not adapter.startswith("tests."):
         problems.append("CATALYST_PROVISIONING_ADAPTER must name a test fake")
+    problems += _live_host_problems(settings)
     domain = getattr(settings, "CATALYST_PROVISIONING_DOMAIN", "")
     if domain and not domain.lower().endswith(".test"):
         problems.append("CATALYST_PROVISIONING_DOMAIN must be a .test domain")
@@ -422,6 +433,31 @@ def provisioning_problems(settings, environ: Mapping[str, str]) -> list[str]:
         problems.append("CATALYST_PROVISIONING_QUOTA_MB must be at least 1 (never unlimited, P5-D-2)")
     if not (isinstance(limit, int) and 1 <= limit <= 9600):
         problems.append("CATALYST_PROVISIONING_SEND_LIMIT must be between 1 and 9600")
+    return problems
+
+
+def _live_host_problems(settings) -> list[str]:
+    """The live mail host's values in test and staging (034 row 37): the API origin is https on a `.test` host or http
+    on loopback, with no path, query or fragment; the key file is an absolute path; the IMAP host is loopback or a
+    `.test` name, its port in range. Nothing here may name a real host."""
+    problems = []
+    api = getattr(settings, "CATALYST_PROVISIONING_API_URL", "") or ""
+    if api:
+        parts = urlsplit(api)
+        host = parts.hostname or ""
+        origin = (parts.scheme == "https" and host.isascii() and host.lower().endswith(".test")) or (
+            parts.scheme == "http" and is_loopback_literal(host))
+        if not origin or parts.path not in ("", "/") or parts.query or parts.fragment or "@" in parts.netloc:
+            problems.append("CATALYST_PROVISIONING_API_URL must be an https origin on a .test host, or http on loopback")
+    key_file = getattr(settings, "CATALYST_PROVISIONING_API_KEY_FILE", "") or ""
+    if key_file and not key_file.startswith("/"):
+        problems.append("CATALYST_PROVISIONING_API_KEY_FILE must be an absolute path")
+    imap = getattr(settings, "CATALYST_PROVISIONING_IMAP_HOST", "") or ""
+    if imap and not (is_loopback_literal(imap) or (imap.isascii() and imap.lower().endswith(".test"))):
+        problems.append("CATALYST_PROVISIONING_IMAP_HOST must be loopback or a .test host")
+    port = getattr(settings, "CATALYST_PROVISIONING_IMAP_PORT", 993)
+    if not (isinstance(port, int) and 1 <= port <= 65535):
+        problems.append("CATALYST_PROVISIONING_IMAP_PORT must be a port number")
     return problems
 
 

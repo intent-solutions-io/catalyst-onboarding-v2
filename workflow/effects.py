@@ -179,4 +179,12 @@ REGISTRY = {
     "provisioning.handlers:CreateMailbox.run": {
         "mailhost": Site(PROVIDER_READ, "restored requests are read by address; every create reads absence first",
                          by=READ_MAILBOXES)},
+    # The one-time-password welcome (034 row 39): the set cannot be read back and the welcome carries the credential;
+    # the review supersedes every open round, marks a set in flight unknown and tells staff, and the reissued round
+    # sets a new password, so a credential the restored record does not account for stops working.
+    "provisioning.password_welcome:SendPasswordWelcome._exchange": {
+        "mailhost": Site(COVERED_BY_REVIEW, "the one-time password set; the review closes every open round and a new round "
+                                            "sets a new one", by=CLOSE_LINKS),
+        "django_mail": Site(COVERED_BY_REVIEW, "the welcome carrying that password; the review closes the round and staff "
+                                               "reissue", by=CLOSE_LINKS)},
 }

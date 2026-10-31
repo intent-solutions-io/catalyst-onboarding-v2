@@ -25,7 +25,7 @@ from correspondence.models import StaffItem
 from correspondence.staff_items import clean_note, resolve_item
 from workflow.models import PendingAction
 
-from . import core, naming
+from . import adapter, core, naming
 from .models import AddressReservation, ProvisioningAttempt, ProvisioningEvidence, ProvisioningRequest
 
 REASON_MIN = 10
@@ -81,6 +81,29 @@ def _free(application, local_part: str, domain: str) -> bool:
     return not same.filter(released_at__isnull=True).exists() and not tried
 
 
+def _taken_at_host(domain: str, candidates: list[str]) -> set[str]:
+    """P5-D-1's host-side collision check (034 row 38; D-48's open item): the forwarder aliases of the domain, and each
+    candidate that already is a mailbox there. Read-only, and never adopts: an address that exists at the host is
+    skipped, whoever made it. Raises `AdapterError` when the host cannot answer; a 500 is never "absent"."""
+    host = adapter.host()
+    taken = {alias.lower() for alias, _ in host.list_forwarders(domain)}
+    for candidate in candidates:
+        if candidate not in taken and host.read(domain, candidate) is not None:
+            taken.add(candidate)
+    return taken
+
+
+def _propose(application, domain: str) -> str | None:
+    """The first candidate of the configured policy that is free here and, when the host check is on, at the host.
+    Outside any transaction (the host reads); the database check is repeated under the lock. None when the name needs a
+    reviewed exception or every candidate is taken."""
+    candidates = naming.candidates_for(application.display_name)
+    if not candidates:
+        return None
+    taken = _taken_at_host(domain, candidates) if settings.CATALYST_PROVISIONING_NAMING_HOST_CHECK else set()
+    return next((c for c in candidates if c not in taken and _free(application, c, domain)), None)
+
+
 def _refused(application, reason: str, dry_run: bool) -> str:
     """023 section 5 step 1: a refusal leaves the hand-off held, with a staff item and an event."""
     if not dry_run and reason not in ("not_held",):
@@ -106,6 +129,12 @@ def release(action_id: int, activation_version: int, approval_ref: str, dry_run:
     problem = fresh_read_problem(application)  # B1: outside any transaction (023 11.4)
     if problem:
         return problem  # an integrity hold has already opened its own staff item
+    proposed = None
+    if not AddressReservation.objects.filter(application=application, released_at__isnull=True, requests__isnull=True).exists():
+        try:
+            proposed = _propose(application, domain)  # the policy's candidates, read at the host when configured
+        except adapter.AdapterError as exc:  # the host could not answer: the hand-off stays held, nothing is reserved
+            return _refused(application, f"host_read_{exc.code}", dry_run)
     with transaction.atomic():
         application, _ = core.lock(application.pk)
         action = PendingAction.objects.select_for_update(of=("self",)).get(pk=action_id)
@@ -127,8 +156,9 @@ def release(action_id: int, activation_version: int, approval_ref: str, dry_run:
         reservation = AddressReservation.objects.filter(application=application, released_at__isnull=True,
                                                         requests__isnull=True).first()
         if reservation is None:
-            base = naming.proposal(application.display_name)
-            local = next((c for c in naming.candidates(base) if _free(application, c, domain)), None) if base else None
+            if proposed and not _free(application, proposed, domain):  # reserved by someone since the read: run again
+                return _refused(application, "address_taken_meanwhile", dry_run)
+            local = proposed
             if local is None:
                 if not dry_run:
                     from correspondence.staff_items import open_item

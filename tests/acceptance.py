@@ -2049,6 +2049,35 @@ P6_SUPPORTING = {
         "test_db_roles::test_6hl10_the_probe_login_is_read_by_the_test_support_module_only",
         "test_db_roles::test_child_processes_do_not_receive_the_administrator_login",
     ],
+    # bgl.10 (034 rows 37 to 39): the live MXroute adapter over a stub transport, the first-name username policy with
+    # the host-side collision check, and the one-time-password welcome beside P5-D-6. Built and gated here; nothing
+    # activates in production (the live canary is a separate owner-gated bead).
+    "bgl.10 the live mail-host adapter, the first-name username policy and the one-time-password welcome": [
+        "test_parity_mxroute::test_bgl10_the_adapter_speaks_the_documented_routes_with_the_three_headers_and_reads_the_key_from_its_file",
+        "test_parity_mxroute::test_bgl10_a_missing_or_empty_key_file_refuses_before_any_call_and_the_key_never_appears_in_an_error",
+        "test_parity_mxroute::test_bgl10_the_adapter_maps_answers_to_the_p4_error_taxonomy",
+        "test_parity_mxroute::test_bgl10_the_default_transport_is_the_covered_http_client_and_opens_nothing_in_tests",
+        "test_parity_mxroute::test_bgl10_the_login_check_verifies_the_certificate_and_tells_a_refusal_from_a_failure",
+        "test_parity_mxroute::test_bgl10_create_when_absent_reads_then_posts_then_reads_again_and_the_password_is_in_no_record",
+        "test_parity_mxroute::test_bgl10_a_mailbox_present_and_not_ours_is_refused_with_a_staff_item_and_never_changed",
+        "test_parity_mxroute::test_bgl10_a_crashed_create_finds_its_own_mailbox_on_the_next_run_and_never_posts_twice",
+        "test_parity_mxroute::test_bgl10_a_lost_answer_after_the_create_landed_continues_by_reading_never_by_a_second_post",
+        "test_parity_mxroute::test_bgl10_a_connection_refused_before_sending_is_retried_never_called_a_rejection",
+        "test_parity_mxroute::test_bgl10_the_first_name_policy_folds_names_and_orders_eleven_candidates",
+        "test_parity_mxroute::test_bgl10_the_first_name_policy_skips_names_taken_at_the_host_up_to_the_ninth_suffix",
+        "test_parity_mxroute::test_bgl10_the_default_policy_without_the_host_check_proposes_as_before_and_reads_nothing",
+        "test_parity_mxroute::test_bgl10_a_host_that_cannot_answer_the_collision_check_leaves_the_handoff_held",
+        "test_parity_mxroute::test_bgl10_the_one_time_password_welcome_sets_checks_by_imap_then_sends_to_the_personal_address_only",
+        "test_parity_mxroute::test_bgl10_a_refused_imap_login_sends_no_welcome_and_each_new_round_sets_a_new_password",
+        "test_parity_mxroute::test_bgl10_an_unknown_password_set_sends_nothing_checks_nothing_and_the_next_round_succeeds",
+        "test_parity_mxroute::test_bgl10_an_uncertain_welcome_send_is_never_repeated_with_the_same_password",
+        "test_parity_mxroute::test_bgl10_without_a_usable_password_template_nothing_is_set_and_staff_are_told",
+        "test_parity_mxroute::test_bgl10_a_crash_during_the_exchange_is_never_replayed_and_the_sweep_covers_a_round_that_never_returns",
+        "test_parity_mxroute::test_bgl10_the_link_flow_and_its_records_are_untouched_when_the_mode_stays_default",
+        "test_parity_mxroute::test_bgl10_the_mode_of_a_series_is_fixed_for_every_role",
+        "test_parity_mxroute::test_bgl10_the_password_generator_is_strong_and_within_the_documented_bounds",
+        "test_parity_mxroute::test_bgl10_live_host_settings_are_refused_outside_test_and_staging_and_bounded_inside",
+    ],
 }
 
 # Cases with no pytest evidence of their own: shown only by a live script (026 section 16).

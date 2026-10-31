@@ -174,6 +174,14 @@ class CreateMailbox(_Action):
             result = adapter.AdapterError("handler_error", sent=True)
         try:
             self.after_call(claim)
+            if result is not None and not result.sent:
+                # The request provably never left (a refused connection, no credential): nothing to reconcile at the
+                # host, so the attempt ends "not created" and the create runs again later (a live transport's case;
+                # the fake never produces it).
+                code = result.code
+                self._retry_or_staff(claim, request, f"create_not_sent_{code}",
+                                     write=lambda: self._not_sent(request, attempt, code, "create_not_sent_"))
+                return
             ledger.finish(claim, self, status=Status.DONE, error=getattr(result, "code", ""),
                           write=lambda: self._result(claim, request, attempt, result))
         except Exception as exc:
@@ -198,7 +206,8 @@ class CreateMailbox(_Action):
             core.record(request.application, "provisioning_created", {"request": str(request.public_id)},
                         f"pending_action:{claim.id}")
         elif result.conflict and request.attempts.filter(step="create", outcome=Outcome.NOT_CREATED).exclude(
-                code__startswith="absent_read_").exists():  # an earlier create that was really sent
+                code__startswith="absent_read_").exclude(code__startswith="create_not_sent_").exists():
+            # an earlier create that was really sent
             # 023 11.11: a conflict after our own earlier unknown create may be that create landing late: reconcile
             # by reading, and staff confirm, never adopt.
             ProvisioningAttempt.objects.filter(pk=attempt.pk).update(outcome=Outcome.UNKNOWN, code="conflict_after_ours")
@@ -225,8 +234,8 @@ class CreateMailbox(_Action):
         core.enqueue(core.RECONCILE, request, f"{core.RECONCILE}:{attempt.public_id}:0", due_in=_grace(),
                      max_attempts=settings.CATALYST_PROVISIONING_ATTEMPTS)
 
-    def _not_sent(self, request, attempt, code) -> None:
-        ProvisioningAttempt.objects.filter(pk=attempt.pk).update(outcome=Outcome.NOT_CREATED, code=f"absent_read_{code}",
+    def _not_sent(self, request, attempt, code, prefix="absent_read_") -> None:
+        ProvisioningAttempt.objects.filter(pk=attempt.pk).update(outcome=Outcome.NOT_CREATED, code=f"{prefix}{code}",
                                                                  finished_at=Now())
         current = ProvisioningRequest.objects.get(pk=request.pk)
         if current.status == "create_pending":
