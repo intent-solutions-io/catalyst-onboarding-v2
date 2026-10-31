@@ -22,9 +22,8 @@ from correspondence.models import MessageTemplate, MessageTemplateVersion
 from correspondence.rendering import (
     TemplateRefused, canonical_digest, check_version, html_placement_problem, render, render_html, version_digest)
 from tests.test_intake_notice import template_owner
-from tests.test_outbound import ask, question_template, ready, p2  # noqa: F401 (fixture chain)
+from tests.test_outbound import ask, p2, question_template, ready, run_worker  # noqa: F401 (fixture chain)
 from tests.test_verification_wording import ensure_template as ensure_verification_template
-from tests.support import run_worker
 
 SYNTHETIC = {
     "src/catalyst/templates/email/_partner_badge.txt": "{#- synthetic -#}\nSynthetic Signer\n{{ partner_badge.name }}\n",
@@ -66,6 +65,28 @@ SYNTHETIC = {
     "src/catalyst/mailbox/assets/welcome.txt": "Hi {{FIRST_NAME}},\nUser {{USERNAME}}@mail.example.test\nPass {{TEMP_PASSWORD}}\n",
     "src/catalyst/mailbox/assets/welcome.html": "<p>Hi {{FIRST_NAME}}</p><p><code>{{TEMP_PASSWORD}}</code></p>\n",
     "src/catalyst/mailbox/assets/welcome.manifest.json": '{"subject": "Synthetic welcome subject"}',
+    "src/catalyst/templates/email/review_clarification_reminder.txt": (
+        "Hello{% if greeting_name %} {{ greeting_name }}{% endif %},\n\nSynthetic intro {{ sent_on }}\n"
+        "{% for item in asked %}\n- {{ item }}{% endfor %}\n\nSynthetic close.{% if final %} Synthetic last.{% endif %}\n"),
+    "src/catalyst/templates/email/review_clarification_reminder.html": (
+        "<p>Hello{% if greeting_name %} {{ greeting_name }}{% endif %},</p>\n"
+        "<ul>{% for item in asked %}<li>{{ item }}</li>{% endfor %}</ul>\n"),
+    "src/catalyst/review/reminder.py": (
+        'def build_message(intake):\n    message = {}\n'
+        '    message["Subject"] = f"Re: Synthetic question subject [{intake.reference}]"\n'),
+    "src/catalyst/templates/email/case_lapse_note.txt": (
+        "Hello{% if greeting_name %} {{ greeting_name }}{% endif %},\n\n"
+        "{% if questions %}Synthetic reply branch.{% else %}Synthetic sign the {{ document }}.{% endif %}\n"),
+    "src/catalyst/templates/email/case_lapse_note.html": "<p>{% if questions %}Synthetic reply branch.{% endif %}</p>\n",
+    "src/catalyst/lapse.py": (
+        'def build_message(intake):\n    message = {}\n'
+        '    message["Subject"] = f"Synthetic lapse subject [{intake.reference}]"\n'),
+    "src/catalyst/templates/email/signing_link.txt": (
+        "{{ _('Synthetic sign: %(title)s', title=document_title) }}\n\n{{ link }}\n"),
+    "src/catalyst/templates/email/signing_link.html": "<p><a href=\"{{ link }}\">Synthetic open</a></p>\n",
+    "src/catalyst/signing/handlers.py": (
+        'def deliver_link(packet):\n    subject = f"Synthetic sign: {packet.envelope_title}"\n'
+        '    subject = f"Synthetic approver: {packet.envelope_title}"\n'),
 }
 SETTINGS = SimpleNamespace(CATALYST_REMINDER_MAX=1)
 WORDS = ("Synthetic heading", "Synthetic confirm", "Synthetic receipt subject", "Synthetic question subject",
@@ -122,6 +143,20 @@ def test_bgl11_token_assets_map_to_v2_variables_and_the_pilot_card_is_removed(so
     welcome = fg.convert(source, mapping("provisioning_welcome_password"), {}, SETTINGS)
     assert "User $mailbox_username@mail.example.test\nPass $password\n" in welcome.body_text
     assert welcome.used == {"display_name", "mailbox_username", "password"}
+
+
+def test_bgl11_subjects_fill_an_allowed_constant_and_branches_follow_the_flags(source):
+    nda = fg.convert(source, mapping("agreement_link_nda"), {}, SETTINGS)
+    assert nda.subject == "Synthetic sign" and nda.subject_differences == ["subject_variable_dropped:packet.envelope_title"]
+    assert nda.body_text == "$link\n" and nda.unmapped == {"document_title"}  # the title line had no value: dropped
+    titled = fg.convert(source, mapping("agreement_link_nda"), {"document_title": "Synthetic NDA"}, SETTINGS)
+    assert titled.subject == "Synthetic sign: Synthetic NDA" and titled.body_text.startswith("Synthetic sign: Synthetic NDA\n")
+    reminder = fg.convert(source, mapping("question_reminder"), {}, SETTINGS)
+    assert "- $question_text\n" in reminder.body_text and "Synthetic last." in reminder.body_text
+    assert "Synthetic intro" not in reminder.body_text and reminder.unmapped == {"sent_on"}
+    assert "Synthetic last." not in fg.convert(source, mapping("question_reminder"), {},
+                                               SimpleNamespace(CATALYST_REMINDER_MAX=2)).body_text
+    assert "Synthetic reply branch." in fg.convert(source, mapping("lapse_note"), {}, SETTINGS).body_text
 
 
 def test_bgl11_unsupported_template_constructs_are_refused(source):
@@ -185,7 +220,7 @@ def test_bgl11_dry_run_writes_nothing_prints_no_wording_and_skips_missing_keys(p
     by_key = {r["key"]: r for r in reports}
     assert by_key["verification_invitation"]["action"] == "create"
     assert by_key["verification_invitation"]["unmapped"] == ["greeting_name", "intake.reference", "service_address"]
-    assert by_key["lapse_note"] == {**by_key["lapse_note"], "action": "skip", "reason": "template_missing"}
+    assert by_key["agreement_link_nda"] == {**by_key["agreement_link_nda"], "action": "skip", "reason": "template_missing"}
     assert not any(word in printed for word in WORDS)  # lengths and names only, never the wording
     _, _, shown = load("--source", str(source), "--dry-run", "--only", "verification_invitation", "--show")
     assert "Synthetic heading" in shown and MessageTemplateVersion.objects.count() == before
@@ -283,7 +318,7 @@ def test_bgl11_a_version_with_html_is_sent_multipart_and_one_without_as_text_onl
     run_worker()
     sent = ready.server.parsed()
     assert sent.get_content_type() == "multipart/alternative"
-    text, html = (part.get_content() for part in sent.iter_parts())
+    text, html = (part.get_content().replace("\r\n", "\n") for part in sent.iter_parts())
     assert [p.get_content_type() for p in sent.iter_parts()] == ["text/plain", "text/html"]
     assert "Does <b>bold</b> & more appear?" in text and text == message.frozen_body
     assert "<p>Does &lt;b&gt;bold&lt;/b&gt; &amp; more appear?</p>" in html

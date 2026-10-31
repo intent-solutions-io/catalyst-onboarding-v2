@@ -1792,6 +1792,7 @@ P6_SUPPORTING = {
     "bgl.11 the first generation's wording loads from a private source as new versions with their HTML part, approved only through the staff service, and v2 sends multipart mail (034)": [
         "test_firstgen_wording::test_bgl11_conversion_maps_variables_drops_unmapped_lines_and_resolves_includes",
         "test_firstgen_wording::test_bgl11_token_assets_map_to_v2_variables_and_the_pilot_card_is_removed",
+        "test_firstgen_wording::test_bgl11_subjects_fill_an_allowed_constant_and_branches_follow_the_flags",
         "test_firstgen_wording::test_bgl11_unsupported_template_constructs_are_refused",
         "test_firstgen_wording::test_bgl11_html_values_are_escaped_and_text_values_are_plain",
         "test_firstgen_wording::test_bgl11_links_only_in_an_authored_href_and_nothing_inside_tags_scripts_or_styles",
