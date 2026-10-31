@@ -31,7 +31,9 @@ def verified_address(application) -> str | None:
     return adoption.via_challenge.email_at_issue if adoption else None
 
 
-def build_email(message, subject: str, body: str, extra_headers: dict | None = None) -> bytes:
+def build_email(message, subject: str, body: str, extra_headers: dict | None = None, html: str = "") -> bytes:
+    """The wire form: text/plain alone, or multipart/alternative (the text, then the HTML) when `html` is given, the
+    structure the first generation sends (bgl.11)."""
     email = EmailMessage(policy=SMTP_POLICY)
     email["From"] = settings.DEFAULT_FROM_EMAIL
     email["To"] = message.recipient
@@ -43,6 +45,8 @@ def build_email(message, subject: str, body: str, extra_headers: dict | None = N
     for name, value in (extra_headers or {}).items():
         email[name] = value
     email.set_content(body)
+    if html:
+        email.add_alternative(html, subtype="html")
     return email.as_bytes()
 
 

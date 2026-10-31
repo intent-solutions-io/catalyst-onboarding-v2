@@ -42,7 +42,7 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.conf import settings
-from django.core.mail import EmailMessage
+from django.core.mail import EmailMessage, EmailMultiAlternatives
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Q
 from django.db.models.functions import Now
@@ -148,12 +148,15 @@ class SendVerification:
             self._stop(claim, Stop(Status.QUEUED, str(refused), WORDING_RECHECK_SECONDS))
             return
         message_id = make_msgid(idstring=f"a{claim.attempt}", domain=urlsplit(settings.CATALYST_PUBLIC_BASE_URL).hostname)
-        message = EmailMessage(
+        # bgl.11: multipart/alternative (text, then HTML) when the approved version has an HTML part; text otherwise.
+        message = (EmailMultiAlternatives if mail.html else EmailMessage)(
             subject=mail.subject,
             body=mail.display,
             to=[decision.recipient],
             headers={"Message-ID": message_id},
         )
+        if mail.html:
+            message.attach_alternative(mail.html, "text/html")
         outbound = dict(
             application_id=decision.application_id, pending_action_id=claim.id, attempt_number=claim.attempt,
             template_key=TEMPLATE_KEY, template_version=f"{mail.version}:{mail.sha256[:24]}", recipient=decision.recipient,

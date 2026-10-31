@@ -50,6 +50,7 @@ class Rendered:
     subject: str
     text: str
     synthetic: bool = True
+    html: str = ""  # bgl.11: the HTML alternative, or "" for a text-only version
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,7 @@ class Wording:
     subject: str
     text: str
     approved: bool
+    html: str = ""  # bgl.11: the rendered HTML alternative of an approved version, or ""; a draft is sent as text only
 
     @property
     def draft(self) -> bool:
@@ -117,7 +119,8 @@ def wording(key: str, values: dict | None = None) -> Wording:
     if rendered is not None:
         if rendered.synthetic and not drafts_allowed:
             raise Unavailable(f"{key}_synthetic")
-        return Wording(key, rendered.version, rendered.sha256, rendered.subject, rendered.text, approved=True)
+        return Wording(key, rendered.version, rendered.sha256, rendered.subject, rendered.text, approved=True,
+                       html=rendered.html)
     if not drafts_allowed:
         raise Unavailable(f"{key}_not_approved")
     draft = _source("draft")(key)

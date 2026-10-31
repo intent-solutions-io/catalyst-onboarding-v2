@@ -216,7 +216,7 @@ TABLES = {
         " duplicates_seen created_at")),
     "correspondence_messagetemplate": Table(other="id key purpose secret_bearing created_at"),
     "correspondence_messagetemplateversion": Table(staff="approved_by", other=(
-        "id version subject body_text variables secret_bearing status approved_at content_sha256 synthetic created_at"
+        "id version subject body_text body_html variables secret_bearing status approved_at content_sha256 synthetic created_at"
         " template_id")),
     "correspondence_outboundmessage": Table(
         selector=APP, subject={"recipient": S("mail_derivatives")},

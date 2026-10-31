@@ -39,6 +39,7 @@ from .models import (
     QuestionReplyLink,
 )
 from .common import Refused
+from .rendering import TemplateRefused, frozen_html
 from .messages import FILE_COPY, build_email, enqueue_file_copy, message_id, only_duplicate_key, verified_address  # noqa: F401
 from .scheduling import sync_reminders
 from .staff_items import open_item
@@ -440,7 +441,11 @@ class FileCopy:
         try:
             with MailboxClient(timeout=settings.CATALYST_MAIL_SEND_DEADLINE_SECONDS) as client:
                 if not client.search_message_id(settings.CATALYST_MAIL_SENT_FOLDER, mid):
-                    data = build_email(message, message.frozen_subject, message.frozen_body,
+                    try:
+                        page = frozen_html(message)  # bgl.11: the filed copy carries the HTML the send carried
+                    except TemplateRefused:
+                        page = ""  # the send itself refused this message; a text-only copy is the most that left
+                    data = build_email(message, message.frozen_subject, message.frozen_body, html=page,
                                        extra_headers={mime.FILED_COPY_HEADER: str(message.send_ref)})
                     client.append(settings.CATALYST_MAIL_SENT_FOLDER, data)
         except (MailboxError, *NETWORK_ERRORS) as exc:
