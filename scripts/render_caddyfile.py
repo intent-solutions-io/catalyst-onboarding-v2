@@ -33,7 +33,10 @@ def _link_paths() -> tuple[str, ...]:
 
 PRIVATE_PATHS = _link_paths()
 # bgl.2 (034 row 1): the first generation's exact paths too, which every link in the wild uses; both forms are routes in v2.
-PUBLIC_EXACT = ("/request-access/", "/request-access/received/", "/request-access", "/request-access/received")
+# bgl.8 (034 row 29): the signing return page, where the provider sends a signer (agreements.provider.RETURN_PATH on the
+# public base URL) and where the first generation's envelopes already send them; both forms are routes in v2.
+PUBLIC_EXACT = ("/request-access/", "/request-access/received/", "/request-access", "/request-access/received",
+                "/signing/return/", "/signing/return")
 # bgl.2: what a public host alias (the learning host) is served: the public request pages, nothing else.
 ALIAS_PATHS = PUBLIC_EXACT
 TARGET = ROOT / "deploy" / "staging" / "Caddyfile"

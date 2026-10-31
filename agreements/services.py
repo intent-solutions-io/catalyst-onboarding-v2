@@ -598,9 +598,28 @@ def _details_digest(values: dict) -> str:
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
 
 
+def correction_fields(application_id: int, agreement_type) -> list:
+    """bgl.8 (D-46): the field names a staff correction must carry when the details are read back from the envelope:
+    exactly those of the latest version of this type, whatever its source; with no version yet (an incomplete
+    read-back), those of the live instance's layout, so staff can record them from the signed copy. Empty otherwise."""
+    from . import details
+    from .completion import _live
+    from .models import AgreementDetailsVersion
+
+    latest = (AgreementDetailsVersion.objects.filter(application_id=application_id, agreement_type=agreement_type)
+              .order_by("-version").first())
+    if latest is not None and latest.values:
+        return sorted(latest.values)
+    live = _live(application_id, agreement_type)
+    layout = details.layout_for(live.template_version) if live is not None else None
+    return sorted(layout["fields"]) if layout else []
+
+
 def record_required_details(application_id: int, type_key: str, values: dict, user):
     """Staff record the details an agreement needs from what the applicant provided, as a new draft version. Only the
-    configured synthetic fields are accepted; nothing is taken from a received email automatically."""
+    configured synthetic fields are accepted; nothing is taken from a received email automatically. With no configured
+    fields, this is the correction of details read back from a signed envelope (bgl.8, D-46): it carries exactly the
+    fields of the latest version, and a field that may be empty there (address line 2, region) may be empty here."""
     from .completion import required_details
     from .models import AgreementDetailsVersion, AgreementType
 
@@ -609,6 +628,9 @@ def record_required_details(application_id: int, type_key: str, values: dict, us
     if agreement_type is None:
         raise Refused("unknown_type")
     fields = required_details(agreement_type)
+    correction = not fields
+    if correction:
+        fields = correction_fields(application_id, agreement_type)
     if not fields:
         raise Refused("no_details_required")
     if set(values) != set(fields):
@@ -616,12 +638,15 @@ def record_required_details(application_id: int, type_key: str, values: dict, us
     cleaned = {}
     for name in fields:
         text = clean_note(str(values[name])).strip()
-        if not text or len(text) > 200:
+        if (not text and not correction) or len(text) > 200:
             raise Refused("field_invalid")
         cleaned[name] = text
+    if correction and not any(cleaned.values()):
+        raise Refused("field_invalid")
     with transaction.atomic():
         application = Application.objects.select_for_update(of=("self",)).get(pk=application_id)
-        if application.stage not in (Stage.ADMITTED, Stage.AGREEMENTS):
+        allowed = (Stage.ADMITTED, Stage.AGREEMENTS) + ((Stage.AGREEMENTS_COMPLETE,) if correction else ())
+        if application.stage not in allowed:
             raise Refused("not_in_agreements")  # details may come before the first agreement (QA review)
         version = (AgreementDetailsVersion.objects.filter(application=application, agreement_type=agreement_type)
                    .count() + 1)
@@ -645,7 +670,7 @@ def confirm_required_details(details_id: int, user, expected_sha256: str):
         row = AgreementDetailsVersion.objects.select_for_update(of=("self",)).get(pk=details_id)
         from .completion import DETAILS_NEEDED, stopped
 
-        if application.stage not in (Stage.ADMITTED, Stage.AGREEMENTS) or stopped(application):
+        if application.stage not in (Stage.ADMITTED, Stage.AGREEMENTS, Stage.AGREEMENTS_COMPLETE) or stopped(application):
             raise Refused("not_in_agreements")
         if row.status != AgreementDetailsVersion.Status.DRAFT:
             raise Refused("not_draft")

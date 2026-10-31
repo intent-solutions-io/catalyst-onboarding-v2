@@ -9,9 +9,10 @@ fenced result transaction, never under a lock (as P2 and P3).
   before any provider call. A refusal leaves the action held.
 - `CreateAgreement` (`create_agreement`, not redeliverable): step 2. An `EnvelopeAttempt` is written `sending` before
   the request leaves; `envelope/use` creates a draft only. An unknown outcome is reconciled, never retried blindly.
-- `DistributeAgreement` (`distribute_agreement`, not redeliverable): step 3. Documenso, not P2, emails the applicant,
-  so the P2 send checks run first (verified address, pause, hard bounce). A re-read decides whether the envelope was
-  already distributed; only a draft is distributed.
+- `DistributeAgreement` (`distribute_agreement`, not redeliverable): step 3. Under CATALYST_AGREEMENT_DISTRIBUTION
+  "provider" Documenso, not P2, emails the applicant, so the P2 send checks run first (verified address, pause, hard
+  bounce). A re-read decides whether the envelope was already distributed; only a draft is distributed. Under
+  "service" (bgl.8) the provider mails nobody and `agreements.signing_mail` sends the link once the envelope is issued.
 - `ReconcileAgreement` (`reconcile_agreement`, idempotent, reads only): looks for admissible evidence of an unknown
   create, distribute or cancel. It also watches a key a decision-maker set aside: a late match (an orphan) is never
   linked or verified; it opens a staff item and is cancelled (P4-D-19).
@@ -94,10 +95,16 @@ def _cancel_after_send(instance) -> None:
 
 
 def _start_sweep(instance) -> None:
-    """The first read of a newly issued envelope, at the sweep interval (4B.2; webhooks may bring it forward)."""
+    """An envelope became issued: the first read, at the sweep interval (4B.2; webhooks may bring it forward), and,
+    under CATALYST_AGREEMENT_DISTRIBUTION "service" (bgl.8), the service-sent signing link, because the provider was
+    told to mail nobody (`distributionMethod: NONE`)."""
     from .completion import enqueue_read  # completion builds on this module
 
     enqueue_read(instance, due_in=timedelta(seconds=settings.CATALYST_AGREEMENT_READ_INTERVAL_SECONDS))
+    if settings.CATALYST_AGREEMENT_DISTRIBUTION == "service":
+        from .signing_mail import enqueue_signing_link
+
+        enqueue_signing_link(instance)
 
 
 def new_key() -> str:

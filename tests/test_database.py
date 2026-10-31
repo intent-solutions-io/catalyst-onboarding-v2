@@ -77,6 +77,8 @@ APPROVED_MIGRATIONS = {
     ("workflow", "0006_restore_hold_insert_guard"), ("erasure", "0004_erase_replay"),  # 9kg.25: the replay variant of the erase function, under the restore hold only
     # bgl.16 (035): the first-generation import's provenance tables, their protection and the reinstalled erasure functions
     ("firstgen", "0001_initial"), ("firstgen", "0002_protection"), ("erasure", "0005_first_generation_import"),
+    # bgl.8: a details version read back from the signed envelope, and the service-sent signing-link templates
+    ("agreements", "0011_details_from_envelope"), ("correspondence", "0021_agreement_link_templates"),
 }
 
 

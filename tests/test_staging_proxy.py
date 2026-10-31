@@ -74,6 +74,7 @@ def test_6b8_the_public_site_serves_only_the_applicant_routes():
     public = site(renderer().render(), "CATALYST_PUBLIC_HOST")
     allowed = re.search(r"@applicant path (.+)", public).group(1).split()
     assert allowed == ["/request-access/", "/request-access/received/", "/request-access", "/request-access/received",
+                       "/signing/return/", "/signing/return",  # bgl.8: the signing return page (provider.return_url)
                        *(p + "*" for p in PRIVATE_PATHS)]  # bgl.2: the first generation's exact paths too
     for absent in ("/staff", "/admin", "/healthz", "/readyz", "/static", "/hooks"):
         assert absent not in public
@@ -112,7 +113,8 @@ def test_bgl_2_the_alias_site_serves_only_the_public_request_pages():
     module = renderer()
     alias = site(module.render(), "CATALYST_PUBLIC_HOST_ALIASES")
     allowed = re.search(r"@alias path (.+)", alias).group(1).split()
-    assert allowed == ["/request-access/", "/request-access/received/", "/request-access", "/request-access/received"]
+    assert allowed == ["/request-access/", "/request-access/received/", "/request-access", "/request-access/received",
+                       "/signing/return/", "/signing/return"]  # bgl.8: the signing return page on the learning host too
     for absent in ("/staff", "/confirm", "/setup", "/withdraw", "/healthz", "/readyz", "/static", "bind "):
         assert absent not in alias, absent
     assert "import catalyst_not_found" in alias and "max_size 128KB" in alias

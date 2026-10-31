@@ -44,7 +44,7 @@ class FakeDocumenso:
         # Provider-sent email (D-41), modelled on the installed version's handlers: the signing request on distribute,
         # the cancellation email on cancel unless `documentDeleted` is off, the completed copy on completion.
         self.emails = []
-        self._lock, self._n, self.clock = threading.Lock(), 0, 0
+        self._lock, self._n, self._f, self.clock = threading.Lock(), 0, 0, 0
         # 9kg.76 review: a provider that ignores the requested order, or omits the page count, must not read as complete.
         self.list_ascending, self.list_omit_total_pages = False, False
         outer = self
@@ -127,7 +127,20 @@ class FakeDocumenso:
 
     # --- the API ------------------------------------------------------------------------------------------------
 
-    def _create(self, template_ref, external_id, recipients, status="DRAFT", email=None):
+    def type_fields(self, envelope_id, index, entries):
+        """bgl.8: the recipient at `index` typed or chose these values: entries of (kind, page, x, y, text), kind TEXT
+        or DROPDOWN, positions as page percentages, as the installed version's envelope read reports inserted fields."""
+        with self._lock:
+            env = self.envelopes[envelope_id]
+            recipient = env["recipients"][index]["id"]
+            for kind, page, x, y, text in entries:
+                self._f += 1
+                env["fields"].append({"id": self._f, "envelopeId": envelope_id, "recipientId": recipient, "type": kind,
+                                      "page": page, "positionX": x, "positionY": y, "width": 20, "height": 3,
+                                      "customText": text, "inserted": True, "fieldMeta": {"type": kind.lower()}})
+
+    def _create(self, template_ref, external_id, recipients, status="DRAFT", email=None, override=None):
+        override = override or {}
         self._n += 1
         self.clock += 1
         envelope_id = f"envelope_{self._n:04d}"
@@ -137,6 +150,12 @@ class FakeDocumenso:
             "templateId": template["number"], "title": "Synthetic agreement", "secondaryId": f"document_{self._n}",
             "createdAt": (datetime.now(UTC) + timedelta(milliseconds=self.clock)).isoformat(timespec="milliseconds"),
             "envelopeItems": [{"id": f"item_{self._n}", "envelopeId": envelope_id, "documentDataId": "d", "title": "x", "order": 1}],
+            # bgl.8: the distribution method and redirect the create asked for, and the fields (a signature field is
+            # never inserted TEXT, so a reader that filters correctly drops it)
+            "documentMeta": {"distributionMethod": override.get("distributionMethod", "EMAIL"),
+                             "redirectUrl": override.get("redirectUrl")},
+            "fields": [{"id": 10_000 + self._n, "envelopeId": envelope_id, "recipientId": 9000 + self._n * 10, "type": "SIGNATURE",
+                        "page": 1, "positionX": 10, "positionY": 80, "width": 30, "height": 5, "customText": "", "inserted": False}],
             "recipients": [{"id": 9000 + self._n * 10 + i, "email": r["email"], "name": r.get("name", ""),
                             "role": template["slots"].get(r["id"], "SIGNER"), "signingOrder": r.get("signingOrder"),
                             "signingStatus": "NOT_SIGNED", "sendStatus": "NOT_SENT", "readStatus": "NOT_OPENED",
@@ -210,7 +229,7 @@ class FakeDocumenso:
             if payload["envelopeId"] not in self.templates or payload.get("distributeDocument") is not False:
                 return 400, {"message": "Bad request"}, json_
             env = self._create(payload["envelopeId"], payload.get("externalId"), payload["recipients"],
-                               email=(payload.get("override") or {}).get("emailSettings"))
+                               email=(payload.get("override") or {}).get("emailSettings"), override=payload.get("override") or {})
             return 200, {"id": env["id"], "recipients": [{k: r[k] for k in ("id", "name", "email", "token", "role",
                                                                               "signingOrder", "signingUrl")}
                                                          for r in env["recipients"]]}, json_
@@ -223,9 +242,12 @@ class FakeDocumenso:
             meta = payload.get("meta") or {}
             # A distribute whose meta omits emailSettings falls back to the all-on default, as the schema does.
             env["_email"] = dict(DEFAULT_EMAIL, **(meta.get("emailSettings") or {})) if meta else env["_email"]
+            if meta.get("distributionMethod"):
+                env["documentMeta"]["distributionMethod"] = meta["distributionMethod"]
             for r in env["recipients"]:
                 r["sendStatus"] = "SENT"
-            self._mail(env, "recipientSigningRequest", "signing_request", lambda r: True)
+            if env["documentMeta"]["distributionMethod"] != "NONE":  # bgl.8: with NONE the provider mails nobody
+                self._mail(env, "recipientSigningRequest", "signing_request", lambda r: True)
             return 200, {"success": True, "id": env["id"], "recipients": env["recipients"]}, json_
         if method == "POST" and route == BASE + "/envelope/cancel":
             request = json.loads(body)

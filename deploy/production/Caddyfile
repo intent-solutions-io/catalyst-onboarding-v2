@@ -62,7 +62,7 @@
 	request_body {
 		max_size 128KB
 	}
-	@applicant path /request-access/ /request-access/received/ /request-access /request-access/received /confirm/* /setup/* /withdraw/*
+	@applicant path /request-access/ /request-access/received/ /request-access /request-access/received /signing/return/ /signing/return /confirm/* /setup/* /withdraw/*
 	handle @applicant {
 		import catalyst_web
 	}
@@ -79,7 +79,7 @@
 	request_body {
 		max_size 128KB
 	}
-	@alias path /request-access/ /request-access/received/ /request-access /request-access/received
+	@alias path /request-access/ /request-access/received/ /request-access /request-access/received /signing/return/ /signing/return
 	handle @alias {
 		import catalyst_web
 	}

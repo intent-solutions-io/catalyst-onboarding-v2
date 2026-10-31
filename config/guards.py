@@ -343,7 +343,34 @@ def decision_problems(settings, environ: Mapping[str, str]) -> list[str]:
 AGREEMENT_TEST_ONLY = ("CATALYST_AGREEMENT_PROVIDER_URL", "CATALYST_AGREEMENT_PROVIDER_ADDRESS",
                        "CATALYST_AGREEMENT_PROVIDER_CA_FILE", "CATALYST_AGREEMENT_PROVIDER_TOKEN",
                        "CATALYST_AGREEMENT_WEBHOOK_SECRETS", "CATALYST_AGREEMENT_STORAGE_DIR",
-                       "CATALYST_AGREEMENT_REQUIRED_DETAILS", "CATALYST_CUSTODY_KEY_DIR", "CATALYST_CUSTODY_KEY_MIRROR_DIR")
+                       "CATALYST_AGREEMENT_REQUIRED_DETAILS", "CATALYST_CUSTODY_KEY_DIR", "CATALYST_CUSTODY_KEY_MIRROR_DIR",
+                       # bgl.8: the signing host and the read-back layouts are synthetic until POL-18 and the canary
+                       "CATALYST_AGREEMENT_SIGNING_BASE_URL", "CATALYST_AGREEMENT_FIELD_LAYOUTS")
+AGREEMENT_DISTRIBUTIONS = ("provider", "service")  # bgl.8: who mails the signing request (config.settings)
+
+
+def _distribution_problems(settings, environ: Mapping[str, str]) -> list[str]:
+    """bgl.8: the distribution mode is one of two known values, fixed in code; "service" needs the public signing host,
+    https with nothing but a host, from which the service-sent link is built (agreements.signing_mail)."""
+    problems = []
+    if "CATALYST_AGREEMENT_DISTRIBUTION" in environ:
+        problems.append("CATALYST_AGREEMENT_DISTRIBUTION may not be set from the environment")
+    mode = getattr(settings, "CATALYST_AGREEMENT_DISTRIBUTION", "provider")
+    if mode not in AGREEMENT_DISTRIBUTIONS:
+        problems.append("CATALYST_AGREEMENT_DISTRIBUTION must be 'provider' or 'service'")
+    base = getattr(settings, "CATALYST_AGREEMENT_SIGNING_BASE_URL", "")
+    if mode == "service" and not base:
+        problems.append("CATALYST_AGREEMENT_SIGNING_BASE_URL is required when CATALYST_AGREEMENT_DISTRIBUTION is 'service'")
+    if base:
+        parts = urlsplit(base)
+        if parts.scheme != "https" or not parts.hostname or parts.path not in ("", "/") or parts.query or parts.fragment:
+            problems.append("CATALYST_AGREEMENT_SIGNING_BASE_URL must be https with a host and nothing else")
+    layouts = getattr(settings, "CATALYST_AGREEMENT_FIELD_LAYOUTS", {}) or {}
+    if layouts:
+        from agreements.details import layout_problems
+
+        problems += layout_problems(layouts)
+    return problems
 
 
 def agreement_problems(settings, environ: Mapping[str, str]) -> list[str]:
@@ -352,6 +379,7 @@ def agreement_problems(settings, environ: Mapping[str, str]) -> list[str]:
     the URL must be https on a `.test` host and the pinned address a literal loopback address, so only the local fake
     can answer."""
     problems = [f"{name} may not be set from the environment" for name in AGREEMENT_TEST_ONLY if name in environ]
+    problems += _distribution_problems(settings, environ)
     if not synthetic(getattr(settings, "CATALYST_ENV", "")):
         for name in AGREEMENT_TEST_ONLY:
             if getattr(settings, name, ""):

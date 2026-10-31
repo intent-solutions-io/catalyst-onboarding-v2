@@ -90,7 +90,7 @@ TABLES = {
     "agreements_agreementdetailsversion": Table(
         selector=APP, subject={"values": S("agreement_records", OBJECT), "values_sha256": S("agreement_records", EMPTY)},
         staff="recorded_by confirmed_by",
-        other="id public_id version status confirmed_at created_at agreement_type_id application_id"),
+        other="id public_id version status confirmed_at created_at agreement_type_id application_id source instance_id"),
     "agreements_agreementinstance": Table(other=(
         "id public_id external_key envelope_id issue_status signing_status custody_status created_at updated_at"
         " application_id template_version_id agreement_type_id cancel_requested_at replaced_at replacement_reason")),

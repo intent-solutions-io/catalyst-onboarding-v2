@@ -89,7 +89,10 @@ ACKNOWLEDGE_ONLY = {"processing_error", "message_id_conflict", "mailbox_uidvalid
                     "decline_notice_refused", "decline_notice_member_on_file",
                     # 9kg.66: the staff resend resolves it, and the sweep closes it once the applicant is verified or
                     # the application closed; an acknowledgement records that staff saw it
-                    "verification_expired"}
+                    "verification_expired",
+                    # bgl.8: the service-sent link that failed, an incomplete read-back and an address-quality flag are
+                    # acknowledged after staff act on the agreements screen; none of them holds the sequence
+                    "agreement_link_send_failed", "agreement_details_readback_incomplete", "agreement_address_quality"}
 # 9kg.41 (owner decision on the PR #93 review): a suspended or capped snapshot closes only through the human-only
 # decision on the decision screen (which resolves it) or a later successful run, never by an acknowledgement that would
 # leave the case looking as if a run were coming.

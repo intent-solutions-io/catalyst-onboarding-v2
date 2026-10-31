@@ -72,6 +72,11 @@ EXPAND_SAFE: dict[str, str] = {
         "adds columns with database defaults and a CHECK constraint created NOT VALID: a previous image inserts decisions "
         "without the new columns (defaults fill them) and never a human-only row without a code it does not know, because "
         "its human-only rows are refused by the decision service's digest check first; nothing is removed or renamed"),
+    "agreements.0011_details_from_envelope": (
+        "adds two nullable-or-defaulted columns (`source` with a database default of `staff`, `instance` nullable) and "
+        "three constraints every row a previous image writes satisfies: a source of `staff` with no instance, and the "
+        "partial unique index over envelope versions, which a previous image never writes (bgl.8); nothing is removed, "
+        "renamed or made stricter for any row a previous image writes, and the frozen trigger is unchanged"),
     "applications.0009_tombstone_keys_unique": (
         "adds three partial unique indexes on email keys that start with `erased:` (9kg.32): no key has that form until "
         "an erasure writes one, and a previous image never writes one, so it cannot violate them; nothing is removed, "
