@@ -5,7 +5,7 @@ The public site serves only the applicant routes (the request form, its received
 password and withdrawal links); everything else on the public host is a 404, so the staff screens, the admin and the
 health paths never answer there (also refused by config.health.HostGuard). The token segment of every private path
 (generated from config.redaction.PRIVATE_PATHS) is redacted in every log line, the error log included, so a link
-never lands in a proxy log. Caddy is the edge and trusts no proxy. The staff site
+never lands in a proxy log. Caddy trusts only explicitly configured upstream proxy addresses (loopback by default). The staff site
 carries the staff screens and the admin's static files. The Documenso webhook has no site: it is not mounted until
 the pilot (P6-D-4).
 
@@ -98,6 +98,10 @@ def render() -> str:
 		{log_format()}
 	}}
 	servers {{
+		# bgl.20: list only the actual upstream proxy addresses, never all private networks.
+		trusted_proxies static {{$CATALYST_TRUSTED_PROXIES:127.0.0.1/32 ::1/128}}
+		trusted_proxies_strict
+		client_ip_headers X-Forwarded-For
 		timeouts {{
 			read_header 10s
 			read_body 30s
@@ -108,9 +112,9 @@ def render() -> str:
 
 (catalyst_web) {{
 	reverse_proxy unix//run/catalyst/web.sock {{
-		# Caddy is the edge and trusts no proxy, so these are always the true values (one hop).
+		# Pass one validated client address, after walking only the configured proxy chain.
 		header_up X-Forwarded-Proto {{scheme}}
-		header_up X-Forwarded-For {{remote_host}}
+		header_up X-Forwarded-For {{client_ip}}
 		header_up -X-Forwarded-Host
 		header_down -Server
 	}}

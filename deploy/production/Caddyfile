@@ -17,6 +17,10 @@
 		}
 	}
 	servers {
+		# bgl.20: list only the actual upstream proxy addresses, never all private networks.
+		trusted_proxies static {$CATALYST_TRUSTED_PROXIES:127.0.0.1/32 ::1/128}
+		trusted_proxies_strict
+		client_ip_headers X-Forwarded-For
 		timeouts {
 			read_header 10s
 			read_body 30s
@@ -27,9 +31,9 @@
 
 (catalyst_web) {
 	reverse_proxy unix//run/catalyst/web.sock {
-		# Caddy is the edge and trusts no proxy, so these are always the true values (one hop).
+		# Pass one validated client address, after walking only the configured proxy chain.
 		header_up X-Forwarded-Proto {scheme}
-		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-For {client_ip}
 		header_up -X-Forwarded-Host
 		header_down -Server
 	}

@@ -89,10 +89,12 @@ def test_6b8_the_staff_site_binds_privately_and_carries_only_staff_and_static():
         assert absent not in staff
 
 
-def test_6b8_caddy_trusts_no_proxy_and_sets_the_forwarded_values_itself():
+def test_6b8_caddy_trusts_only_configured_proxies_and_sets_the_forwarded_values_itself():
     text = renderer().render()
-    assert "trusted_proxies" not in text  # the edge: no client's forwarded headers are believed
-    assert "header_up X-Forwarded-Proto {scheme}" in text and "header_up X-Forwarded-For {remote_host}" in text
+    assert "trusted_proxies static {$CATALYST_TRUSTED_PROXIES:127.0.0.1/32 ::1/128}" in text
+    assert "trusted_proxies_strict" in text and "client_ip_headers X-Forwarded-For" in text
+    assert "private_ranges" not in text
+    assert "header_up X-Forwarded-Proto {scheme}" in text and "header_up X-Forwarded-For {client_ip}" in text
     assert "header_up -X-Forwarded-Host" in text and "unix//run/catalyst/web.sock" in text
 
 

@@ -300,6 +300,7 @@ def definition(env: str = "staging") -> dict:
                 "cap_drop": ["ALL"],
                 "cap_add": ["NET_BIND_SERVICE"],
                 "environment": {"CATALYST_HTTPS_PORT": str(PUBLIC_PORT),
+                                "CATALYST_TRUSTED_PROXIES": "${CATALYST_TRUSTED_PROXIES:-127.0.0.1/32 ::1/128}",
                                 "CATALYST_PUBLIC_HOST": "${CATALYST_PUBLIC_HOST:?}",
                                 # bgl.2: the alias site needs an address; a placeholder name when none is set.
                                 "CATALYST_PUBLIC_HOST_ALIASES": "${CATALYST_PUBLIC_HOST_ALIASES:-alias.staging.test}",
