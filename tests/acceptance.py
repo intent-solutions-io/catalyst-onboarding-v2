@@ -2179,6 +2179,17 @@ P6_SUPPORTING = {
         "test_reference_receipt::test_bgl_5_the_receipt_handler_is_registered_redeliverable_and_reviewed_after_a_restore",
         "test_reference_receipt::test_bgl_5_the_request_page_answers_the_same_with_the_receipt_on",
     ],
+    "bgl.23 imported mailbox ownership precedes native access revocation": [
+        "test_legacy_mailboxes::test_imported_mailbox_closure_cannot_claim_access_removal_before_ownership_review",
+        "test_legacy_mailboxes::test_reviewed_existing_mailbox_closes_through_native_revocation_without_recreation",
+        "test_legacy_mailboxes::test_imported_offboarding_records_ownership_and_starts_native_protection",
+        "test_legacy_mailboxes::test_suspended_legacy_access_is_preserved_and_never_reactivated",
+        "test_legacy_mailboxes::test_mailbox_handover_requires_authority_current_history_and_source_attestation",
+        "test_legacy_mailboxes::test_mailbox_handover_refuses_unknown_absent_and_wrong_provider_identity",
+        "test_legacy_mailboxes::test_mailbox_handover_rechecks_closure_during_provider_read",
+        "test_legacy_mailboxes::test_approved_but_uncertain_legacy_mailbox_cannot_be_assumed_absent_or_owned",
+        "test_legacy_mailboxes::test_mailbox_handover_form_requires_post_csrf_and_scoped_request",
+    ],
     "bgl.23 legacy signing timers retain delivery evidence, consumed reminders and quiet-period replies": [
         "test_legacy_signing_history::test_signing_history_keeps_completed_resend_and_reminder_metadata_without_payloads",
         "test_legacy_signing_history::test_signing_history_top_up_is_idempotent_but_preserves_a_changed_delivery",

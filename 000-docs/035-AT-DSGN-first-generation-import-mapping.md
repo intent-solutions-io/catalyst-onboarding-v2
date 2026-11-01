@@ -246,8 +246,8 @@ history: the person with decision authority must make the qualification decision
 After the separate reviewed resume, a human-only decision can use the existing rationale, snapshot, authority and
 transaction guards and create the normal held NDA handoff. This is a functioning path for the reviewed pre-signing
 case, not evidence that every imported state is ready. Section 10 handles existing signing envelopes. Completed
-references, provisioning, active accounts, revocations and the live ownership transfer still need their own tested
-continuation and reconciliation.
+references and provisioning still need their own continuation and reconciliation. Section 12 covers explicit
+ownership of already-created mailboxes and native access revocation; live ownership transfer remains unverified.
 
 ## 10. Existing signing envelopes: explicit adoption (bgl.23)
 
@@ -310,3 +310,33 @@ reason for no action). Repeating the same handover creates nothing new. It leave
 the ordinary resume spreads overdue timers using the configured grace period. No mail or provider
 write happens in the handover action itself. Production source freeze, mailbox collection and
 case-by-case ownership verification remain cutover requirements under `bgl.17`.
+
+## 12. Existing mailbox ownership and access revocation (bgl.23)
+
+An imported mailbox reservation and an `active` request record what v1 knew; they do not
+by themselves satisfy native ownership evidence. Until ownership is reviewed, closure keeps
+access-removal obligations open instead of declaring them `not_applicable`. Superseding the
+request or releasing its address also refuses an unreviewed imported mailbox.
+
+The legacy-history screen offers a separate POST action to staff with dossier access and
+`operate_provisioning`. It requires source-stop and ownership-review attestations, a note,
+current imported history and either an automation pause or a terminal case. Only a preserved
+`created` mailbox with its provider creation time and exact reservation target qualifies.
+An approved mailbox whose create outcome is unknown requires separate reconciliation.
+
+A fresh mail-host read must return the same address. The transaction locks the application
+and request and rechecks history, stage, reservation and outstanding work before writing
+native staff-confirmed ownership evidence. Provider errors, absent accounts, mismatched
+identities, previously refused ownership and conflicting native work leave ownership
+unconfirmed. A suspended source case requires a suspended provider account; the action
+never resumes automation, creates a mailbox, changes its password or sends another welcome.
+Observed provider limits are recorded as evidence without changing the existing account.
+
+For an already closed or withdrawn case, confirming ownership records stop intent and queues
+native protective revocation. That worker can run while automation is paused. For an active
+case, a later ordinary closure uses the same worker. It rotates the password, removes owned
+forwarders and preserves mailbox data. Sessions, app credentials and shared routing retain
+the native unsupported/pending obligations and require their documented owner decisions;
+this handover does not claim those obligations are complete. Duplicate confirmation records
+no second ownership receipt. Source freeze, live account reconciliation and rollback remain
+cutover requirements; synthetic tests do not establish that v1 has been retired.

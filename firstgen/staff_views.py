@@ -18,7 +18,7 @@ from correspondence.mime import redact
 from workflow.models import AutomationPause
 
 from .models import ImportedCase, ImportedRecord
-from . import review
+from . import review, mailboxes
 from . import agreements as legacy_agreements
 from agreements.models import AgreementTemplateVersion
 
@@ -182,6 +182,13 @@ def history_response(request, public_ref, *, error="", note="", status=200):
             "signing_timer_receipts": case.application.events.filter(
                 kind="legacy_signing_timers_prepared"
             ).order_by("-pk"),
+            "can_confirm_mailbox": mailboxes.can_confirm(request.user),
+            "mailbox_requests": case.application.provisioning_requests.select_related(
+                "reservation"
+            ),
+            "mailbox_receipts": case.application.events.filter(
+                kind=mailboxes.CONFIRMED
+            ).order_by("-pk"),
             "historical_templates": AgreementTemplateVersion.objects.filter(
                 status="approved"
             ).select_related("agreement_type"),
@@ -290,5 +297,31 @@ def prepare_signing_timers(request, public_ref):
         )
     except (ValueError, Refused, ProviderError) as exc:
         code = "adopted_envelope_required" if isinstance(exc, ValueError) else str(exc)
+        return history_response(request, public_ref, error=code, note=note, status=409)
+    return redirect("firstgen_staff:history", public_ref=public_ref)
+
+
+@admin.site.admin_view
+@require_POST
+def confirm_mailbox(request, public_ref):
+    from correspondence.common import Refused
+    from provisioning.adapter import AdapterError
+
+    if not mailboxes.can_confirm(request.user):
+        raise PermissionDenied
+    case = get_object_or_404(ImportedCase, application__public_ref=public_ref)
+    note = request.POST.get("note", "")
+    try:
+        mailboxes.confirm(
+            case.application_id,
+            int(request.POST.get("request", "")),
+            request.user,
+            expected_digest=request.POST.get("digest", ""),
+            source_stopped=request.POST.get("source_stopped") == "yes",
+            ownership_reviewed=request.POST.get("ownership_reviewed") == "yes",
+            note=note,
+        )
+    except (ValueError, Refused, AdapterError) as exc:
+        code = "imported_mailbox_required" if isinstance(exc, ValueError) else str(exc)
         return history_response(request, public_ref, error=code, note=note, status=409)
     return redirect("firstgen_staff:history", public_ref=public_ref)
