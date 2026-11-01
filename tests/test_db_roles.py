@@ -40,7 +40,7 @@ TRIGGERS = (
     "catalyst_audit_immutable",
     "catalyst_adoption_immutable",
 )
-TRIGGER_COUNT = 57  # 8 from S1, 2 on evidence captures (P3 3B.1), 2 on qualification decisions (P3 3B.4),
+TRIGGER_COUNT = 60  # 8 from S1, 2 on evidence captures (P3 3B.1), 2 on qualification decisions (P3 3B.4),
 # 2 on agreement recipients (P4 4B.1), 2 on provider observations (P4 4B.2), 5 on custody and details (4B.3),
 # 8 on correspondence evidence (9kg.1), 3 no-truncate on inbound messages, outbound attempts and reply links (9kg.5),
 # 5 on provisioning records (P5 5B.1), 1 on credential setups (5B.2),
@@ -591,37 +591,38 @@ def test_history_protection_migrations_reverse_and_reapply_and_keep_data(connect
         # stayed reversed, as did the invitation table (applications 0005, 9kg.43), the staff role grants (accounts 0007,
         # 9kg.30), the pause guard (workflow 0005, on applications 0006) and the member-on-file table (applications 0008)
         assert (
-            count() == TRIGGER_COUNT - 49
+            count() == TRIGGER_COUNT - 52
         )  # the model-use approvals (assessments 0011, oc4.9), the custody envelope (agreements 0010, 9kg.34), correspondence (9kg.1, 9kg.5), provisioning (5B.1), the invitation and member-on-file tables, the grant record, the pause guard and the erasure audit (9kg.32) stayed reversed
         manage_as_owner("migrate", "assessments", "--verbosity", "0")
         assert (
-            count() == TRIGGER_COUNT - 43
+            count() == TRIGGER_COUNT - 46
         )  # the model-use approvals came back with assessments; the custody envelope (agreements 0010) waits on agreements
         manage_as_owner("migrate", "agreements", "0013", "--verbosity", "0")
-        # 0014 depends on imported-envelope provenance; verify the historical epoch first.
-        assert count() == TRIGGER_COUNT - 32
+        assert count() == TRIGGER_COUNT - 35
         manage_as_owner("migrate", "correspondence", "--verbosity", "0")
-        assert count() == TRIGGER_COUNT - 21
+        assert count() == TRIGGER_COUNT - 24
         manage_as_owner(
-            "migrate", "provisioning", "--verbosity", "0"
+            "migrate", "provisioning", "0008", "--verbosity", "0"
         )  # provisioning 0007 brings the grant record (accounts 0007)
         assert (
-            count() == TRIGGER_COUNT - 11
+            count() == TRIGGER_COUNT - 14
         )  # the invitation, member-on-file and pause no-truncates (applications 0005, 0008, workflow 0005) and the erasure audit's two remain
         manage_as_owner("migrate", "applications", "--verbosity", "0")
         assert (
-            count() == TRIGGER_COUNT
+            count() == TRIGGER_COUNT - 3
         )  # applications 0011 preserves imported CAT labels, so it also brings firstgen
         # firstgen 0002 depends on erasure protections, which bring the workflow pause guards back too.
         manage_as_owner(
             "migrate", "workflow", "--verbosity", "0"
         )  # the pause guard (9kg.6)
         assert (
-            count() == TRIGGER_COUNT
+            count() == TRIGGER_COUNT - 3
         )  # already present through applications 0011 -> firstgen 0002
         manage_as_owner(
             "migrate", "erasure", "--verbosity", "0"
         )  # the erasure audit and the trigger branches (9kg.32); erasure 0005 brings firstgen
+        assert count() == TRIGGER_COUNT - 3
+        manage_as_owner("migrate", "provisioning", "--verbosity", "0")
         assert count() == TRIGGER_COUNT
         assert {state for _, _, state in trigger_states(owner)} == {"O"}
         assert (

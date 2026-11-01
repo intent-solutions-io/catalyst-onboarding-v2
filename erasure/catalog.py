@@ -476,6 +476,22 @@ TABLES = {
     "firstgen_importrun": Table(
         staff="actor_ref", other="id public_id source_ref report recorded_at"
     ),  # counts and codes
+    "provisioning_communityaccess": Table(
+        selector=APP,
+        subject={
+            "sealed_identity": S("provisioning_records"),
+            "identity_key": S("provisioning_records", EMPTY),
+        },
+        staff="reviewed_by",
+        other=(
+            "id public_id application_id guild_id revision desired_roles identity_evidence"
+            " decision_evidence certified_evidence leaders_evidence revoked requires_review verified_roles"
+            " removal_verified created_at updated_at"
+        ),
+    ),
+    "provisioning_communityreceipt": Table(
+        other=("id access_id action_id revision operation role outcome created_at")
+    ),
     # --- provisioning --------------------------------------------------------------------------------------------
     "provisioning_accessrevocation": Table(
         selector=REQUEST,
@@ -877,6 +893,12 @@ def erase_sql(retention_literal: str, existing: dict, replay: bool = False) -> s
     unknown = (
         "      RAISE EXCEPTION 'erasure: unknown subject' USING ERRCODE = 'CE002';\n"
     )
+    if not replay and "provisioning_communityaccess" in existing:
+        gates += """  IF EXISTS (SELECT 1 FROM public.provisioning_communityaccess c
+                     WHERE c.application_id = ANY(v_apps) AND (NOT c.revoked OR NOT c.removal_verified OR c.requires_review)) THEN
+    RAISE EXCEPTION 'erasure: community access revocation is not verified' USING ERRCODE = 'CE005';
+  END IF;
+"""
     if replay:  # data review of PR #103, finding 1: a key the backup holds only on rows outside an application or invitation
         unknown = (
             "      IF p_key IS NULL OR pg_catalog.strpos(p_key, '@') = 0 THEN\n"

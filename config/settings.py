@@ -351,7 +351,24 @@ CATALYST_ERASURE_PREVIOUS_KEYS = secret(
     "CATALYST_ERASURE_PREVIOUS_KEYS", ""
 ).splitlines()
 # The only action kinds the worker may execute: a fixed mapping in code, never read from the database.
+CATALYST_COMMUNITY_GRANTS_ENABLED = (
+    os.environ.get("CATALYST_COMMUNITY_GRANTS_ENABLED", "false") == "true"
+)
+CATALYST_COMMUNITY_ADAPTER = os.environ.get("CATALYST_COMMUNITY_ADAPTER", "")
+CATALYST_COMMUNITY_LIVE_AUTHORITY = os.environ.get(
+    "CATALYST_COMMUNITY_LIVE_AUTHORITY", ""
+)
+CATALYST_COMMUNITY_GUILD_ID = os.environ.get("CATALYST_COMMUNITY_GUILD_ID", "")
+CATALYST_COMMUNITY_ROLE_IDS = {
+    role: os.environ.get("CATALYST_COMMUNITY_ROLE_" + role.upper(), "")
+    for role in ("Member", "Certified", "Leaders")
+}
+CATALYST_COMMUNITY_IDENTITY_KEY = secret("CATALYST_COMMUNITY_IDENTITY_KEY", "")
+CATALYST_COMMUNITY_BOT_TOKEN = secret("CATALYST_COMMUNITY_BOT_TOKEN", "")
+
 CATALYST_ACTION_HANDLERS = {
+    "community_reconcile": "provisioning.community_handlers.ReconcileCommunity",
+    "community_revoke": "provisioning.community_handlers.RevokeCommunity",
     "send_verification": "correspondence.verification.SendVerification",
     "send_receipt": "correspondence.receipt.SendReceipt",  # bgl.5: the receipt at the first submission
     "verification_expiry_sweep": "correspondence.verification.SweepExpiredVerification",  # 9kg.66: expired only links
