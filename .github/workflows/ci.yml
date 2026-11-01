@@ -42,6 +42,7 @@ jobs:
           --health-cmd "pg_isready -U catalyst_admin -d catalyst"
           --health-interval 2s --health-timeout 5s --health-retries 30
     env:
+      PIP_CACHE_DIR: /tmp/catalyst-pip-cache
       PYTHONDONTWRITEBYTECODE: "1"
       CATALYST_ENV: test
       CATALYST_SECRET_KEY: synthetic-ci-only
@@ -64,6 +65,13 @@ jobs:
       CATALYST_DB_FETCHER_PASSWORD: synthetic-ci-fetcher-only
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Restore Python download cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/catalyst-pip-cache
+          key: ${{ runner.os }}-${{ runner.arch }}-pip-dev-py314-${{ hashFiles('requirements/base.txt', 'requirements/dev.txt') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-pip-dev-py314-
 
       - name: Install hash-locked dependencies
         run: |
@@ -126,6 +134,8 @@ jobs:
     name: Markdown lint and doc index check
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      PIP_CACHE_DIR: /tmp/catalyst-pip-cache
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -138,6 +148,13 @@ jobs:
 
       - name: Every filed doc appears in 000-docs/000-INDEX.md
         run: bash scripts/check-docs.sh index
+
+      - name: Restore static-tool download cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/catalyst-pip-cache
+          key: ${{ runner.os }}-${{ runner.arch }}-pip-tools-${{ hashFiles('requirements/docs.txt', 'requirements/lint.txt') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-pip-tools-
 
       - name: Agent definitions stay read-only and well formed
         run: |
@@ -198,6 +215,9 @@ jobs:
             --cache-dir "$RUNNER_TEMP/pip-audit-cache" \
             -r requirements/base.txt -r requirements/dev.txt -r requirements/docs.txt -r requirements/lint.txt \
             -r requirements/browser.txt
+
+      - name: Staged-file checker and hook integration
+        run: python3 -m unittest scripts.test_fast_checks -v
 
       - name: Secret scan (gitleaks, full history)
         env:

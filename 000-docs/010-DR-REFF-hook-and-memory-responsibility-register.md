@@ -145,5 +145,22 @@ Observed 2026-10-09 in a session started in this repository (build-contract hand
 | CI on `main` `95b7537` | run 37891535566 PASS: Markdown, index, agent definitions, gitleaks |
 | Parent permission mode | this session ran in `bypassPermissions`; see `008` section 5.1 for why subagent restriction is evidenced by the tool allowlist, not by permission prompts |
 
-Still pending (not claimed): auto memory behaviour in a fresh session; Git-hook timings; compaction
+Still pending (not claimed): auto memory behaviour in a fresh session; compaction
 recovery (no destructive compaction test was run); CI timings for a runtime lane that does not exist yet.
+
+## 7. Staged-file checks (2026-11-01, 9kg.95)
+
+The owner's CI acceleration instruction authorizes an actual local hook. `python3 scripts/install_fast_checks.py`
+installs hash-locked tooling under Git's common directory and writes Beads' supported `pre-commit.old` chain at
+the effective Git hook path. It preserves the Beads shim and any earlier chained hook, runs that hook first,
+and propagates its refusal. The generated chain and preserved local hook are ignored by Git.
+
+The checker reads index blobs, not working files: staged whitespace, changed Python formatting and Ruff's
+configured static checks. It rejects Python symlinks and a Ruff version that differs from the staged lock.
+It neither rewrites files nor contacts a provider, starts a database or runs tests. Prose-only changes need no
+Ruff process. Reinstall after a tool-lock or checker update; a clean clone needs installation before its first
+commit. Worktrees share one tool installation. `009` section 11 records timing and the remaining CI scope.
+
+The earlier inventory is the dated baseline: the local checker adds a commit gate to the Beads chain, not a new
+agent-session hook. Host-side integration tests exercise partial staging, literal filenames, refusals, tool
+drift and preservation of the previous hook. They run inside the existing docs job after its lint dependencies.

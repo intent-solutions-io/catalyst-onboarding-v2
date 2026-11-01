@@ -366,6 +366,16 @@ that state per module, or building it directly instead of through the journey, i
 reach; it changes test set-up across many modules and is a separate bead for the owner to schedule. The 5-minute
 target stays unmet; only sharding (P12) brings the required check near it without dropping a test.
 
+**Focused fixture change, 2026-11-01 (9kg.65).** The provisioning-screen module's eight next-action label cases
+replayed intake, assessment, both agreements and release merely to inspect a stage and request fields. They now
+construct that application state directly and retain the real database pause lookup. All parameter cases and
+assertions remain; rendered-screen, permission and consequential-action tests still use the full journey.
+An AST comparison confirmed that only this test's setup/signature changed semantically; other edits in the test
+file are the changed-file Ruff formatting required by the owner's acceleration instruction.
+Two focused local runs of the same 40 cases passed: **100.75 s before, 72.72 s after** (28.03 s, about 28% less).
+This is pytest time, excluding container/dependency preparation, and is not a hosted-CI saving claim. Full-suite
+CI and further fixture work remain necessary; no test was removed or made conditional.
+
 **Lanes in CI today:**
 
 - on every pull request, four isolated full-collection test shards feed the required runtime aggregate; the required
@@ -531,3 +541,66 @@ is preserved first (bundle or push) and reported, not deleted.
 - **Template:** `000-docs/000-AA-TMPL-after-action-report.md`, a snapshot of the canonical
   `/doc-filing` reference (v1.0.0, SemVer); the skill copy wins on any difference.
 - **Evidence:** section 4 is checked against the epic's acceptance test, with links.
+
+## 11. Measured CI acceleration (2026-11-01, 9kg.95)
+
+The owner's acceleration instruction supersedes the earlier proposed-only local formatting lane: install
+`python3 scripts/install_fast_checks.py` once per clone. It chains staged-file checks through the existing
+Beads hook, preserves earlier hooks, and shares its hash-locked tool installation across worktrees. Each commit
+checks staged whitespace, Ruff formatting and the configured Ruff static rules on changed Python files only.
+Partially staged files are checked from the index; the working tree is never rewritten. No runtime tests or
+network requests run in this checker. Reinstall when the checker or lint lock changes. Ruff is static analysis,
+not a dedicated typechecker. This change does not format existing untouched Python files or expand CI lint rules.
+
+The checker rejects missing tools, staged Python symlinks and version drift. Its seven host-side integration tests
+passed in 1.50 s locally, including index-versus-working-tree differences, per-file rule resolution from the staged
+project root, and preservation of an earlier hook.
+They run in the existing docs CI job after its lint dependencies; there is no separate runner or database.
+
+The actual installed Beads pre-commit chain, with all three new Python files staged, took **0.28 s** wall time;
+the checker itself reported **0.10 s**. This measures the real hook, not just a direct Ruff command. Larger
+changes must be remeasured against the owner's approximately 10 s target.
+
+CI shards and the dispatched targeted lane cache pip downloads with a key containing the runner OS,
+architecture, Python minor and the base/dev lock hashes. The docs job has a separate docs/lint lock key. The
+restore prefix permits reuse of unchanged downloads across lock updates; `--require-hashes --no-deps` still
+verifies every installation. GitHub's ref-scoped cache access lets PRs restore a main cache without publishing
+their cache into main. A cache miss uses the normal installation; a restored archive is never a test result or
+an installed environment. Each shard retains its fresh virtual environment and isolated PostgreSQL database.
+
+`scripts/test.sh` mounts downloads from `${XDG_CACHE_HOME:-$HOME/.cache}/catalyst-v2/pip`; override with
+`CATALYST_TEST_PIP_CACHE`. A direct Compose invocation defaults to the ignored `.cache/pip` directory.
+Neither the package cache nor the hook tools enter the application image's allowlisted build context.
+
+Local setup-only comparison used two fresh containers of the pinned Python image, the same base/dev locks,
+a new virtual environment each time, and one initially empty download cache: **32.44 s cold, 27.23 s warm**
+(5.21 s less, about 16%). Both hash-verified installations succeeded. This includes container start and virtual
+environment creation; no database or tests ran in that comparison. A focused Compose run of `tests/test_image.py`
+also passed all six tests with the cache mount. These local timings are not hosted-runner timings.
+
+### 11.1 Baseline and remaining scope
+
+The refreshed audit used `gh run list --workflow ci.yml --limit 150` and each run's jobs API with `filter=all`:
+150 CI runs, 352 job attempts, from 2026-10-26 13:38:04 UTC through 2026-11-01 04:02:22 UTC. Setup uses job/step
+timestamps, refined by available logs for dependency installation embedded in static-tool steps. Queue means
+job creation to start, not prerequisite-job waiting; artifact transport, cleanup and gaps are separate overhead.
+One cancelled 2,400 s job has unavailable logs and an unfinished task timestamp; its task duration is unknown.
+
+| Measurement | Before the first acceleration pass | Current evidence before the download-cache pass |
+|---|---|---|
+| Runner wait | Median 2 s in the refreshed 150-run window; p95 3 s, maximum 13 s | Queue is not the dominant cost |
+| Runtime job | Median 1,700 s across 102 successful unsharded jobs in that window | [Main run 41271267830](https://github.com/intent-solutions-io/catalyst-onboarding-v2/actions/runs/41271267830): whole CI 653 s; four test steps 545, 566, 585, 588 s |
+| Docs prerequisite delay | Median 1,696.5 s before the job was created | Median 1 s after it became independent; its own job remains about 19 s |
+| Shard package installation | No download cache | Median 14 s across 43 successful shard attempts; container startup median 13 s, checkout 1 s |
+| Ruff execution | Already fast | Median 0.075 s from 109 successful docs-job logs; no dedicated typechecker runs |
+| Image scan | Earlier baseline repeatedly downloaded its vulnerability database | [Image run 41271491212](https://github.com/intent-solutions-io/catalyst-onboarding-v2/actions/runs/41271491212): restored database, 54 s job; Docker pip installation still 11.8 s |
+
+These are observations across changing suites and hosted runners, not a controlled identical-commit speedup.
+The cache pass still needs cold/warm CI measurements after main populates the cache. Local cache and hook
+measurements do not prove hosted performance. The full suite and acceptance aggregate remain required.
+
+Remaining work stays in 9kg.95 and 9kg.65: compatible high-performance runners with an agreed account/isolated
+host and cost, fixture replay profiling, duration-aware shard allocation, and fail-closed affected checks with a
+scheduled full suite. No additional paid runner, provider secret or service is required by this cache/hook pass.
+The existing selection helper explicitly permits under-selection and must not be promoted unchanged to a required
+gate. The owner's low-single-digit-minute target and complete acceleration instruction are not yet achieved.

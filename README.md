@@ -45,8 +45,20 @@ How the selection standard itself is governed and improved is set out in `000-do
 
 ## Run it
 
+Install the local staged-file checks once per clone (also shared by its worktrees):
+
+```bash
+python3 scripts/install_fast_checks.py
+```
+
+This installs the hash-locked tools and chains an offline format and static-analysis check after Beads,
+preserving any earlier chained hook. Commits check the staged Python content, including partially staged files;
+they do not run the runtime suite. Re-run the installer when the lint lock or hook implementation changes.
+See `000-docs/009` section 11 for cache scope, measurements and limitations.
+
 Docker is required. Every run uses its own digest-pinned Python 3.14.10 and PostgreSQL 16.15 containers and removes
-them afterwards. No credentials are needed and nothing external is contacted.
+them afterwards. No credentials are needed. Dependency installation can contact the package index; test traffic
+uses synthetic fixtures. Downloaded packages are cached, while each test run gets a fresh environment and database.
 
 ```bash
 scripts/test.sh                                            # full suite; fails unless every acceptance case of every gate passes

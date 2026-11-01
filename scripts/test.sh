@@ -8,6 +8,10 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 export CATALYST_UID="$(id -u)" CATALYST_GID="$(id -g)"
+# Only pip downloads are shared; each run still owns a fresh venv, database and effect journal.
+# pip checks the locked hashes on every install, including a warm cache. No test result is cached.
+export CATALYST_TEST_PIP_CACHE="${CATALYST_TEST_PIP_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/catalyst-v2/pip}"
+mkdir -p "$CATALYST_TEST_PIP_CACHE" || exit 2
 # 9kg.64: the commit this run tests, from the host's git (the test image has no git); compose.yaml passes it to the
 # test service, and the evidence register stamps it on its report and on register.json.
 # A working tree with changes is marked -dirty: the run tested more than the commit (PR #95 review).
