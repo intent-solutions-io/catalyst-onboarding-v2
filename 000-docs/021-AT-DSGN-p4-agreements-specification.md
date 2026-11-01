@@ -850,3 +850,25 @@ signature or custody. No new signing-link email is queued. The existing all-requ
 identity, document storage and integrity checks still decide completion. A nonmatching completed
 envelope leaves the outcome uncertain. The same rule applies when staff choose to send again after
 the bounded checks end but a pre-send read discovers that signing has since completed.
+
+## 21. One current template and retained approvals (9kg.55)
+
+At most one approved version per agreement type is permitted by a partial unique index. Approval serializes by
+agreement type with issuance, checks the displayed digest and retires the previous version in the same transaction. A repeated
+approval of the current version changes nothing; a retired version or an older draft is refused. New approvals
+therefore move to a newer version. Retiring changes only the status: the approved content, actor and timestamp
+remain immutable. The staff template screen identifies the current version and shows retired approval history.
+
+Existing agreements retain their template. A retired template cannot create a new ordinary agreement. The legacy
+adoption service may bind an envelope already recorded by the owner-run importer: the database requires the same
+application, agreement type and imported external key, with a nonempty provider reference and an initial held
+instance. The service still verifies the actual provider envelope, original template, recipients, source ownership
+and pause before adoption. Retired approvals remain available on the handover screen and for signing-timer
+preparation; native provider reads still verify signing. Retirement never queues a provider write.
+
+Migration 0014 preserves the highest version selected by the previous code, retiring other approved versions
+without changing their approval metadata. Its reverse restores those historical approval states and the exact
+previous protection functions. Because older images do not recognize retired approvals in legacy handover,
+rollback during a handover needs the compatible image or a reviewed migration reversal; do not resume an older
+worker against retired-template handovers blindly. No provider template is approved or retired in production by
+this repository change.

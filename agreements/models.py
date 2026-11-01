@@ -2,8 +2,8 @@
 text in this repository (REQ-019).
 
 The three statuses of an instance are separate facts and never derive from one another (021 section 3, `004` J-11 to
-J-13). Database protections (migration 0002): template versions change only while draft; recipients and the
-identity of an attempt are insert-only; one live instance per (application, type); and the D-15 backstop refuses a
+J-13). Database protections (migrations 0002 and 0014): template content and approval metadata are fixed after approval;
+only retirement is then allowed. Recipients and the identity of an attempt are insert-only; one live instance per (application, type); and the D-15 backstop refuses a
 User Agreement instance unless the NDA is `signing_complete_verified`.
 
 Provider responses never reach these tables raw: only allowlisted fields (`agreements.provider`), never a signing
@@ -80,12 +80,15 @@ class AgreementType(models.Model):
 
 
 class AgreementTemplateVersion(models.Model):
-    """One approved Documenso template per type and version. The provider references are synthetic in P4. Only the
-    approval columns change, and only while the version is a draft (database trigger)."""
+    """A frozen Documenso template version; at most one approved version per type is current.
+
+    Approval columns change while draft. Retirement preserves the approval and content (database trigger).
+    """
 
     class Status(models.TextChoices):
         DRAFT = "draft"
         APPROVED = "approved"
+        RETIRED = "retired"
 
     agreement_type = models.ForeignKey(
         AgreementType, on_delete=models.PROTECT, related_name="template_versions"
@@ -121,8 +124,13 @@ class AgreementTemplateVersion(models.Model):
                 fields=["agreement_type", "version"],
                 name="agreement_template_one_per_version",
             ),
+            models.UniqueConstraint(
+                fields=["agreement_type"],
+                condition=Q(status="approved"),
+                name="agreement_template_one_current",
+            ),
             models.CheckConstraint(
-                condition=Q(status__in=["draft", "approved"]),
+                condition=Q(status__in=["draft", "approved", "retired"]),
                 name="agreement_template_status_valid",
             ),
             models.CheckConstraint(

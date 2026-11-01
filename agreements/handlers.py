@@ -45,6 +45,7 @@ from workflow import ledger
 from workflow.models import AutomationPause, PendingAction
 
 from . import provider
+from .template_versions import approved_version
 from .models import (
     AgreementInstance,
     AgreementRecipient,
@@ -152,18 +153,6 @@ def paused(application) -> bool:
     return AutomationPause.objects.filter(
         subject_type="application", subject_id=application.public_ref
     ).exists()
-
-
-def approved_version(type_key: str) -> AgreementTemplateVersion | None:
-    return (
-        AgreementTemplateVersion.objects.select_related("agreement_type")
-        .filter(
-            agreement_type__key=type_key,
-            status=AgreementTemplateVersion.Status.APPROVED,
-        )
-        .order_by("-version")
-        .first()
-    )
 
 
 def _action_key(claim) -> str:
@@ -448,7 +437,7 @@ class IssueAgreement(_AgreementAction):
                 enqueue_advance(application)
 
             return Decision(Status.DONE, write=start_referenced)
-        version = approved_version("nda")
+        version = approved_version("nda", for_update=True)
         if version is None:
             return held("no_approved_template")
 

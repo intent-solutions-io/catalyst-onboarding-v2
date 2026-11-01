@@ -28,6 +28,7 @@ from correspondence.staff_items import (
 from workflow.models import PendingAction
 
 from . import handlers
+from .template_versions import lock_type
 from .models import AgreementInstance, AgreementTemplateVersion, EnvelopeAttempt
 
 CHOICES = ("not_sent", "abandon")
@@ -131,7 +132,12 @@ def approve_template_version(
     """Returns (version, changed): an already approved version is returned unchanged with False, so a caller can say
     so instead of claiming an approval it did not make."""
     require(user, "approve_agreement_template")
+    # Serialize approvals for a type without granting UPDATE on the immutable type inventory.
+    type_id = AgreementTemplateVersion.objects.values_list(
+        "agreement_type_id", flat=True
+    ).get(pk=version_id)
     with transaction.atomic():
+        lock_type(type_id)
         version = (
             AgreementTemplateVersion.objects.select_for_update(of=("self",))
             .select_related("agreement_type")
@@ -141,6 +147,22 @@ def approve_template_version(
             raise Refused("template_changed_since_shown")
         if version.status == AgreementTemplateVersion.Status.APPROVED:
             return version, False
+        if version.status == AgreementTemplateVersion.Status.RETIRED:
+            raise Refused("template_version_retired")
+        current = (
+            AgreementTemplateVersion.objects.select_for_update()
+            .filter(
+                agreement_type_id=type_id,
+                status=AgreementTemplateVersion.Status.APPROVED,
+            )
+            .first()
+        )
+        if current is not None and version.version <= current.version:
+            raise Refused("template_version_not_newer")
+        if current is not None:
+            AgreementTemplateVersion.objects.filter(pk=current.pk).update(
+                status=AgreementTemplateVersion.Status.RETIRED
+            )
         AgreementTemplateVersion.objects.filter(
             pk=version.pk, status=AgreementTemplateVersion.Status.DRAFT
         ).update(
@@ -453,7 +475,7 @@ def reissue_agreement(instance_id: int, user) -> AgreementInstance:
                 "completion_after_cancel_open"
             )  # the provider shows it signed: staff decide first
         _earlier_types_passed(application, old.agreement_type)
-        version = handlers.approved_version(old.agreement_type.key)
+        version = handlers.approved_version(old.agreement_type.key, for_update=True)
         if version is None:
             raise Refused("no_approved_template")
         AgreementInstance.objects.filter(pk=old.pk).update(
@@ -783,7 +805,9 @@ def resolve_integrity(
         _earlier_types_passed(
             application, instance.agreement_type
         )  # D-15, D-43: never past a held earlier agreement
-        version = handlers.approved_version(instance.agreement_type.key)
+        version = handlers.approved_version(
+            instance.agreement_type.key, for_update=True
+        )
         if version is None:
             raise Refused("no_approved_template")
         AgreementInstance.objects.filter(pk=instance.pk).update(

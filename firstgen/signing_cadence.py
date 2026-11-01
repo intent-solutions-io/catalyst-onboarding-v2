@@ -181,7 +181,7 @@ def _state(application, instance_id, expected_digest):
     if (
         instance is None
         or receipt is None
-        or instance.template_version.status != "approved"
+        or instance.template_version.status not in ("approved", "retired")
     ):
         raise Refused("adopted_envelope_required")
     record = application.first_generation_records.get(pk=receipt.data["record"])
