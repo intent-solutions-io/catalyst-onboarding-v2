@@ -1989,6 +1989,12 @@ P6_SUPPORTING = {
         "test_agreement_custody::test_9kg54_completed_after_uncertain_distribution_is_verified_and_stored_without_resending",
         "test_agreement_custody::test_9kg54_a_staff_retry_after_late_completion_reads_and_stores_without_distributing_again",
     ],
+    "9kg.73 model provider handoffs follow possible disclosure": [
+        "test_erasure_model_handoffs::test_9kg_73_a_suspended_assessment_owes_no_provider_handoff_but_a_real_call_does",
+        "test_erasure_model_handoffs::test_9kg_73_reply_only_model_reservations_keep_the_provider_handoff",
+        "test_erasure_model_handoffs::test_9kg_73_an_uncertain_reserved_call_still_owes_provider_cleanup",
+        "test_erasure_model_handoffs::test_9kg_73_both_functions_reverse_and_reapply_without_changing_rows_or_grants",
+    ],
     "9kg.58 restored transaction IDs cannot reuse old resume, decision or signing evidence": [
         "test_restore_transaction_guards::test_9kg_58_real_restore_refuses_old_evidence_with_a_reused_txid_for_all_three_guards",
         "test_restore_transaction_guards::test_9kg_58_migrations_reverse_and_reapply_without_changing_rows_or_protections",

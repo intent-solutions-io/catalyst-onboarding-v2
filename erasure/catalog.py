@@ -795,6 +795,14 @@ REPLAY_ORPHAN_KEY = """  -- 9kg.71: a verified address may find restored orphan 
 """
 
 
+MODEL_PROVIDER_HANDOFF = """EXISTS (SELECT 1 FROM public.assessments_assessmentinvocation i
+             WHERE i.application_id = ANY(v_apps) AND i.reserved_requests > 0)
+     OR EXISTS (SELECT 1 FROM public.assessments_assessmentrun r
+                WHERE r.application_id = ANY(v_apps) AND r.requests_used > 0)
+     OR EXISTS (SELECT 1 FROM public.correspondence_replyinterpretation i
+                WHERE i.application_id = ANY(v_apps) AND i.reserved_requests > 0)"""
+
+
 def erase_sql(retention_literal: str, existing: dict, replay: bool = False) -> str:
     """public.catalyst_erase(p_subject uuid, p_authority text, p_reason text, p_classes text[]) RETURNS jsonb: the one
     erasure function, SECURITY DEFINER (it runs as the owner while the session stays the retention login), EXECUTE for
@@ -947,7 +955,7 @@ BEGIN
                          AND q.status NOT IN ('awaiting_approval', 'superseded'))) THEN
     v_handoffs := v_handoffs || 'mail_host_mailbox'::text;
   END IF;
-  IF EXISTS (SELECT 1 FROM public.assessments_assessmentrun r WHERE r.application_id = ANY(v_apps)) THEN
+  IF {MODEL_PROVIDER_HANDOFF} THEN
     v_handoffs := v_handoffs || 'model_provider'::text;  -- what the model provider kept of a request, if anything
   END IF;
 {twenty}  -- Not erased by this function: the custody PDFs (registry row signed_documents; 9kg.34 destroys their keys).

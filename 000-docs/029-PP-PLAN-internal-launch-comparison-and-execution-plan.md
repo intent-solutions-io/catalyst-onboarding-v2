@@ -454,6 +454,14 @@ or a step added later (`9kg.34`) still reaches an already-erased subject.
 
 A run with nothing to change returns `nothing_to_erase` and writes nothing.
 
+The model-provider handoff follows possible disclosure, not the existence of an assessment run
+(`9kg.73`, erasure migration 0008). A queued or suspension-refused run with no reservation and no
+recorded request owes no model-provider handoff. Positive assessment/clarification reservations,
+recorded assessment requests and reply-interpretation reservations retain the handoff, including
+abandoned calls whose provider outcome is uncertain. Reply-only calls count even without an
+assessment run. Normal erasure and restore replay use the same rule; previously signed erasure
+records are not rewritten by the migration.
+
 The trigger branch:
 
 - Every UPDATE trigger function on a table with subject columns gains one branch after its first BEGIN, by CREATE
