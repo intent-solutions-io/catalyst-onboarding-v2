@@ -14,6 +14,32 @@
 <p>{{ guidance }}</p>
 {% if open_case %}<p>Resuming automation alone does not continue an old question, transfer an open signing envelope or recreate a pending job. Reconcile each outstanding operation before sending again.</p>{% endif %}
 <p>This history records what v1 knew at import. It does not prove the current provider state or completion of the handover.</p>
+{% if review_error %}<p role="alert">Review was not recorded: {{ review_error|visible }}</p>{% endif %}
+{% if prepared_review %}<p>A staff review of the current preserved history is recorded. Continue on the <a href="{% url 'assessments_staff:decision' application.public_ref %}">qualification decision screen</a>.{% if paused %} Automation remains paused until its separate handover review and resume.{% endif %}</p>{% endif %}
+{% if can_prepare_review %}
+<h3>Continue before signing</h3>
+<p>For verified cases still awaiting review or information, record how the old questions and replies will inform a human qualification decision. Also review <a href="{% url 'correspondence_staff:application' application.public_ref %}">correspondence received in v2</a>. No answer is marked satisfied and no message is sent. Any envelope, release or mailbox record requires its own reconciliation path.</p>
+<form method="post" action="{% url 'firstgen_staff:prepare_review' application.public_ref %}">
+  {% csrf_token %}<input type="hidden" name="digest" value="{{ review_digest }}">
+  <p><label><input type="checkbox" name="source_stopped" value="yes" required> I verified that v1 no longer operates this case, its replies or its timers, and that v2 owns their continuation.</label></p>
+  <p><label><input type="checkbox" name="history_reviewed" value="yes" required> I reviewed the preserved questions and replies and will resolve them in the human qualification review.</label></p>
+  <p><label>Handover evidence and question disposition <textarea name="note" minlength="10" maxlength="500" required>{{ review_note }}</textarea></label></p>
+  <button type="submit">Record review and continue to qualification</button>
+</form>
+{% endif %}
+{% if can_adopt_envelope %}
+<h3>Continue an existing signing envelope</h3>
+<p>Keep the original envelope and signing links. Choose its approved historical template; a fresh provider read must match its identity and recipients. The case stays paused. A pending or completed envelope is queued for verification; a prepared draft is queued for distribution only after a separate resume.</p>
+<form method="post" action="{% url 'firstgen_staff:adopt_envelope' application.public_ref %}">
+  {% csrf_token %}<input type="hidden" name="digest" value="{{ review_digest }}">
+  <p><label>Preserved agreement <select name="record" required><option value="">Choose an agreement</option>{% for record in legacy_envelopes %}<option value="{{ record.pk }}">{{ record.data.document_type|visible }} — {{ record.data.document_version|visible }} — {{ record.data.status|visible }} (record {{ record.pk }})</option>{% endfor %}</select></label></p>
+  <p><label>Approved historical template <select name="template" required><option value="">Choose a template</option>{% for version in historical_templates %}<option value="{{ version.pk }}">{{ version.agreement_type.key }} — version {{ version.version }} — provider template {{ version.provider_template_number }}</option>{% endfor %}</select></label></p>
+  <p><label><input type="checkbox" name="source_stopped" value="yes" required> I verified that v1 no longer operates this case, envelope, callbacks or timers.</label></p>
+  <p><label><input type="checkbox" name="mapping_reviewed" value="yes" required> I verified this historical template and the configured applicant and company recipients, and reviewed the preserved agreement history.</label></p>
+  <p><label>Handover evidence <textarea name="note" minlength="10" maxlength="500" required>{{ review_note }}</textarea></label></p>
+  <button type="submit">Read and adopt the existing envelope</button>
+</form>
+{% endif %}
 {% if case.findings %}<ul>{% for finding in case.findings %}<li><bdi>{{ finding|visible }}</bdi></li>{% endfor %}</ul>{% endif %}
 <h2>Preserved records</h2>
 <p>Confirmation, setup, withdrawal and signing links are removed from displayed text. Outgoing message bodies are shown only for the recorded clarification template.</p>

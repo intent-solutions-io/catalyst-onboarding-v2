@@ -556,7 +556,6 @@ P2_CASES = {
 }
 
 
-
 # P3 acceptance plan (018 section 9; GATE-P3, task 3C): each case names the tests that prove it, by the case
 # numbers in their names plus the review tests that prove the same case. Reported and gated like S1 and P2.
 # GATE-P3 proves software, permissions, provenance and workflow; it is not a validation of selection quality
@@ -877,7 +876,9 @@ P4_CASES = {
         "test_agreements::test_p4_09_a_refusal_returns_issue_nda_to_held_without_using_up_its_attempts",
         "test_p4_journey::test_p4_09_activation_refuses_a_non_admitted_application_and_never_releases_other_held_kinds",
     ],
-    "TEST-P4-10": ["test_agreements::test_p4_10_the_instance_and_its_key_are_committed_before_any_provider_call"],
+    "TEST-P4-10": [
+        "test_agreements::test_p4_10_the_instance_and_its_key_are_committed_before_any_provider_call"
+    ],
     "TEST-P4-11": [
         "test_agreements::test_p4_11_an_unknown_create_reconciles_on_admissible_evidence",
         "test_agreements::test_p4_11_with_no_evidence_a_decision_maker_decides_and_p4_30_a_late_orphan_is_cancelled",
@@ -909,7 +910,9 @@ P4_CASES = {
         "test_agreement_completion::test_p4_15_partial_rejection_expiry_and_cancellation",
         "test_agreement_completion::test_p4_15_a_declined_agreement_is_reissued_only_by_a_decision_maker",
     ],
-    "TEST-P4-16": ["test_agreement_completion::test_p4_16_a_read_showing_another_envelope_key_or_template_never_verifies"],
+    "TEST-P4-16": [
+        "test_agreement_completion::test_p4_16_a_read_showing_another_envelope_key_or_template_never_verifies"
+    ],
     "TEST-P4-17": [
         "test_agreement_custody::test_p4_17_27_retrieval_is_audited_before_any_byte_and_served_as_an_attachment",
         "test_agreement_custody::test_review_outsiders_get_the_same_404_and_add_no_audit_rows",
@@ -1050,7 +1053,6 @@ P4_SUPPORTING = {
         "test_p4_journey::test_p4_removed_gate_the_hand_off_refuses_without_custody",
     ],
 }
-
 
 
 # P5 provisioning plan (023 section 9; GATE-P5, unsigned): each case names the tests that prove it (P5 task 5C).
@@ -2177,6 +2179,36 @@ P6_SUPPORTING = {
         "test_reference_receipt::test_bgl_5_the_receipt_handler_is_registered_redeliverable_and_reviewed_after_a_restore",
         "test_reference_receipt::test_bgl_5_the_request_page_answers_the_same_with_the_receipt_on",
     ],
+    "bgl.23 existing legacy envelopes are adopted without duplicate creation and verified by native reads": [
+        "test_legacy_envelopes::test_both_old_envelopes_reach_native_custody_and_one_held_provisioning_handoff",
+        "test_legacy_envelopes::test_unverified_signing_case_can_confirm_contact_and_adopt_its_original_envelope",
+        "test_legacy_envelopes::test_late_source_final_states_and_duplicate_envelopes_are_refused_before_provider_access",
+        "test_legacy_envelopes::test_a_pending_legacy_envelope_is_adopted_once_without_create_send_or_unpause",
+        "test_legacy_envelopes::test_only_the_native_provider_read_verifies_the_legacy_nda_before_ua_adoption",
+        "test_legacy_envelopes::test_adoption_refuses_wrong_key_template_address_role_and_order",
+        "test_legacy_envelopes::test_adoption_requires_handover_authority_and_current_pause",
+        "test_legacy_envelopes::test_adoption_rechecks_history_after_the_provider_read",
+        "test_legacy_envelopes::test_the_handover_form_requires_post_csrf_and_matching_case_records",
+        "test_legacy_envelopes::test_a_prepared_draft_distributes_the_same_envelope_only_after_separate_resume",
+        "test_legacy_envelopes::test_provider_refusal_and_existing_cross_case_ownership_leave_no_adoption",
+        "test_legacy_envelopes::test_an_older_member_reference_cannot_hide_a_new_unadopted_envelope",
+    ],
+    "bgl.23 verified pre-signing legacy cases reach a bound human decision without operation replay": [
+        "test_legacy_review::test_legacy_review_reaches_a_real_qualification_decision_without_replaying_mail",
+        "test_legacy_review::test_unverified_import_can_receive_mail_confirm_and_reach_recorded_review",
+        "test_legacy_review::test_an_ordinary_staff_pause_cannot_replace_the_import_resume_receipt",
+        "test_legacy_review::test_legacy_review_is_idempotent_and_late_source_records_invalidate_the_snapshot",
+        "test_legacy_review::test_legacy_review_requires_authority_current_state_verification_and_attestations",
+        "test_legacy_review::test_legacy_review_refuses_provider_states_and_native_work_in_flight",
+        "test_legacy_review::test_legacy_review_refuses_open_identity_items_and_keeps_the_pause",
+        "test_legacy_review::test_legacy_review_cannot_be_used_for_a_routine_model_admit",
+        "test_legacy_review::test_legacy_review_screen_requires_post_csrf_and_authority_and_preserves_refused_notes",
+        "test_legacy_review::test_a_new_v2_reply_invalidates_review_and_must_finish_processing",
+        "test_legacy_review::test_late_v1_withdrawal_and_signing_states_cannot_reuse_the_initial_case_label",
+        "test_legacy_review::test_each_verified_pre_signing_source_state_reaches_human_review",
+        "test_legacy_review::test_a_pre_signing_label_cannot_hide_an_envelope_or_unverified_contact",
+        "test_legacy_review::test_a_human_hold_can_be_reviewed_again_without_erasing_the_hold_or_pause",
+    ],
     "bgl.23 staff can inspect preserved legacy case history with dossier permissions, safe rendering and no operation replay": [
         "test_legacy_history::test_legacy_history_is_available_for_every_imported_state_without_changing_cases",
         "test_legacy_history::test_legacy_history_requires_the_dossier_permission_and_refuses_writes",
@@ -2373,12 +2405,27 @@ TEST_ENVIRONMENT = "test containers (CI and scripts/test.sh)"
 DRILL_ENVIRONMENT = "staging stack on the dev box"
 # The drill scripts: the commit whose 026 section 16 record holds the drill's result, and that record.
 DRILLS = {
-    "scripts/staging_check.sh": {"revision": "a5a19fd", "record": "026 section 16, 6B.11 part 1 (PR #75); the dark deploy at 2cb12cf (PR #79)"},
-    "scripts/deploy_drill.sh": {"revision": "74cbb53", "record": "026 section 16, 6B.10 (PR #73); batch 2 at main (PRs #82 to #85); 9kg.63 under invitation-only intake"},
-    "scripts/alert_drill.sh": {"revision": "ae10624", "record": "026 section 16, 6B.12 (PR #77)"},
-    "scripts/restore_drill.sh": {"revision": "0211ce9", "record": "026 section 16, 6B.13 (PR #78); the 9kg.34 custody leg; "
-                                                              "the 9kg.25 erasure-replay legs (PR #103); re-run on main at 0211ce9, 76 PASS"},
-    "scripts/cutover_rehearsal.sh": {"revision": "2cb12cf", "record": "026 section 16, 6B.11 part 3 (PR #79)"},
+    "scripts/staging_check.sh": {
+        "revision": "a5a19fd",
+        "record": "026 section 16, 6B.11 part 1 (PR #75); the dark deploy at 2cb12cf (PR #79)",
+    },
+    "scripts/deploy_drill.sh": {
+        "revision": "74cbb53",
+        "record": "026 section 16, 6B.10 (PR #73); batch 2 at main (PRs #82 to #85); 9kg.63 under invitation-only intake",
+    },
+    "scripts/alert_drill.sh": {
+        "revision": "ae10624",
+        "record": "026 section 16, 6B.12 (PR #77)",
+    },
+    "scripts/restore_drill.sh": {
+        "revision": "0211ce9",
+        "record": "026 section 16, 6B.13 (PR #78); the 9kg.34 custody leg; "
+        "the 9kg.25 erasure-replay legs (PR #103); re-run on main at 0211ce9, 76 PASS",
+    },
+    "scripts/cutover_rehearsal.sh": {
+        "revision": "2cb12cf",
+        "record": "026 section 16, 6B.11 part 3 (PR #79)",
+    },
 }
 RESIDUAL_BOUNDARIES = {  # the earliest boundary each residual bead blocks (029 section 13.1)
     "9kg.27": "the provider canaries (9kg.31.1 to .3)",
@@ -2388,16 +2435,35 @@ RESIDUAL_BOUNDARIES = {  # the earliest boundary each residual bead blocks (029 
 }
 REVISION = re.compile(r"^([0-9a-f]{7,40}|[0-9]{8,})$")  # a commit, or a workflow run id
 STAGING_CHECK, DEPLOY_DRILL, ALERT_DRILL, RESTORE_DRILL, CUTOVER = (
-    ("drill", "scripts/staging_check.sh"), ("drill", "scripts/deploy_drill.sh"), ("drill", "scripts/alert_drill.sh"),
-    ("drill", "scripts/restore_drill.sh"), ("drill", "scripts/cutover_rehearsal.sh"))
+    ("drill", "scripts/staging_check.sh"),
+    ("drill", "scripts/deploy_drill.sh"),
+    ("drill", "scripts/alert_drill.sh"),
+    ("drill", "scripts/restore_drill.sh"),
+    ("drill", "scripts/cutover_rehearsal.sh"),
+)
 # 9kg.64: the cutover rehearsal ran against a stand-in Learn site, so that proof, not the pytest one, says so.
-CUTOVER_ON_STAND_IN = (*CUTOVER, "a stand-in Learn site beside the staging stack on the dev box")
-ATTESTATION_RUN = ("inspected", "image run 39780920293 on main: build, content check, SBOM, scan and attestation",
-                   "178da42", "028 section 4; GitHub Actions run 39780920293")
-BUZZ_DELIVERY = ("canary", "one real delivery read back from Buzz", "ae10624", "026 section 16, 6B.12 (PR #77)")
+CUTOVER_ON_STAND_IN = (
+    *CUTOVER,
+    "a stand-in Learn site beside the staging stack on the dev box",
+)
+ATTESTATION_RUN = (
+    "inspected",
+    "image run 39780920293 on main: build, content check, SBOM, scan and attestation",
+    "178da42",
+    "028 section 4; GitHub Actions run 39780920293",
+)
+BUZZ_DELIVERY = (
+    "canary",
+    "one real delivery read back from Buzz",
+    "ae10624",
+    "026 section 16, 6B.12 (PR #77)",
+)
 P6_EVIDENCE = {
-    "TEST-P6-01": {"proofs": ["pytest", STAGING_CHECK, ATTESTATION_RUN], "partial": "9kg.28",
-                   "residual": "verifying the attestation on the host with the force-command"},
+    "TEST-P6-01": {
+        "proofs": ["pytest", STAGING_CHECK, ATTESTATION_RUN],
+        "partial": "9kg.28",
+        "residual": "verifying the attestation on the host with the force-command",
+    },
     "TEST-P6-02": {"proofs": ["pytest", STAGING_CHECK]},
     "TEST-P6-03": {"proofs": ["pytest"]},
     "TEST-P6-04": {"proofs": ["pytest", STAGING_CHECK]},
@@ -2406,55 +2472,112 @@ P6_EVIDENCE = {
     "TEST-P6-07": {"proofs": ["pytest", STAGING_CHECK]},
     "TEST-P6-08": {"proofs": [DEPLOY_DRILL, "pytest"], "pytest": "shape"},
     "TEST-P6-09": {"proofs": ["pytest", DEPLOY_DRILL]},
-    "TEST-P6-10": {"proofs": ["pytest", DEPLOY_DRILL],
-                   "since_028": "9kg.37 (PR #84): the receipt is a gate; a mismatch refuses the deploy, drilled 60 of 60"},
-    "TEST-P6-11": {"proofs": ["pytest", STAGING_CHECK], "partial": "9kg.28", "residual": "tmpfs for the secret files on the host"},
+    "TEST-P6-10": {
+        "proofs": ["pytest", DEPLOY_DRILL],
+        "since_028": "9kg.37 (PR #84): the receipt is a gate; a mismatch refuses the deploy, drilled 60 of 60",
+    },
+    "TEST-P6-11": {
+        "proofs": ["pytest", STAGING_CHECK],
+        "partial": "9kg.28",
+        "residual": "tmpfs for the secret files on the host",
+    },
     "TEST-P6-12": {"proofs": ["pytest", STAGING_CHECK]},
-    "TEST-P6-13": {"proofs": ["pytest", STAGING_CHECK], "partial": "9kg.27",
-                   "residual": "the webhook secret, mounted only at the pilot"},
+    "TEST-P6-13": {
+        "proofs": ["pytest", STAGING_CHECK],
+        "partial": "9kg.27",
+        "residual": "the webhook secret, mounted only at the pilot",
+    },
     "TEST-P6-14": {"proofs": ["pytest", STAGING_CHECK]},
-    "TEST-P6-15": {"proofs": ["pytest", STAGING_CHECK], "partial": "9kg.28", "residual": "the named-device network restriction"},
-    "TEST-P6-16": {"proofs": ["pytest", STAGING_CHECK], "partial": "9kg.27",
-                   "residual": "live enabled refusals, size and source limits"},
+    "TEST-P6-15": {
+        "proofs": ["pytest", STAGING_CHECK],
+        "partial": "9kg.28",
+        "residual": "the named-device network restriction",
+    },
+    "TEST-P6-16": {
+        "proofs": ["pytest", STAGING_CHECK],
+        "partial": "9kg.27",
+        "residual": "live enabled refusals, size and source limits",
+    },
     "TEST-P6-17": {"proofs": ["pytest", ALERT_DRILL]},
-    "TEST-P6-18": {"partial": "9kg.27", "residual": "live, once staging has inbound mail (the pilot)"},
-    "TEST-P6-19": {"proofs": ["pytest", ALERT_DRILL], "partial": "9kg.27", "residual": "the uncertain send and custody states live"},
+    "TEST-P6-18": {
+        "partial": "9kg.27",
+        "residual": "live, once staging has inbound mail (the pilot)",
+    },
+    "TEST-P6-19": {
+        "proofs": ["pytest", ALERT_DRILL],
+        "partial": "9kg.27",
+        "residual": "the uncertain send and custody states live",
+    },
     "TEST-P6-20": {"proofs": ["pytest", ALERT_DRILL]},
-    "TEST-P6-21": {"proofs": ["pytest", RESTORE_DRILL], "partial": "9kg.28",
-                   "residual": ("the failed run's alert from the scheduled job; the custody key directories shown absent"
-                                " from every backup set of the live chain, the off-site object-locked copy included"
-                                " (9kg.34; the repository drill cannot reach that leg)")},
-    "TEST-P6-22": {"proofs": ["pytest", RESTORE_DRILL], "note": "times measured; the owner sets the RPO and RTO targets"},
+    "TEST-P6-21": {
+        "proofs": ["pytest", RESTORE_DRILL],
+        "partial": "9kg.28",
+        "residual": (
+            "the failed run's alert from the scheduled job; the custody key directories shown absent"
+            " from every backup set of the live chain, the off-site object-locked copy included"
+            " (9kg.34; the repository drill cannot reach that leg)"
+        ),
+    },
+    "TEST-P6-22": {
+        "proofs": ["pytest", RESTORE_DRILL],
+        "note": "times measured; the owner sets the RPO and RTO targets",
+    },
     "TEST-P6-23": {"proofs": ["pytest", RESTORE_DRILL]},
-    "TEST-P6-24": {"proofs": [DEPLOY_DRILL, "pytest"], "pytest": "shape",
-                   "since_028": "9kg.37 (PR #84): a stale backup receipt and another deploy's backup are refused, drilled"},
-    "TEST-P6-25": {"proofs": [RESTORE_DRILL, DEPLOY_DRILL, "pytest"], "pytest": "shape",
-                   "since_028": "9kg.38 (PR #84): the N+1 expand reverted to N on the expanded schema and a contract revert "
-                                "refused, drilled 60 of 60; drilled 60 of 60 again under invitation-only intake (9kg.63)"},
-    "TEST-P6-26": {"proofs": [CUTOVER_ON_STAND_IN, "pytest"], "pytest": "shape",
-                   "note": "proven on a stand-in Learn site; the live Learn read awaits its preconditions and the owner's go"},
+    "TEST-P6-24": {
+        "proofs": [DEPLOY_DRILL, "pytest"],
+        "pytest": "shape",
+        "since_028": "9kg.37 (PR #84): a stale backup receipt and another deploy's backup are refused, drilled",
+    },
+    "TEST-P6-25": {
+        "proofs": [RESTORE_DRILL, DEPLOY_DRILL, "pytest"],
+        "pytest": "shape",
+        "since_028": "9kg.38 (PR #84): the N+1 expand reverted to N on the expanded schema and a contract revert "
+        "refused, drilled 60 of 60; drilled 60 of 60 again under invitation-only intake (9kg.63)",
+    },
+    "TEST-P6-26": {
+        "proofs": [CUTOVER_ON_STAND_IN, "pytest"],
+        "pytest": "shape",
+        "note": "proven on a stand-in Learn site; the live Learn read awaits its preconditions and the owner's go",
+    },
     "TEST-P6-27": {"proofs": [STAGING_CHECK]},
     # 9kg.39: the proxy denies production hosts by name and by resolved address (synthetic list and a public stand-in);
     # what remains is the operator-supplied list of the estate's real hosts, mounted on the host. Its host work is a
     # 9kg.28 item, but the residual stays on 9kg.39 so it blocks enabling fetching, the boundary it gates (PR #101).
-    "TEST-P6-28": {"proofs": ["pytest", STAGING_CHECK], "partial": "9kg.39",
-                   "residual": "the operator-supplied deny list of the estate's real production hosts, mounted on the "
-                               "host and refusing a canary from it (host item in 9kg.28)"},
-    "TEST-P6-29": {"proofs": ["pytest", RESTORE_DRILL],
-                   "since_028": "9kg.25 (PR #103): erasures are replayed from the durable record before the review and "
-                                "the lift, drilled through a real erasure after the backup and the restore of the older set"},
+    "TEST-P6-28": {
+        "proofs": ["pytest", STAGING_CHECK],
+        "partial": "9kg.39",
+        "residual": "the operator-supplied deny list of the estate's real production hosts, mounted on the "
+        "host and refusing a canary from it (host item in 9kg.28)",
+    },
+    "TEST-P6-29": {
+        "proofs": ["pytest", RESTORE_DRILL],
+        "since_028": "9kg.25 (PR #103): erasures are replayed from the durable record before the review and "
+        "the lift, drilled through a real erasure after the backup and the restore of the older set",
+    },
     "TEST-P6-30": {"proofs": ["pytest", STAGING_CHECK]},
-    "TEST-P6-31": {"proofs": ["pytest", STAGING_CHECK], "pytest": "shape", "partial": "9kg.28",
-                   "residual": "the deploy force-command on the host"},
+    "TEST-P6-31": {
+        "proofs": ["pytest", STAGING_CHECK],
+        "pytest": "shape",
+        "partial": "9kg.28",
+        "residual": "the deploy force-command on the host",
+    },
     "TEST-P6-32": {"proofs": ["pytest", STAGING_CHECK]},
     "TEST-P6-33": {"proofs": ["pytest", STAGING_CHECK]},
-    "TEST-P6-34": {"partial": "9kg.27", "residual": "live, with the webhook mounted at the pilot"},
-    "TEST-P6-35": {"proofs": ["pytest", RESTORE_DRILL, ALERT_DRILL, DEPLOY_DRILL], "partial": "9kg.31.5",
-                   "residual": "the receipt step's scan on a host (9kg.40 built it; CI runs it over the committed evidence, "
-                               "the deploy drill ran it on the dev box); not yet wired: restore-drill and scheduled backup "
-                               "receipts, alert text (codes only by construction)"},
-    "TEST-P6-36": {"partial": "9kg.27",
-                   "residual": "the administrator's password and provider tokens (procedures only, 027)"},
+    "TEST-P6-34": {
+        "partial": "9kg.27",
+        "residual": "live, with the webhook mounted at the pilot",
+    },
+    "TEST-P6-35": {
+        "proofs": ["pytest", RESTORE_DRILL, ALERT_DRILL, DEPLOY_DRILL],
+        "partial": "9kg.31.5",
+        "residual": "the receipt step's scan on a host (9kg.40 built it; CI runs it over the committed evidence, "
+        "the deploy drill ran it on the dev box); not yet wired: restore-drill and scheduled backup "
+        "receipts, alert text (codes only by construction)",
+    },
+    "TEST-P6-36": {
+        "partial": "9kg.27",
+        "residual": "the administrator's password and provider tokens (procedures only, 027)",
+    },
     "TEST-P6-37": {"proofs": ["pytest", ATTESTATION_RUN]},
     "TEST-P6-38": {"proofs": ["pytest", ALERT_DRILL, BUZZ_DELIVERY]},
 }
@@ -2470,11 +2593,30 @@ def gates():
     return (
         ("first-slice acceptance (005 S1.7)", "GATE-S1", CASES, SUPPORTING),
         ("P2 correspondence acceptance (016 section 7)", "GATE-P2", P2_CASES, {}),
-        ("P3 evidence and assessment acceptance (018 section 9)", "GATE-P3", P3_CASES, P3_SUPPORTING),
-        ("P4 agreements acceptance (021 section 12)", "GATE-P4", P4_CASES, P4_SUPPORTING),
-        ("P5 provisioning acceptance (023 section 9)", "GATE-P5", P5_CASES, P5_SUPPORTING),
-        ("P6 staging acceptance (026 section 11; evidence register 9kg.44; live evidence in 026 section 16)",
-         "GATE-STAGING", P6_CASES, P6_SUPPORTING),
+        (
+            "P3 evidence and assessment acceptance (018 section 9)",
+            "GATE-P3",
+            P3_CASES,
+            P3_SUPPORTING,
+        ),
+        (
+            "P4 agreements acceptance (021 section 12)",
+            "GATE-P4",
+            P4_CASES,
+            P4_SUPPORTING,
+        ),
+        (
+            "P5 provisioning acceptance (023 section 9)",
+            "GATE-P5",
+            P5_CASES,
+            P5_SUPPORTING,
+        ),
+        (
+            "P6 staging acceptance (026 section 11; evidence register 9kg.44; live evidence in 026 section 16)",
+            "GATE-STAGING",
+            P6_CASES,
+            P6_SUPPORTING,
+        ),
     )
 
 
@@ -2489,20 +2631,42 @@ def groups():
 
 def _proof(case: str, raw, environment: str) -> dict:
     if raw == "pytest":
-        return {"type": "pytest", "where": "the gated tests", "environment": environment, "revision": "this run",
-                "record": "the per-gate report of this run"}
+        return {
+            "type": "pytest",
+            "where": "the gated tests",
+            "environment": environment,
+            "revision": "this run",
+            "record": "the per-gate report of this run",
+        }
     kind, where, *rest = raw
     if kind not in PROOF_TYPES:
         raise RegisterError(f"{case}: unknown proof type {kind!r}")
     if kind == "drill":
         if where not in DRILLS:
             raise RegisterError(f"{case}: unknown drill script {where!r}")
-        if len(rest) > 1 or (rest and not (isinstance(rest[0], str) and rest[0].strip())):
-            raise RegisterError(f"{case}: a drill proof takes at most its own environment, a non-empty text")
-        return {"type": kind, "where": where, "environment": rest[0] if rest else DRILL_ENVIRONMENT, **DRILLS[where]}
+        if len(rest) > 1 or (
+            rest and not (isinstance(rest[0], str) and rest[0].strip())
+        ):
+            raise RegisterError(
+                f"{case}: a drill proof takes at most its own environment, a non-empty text"
+            )
+        return {
+            "type": kind,
+            "where": where,
+            "environment": rest[0] if rest else DRILL_ENVIRONMENT,
+            **DRILLS[where],
+        }
     if len(rest) != 2 or not REVISION.match(rest[0]) or not rest[1]:
-        raise RegisterError(f"{case}: a {kind} proof needs a commit or run id and a record")
-    return {"type": kind, "where": where, "environment": "recorded", "revision": rest[0], "record": rest[1]}
+        raise RegisterError(
+            f"{case}: a {kind} proof needs a commit or run id and a record"
+        )
+    return {
+        "type": kind,
+        "where": where,
+        "environment": "recorded",
+        "revision": rest[0],
+        "record": rest[1],
+    }
 
 
 def evidence(case: str) -> dict:
@@ -2519,7 +2683,9 @@ def evidence(case: str) -> dict:
     if partial and not entry.get("residual"):
         raise RegisterError(f"{case}: partial without a residual")
     if partial and partial not in RESIDUAL_BOUNDARIES:
-        raise RegisterError(f"{case}: residual bead {partial} has no boundary in RESIDUAL_BOUNDARIES")
+        raise RegisterError(
+            f"{case}: residual bead {partial} has no boundary in RESIDUAL_BOUNDARIES"
+        )
     has_pytest = any(p["type"] == "pytest" for p in proofs)
     return {
         "case": case,
@@ -2537,7 +2703,9 @@ def check_register() -> list[str]:
     """Every problem with the register as data: a case without an entry, an entry without a case, a live-only case
     with a pytest proof or a gated case without one, and whatever evidence() refuses."""
     cases = {*P6_CASES, *P6_LIVE_ONLY}
-    problems = [f"{case}: entry without a case" for case in sorted(set(P6_EVIDENCE) - cases)]
+    problems = [
+        f"{case}: entry without a case" for case in sorted(set(P6_EVIDENCE) - cases)
+    ]
     for case in sorted(cases):
         try:
             row = evidence(case)
@@ -2545,7 +2713,9 @@ def check_register() -> list[str]:
             problems.append(str(exc))
             continue
         if (row["pytest"] is None) != (case in P6_LIVE_ONLY):
-            problems.append(f"{case}: a live-only case has no pytest proof and a gated case has one")
+            problems.append(
+                f"{case}: a live-only case has no pytest proof and a gated case has one"
+            )
         if row["pytest"] not in (None, "behaviour", "shape"):
             problems.append(f"{case}: pytest must be behaviour or shape")
     return problems
@@ -2558,8 +2728,14 @@ def register(statuses: dict) -> list[dict]:
     rows = []
     for case in sorted({*P6_CASES, *P6_LIVE_ONLY}):
         row = evidence(case)
-        row["result"] = "LIVE ONLY" if case in P6_LIVE_ONLY else statuses.get(case, "NOT RUN")
-        row["proven_this_run"] = row["completeness"] == "full" and row["result"] == "PASS" and row["pytest"] == "behaviour"
+        row["result"] = (
+            "LIVE ONLY" if case in P6_LIVE_ONLY else statuses.get(case, "NOT RUN")
+        )
+        row["proven_this_run"] = (
+            row["completeness"] == "full"
+            and row["result"] == "PASS"
+            and row["pytest"] == "behaviour"
+        )
         rows.append(row)
     return rows
 
@@ -2580,6 +2756,7 @@ def summarise(rows: list[dict]) -> dict:
         "residual": residual,
     }
 
+
 def key(nodeid: str) -> str:
     """'tests/test_x.py::test_name[param]' -> 'test_x::test_name' (the function: every instance)."""
     return instance_key(nodeid).split("[", 1)[0]
@@ -2596,16 +2773,31 @@ def write_register(statuses, path, commit, exit_status, image_digest=None):
     rows = register(statuses)
     gate_counts = {}
     for _, gate, cases, supporting in gates():
-        gate_counts[gate] = {kind: {s: [statuses[g] for g in groups].count(s) for s in ("PASS", "FAIL", "INCOMPLETE", "NOT RUN")}
-                       for kind, groups in (("numbered", cases), ("supporting", supporting))}
+        gate_counts[gate] = {
+            kind: {
+                s: [statuses[g] for g in groups].count(s)
+                for s in ("PASS", "FAIL", "INCOMPLETE", "NOT RUN")
+            }
+            for kind, groups in (("numbered", cases), ("supporting", supporting))
+        }
     # Written beside the target and moved into place (PR #95 review), so a reader never sees a half-written file.
     temporary = path + ".tmp"
     with open(temporary, "w", encoding="utf-8") as out:
-        json.dump({"gate": "GATE-STAGING", "commit": commit, "exit_status": exit_status,
-                   "image_digest": image_digest,
-                   "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "rows": rows,
-                   "summary": summarise(rows),
-                   "supporting": {group: statuses[group] for group in P6_SUPPORTING},
-                   "gates": gate_counts}, out, indent=1, sort_keys=True)
+        json.dump(
+            {
+                "gate": "GATE-STAGING",
+                "commit": commit,
+                "exit_status": exit_status,
+                "image_digest": image_digest,
+                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "rows": rows,
+                "summary": summarise(rows),
+                "supporting": {group: statuses[group] for group in P6_SUPPORTING},
+                "gates": gate_counts,
+            },
+            out,
+            indent=1,
+            sort_keys=True,
+        )
     os.replace(temporary, path)
     return path
