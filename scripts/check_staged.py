@@ -68,6 +68,7 @@ def check(ruff):
                 *files,
             ],
             check=True,
+            cwd=root,
         )
         subprocess.run(
             [
@@ -80,6 +81,7 @@ def check(ruff):
                 *files,
             ],
             check=True,
+            cwd=root,
         )
     print(
         f"fast checks: {len(paths)} staged Python file(s) passed in {time.monotonic() - started:.2f}s"

@@ -542,8 +542,9 @@ Partially staged files are checked from the index; the working tree is never rew
 network requests run in this checker. Reinstall when the checker or lint lock changes. Ruff is static analysis,
 not a dedicated typechecker. This change does not format existing untouched Python files or expand CI lint rules.
 
-The checker rejects missing tools, staged Python symlinks and version drift. Its six host-side integration tests
-passed in 1.24 s locally, including index-versus-working-tree differences and preservation of an earlier hook.
+The checker rejects missing tools, staged Python symlinks and version drift. Its seven host-side integration tests
+passed in 1.50 s locally, including index-versus-working-tree differences, per-file rule resolution from the staged
+project root, and preservation of an earlier hook.
 They run in the existing docs CI job after its lint dependencies; there is no separate runner or database.
 
 The actual installed Beads pre-commit chain, with all three new Python files staged, took **0.28 s** wall time;

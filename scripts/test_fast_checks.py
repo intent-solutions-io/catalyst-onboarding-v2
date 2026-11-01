@@ -68,6 +68,26 @@ class StagedChecks(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("F821", result.stdout + result.stderr)
 
+    def test_per_file_rules_resolve_from_the_staged_project_root(self):
+        self.write(
+            "pyproject.toml",
+            '[tool.ruff]\ntarget-version = "py314"\n'
+            '[tool.ruff.lint.per-file-ignores]\n"tests/*" = ["F811"]\n',
+        )
+        content = (
+            "from fixtures import cl  # noqa: F401\n\n\ndef use(cl):\n    return cl\n"
+        )
+        self.write("tests/sample.py", content)
+        self.git("add", ".")
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # The same fixture shadowing is still refused outside the configured test directory.
+        self.write("sample.py", content)
+        self.git("add", "sample.py")
+        result = self.check()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("F811", result.stdout + result.stderr)
+
     def test_formatting_and_whitespace_fail_before_commit(self):
         self.write("sample.py", "answer=1\n")
         self.git("add", "sample.py")
