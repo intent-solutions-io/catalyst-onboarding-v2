@@ -387,6 +387,12 @@ Selection by change type exists only as the targeted lane's hint; nothing is ski
 
 ### 5.5 GitHub Actions rules
 
+**2026-11-01 image requirement:** GitHub now requires "Build and scan the image" alongside the existing
+documentation and runtime checks, with the same Actions app binding and no bypass. The image workflow reports
+on every pull request, including docs-only changes. Scan severity and test coverage are unchanged. The matching
+merge-guard installation and real refusal/reporting probes remain pending; see `032` section 1.8 for the current
+evidence and outstanding boundaries.
+
 - One stable required check per lane that always reports a result. Workflow-level path filters leave
   required checks pending (GitHub, "Handling skipped but required checks"); use job-level conditions
   with an aggregating job (`needs` plus `always()`) instead. Every PR, docs-only or not, produces the

@@ -5,7 +5,8 @@ name: Image
 # job that alone holds the signing permissions (PR #73 review): attest the exact image tarball with this repository's
 # workflow identity and keep it as the build artifact. Nothing is pushed to a registry; the host's deploy step verifies
 # the attestation on a private copy and loads that copy (scripts/verify_image_attestation.sh).
-# Not a required check: the merge guard's required checks are unchanged (009 section 5.5).
+# Required on main: Build and scan the image (009 section 5.5; 032 section 1.8).
+# The unfiltered PR trigger also reports this check for docs-only changes.
 #
 # Scan policy (recorded in 026 section 16 for the owner): a fixable high or critical finding fails the build; unfixed
 # findings are listed but do not fail it; there is no waiver file yet.

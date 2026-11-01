@@ -254,6 +254,25 @@ path in section 1.3). What it does not change: the agent's login is still an adm
 guard against mistakes, not a boundary against the agent. Steps 3 to 8 are still open, and no deploy credential may
 exist until they are done.
 
+**2026-11-01: image scan added to the GitHub required checks (`9kg.36`).** A minimal update to ruleset
+`26135726` appended "Build and scan the image", bound to the GitHub Actions app (`15368`). Exact readback of
+all writable fields and the effective rules on `main` passed: the other two check names, strict up-to-date policy,
+all other rule parameters, active enforcement and empty bypass list are unchanged. No environment, deployment,
+runner or scan-threshold setting changed. Fixable high and critical findings retain the existing failure policy;
+docs-only changes retain the unfiltered image workflow.
+
+The matching explicit merge-guard floor is in [Intent OS PR #889](https://github.com/intent-solutions-io/intent-os/pull/889).
+Local `pnpm check` passed, including 40 hermetic guard tests and four planted guard faults. The real guard with
+that shipped policy refuses missing, pending and failed scans and accepts a successful scan with the other checks
+green. Installation on the dev box and watchdog is still pending source merge. The existing installed guard also
+requires observed non-advisory checks, but that alone does not enforce a scan that never reports.
+
+[Draft PR #185](https://github.com/intent-solutions-io/catalyst-onboarding-v2/pull/185) is the real P7/P8 probe,
+never to be merged or deployed. P7 uses one hash-pinned package with an upstream fixable high finding in the
+PR-only image. Its result, the dry-run refusal, and P8's docs-only reporting result remain pending. The repository
+and live-policy task stays open until those results and installation evidence are recorded; this update does not
+claim completion of the separate disposable-repository probes in `9kg.35`.
+
 2026-10-27, read-only with `gh api` by the main session (nothing applied, nothing probed):
 
 | Read | Result |
