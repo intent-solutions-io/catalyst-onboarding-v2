@@ -1,0 +1,68 @@
+{% extends "correspondence/staff/base.html" %}{% load correspondence_display %}
+{% block title %}Selection quality and owner report{% endblock %}
+{% block messages %}{% endblock %}
+{% block content %}
+<style>
+@media print {
+  nav, .details, .print-note { display: none; }
+  body { margin: 0; max-width: none; font-size: 10pt; }
+  .owner-report h2 { font-size: 12pt; margin: .7rem 0 .2rem; }
+  .owner-report p { margin: .3rem 0; }
+}
+</style>
+<h1>Selection quality and owner report</h1>
+<p>Prepared {{ generated_at|date:"Y-m-d H:i T" }}. All recorded cases; no date or cohort filter.</p>
+<p class="print-note">Printing includes the owner summary. The detailed scorecard remains available below.</p>
+<section class="owner-report" aria-label="Owner summary">
+<h2>What changed</h2>
+<p>This is a current snapshot. Changes since the previous review have not been compared.</p>
+<h2>Evidence</h2>
+<p>{{ card.decisions }} recorded decisions. Counts come from existing decision, assessment, question and staff-item records.
+{{ unknown_count }} of 15 scorecard measures are not measured; missing measurements are not zero.</p>
+<h2>Candidate and staff impact</h2>
+{% if waiting.decided_cases %}<p>Waiting time is available for {{ waiting.decided_cases }} decided cases:
+mean {{ waiting.mean_days }} days; longest {{ waiting.max_days }} days.
+It does not measure the wait of undecided cases.</p>{% else %}<p>No decided cases have a waiting-time measurement.
+This report does not measure the wait of undecided cases.</p>{% endif %}
+<p>{{ questions.applications_asked }} applications received clarification questions;
+mean {{ questions.mean_questions }} questions per application asked;
+{{ questions.repeated_criterion }} application/criterion pairs were asked more than once.</p>
+<h2>Exceptions</h2>
+<p>{{ exceptions.assessment_items_open }} open assessment staff items;
+{{ exceptions.assessment_items_resolved }} resolved items;
+{{ exceptions.staff_reruns_ending_capped_or_failed }} staff reruns ended capped or unsuccessful.
+The scorecard does not establish whether an individual decision was correct.</p>
+<h2>Decisions needed</h2>
+<p>The owner, Jeremy Longshore, reviews exceptions and confirms the operational delegate and any waiting-time window.
+No rate threshold is applied. With small numbers, review cases individually.</p>
+<h2>Next action and responsibility</h2>
+<p>The owner reviews open assessment items, repeated questions and each override.
+The named operational delegate prepares the weekly exception review; this report does not assign that role.
+Privacy, safety or unauthorized-decision incidents require immediate owner triage.</p>
+<p>Owner review, decisions and assigned follow-up: __________________________________________</p>
+</section>
+<section class="details" aria-label="Detailed scorecard">
+<h2>Detailed scorecard</h2>
+<table>
+<thead><tr><th scope="col">Measure</th><th scope="col">Recorded evidence</th></tr></thead>
+<tbody>
+{% for row in rows %}
+<tr><th scope="row">{{ row.label }}</th><td>
+{% if row.known %}
+{% for record in row.records %}<dl>{% for label, value in record %}<dt>{{ label }}</dt><dd><bdi>{{ value|visible }}</bdi></dd>{% endfor %}</dl>
+{% empty %}No matching records.{% endfor %}
+{% else %}<strong>Not measured.</strong> {{ row.reason|visible }}{% endif %}
+</td></tr>
+{% endfor %}
+</tbody></table>
+<h2>Decision counts</h2>
+<table><thead><tr><th scope="col">Basis</th><th scope="col">Outcome</th><th scope="col">Count</th></tr></thead><tbody>
+{% for row in card.by_basis_and_outcome %}<tr><td>{{ row.basis|visible }}</td><td>{{ row.outcome|visible }}</td><td>{{ row.count }}</td></tr>
+{% empty %}<tr><td colspan="3">No recorded decisions.</td></tr>{% endfor %}
+</tbody></table>
+<h2>Human-only reasons</h2>
+<table><thead><tr><th scope="col">Reason code</th><th scope="col">Count</th></tr></thead><tbody>
+{% for row in card.human_only_by_code %}<tr><td>{{ row.human_only_code|visible }}</td><td>{{ row.count }}</td></tr>{% endfor %}
+</tbody></table>
+</section>
+{% endblock %}
