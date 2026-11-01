@@ -5,6 +5,11 @@ from . import staff_views
 app_name = "firstgen_staff"
 urlpatterns = [
     path(
+        "<uuid:public_ref>/signing-timers/",
+        staff_views.prepare_signing_timers,
+        name="prepare_signing_timers",
+    ),
+    path(
         "<uuid:public_ref>/envelope/", staff_views.adopt_envelope, name="adopt_envelope"
     ),
     path("<uuid:public_ref>/", staff_views.application_history, name="history"),

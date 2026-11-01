@@ -70,6 +70,33 @@ GUIDANCE = {
 
 def displayed_fields(record):
     data = record.data if isinstance(record.data, dict) else {}
+    if record.v1_table == "signing_history":
+        shown = [
+            (key.replace("_", " "), data[key])
+            for key in ("case_state", "jobs_complete")
+            if key in data
+        ]
+        agreement = data.get("agreement", {})
+        shown.extend(
+            (key.replace("_", " "), agreement[key])
+            for key in ("status", "status_changed_at")
+            if key in agreement
+        )
+        for job in data.get("jobs", []):
+            for key in (
+                "id",
+                "kind",
+                "status",
+                "applicant_round",
+                "attempts",
+                "next_run_at",
+                "completed_at",
+                "outcome_unknown",
+            ):
+                value = job.get(key)
+                if isinstance(value, (str, int, bool)):
+                    shown.append(("job " + key.replace("_", " "), value))
+        return shown
     shown = []
     for key in FIELDS.get(record.v1_table, ()):
         value = data.get(key)
@@ -149,6 +176,12 @@ def history_response(request, public_ref, *, error="", note="", status=200):
             "legacy_envelopes": case.application.first_generation_records.filter(
                 v1_table="agreement"
             ).order_by("pk"),
+            "adopted_envelopes": case.application.agreements.filter(
+                replaced_at__isnull=True
+            ),
+            "signing_timer_receipts": case.application.events.filter(
+                kind="legacy_signing_timers_prepared"
+            ).order_by("-pk"),
             "historical_templates": AgreementTemplateVersion.objects.filter(
                 status="approved"
             ).select_related("agreement_type"),
@@ -231,3 +264,31 @@ def adopt_envelope(request, public_ref):
             status=409,
         )
     return redirect("agreements_staff:agreements", public_ref=public_ref)
+
+
+@admin.site.admin_view
+@require_POST
+def prepare_signing_timers(request, public_ref):
+    from agreements.provider import ProviderError
+    from correspondence.common import Refused
+    from . import signing_cadence
+
+    if not legacy_agreements.can_adopt(request.user):
+        raise PermissionDenied
+    case = get_object_or_404(ImportedCase, application__public_ref=public_ref)
+    note = request.POST.get("note", "")
+    try:
+        instance_id = int(request.POST.get("instance", ""))
+        signing_cadence.prepare(
+            case.application_id,
+            instance_id,
+            request.user,
+            expected_digest=request.POST.get("digest", ""),
+            source_stopped=request.POST.get("source_stopped") == "yes",
+            timers_reviewed=request.POST.get("timers_reviewed") == "yes",
+            note=note,
+        )
+    except (ValueError, Refused, ProviderError) as exc:
+        code = "adopted_envelope_required" if isinstance(exc, ValueError) else str(exc)
+        return history_response(request, public_ref, error=code, note=note, status=409)
+    return redirect("firstgen_staff:history", public_ref=public_ref)

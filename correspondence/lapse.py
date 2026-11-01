@@ -59,7 +59,9 @@ NOTE_REFUSED = "lapse_note_refused"
 LAPSE_FAILED = "lapse_failed"
 # The stage each trigger waits in; a lapse from any other stage is a stale action and cancels itself.
 FROM_STAGE = {"question": Stage.AWAITING_ANSWERS, "agreement": Stage.AGREEMENTS}
-REOPEN_FALLBACK = Stage.AWAITING_DECISION  # a lapsed application whose lapse record is missing goes to a person
+REOPEN_FALLBACK = (
+    Stage.AWAITING_DECISION
+)  # a lapsed application whose lapse record is missing goes to a person
 
 
 def trigger_of(input_ref: str) -> tuple[str, str]:
@@ -69,12 +71,21 @@ def trigger_of(input_ref: str) -> tuple[str, str]:
 
 def heard_from_since(application, since) -> bool:
     """Whether a trusted human message from the applicant arrived after `since` (a reply is any sign of life)."""
-    return InboundMessage.objects.filter(application=application, classification="human",
-                                         trust_decision=association.TRUSTED, received_at__gt=since).exists()
+    return InboundMessage.objects.filter(
+        application=application,
+        classification="human",
+        trust_decision=association.TRUSTED,
+        received_at__gt=since,
+    ).exists()
 
 
-def reopen(application, *, trigger: str, actor_ref: str,
-           actor_type: str = ApplicationEvent.ActorType.SYSTEM) -> bool:
+def reopen(
+    application,
+    *,
+    trigger: str,
+    actor_ref: str,
+    actor_type: str = ApplicationEvent.ActorType.SYSTEM,
+) -> bool:
     """Inside the caller's transaction with the application locked: back to the stage it lapsed from. False when the
     application is not lapsed."""
     if application.stage != Stage.LAPSED:
@@ -85,8 +96,15 @@ def reopen(application, *, trigger: str, actor_ref: str,
     if prior not in FROM_STAGE.values():
         prior, data["prior_unknown"] = REOPEN_FALLBACK, True
     try:
-        transition(application.pk, (Stage.LAPSED,), prior, event_kind=REOPENED_EVENT, data=data, actor_type=actor_type,
-                   actor_ref=actor_ref)
+        transition(
+            application.pk,
+            (Stage.LAPSED,),
+            prior,
+            event_kind=REOPENED_EVENT,
+            data=data,
+            actor_type=actor_type,
+            actor_ref=actor_ref,
+        )
     except StageConflict:
         return False
     application.stage = prior
@@ -96,45 +114,87 @@ def reopen(application, *, trigger: str, actor_ref: str,
 class Lapse:
     kind = LAPSE
     automated = True
-    redeliverable = True  # one fenced transaction: nothing external happens in this handler
+    redeliverable = (
+        True  # one fenced transaction: nothing external happens in this handler
+    )
 
     def lock_subject(self, claim) -> None:
         """Application, then the question (016 section 5); an agreement instance is read, never locked here."""
-        application = Application.objects.select_for_update(of=("self",)).filter(public_ref=claim.subject_id).first()
+        application = (
+            Application.objects.select_for_update(of=("self",))
+            .filter(public_ref=claim.subject_id)
+            .first()
+        )
         kind, ref = trigger_of(claim.input_ref)
         if application is not None and kind == "question":
-            Question.objects.select_for_update(of=("self",)).filter(public_id=ref, application=application).first()
+            Question.objects.select_for_update(of=("self",)).filter(
+                public_id=ref, application=application
+            ).first()
 
     def record(self, claim, kind, data) -> None:
         application = Application.objects.filter(public_ref=claim.subject_id).first()
         event(application, kind, data, actor_ref=f"pending_action:{claim.id}")
-        if kind == "action_attempts_exhausted" or (kind == "action_failed" and data.get("final")):
-            open_item(LAPSE_FAILED, claim.input_ref, application=application, pending_action_id=claim.id)
+        if kind == "action_attempts_exhausted" or (
+            kind == "action_failed" and data.get("final")
+        ):
+            open_item(
+                LAPSE_FAILED,
+                claim.input_ref,
+                application=application,
+                pending_action_id=claim.id,
+            )
 
     def run(self, claim) -> None:
         with transaction.atomic():
             self.lock_subject(claim)
             decision = self.decide(claim)
-            ledger.finish(claim, self, status=decision.status, error=decision.reason, write=decision.write,
-                          due_in=decision.due_in, refund_attempt=decision.refund)
+            ledger.finish(
+                claim,
+                self,
+                status=decision.status,
+                error=decision.reason,
+                write=decision.write,
+                due_in=decision.due_in,
+                refund_attempt=decision.refund,
+            )
 
-    def _subject_still_waits(self, application, trigger: str, ref: str) -> Decision | None:
+    def _subject_still_waits(
+        self, application, trigger: str, ref: str
+    ) -> Decision | None:
         if trigger == "question":
-            question = Question.objects.filter(public_id=ref, application=application).first()
+            question = Question.objects.filter(
+                public_id=ref, application=application
+            ).first()
             if question is None:
                 return Decision(Status.FAILED, "question_not_found")
-            if question.status in (Question.Status.SATISFIED, Question.Status.WITHDRAWN):
+            if question.status in (
+                Question.Status.SATISFIED,
+                Question.Status.WITHDRAWN,
+            ):
                 return Decision(Status.CANCELLED, f"question_{question.status}")
-            if question.status == Question.Status.REPLY_PENDING or question.reply_links.filter(state="pending").exists():
+            if (
+                question.status == Question.Status.REPLY_PENDING
+                or question.reply_links.filter(state="pending").exists()
+            ):
                 return Decision(Status.HELD, "reply_pending", refund=True)
             return None
-        from agreements.models import AgreementInstance  # agreements builds on correspondence; imported here only
+        from agreements.models import (
+            AgreementInstance,
+        )  # agreements builds on correspondence; imported here only
 
-        instance = AgreementInstance.objects.filter(public_id=ref, application=application).first()
+        instance = AgreementInstance.objects.filter(
+            public_id=ref, application=application
+        ).first()
         if instance is None:
             return Decision(Status.FAILED, "agreement_not_found")
-        if instance.issue_status != "issued" or instance.signing_status != "not_started" or instance.replaced_at:
-            return Decision(Status.CANCELLED, "agreement_moved")  # signed, declined, cancelled or replaced meanwhile
+        if (
+            instance.issue_status != "issued"
+            or instance.signing_status != "not_started"
+            or instance.replaced_at
+        ):
+            return Decision(
+                Status.CANCELLED, "agreement_moved"
+            )  # signed, declined, cancelled or replaced meanwhile
         return None
 
     def decide(self, claim) -> Decision:
@@ -151,26 +211,64 @@ class Lapse:
         waiting = self._subject_still_waits(application, trigger, ref)
         if waiting is not None:
             return waiting
-        if AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists():
-            return Decision(Status.QUEUED, "automation_paused", refund=True,
-                            due_in=timedelta(seconds=settings.CATALYST_WORKER_POLL_SECONDS))
-        row = PendingAction.objects.filter(pk=claim.id).values("due_at", "created_at", "idempotency_key").first()
-        if heard_from_since(application, row["created_at"]):
+        if AutomationPause.objects.filter(
+            subject_type="application", subject_id=application.public_ref
+        ).exists():
+            return Decision(
+                Status.QUEUED,
+                "automation_paused",
+                refund=True,
+                due_in=timedelta(seconds=settings.CATALYST_WORKER_POLL_SECONDS),
+            )
+        row = (
+            PendingAction.objects.filter(pk=claim.id)
+            .values("due_at", "created_at", "idempotency_key")
+            .first()
+        )
+        from firstgen.signing_cadence import quiet_since
+
+        if heard_from_since(
+            application, quiet_since(application, claim.id, row["created_at"])
+        ):
             return Decision(Status.CANCELLED, "applicant_replied")
         now = reminders.db_now()
         quiet = quiet_until(now)
-        if quiet is not None:  # the closing note is mail to the applicant: quiet hours hold it
-            return Decision(Status.QUEUED, "quiet_hours", due_in=quiet - now, refund=True)
+        if (
+            quiet is not None
+        ):  # the closing note is mail to the applicant: quiet hours hold it
+            return Decision(
+                Status.QUEUED, "quiet_hours", due_in=quiet - now, refund=True
+            )
         if collection_stale(row["due_at"]):
             retry = timedelta(seconds=settings.CATALYST_REMINDER_STALE_RETRY_SECONDS)
             if not claim.final:
-                return Decision(Status.QUEUED, "watermark_stale", due_in=retry)  # counts toward the bound
-            return Decision(Status.QUEUED, "watermark_stale", due_in=retry, refund=True,
-                            write=lambda: open_item("collector_stale", row["idempotency_key"], application=application,
-                                                    pending_action_id=claim.id))
+                return Decision(
+                    Status.QUEUED, "watermark_stale", due_in=retry
+                )  # counts toward the bound
+            return Decision(
+                Status.QUEUED,
+                "watermark_stale",
+                due_in=retry,
+                refund=True,
+                write=lambda: open_item(
+                    "collector_stale",
+                    row["idempotency_key"],
+                    application=application,
+                    pending_action_id=claim.id,
+                ),
+            )
         refused = lambda reason: Decision(  # noqa: E731  (as for a reminder: a configuration problem waits for staff)
-            Status.QUEUED, reason, refund=True, due_in=timedelta(seconds=settings.CATALYST_REMINDER_STALE_RETRY_SECONDS),
-            write=lambda: open_item(NOTE_REFUSED, claim.input_ref, application=application, pending_action_id=claim.id))
+            Status.QUEUED,
+            reason,
+            refund=True,
+            due_in=timedelta(seconds=settings.CATALYST_REMINDER_STALE_RETRY_SECONDS),
+            write=lambda: open_item(
+                NOTE_REFUSED,
+                claim.input_ref,
+                application=application,
+                pending_action_id=claim.id,
+            ),
+        )
         recipient = verified_address(application)
         version = current_template_version(LAPSE_TEMPLATE)
         if recipient is None:
@@ -187,11 +285,29 @@ class Lapse:
         actor = f"pending_action:{claim.id}"
 
         def write():
-            transition(application.pk, (FROM_STAGE[trigger],), Stage.LAPSED, event_kind=LAPSED_EVENT,
-                       data={"trigger": f"{trigger}:{ref}"}, actor_ref=actor)
-            message = _freeze(application, ApprovedMessage.Kind.LAPSE_NOTE, recipient, version, values, actor,
-                              ApprovedMessage.Authority.SYSTEM_POLICY)
+            transition(
+                application.pk,
+                (FROM_STAGE[trigger],),
+                Stage.LAPSED,
+                event_kind=LAPSED_EVENT,
+                data={"trigger": f"{trigger}:{ref}"},
+                actor_ref=actor,
+            )
+            message = _freeze(
+                application,
+                ApprovedMessage.Kind.LAPSE_NOTE,
+                recipient,
+                version,
+                values,
+                actor,
+                ApprovedMessage.Authority.SYSTEM_POLICY,
+            )
             enqueue_send(message, 0)
-            event(application, "lapse_note_queued", {"trigger": f"{trigger}:{ref}", "send_ref": str(message.send_ref)},
-                  actor_ref=actor)
+            event(
+                application,
+                "lapse_note_queued",
+                {"trigger": f"{trigger}:{ref}", "send_ref": str(message.send_ref)},
+                actor_ref=actor,
+            )
+
         return Decision(Status.DONE, write=write)

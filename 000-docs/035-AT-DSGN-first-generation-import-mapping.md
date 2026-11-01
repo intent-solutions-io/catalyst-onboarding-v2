@@ -21,8 +21,8 @@ synthetic first-generation database in `tests/firstgen_v1.py`.
 
 - **Read.** One read-only, REPEATABLE READ transaction over the source DSN (`firstgen.source`), so every table is
   read at the same instant. Each table is read with `SELECT *` into plain values: a column the first generation added
-  after migration 0023 is carried, never refused. The job queue is never loaded row by row (counts by kind and
-  status, and the open jobs' references only). Nothing is written to the source.
+  after migration 0023 is carried, never refused. The job queue is counted, with open-job references and only the signing delivery metadata
+  needed for timer handover; job payloads and credentials are never loaded. Nothing is written to the source.
 - **Write.** The command runs as the migration owner and refuses any other login, because it writes records the
   application role may not (member-on-file records, the import's provenance). One transaction per person (every
   case of one email key): a malformed case fails alone and is reported while the others import. Chose this over one
@@ -73,7 +73,7 @@ row in `data` (erasable, class `history_events`), its original time in `occurred
 | `crm_review_item` | 21 | Record | |
 | `case_release` | 32 | Record | |
 | `mailbox_account` | 32 | `AddressReservation` (live, `reviewed_exception`, reviewed by the import) and a `ProvisioningRequest` (`active` when created, `failed_needs_staff` when only approved), plus a record of its non-personal columns | So v2 never reserves or creates the address again. A name v2's mailbox rule refuses, or one already reserved, stays a record and a finding. |
-| `job` | 66,465 | Not imported (operational) | Counts by kind and status in the report; open or failed jobs of a case are listed as that case's follow-up `v1_jobs_not_carried`. |
+| `job` | 66,465 | Operational rows are not replayed; narrow signing delivery metadata becomes `signing_history` snapshots (section 11) | Counts by kind and status in the report; open or failed jobs of a case are listed as that case's follow-up `v1_jobs_not_carried`. |
 | `intake_rate_event` | 11 | Not imported (operational) | Rate counters keyed on a hash of a client address. |
 | `setup_*`, `agreement_acceptance`, `interest_track_change` | 0 | Not mapped | A row in any of them fails the run (exit 1): it would be data with no rule. |
 
@@ -282,3 +282,31 @@ run while paused; automatic countersignature, progression and provisioning retai
 checks. Historical reminder timing, unsupported/ambiguous old envelopes, approved live template mappings, provider
 canaries, provisioning continuity and the source/mailbox/callback/timer transfer still require the handover rehearsal.
 No live adoption or retirement is claimed by the synthetic tests.
+
+## 11. Signing reminder and lapse handover (bgl.23)
+
+The import also preserves a compact `signing_history` snapshot for each agreement. This contains
+its current source state and delivery-job metadata: status, attempts, known outcome, completion
+time and applicant resend round. Job payloads, credentials and raw action keys are excluded.
+Completed resends matter: v1 counted them against the reminder allowance. A changed source
+snapshot is appended; earlier evidence is never rewritten. A missing job table or unknown resend
+key cannot be interpreted as zero prior deliveries.
+
+After envelope adoption, the legacy-history screen offers a separate **Continue signing
+follow-ups** action. A decision-maker with agreement management records the frozen-source and
+timer review. A fresh provider read must still match the adopted identity and recipients. The
+service refuses uncertain, running or previously attempted queued source sends. An unattempted
+queued reminder may transfer to v2; the attestation means its v1 writer has stopped.
+
+The remaining reminder is due from the historical last delivery, not the import date. Already
+sent reminders and successful operator resends consume the configured allowance. Once that
+allowance is spent, only the closing-note timer remains, using the historical quiet-period clock.
+Replies received before handover still prevent lapse. A signed applicant, an already lapsed
+source case or a recorded applicant return receives no duplicate follow-up. Prepared drafts use
+the native distribution path to schedule their first reminder after sending.
+
+The operation records its source digest, consumed allowance, due date and resulting action (or
+reason for no action). Repeating the same handover creates nothing new. It leaves the case paused;
+the ordinary resume spreads overdue timers using the configured grace period. No mail or provider
+write happens in the handover action itself. Production source freeze, mailbox collection and
+case-by-case ownership verification remain cutover requirements under `bgl.17`.
