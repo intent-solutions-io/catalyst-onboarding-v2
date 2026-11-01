@@ -216,6 +216,54 @@ questions, contact-verification gaps and uncertain mailbox operations before res
 Showing preserved history is not proof of continuation. In particular, imported `agreements` cases
 must complete the explicit envelope handover in section 10 before v2 can rely on native provider-read evidence.
 
+### 8.1 Mailbox transfer, changed epochs and rollback boundaries (bgl.17)
+
+The mailbox transfer is a separate operational act from importing cases. Use this sequence only with
+the current deployment and source ownership receipts; an imported cursor record is historical evidence,
+not proof that the source poller stopped at that position.
+
+1. Identify every source poller, worker, scheduled invocation and manual mailbox reader that can advance
+   the cursor or cause an applicant effect. Stop those writers and settle operations already in flight.
+   Record the stopped process/service identities and checks that no leases or external operations can
+   complete later. Keep the source database and runtime available for rollback; do not delete them.
+2. Read the final folder, UIDVALIDITY and last processed UID from the frozen source. Verify the exact
+   account/folder identity and the provider's current UIDVALIDITY. If the source cursor is absent, its
+   epoch differs, or source processing is uncertain, reconcile before continuing. Do not substitute a
+   cursor from an earlier import or use `from_now`, which can discard replies received during the freeze.
+3. Complete the final import and reconcile every failure, unaccounted row and in-flight case. Keep
+   per-case pauses until their supported handover is recorded. Enable only one mailbox reader with
+   matching sender, Reply-To and pinned login under the existing takeover configuration.
+4. Before starting v2 collection, run `catalyst_mail_cursor_start --from-uid N --uidvalidity V`, where
+   N is the frozen last UID plus one and V is the verified epoch. The command itself makes no provider
+   connection. An existing cursor requires deliberate `--override` after reviewing its locations and
+   previous mailbox identity; it must never be reset merely to make startup green.
+5. Verify the first completed collection watermark, the actual collected positions and old-thread
+   association through `firstgen.threads`. Confirm sender/trust checks, retained case pauses and no
+   duplicate reply, welcome or signing operation. Mail arriving during the freeze must be accounted for.
+
+Every later pass also checks V. If UIDVALIDITY changes, collection blocks before fetching and preserves
+its position, with `collector_blocked` / `takeover_uidvalidity_mismatch` for staff. v2 has no native MIME
+digests for pre-transfer messages, so a blanket rescan could treat old v1 correspondence as new input.
+Reconcile message identity and positions in the new epoch, then use the same command with `--override`
+and an explicitly reviewed new boundary. Never reuse the old numeric UID by assumption. If old and new
+mail are interleaved and no contiguous safe boundary can be proved, keep collection blocked and reconcile
+those messages individually before choosing a boundary. Native messages re-read above a reviewed
+boundary retain the ordinary digest deduplication.
+
+Rollback must first stop v2 collection and every relevant effect writer. Preserve its cursor, inbound
+locations, outbound acceptance/uncertainty evidence, envelope observations, mailbox changes and effect
+journal. Reconcile those effects against the retained source before any v1 writer resumes; neither the
+old source cursor nor a restored database knows about effects that occurred under v2. Restoring a route
+alone is not rollback completion. If effects cannot be reconciled, keep both writers stopped while the
+service is recovered. Do not restart v1 and v2 together or erase the new evidence to obtain a clean state.
+
+The synthetic rehearsal in `tests/test_legacy_mailbox_takeover.py` uses the actual importer/resolver,
+TLS IMAP collector and worker. It exercises an old-thread reply above the cutoff, preservation of an
+imported pause, a later epoch change, and reviewed recovery without replaying pre-transfer mail or
+duplicating native messages. It does not prove live process shutdown, provider identity, production
+cursor transfer, callback ownership, route switching or rollback reconciliation; those receipts remain
+required before retiring v1.
+
 ## 9. Pre-signing cases: recorded human review (bgl.23)
 
 The legacy history has a separate POST action for a verified case still in contact verification, assessment,

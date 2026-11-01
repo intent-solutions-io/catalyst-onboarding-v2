@@ -559,6 +559,14 @@ One fenced transaction:
 Resync passes then walk every UID through B5, so a message seen before gets a new location row and no
 new effect. The cursor returns to `ok` when a pass sets the watermark.
 
+**Inherited first-generation inbox exception (bgl.17).** A cursor installed with start mode `takeover`
+blocks on any UIDVALIDITY change, including after a completed pass. Mail processed only by v1 has no
+native MIME digest, so the ordinary resync cannot prove it will not replay old replies. The collector
+preserves the old position and raises `collector_blocked` with `takeover_uidvalidity_mismatch` before
+fetching messages. The operator must reconcile positions in the new epoch and explicitly set a reviewed
+boundary with `catalyst_mail_cursor_start --override`; see 035 section 8.1. An ordinary native inbox
+continues to use the resync rules above.
+
 **Lost or regressed cursor.** This covers a missing row while locations exist, or a `last_uid` behind the
 highest stored location. The state becomes `recovery`, and the next passes walk from UID 1 through B5. A
 recovery **never** uses `from_now` and **never** silently skips messages already in the mailbox.
