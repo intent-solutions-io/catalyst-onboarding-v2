@@ -249,9 +249,11 @@ class Importer:
                     ]
                     self.member_on_file(cases, done)
                     from .signing_history import capture
+                    from .mailbox_history import capture as capture_mailboxes
 
                     for (case, _), application in zip(cases, done, strict=True):
                         capture(self, case, application)
+                        capture_mailboxes(self, case, application)
                     with connection.cursor() as cursor:
                         cursor.execute(
                             "SET CONSTRAINTS ALL IMMEDIATE"
