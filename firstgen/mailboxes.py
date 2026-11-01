@@ -15,6 +15,35 @@ from . import mailbox_history, review
 from .models import ImportedRecord
 
 CONFIRMED = "legacy_mailbox_ownership_confirmed"
+RECONCILED = "legacy_mailbox_reconciled"
+
+
+def reconciliation(request):
+    return request.application.events.filter(
+        kind=RECONCILED, data__request=str(request.public_id)
+    ).first()
+
+
+def transferred(request):
+    if request.superseded_by_id is None:
+        return False
+    receipt = reconciliation(request)
+    return receipt is not None and receipt.data.get("successor") == str(
+        request.superseded_by.public_id
+    )
+
+
+def native_successor(request):
+    return request.application.events.filter(
+        kind=RECONCILED,
+        data__successor=str(request.public_id),
+        data__reservation=str(request.reservation.public_id),
+    ).exists()
+
+
+def settled_absent(request):
+    receipt = reconciliation(request)
+    return receipt is not None and receipt.data.get("decision") == "absent"
 
 
 def imported_records(request):
@@ -29,6 +58,9 @@ def ownership_unreviewed(request):
     """Imported presence is not proof of ownership, nor proof that no mailbox exists."""
     return (
         imported_records(request).exists()
+        and not (
+            transferred(request) or native_successor(request) or settled_absent(request)
+        )
         and not closure.proven_ours(request)
         and not closure.refused_as_foreign(request)
     )
