@@ -29,8 +29,10 @@ enforced by an allow-list per kind), `prev` and `hash` (SHA-256 over `prev` and 
 entry is a `genesis` with a random journal identity; a journal of another lineage is refused. Replay is idempotent on
 (`kind`, `key`). A broken chain, a torn tail, a missing directory or an unreadable file is an error the post-restore
 step reports and the lift refuses on. Writers take an exclusive advisory lock on `effects.lock`, readers a shared
-one; appends are O_APPEND and fsynced; nothing is rewritten except by the owner-run `catalyst_journal_repair`, which
-moves a torn tail aside and journals that it did. The directory is 0700 and the file 0600.
+one; appends are O_APPEND and fsynced. Owner-run rotation closes segments and continues their global sequence/hash;
+archival relocates evidence without pruning it. Readers and transfers span every retained segment. The owner-run
+`catalyst_journal_repair` moves only an active torn tail aside and journals that it did. The directory is 0700 and
+files are 0600. A derived per-day request-count cache is updated under the same lock; it never replaces the journal.
 
 Not configured (an empty setting) is allowed only in `test` and `development` (config.guards): entries are then
 dropped with one warning per process, and the post-restore lift refuses because no evidence exists.
@@ -53,6 +55,7 @@ from django.db import transaction
 
 logger = logging.getLogger(__name__)
 FILE = "effects.jsonl"
+SEGMENT_FORMAT = 1
 LOCK = "effects.lock"
 FAILURES = "effects.failures"  # one line per failed append, for the health signal
 GENESIS = "0" * 64
@@ -66,6 +69,7 @@ LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}")
 # The kinds the journal accepts and the data keys each may carry (codes, references, counts and digests only).
 KINDS = {
     "genesis": {"id"},
+    "continues": {"seq", "hash"},
     "restore": {
         "backup_seq",
         "backup_head",
@@ -288,14 +292,10 @@ def _lock_fd():
 
 
 def _read_bytes() -> bytes:
-    path = os.path.join(directory(), FILE)
+    from workflow import journal_segments
+
     try:
-        with open(path, "rb") as handle:
-            return handle.read()
-    except FileNotFoundError:
-        if not os.path.isdir(directory()):
-            raise JournalError("unreadable") from None
-        return b""
+        return journal_segments.read_all()
     except OSError:
         raise JournalError("unreadable") from None
 
@@ -309,6 +309,12 @@ def _entries(raw: bytes) -> list[Entry]:
     ):
         entry = _parse(line, number)
         _check(entry, prev)
+        if entry.kind == "continues" and (
+            entry.data != {"seq": number - 1, "hash": prev}
+            or entry.key != f"segment:{number - 1}"
+            or number == 1
+        ):
+            raise JournalError("chain_broken")
         entries.append(entry)
         prev = entry.hash
     if entries and entries[0].kind != "genesis":
@@ -439,11 +445,30 @@ def _write_entry(handle, kind: str, key: str, data: dict, seq: int, prev: str) -
 
 
 def _append_locked(kind: str, key: str, data: dict) -> Entry:
+    from workflow import journal_segments, journal_usage
+
+    usage = journal_usage.before_append(kind)
     path = os.path.join(directory(), FILE)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "ab") as handle:
         with open(path, "rb") as reader:
             seq, prev = _tail(reader)
+        if seq == 0:
+            prior = journal_segments.predecessor()
+            if prior is not None:
+                seq, prev = prior.seq, prior.hash
+                if kind != "continues":
+                    continuation = _write_entry(
+                        handle,
+                        "continues",
+                        f"segment:{seq}",
+                        {"seq": seq, "hash": prev},
+                        seq + 1,
+                        prev,
+                    )
+                    seq, prev = continuation.seq, continuation.hash
+                elif key != f"segment:{seq}" or data != {"seq": seq, "hash": prev}:
+                    raise JournalError("chain_broken")
         if seq == 0 and kind != "genesis":  # the first entry names the journal
             genesis = _write_entry(
                 handle,
@@ -458,6 +483,7 @@ def _append_locked(kind: str, key: str, data: dict) -> Entry:
         handle.flush()
         os.fsync(handle.fileno())
     _fsync_dir(directory())
+    journal_usage.after_append(usage, entry)
     return entry
 
 
@@ -471,6 +497,16 @@ def ensure_genesis() -> bool:
         fcntl.flock(fd, fcntl.LOCK_EX)
         path = os.path.join(directory(), FILE)
         if os.path.exists(path) and os.path.getsize(path) > 0:
+            return False
+        from workflow import journal_segments
+
+        prior = journal_segments.predecessor()
+        if prior is not None:
+            _append_locked(
+                "continues",
+                f"segment:{prior.seq}",
+                {"seq": prior.seq, "hash": prior.hash},
+            )
             return False
         wfd = os.open(
             path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600
@@ -597,7 +633,15 @@ def after_restore(anchor=None) -> tuple[list[Entry], datetime | None, int | None
     restores = [e for e in entries if e.kind == "restore"]
     if not restores:
         start = anchor[1] if anchor is not None else 0
-        return [e for e in entries if e.seq > start and e.kind != "genesis"], None, None
+        return (
+            [
+                e
+                for e in entries
+                if e.seq > start and e.kind not in ("genesis", "continues")
+            ],
+            None,
+            None,
+        )
     marker = restores[-1]
     backup_seq, backup_head = (
         marker.data.get("backup_seq"),
@@ -623,7 +667,8 @@ def after_restore(anchor=None) -> tuple[list[Entry], datetime | None, int | None
         [
             e
             for e in entries
-            if start < e.seq < marker.seq and e.kind not in ("restore", "genesis")
+            if start < e.seq < marker.seq
+            and e.kind not in ("restore", "genesis", "continues")
         ],
         window,
         marker.seq,
@@ -631,32 +676,27 @@ def after_restore(anchor=None) -> tuple[list[Entry], datetime | None, int | None
 
 
 def usage_high_water(day: str) -> int:
-    """The highest `model_usage` request count journaled for one UTC day (YYYY-MM-DD), cached per process by the
-    file's size and modification time, so a budget check re-reads the file only after it grew. A missing or
-    unreadable journal raises: an unknown floor refuses the call (fail closed)."""
+    """The verified daily request-count floor; constant-size sidecar reads after cache initialization.
+
+    Appends update the cache under the journal lock. A missing/stale checkpoint
+    rebuilds from the whole verified chain, including archived segments.
+    """
     if not configured():
         return 0
-    path = os.path.join(directory(), FILE)
+    from workflow import journal_usage
+
     try:
-        st = os.stat(path)
-    except FileNotFoundError:
-        if not os.path.isdir(directory()):
-            raise JournalError("unreadable") from None
-        return 0
+        fd = _lock_fd()
     except OSError:
         raise JournalError("unreadable") from None
-    cache = getattr(_state, "usage_cache", None)
-    stamp = (path, st.st_size, st.st_mtime_ns)
-    if cache is None or cache[0] != stamp:
-        highs: dict[str, int] = {}
-        for entry in read():
-            if entry.kind == "model_usage":
-                highs[entry.key] = max(
-                    highs.get(entry.key, 0), int(entry.data.get("requests", 0))
-                )
-        cache = (stamp, highs)
-        _state.usage_cache = cache
-    return cache[1].get(f"usage:{day}", 0)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return journal_usage.high_water(day)
+    except OSError:
+        raise JournalError("unreadable") from None
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
 
 
 def directory_problem(write: bool) -> str:
@@ -685,7 +725,13 @@ def repair() -> dict:
     fd = _lock_fd()
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
-        raw = _read_bytes()
+        from workflow import journal_segments
+
+        prefix = journal_segments.closed_bytes()
+        _entries(
+            prefix
+        )  # closed evidence is immutable; never truncate it as a torn active tail
+        raw = journal_segments.read_all(validate_boundary=False)
         good, prev, consumed = [], GENESIS, 0
         for line in raw.split(b"\n"):
             candidate = consumed + len(line) + 1
@@ -713,7 +759,7 @@ def repair() -> dict:
             os.fsync(handle.fileno())
         path = os.path.join(directory(), FILE)
         with open(path, "r+b") as handle:
-            handle.truncate(consumed)
+            handle.truncate(consumed - len(prefix))
             handle.flush()
             os.fsync(handle.fileno())
         entry = _append_locked(
@@ -727,6 +773,32 @@ def repair() -> dict:
             "last_good_hash": prev,
             "seq": entry.seq,
         }
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def rotate():
+    """Owner-run rotation; a failed rename/continuation is recoverable under the same lock."""
+    from workflow import journal_segments
+
+    fd = _lock_fd()
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return journal_segments.rotate_locked()
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def archive_segments(receipts):
+    """Relocate closed segments against a complete retained-backup receipt inventory."""
+    from workflow import journal_segments
+
+    fd = _lock_fd()
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return journal_segments.archive_locked(receipts)
     finally:
         fcntl.flock(fd, fcntl.LOCK_UN)
         os.close(fd)

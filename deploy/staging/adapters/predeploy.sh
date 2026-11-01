@@ -18,6 +18,7 @@ if [ -n "${CATALYST_EXPECTED_COMMIT:-}" ]; then
   label="$(image_label "$target")" || fail "refused: cannot read $target's commit label"
   [ "$label" = "$CATALYST_EXPECTED_COMMIT" ] || fail "refused: $target's commit label is not the approved commit; nothing backed up or migrated"
 fi
+check_journal_layout "$target" >&2
 previous="$( [ -s "$POINTER" ] && cat "$POINTER" || echo - )"
 operation start "$target" "${CATALYST_EXPECTED_COMMIT:--}" "$previous" >/dev/null || fail "refused: cannot start deploy $CATALYST_DEPLOY_ID"
 : "${CATALYST_BACKUP_CMD:?the pre-deploy backup command (no backup, no migration)}"
