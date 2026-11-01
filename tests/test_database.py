@@ -181,6 +181,10 @@ APPROVED_MIGRATIONS = {
     ("workflow", "0007_restore_transaction_time"),
     ("assessments", "0012_restore_transaction_time"),
     ("agreements", "0013_restore_transaction_time"),
+    (
+        "erasure",
+        "0007_orphan_replay_lookup",
+    ),  # 9kg.71: narrow orphan recovery reads and replay
 }
 
 
