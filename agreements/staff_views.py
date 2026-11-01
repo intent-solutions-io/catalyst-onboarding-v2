@@ -116,7 +116,11 @@ def _context(request, application, *, error="", form=None):
                            .order_by("-id").first())
                 if attempt is not None:
                     reconciles = PendingAction.objects.filter(kind=handlers.RECONCILE, input_ref=str(attempt.public_id))
+                    results = application.events.filter(kind=handlers.RECONCILIATION_CHECKED,
+                                                         data__attempt=str(attempt.public_id)).order_by("-id")
                     unknown = {"attempt": attempt, "checks": reconciles.count(),
+                               "results": list(results[:10]), "recorded_checks": results.count(),
+                               "may_mark_not_sent": services.create_absence_checked(attempt),
                                "running": reconciles.filter(status__in=(PendingAction.Status.QUEUED, PendingAction.Status.RUNNING)).exists()}
             rows.append({
                 "unknown": unknown,

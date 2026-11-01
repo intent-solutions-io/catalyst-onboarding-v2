@@ -66,6 +66,7 @@ CANCEL_UNKNOWN = "agreement_cancel_unknown"
 SIGNED_ORPHAN = "agreement_orphan_signed"  # an orphan was signed: never verified, staff decide
 WATCH_FAILED = "agreement_orphan_watch_failed"
 ORPHAN_WATCH_ENDED = "agreement_orphan_watch_ended"  # D-44: automatic checking ended, uncertainty unresolved
+RECONCILIATION_CHECKED = "agreement_reconciliation_checked"
 MAX_WATCH_REARMS = 3
 
 
@@ -100,14 +101,14 @@ def _schedule_signing_reminder(instance) -> None:
     signing_reminder.schedule(instance)
 
 
-def _start_sweep(instance) -> None:
+def _start_sweep(instance, *, completed=False) -> None:
     """An envelope became issued: the first read, at the sweep interval (4B.2; webhooks may bring it forward), and,
     under CATALYST_AGREEMENT_DISTRIBUTION "service" (bgl.8), the service-sent signing link, because the provider was
     told to mail nobody (`distributionMethod: NONE`)."""
     from .completion import enqueue_read  # completion builds on this module
 
-    enqueue_read(instance, due_in=timedelta(seconds=settings.CATALYST_AGREEMENT_READ_INTERVAL_SECONDS))
-    if settings.CATALYST_AGREEMENT_DISTRIBUTION == "service":
+    enqueue_read(instance, due_in=None if completed else timedelta(seconds=settings.CATALYST_AGREEMENT_READ_INTERVAL_SECONDS))
+    if not completed and settings.CATALYST_AGREEMENT_DISTRIBUTION == "service":
         from .signing_mail import enqueue_signing_link
 
         enqueue_signing_link(instance)
@@ -574,6 +575,8 @@ class DistributeAgreement(_ProviderStep):
             return "recipients_mismatch"  # Documenso would email someone Catalyst did not verify (4B.1 review)
         if current.status == "PENDING":
             return "already_distributed"
+        if current.status == "COMPLETED":
+            return "already_completed"  # signed after the last reconciliation but before a staff retry
         if current.status != "DRAFT":
             return f"status_{current.status.lower()}"
         provider.distribute(plan.envelope_id)
@@ -584,14 +587,15 @@ class DistributeAgreement(_ProviderStep):
             return self.record_failure(claim, plan, result)
         instance = AgreementInstance.objects.select_related("application").get(pk=plan.instance_id)
         actor = f"pending_action:{claim.id}"
-        if result in ("distributed", "already_distributed"):
+        if result in ("distributed", "already_distributed", "already_completed"):
             def write():
                 self._finish_attempt(plan.attempt_id, Out.SUCCEEDED, result)
                 current = AgreementInstance.objects.get(pk=instance.pk)
                 if current.issue_status == "distribute_pending" and not current.cancel_requested_at:
                     AgreementInstance.objects.filter(pk=instance.pk).update(issue_status="issued", updated_at=Now())
-                    _start_sweep(instance)
-                    _schedule_signing_reminder(instance)  # bgl.7: one reminder after five business days unsigned
+                    _start_sweep(instance, completed=result == "already_completed")
+                    if result != "already_completed":
+                        _schedule_signing_reminder(instance)  # bgl.7: one reminder after five business days unsigned
                 elif current.issue_status in ("distribute_pending", "cancelled"):
                     # The envelope went out although a stop or cancel was requested meanwhile (D-42): it happened, so
                     # it is recorded as sent and then cancelled through the reconciled cancel.
@@ -629,7 +633,7 @@ def matches(env: provider.Envelope, instance, key: str) -> bool:
             and {r.email.lower() for r in env.recipients} == emails)
 
 
-def search(instance, key: str, since) -> list[provider.Envelope]:
+def search(instance, key: str, since) -> tuple[list[provider.Envelope], bool]:
     """The bounded listing (021 section 5): newest first, at most CATALYST_AGREEMENT_LIST_PAGES pages, stopping at
     envelopes older than an hour before the attempt. The installed version has no lookup by `externalId`."""
     floor = since - timedelta(hours=1)
@@ -638,9 +642,9 @@ def search(instance, key: str, since) -> list[provider.Envelope]:
         batch, pages = provider.find(instance.template_version.provider_template_number, page)
         found += [e for e in batch if matches(e, instance, key)]
         if not batch or any((t := _created_at(e.created_at)) is not None and t < floor for e in batch):
-            break
+            return found, True
         page += 1
-    return found
+    return found, page > pages  # hitting the configured page cap is not an exhaustive negative result
 
 
 class ReconcileAgreement:
@@ -684,7 +688,20 @@ class ReconcileAgreement:
         else:
             self.read_back(claim, attempt, n)
 
-    def _again_or_item(self, claim, attempt, n, reason, *, watch=False):
+    def _finish_check(self, claim, attempt, observation, *, write=None, error=""):
+        """The provider result and its effects commit under the same claim fence. No provider payload is stored."""
+        mode, number = _reconcile_number(claim)
+
+        def recorded():
+            event(attempt.instance.application, RECONCILIATION_CHECKED, {
+                "attempt": str(attempt.public_id), "step": attempt.step, "mode": mode,
+                "number": number, "action": claim.id, **observation,
+            }, actor_ref=f"pending_action:{claim.id}")
+            if write is not None:
+                write()
+        return ledger.finish(claim, self, status=Status.DONE, error=error, write=recorded)
+
+    def _again_or_item(self, claim, attempt, n, reason, observation, *, watch=False):
         instance = attempt.instance
         limit = settings.CATALYST_AGREEMENT_ORPHAN_CHECKS if watch else settings.CATALYST_AGREEMENT_RECONCILE_CHECKS
 
@@ -702,21 +719,24 @@ class ReconcileAgreement:
                           pending_action_id=claim.id)
                 event(instance.application, "agreement_orphan_watch_ended",
                       {"attempt": str(attempt.public_id), "checks": n}, actor_ref=f"pending_action:{claim.id}")
-        ledger.finish(claim, self, status=Status.DONE, write=write)
+        self._finish_check(claim, attempt, observation, write=write)
 
     def created(self, claim, attempt, n) -> None:
         instance = attempt.instance
+        observation = {"source": "listing", "reached": False, "matches": None, "complete": False}
         try:
-            found = search(instance, attempt.external_key, attempt.created_at)
-        except provider.ProviderError:
-            self._again_or_item(claim, attempt, n, CREATE_UNKNOWN)
+            found, complete = search(instance, attempt.external_key, attempt.created_at)
+        except provider.ProviderError as exc:
+            observation["reached"] = exc.status is not None
+            self._again_or_item(claim, attempt, n, CREATE_UNKNOWN, observation)
             return
-        if not found:
-            self._again_or_item(claim, attempt, n, CREATE_UNKNOWN)
+        observation.update(reached=True, matches=len(found), complete=complete)
+        if not found or not complete:
+            self._again_or_item(claim, attempt, n, CREATE_UNKNOWN, observation)
             return
         actor = f"pending_action:{claim.id}"
         if len(found) > 1:
-            ledger.finish(claim, self, status=Status.DONE, error="duplicate_envelopes", write=lambda: open_item(
+            self._finish_check(claim, attempt, observation, error="duplicate_envelopes", write=lambda: open_item(
                 DUPLICATE_ENVELOPES, f"create:{attempt.public_id}", application=instance.application, pending_action_id=claim.id))
             return
         envelope_id = found[0].id
@@ -746,20 +766,24 @@ class ReconcileAgreement:
                              actor_type=ApplicationEvent.ActorType.SYSTEM)
             event(instance.application, "agreement_envelope_found", {"instance": str(instance.public_id)}, actor_ref=actor)
             enqueue_distribute(instance)
-        ledger.finish(claim, self, status=Status.DONE, write=write)
+        self._finish_check(claim, attempt, observation, write=write)
 
     def read_back(self, claim, attempt, n) -> None:
         """An unknown distribute (after the settle window) or cancel: a fresh read decides, else staff."""
         instance = attempt.instance
         reason = DISTRIBUTE_UNKNOWN if attempt.step == Step.DISTRIBUTE else CANCEL_UNKNOWN
+        observation = {"source": "read", "reached": False, "matches": None, "complete": False}
         try:
             current = provider.read(attempt.envelope_id)
-        except provider.ProviderError:
-            self._again_or_item(claim, attempt, n, reason)
+        except provider.ProviderError as exc:
+            observation["reached"] = exc.status is not None
+            self._again_or_item(claim, attempt, n, reason, observation)
             return
-        done = "PENDING" if attempt.step == Step.DISTRIBUTE else "CANCELLED"
-        if current.id != attempt.envelope_id or current.external_id != attempt.external_key or current.status != done:
-            self._again_or_item(claim, attempt, n, reason)
+        identity = current.id == attempt.envelope_id and matches(current, instance, attempt.external_key)
+        observation.update(reached=True, matches=int(identity), complete=True, status=current.status)
+        done = ("PENDING", "COMPLETED") if attempt.step == Step.DISTRIBUTE else ("CANCELLED",)
+        if not identity or current.status not in done:
+            self._again_or_item(claim, attempt, n, reason, observation)
             return
         actor = f"pending_action:{claim.id}"
 
@@ -778,7 +802,9 @@ class ReconcileAgreement:
                 _cancel_after_send(AgreementInstance.objects.get(pk=instance.pk))  # D-42: sent, then cancelled
             elif attempt.step == Step.DISTRIBUTE and AgreementInstance.objects.filter(
                     pk=instance.pk, issue_status="distribute_uncertain").update(issue_status="issued", updated_at=Now()):
-                _start_sweep(instance)
+                # Distribution is proved, completion is not: the fresh read still verifies every signer
+                # and custody. A completed envelope needs no signing-link email or reminder.
+                _start_sweep(instance, completed=current.status == "COMPLETED")
                 PendingAction.objects.filter(kind=DISTRIBUTE, input_ref=str(instance.public_id), status=Status.UNCERTAIN).update(
                     status=Status.DONE, last_error="found_by_evidence", completed_at=Now(), updated_at=Now())
                 event(instance.application, "agreement_issued", {"instance": str(instance.public_id), "how": "found_by_evidence"},
@@ -787,7 +813,7 @@ class ReconcileAgreement:
                                                  status=StaffItem.Status.OPEN):
                 resolve_item(item, code="found_by_evidence", actor_ref=actor, effects={"instance": str(instance.public_id)},
                              actor_type=ApplicationEvent.ActorType.SYSTEM)
-        ledger.finish(claim, self, status=Status.DONE, write=write)
+        self._finish_check(claim, attempt, observation, write=write)
 
     def watch(self, claim, attempt, n) -> None:
         """P4-D-19: a key a decision-maker set aside stays watched. A late match is an orphan: never linked, never
@@ -795,12 +821,15 @@ class ReconcileAgreement:
         if attempt.outcome not in (Out.DECIDED_NOT_SENT, Out.ABANDONED):
             ledger.finish(claim, self, status=Status.DONE, error="not_watched")
             return
+        observation = {"source": "listing", "reached": False, "matches": None, "complete": False}
         try:
-            found = search(attempt.instance, attempt.external_key, attempt.created_at)
-        except provider.ProviderError:
+            found, complete = search(attempt.instance, attempt.external_key, attempt.created_at)
+            observation.update(reached=True, matches=len(found), complete=complete)
+        except provider.ProviderError as exc:
+            observation["reached"] = exc.status is not None
             found = None
         if not found:
-            self._again_or_item(claim, attempt, n, LATE_ORPHAN, watch=True)
+            self._again_or_item(claim, attempt, n, LATE_ORPHAN, observation, watch=True)
             return
         actor = f"pending_action:{claim.id}"
         instance = attempt.instance
@@ -820,7 +849,7 @@ class ReconcileAgreement:
                     outcome=Out.ORPHAN_FOUND, outcome_code="duplicate_orphan", envelope_id=extra.id, finished_at=Now()))
             for orphan in orphans:
                 enqueue_cancel(orphan)
-        ledger.finish(claim, self, status=Status.DONE, write=write)
+        self._finish_check(claim, attempt, observation, write=write)
 
 
 # --- cancelling an orphan at the provider (021 section 4; 4B.2 generalizes it to any instance) ------------------

@@ -112,6 +112,15 @@ def approve_template_version(version_id: int, user, expected_digest: str) -> tup
     return version, True
 
 
+def create_absence_checked(attempt) -> bool:
+    """A failed or truncated listing never authorizes minting another create key (9kg.53)."""
+    return attempt.instance.application.events.filter(
+        kind=handlers.RECONCILIATION_CHECKED, data__attempt=str(attempt.public_id),
+        data__mode="check", data__source="listing", data__reached=True,
+        data__complete=True, data__matches=0,
+    ).exists()
+
+
 def decide_uncertain_create(instance_id: int, user, choice: str) -> AgreementInstance:
     require(user, "decide_uncertain_agreement")
     if choice not in CHOICES:
@@ -134,6 +143,8 @@ def decide_uncertain_create(instance_id: int, user, choice: str) -> AgreementIns
         if PendingAction.objects.filter(kind=handlers.RECONCILE, input_ref=str(attempt.public_id),
                                         status__in=(PendingAction.Status.QUEUED, PendingAction.Status.RUNNING)).exists():
             raise Refused("reconciliation_in_progress")  # decide only once the evidence checks have ended
+        if choice == "not_sent" and not create_absence_checked(attempt):
+            raise Refused("successful_empty_listing_required")
         outcome = EnvelopeAttempt.Outcome.DECIDED_NOT_SENT if choice == "not_sent" else EnvelopeAttempt.Outcome.ABANDONED
         EnvelopeAttempt.objects.filter(pk=attempt.pk).update(outcome=outcome, finished_at=Now())
         PendingAction.objects.filter(kind=handlers.CREATE, input_ref=str(instance.public_id),
