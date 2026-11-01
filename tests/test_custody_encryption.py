@@ -240,7 +240,12 @@ def test_9kg_34_destroying_a_key_journals_it_first_and_leaves_the_document_unrea
     entry = [e for e in journal.read() if e.kind == keystore.DESTROYED][-1]
     assert entry.key == f"custody_key:{ref}" and {
         k: v for k, v in entry.data.items() if k != "mac"
-    } == {"subject": str(app.public_ref), "phase": "prepare"}
+    } == {
+        "subject": str(app.public_ref),
+        "phase": "prepare",
+        "key_id": record.key_id(record.key()),
+    }
+    assert record.verifies(entry, record.key())
     with pytest.raises(services.Refused, match="document_erased"):
         services.retrieve_document(
             str(document.public_id), k.agreement_decider, "Counsel review copy"
