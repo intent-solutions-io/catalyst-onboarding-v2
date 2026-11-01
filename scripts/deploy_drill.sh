@@ -66,13 +66,17 @@ invite() {  # invite <email>: 9kg.63, intake is invitation-only (9kg.43), so the
     --issued-by "deploy drill" --note "synthetic drill applicant" 2>/dev/null | grep -q '"issued": true'
 }
 submit() {  # submit <email>: the owner's invitation, then an applicant through the real form, via the proxy
-  local jar="$work/jar-$1" form csrf
+  local jar="$work/jar-$1" form csrf form_token
   invite "$1" || return 1
   form="$(curl -sk -c "$jar" --resolve catalyst.staging.test:18443:127.0.0.1 https://catalyst.staging.test:18443/request-access/)"
   csrf="$(grep -oE 'name="csrfmiddlewaretoken" value="[^"]+"' <<<"$form" | head -1 | sed 's/.*value="//; s/"$//')"
+  form_token="$(grep -oE 'name="form_token" value="[^"]+"' <<<"$form" | head -1 | sed 's/.*value="//; s/"$//')"
+  [ -n "$csrf" ] && [ -n "$form_token" ] || return 1
+  sleep 4  # bgl.2: submit the rendered token after the form's three-second minimum age
   [ "$(curl -sk -b "$jar" -o /dev/null -w '%{http_code}' --resolve catalyst.staging.test:18443:127.0.0.1 \
     -H 'Referer: https://catalyst.staging.test:18443/request-access/' -H 'Origin: https://catalyst.staging.test:18443' \
-    --data-urlencode "csrfmiddlewaretoken=$csrf" --data-urlencode 'name=Deploy Drill' --data-urlencode "email=$1" \
+    --data-urlencode "csrfmiddlewaretoken=$csrf" --data-urlencode "form_token=$form_token" \
+    --data-urlencode 'name=Deploy Drill' --data-urlencode "email=$1" \
     --data-urlencode 'reason=Synthetic reason for access.' \
     --data-urlencode 'residence_country=GB' --data-urlencode 'phone_country=GB' --data-urlencode 'phone=+44 20 7946 0958' --data-urlencode 'interest_track=cert_only' --data-urlencode 'age_attested=on' --data-urlencode 'no_degree=on' --data-urlencode 'no_certifications=on' --data-urlencode 'verification_consent=on' \
     https://catalyst.staging.test:18443/request-access/)" = 302 ]  # bgl.3: the answers the form requires
