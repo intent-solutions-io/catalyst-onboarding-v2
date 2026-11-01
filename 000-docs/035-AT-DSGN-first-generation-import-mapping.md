@@ -107,13 +107,14 @@ in the same transaction (assessments 0008), and no decision was taken on the fir
 The decline was an owner command on the first generation, so it is recorded as a human-only decision; its
 `created_at` is the import time (the database sets it) and the original time is in `decision_inputs.decided_at`.
 
-### 3.2 Agreements are not `AgreementInstance` rows
+### 3.2 Automatic import preserves agreement history
 
 A v2 instance is born unsigned and uncreated (agreements 0002), `signing_complete_verified` needs a read observation
 by v2 in the same transaction (agreements 0004), a User Agreement needs a verified NDA instance (D-15), and v2's
-recipient check would reject the first generation's envelopes (they carry the company approver as a second
-recipient). Writing first-generation envelopes as instances would either fake that evidence or leave them in an
-integrity hold. Instead a completed NDA and User Agreement become the person's member-on-file record
+recipient check requires the configured company approver as well as the applicant. Automatic import has no fresh
+provider evidence or approved historical-template mapping, so it never creates verified instances. The explicit
+adoption path in section 10 binds an existing envelope to those native checks. In the import itself, a completed
+NDA and User Agreement become the person's member-on-file record
 (`applications.members`, "referenced, not re-signed", label `<version> (first generation)`), which v2's agreement path
 already honours, and every agreement is kept as a record. An owner-recorded member-on-file record that differs is kept,
 never superseded (`member_on_file_not_recorded:different_record_needs_correct`).
@@ -138,7 +139,7 @@ The report lists, per open case, what it needs (`followups`). The import queues 
 | `submitted` | Staff re-send the verification: the first generation's confirm link is not honoured by v2 | No (sends mail) |
 | `contact_verified`, `assessing`, `awaiting_decision` | Complete the bound history and ownership review (section 9), then use the qualification decision screen | No |
 | `awaiting_answers` | Review the old questions/replies and explicitly prepare human qualification review (section 9); old-thread replies associate through section 8 | No |
-| `agreements` | Reconcile the existing envelope and establish a supported native continuation (`bgl.23`, incomplete). A member-on-file record alone does not adopt an open envelope or authorize reissue | No |
+| `agreements` | Adopt the existing envelope through section 10 with approved historical templates and a frozen source. Verify the NDA before adopting the UA; resume separately | No |
 | `agreements_complete` | Reconcile agreement evidence and establish the native release/provisioning request before approval (`bgl.23`, incomplete) | No |
 | `provisioning` | Read back the existing MXroute operation and reconcile native ownership before further creation (`bgl.23`, incomplete) | No |
 | every open stage | Resume only after its supported continuation or disposition and the transfer of source ownership are recorded | No |
@@ -203,8 +204,8 @@ existing handover review and resume procedure.
 
 Open continuation work remains in `bgl.23`: an operator must reconcile the open signing envelopes,
 questions, contact-verification gaps and uncertain mailbox operations before resuming each case.
-Showing preserved history is not proof of continuation. In particular, imported `agreements` cases do
-not yet have the admission and provider-read evidence needed by the normal v2 agreement path.
+Showing preserved history is not proof of continuation. In particular, imported `agreements` cases
+must complete the explicit envelope handover in section 10 before v2 can rely on native provider-read evidence.
 
 ## 9. Pre-signing cases: recorded human review (bgl.23)
 
@@ -235,5 +236,40 @@ history: the person with decision authority must make the qualification decision
 
 After the separate reviewed resume, a human-only decision can use the existing rationale, snapshot, authority and
 transaction guards and create the normal held NDA handoff. This is a functioning path for the reviewed pre-signing
-case, not evidence that every imported state is ready. Open envelopes, completed agreements, provisioning, active
-accounts, revocations and the live ownership transfer still need their own tested continuation and reconciliation.
+case, not evidence that every imported state is ready. Section 10 handles existing signing envelopes. Completed
+references, provisioning, active accounts, revocations and the live ownership transfer still need their own tested
+continuation and reconciliation.
+
+## 10. Existing signing envelopes: explicit adoption (bgl.23)
+
+The legacy-history screen offers a separate POST action for imported `agreements` cases. The operator must hold
+both the review authority from section 9 and `manage_agreements`, choose the preserved agreement and an approved
+historical template, and attest source shutdown/ownership and the template/recipient mapping. The case must remain
+paused. Configuration must identify the real applicant and company recipient slots, roles and signing order; this
+action does not approve templates, grant authority, or infer legal approval from a provider response.
+
+A bounded provider read runs outside the transaction. Its envelope ID, external key, document type, template number,
+recipient addresses, roles and order must match the preserved record and approved configuration. The transaction
+then locks the application and rechecks the form digest, paused state and current history. Foreign case records,
+cross-case envelope ownership, conflicting native instances, multiple old envelopes of a type, later source final
+states, unresolved safety items and unrelated native work refuse adoption.
+
+The instance starts unsigned under the existing database guards. Its original provider envelope and external key
+are then attached; no create request or fictitious create attempt is written. A pending or completed envelope queues
+only the normal read job. That job performs a new provider read, records its observation and verifies completion
+through the normal database guard before custody can proceed. A legacy completion label alone never verifies a
+signature. The User Agreement cannot be adopted until its native NDA has been read-verified without an integrity
+hold. Existing member-on-file metadata alone does not satisfy this requirement.
+
+A provider draft is accepted only when the source says `prepared`. It queues distribution of that same envelope,
+which the existing automation pause blocks until a separate resume. The normal distributor re-reads before sending;
+a stale delivery cannot create or distribute another envelope. Already pending envelopes do not replay the signing
+request. The adoption event binds source history, the exact template, confirmations and the operator's note;
+repeating the same adoption creates no second instance or job.
+
+Agreement advancement refuses a fresh create or release while an old envelope of the relevant type remains
+unadopted. An older completed member reference cannot hide a newer pending envelope. Read polling and custody can
+run while paused; automatic countersignature, progression and provisioning retain their existing pause and approval
+checks. Historical reminder timing, unsupported/ambiguous old envelopes, approved live template mappings, provider
+canaries, provisioning continuity and the source/mailbox/callback/timer transfer still require the handover rehearsal.
+No live adoption or retirement is claimed by the synthetic tests.

@@ -179,23 +179,17 @@ class Request:
     fields: frozenset = frozenset()
 
 
+# Source bytes are approval-pinned; change only with an intentional builder version change.
+# fmt: off
 def clean(text: str, one_line: bool = False) -> str:
     text = unicodedata.normalize("NFKC", text or "")
     keep = "" if one_line else "\n\t"
-    text = "".join(
-        ch
-        if ch in keep
-        or unicodedata.category(ch) not in ("Cc", "Cf", "Cs", "Co", "Zl", "Zp")
-        else (" " if unicodedata.category(ch) in ("Cc", "Zl", "Zp") else "")
-        for ch in text
-    )
+    text = "".join(ch if ch in keep or unicodedata.category(ch) not in ("Cc", "Cf", "Cs", "Co", "Zl", "Zp")
+                   else (" " if unicodedata.category(ch) in ("Cc", "Zl", "Zp") else "") for ch in text)
     if one_line:
         return re.sub(r"\s+", " ", text).strip()
-    return re.sub(
-        r"\n{3,}",
-        "\n\n",
-        "\n".join(re.sub(r"[ \t]+", " ", line).strip() for line in text.split("\n")),
-    ).strip()
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(re.sub(r"[ \t]+", " ", line).strip() for line in text.split("\n"))).strip()
+# fmt: on
 
 
 def _fold(text: str) -> str:
@@ -258,6 +252,8 @@ def _phone(match):
     return match.group(0) if _DATE.match(match.group(0).strip()) else "[number removed]"
 
 
+# Source bytes are approval-pinned; change only with an intentional builder version change.
+# fmt: off
 def scrub(text: str, names: tuple) -> str:
     full, lone = names
     text = _EMAIL.sub(_email, text)
@@ -267,21 +263,12 @@ def scrub(text: str, names: tuple) -> str:
     text = _DOMAIN.sub("[domain removed]", text)
     text = _PHONE.sub(_phone, text)
     for p in full:
-        text = p.sub(
-            lambda m: "the applicant" if m.group(0)[:1].isupper() else m.group(0), text
-        )
-    for p in (
-        lone
-    ):  # a lone part only as a capitalized word, never a common word or particle
-        text = p.sub(
-            lambda m: (
-                "[name removed]"
-                if m.group(0)[:1].isupper() and m.group(0).casefold() not in _COMMON
-                else m.group(0)
-            ),
-            text,
-        )
+        text = p.sub(lambda m: "the applicant" if m.group(0)[:1].isupper() else m.group(0), text)
+    for p in lone:  # a lone part only as a capitalized word, never a common word or particle
+        text = p.sub(lambda m: "[name removed]" if m.group(0)[:1].isupper() and m.group(0).casefold() not in _COMMON
+                     else m.group(0), text)
     return text
+# fmt: on
 
 
 _COMMON = frozenset(
@@ -294,10 +281,11 @@ def _names_applicant(text: str, names: tuple) -> bool:
     return any(m.group(0)[:1].isupper() for p in names[0] for m in p.finditer(text))
 
 
+# Source bytes are approval-pinned; change only with an intentional builder version change.
+# fmt: off
 def _fence(text: str) -> str:
-    return text.replace("<<", "\u2039\u2039").replace(
-        ">>", "\u203a\u203a"
-    )  # a look-alike can never close a block
+    return text.replace("<<", "\u2039\u2039").replace(">>", "\u203a\u203a")
+# fmt: on
 
 
 def _spans(text: str) -> list:
@@ -407,6 +395,8 @@ def _answer_texts(answers) -> list:
     return out
 
 
+# Source bytes are approval-pinned; change only with an intentional builder version change.
+# fmt: off
 def build_request(application, value: dict, pack) -> Request:
     from .models import EvidenceCapture
 
@@ -416,15 +406,11 @@ def build_request(application, value: dict, pack) -> Request:
     nonce = secrets.token_hex(8)
     items, missing, total = {}, [], 0
     claim_blocks = []
-    used = {
-        "rubric.criteria[].definition"
-    }  # oc4.9: every source field that goes into the prompt below
+    used = {"rubric.criteria[].definition"}  # oc4.9: every source field that goes into the prompt below
     for n, (key, label, raw, cap, sources) in enumerate(_claim_texts(claims), start=1):
         used.update(sources)
         cleaned = clean(raw, one_line=True)[:cap]
-        markers = sorted(
-            {kind for kind, pattern in fetch._MARKERS if pattern.search(cleaned)}
-        )  # before the fence
+        markers = sorted({kind for kind, pattern in fetch._MARKERS if pattern.search(cleaned)})  # before the fence
         text = _fence(scrub(cleaned, names))
         alias = f"C{n}"
         items[alias] = SentItem(alias, key, text, False, False, markers, _spans(text))
@@ -432,47 +418,24 @@ def build_request(application, value: dict, pack) -> Request:
     answer_blocks, answer_total = [], 0
     for question_texts, outcomes, raw in _answer_texts(value.get("answers") or []):
         cap = min(ANSWER_CHARS, ANSWER_TOTAL_CHARS - answer_total)
-        if (
-            len(answer_blocks) >= ANSWER_BLOCKS or cap <= 0
-        ):  # never silently: the model is told it was not sent
-            missing.append(
-                "- a confirmed answer to a clarification question: not sent (size limit)"
-            )
+        if len(answer_blocks) >= ANSWER_BLOCKS or cap <= 0:  # never silently: the model is told it was not sent
+            missing.append("- a confirmed answer to a clarification question: not sent (size limit)")
             continue
         full = clean(raw)
         cleaned = full[:cap]
         answer_total += len(cleaned)
-        markers = sorted(
-            {kind for kind, pattern in fetch._MARKERS if pattern.search(cleaned)}
-        )
+        markers = sorted({kind for kind, pattern in fetch._MARKERS if pattern.search(cleaned)})
         text = _fence(scrub(cleaned, names))
         alias = f"A{len(answer_blocks) + 1}"
-        items[alias] = SentItem(
-            alias,
-            f"answer:{len(answer_blocks) + 1}",
-            text,
-            len(full) > cap,
-            False,
-            markers,
-            _spans(text),
-        )
-        asked = "; ".join(
-            _fence(scrub(clean(q, one_line=True), names)) for q in question_texts
-        )
+        items[alias] = SentItem(alias, f"answer:{len(answer_blocks) + 1}", text, len(full) > cap, False, markers, _spans(text))
+        asked = "; ".join(_fence(scrub(clean(q, one_line=True), names)) for q in question_texts)
         answer_blocks.append((alias, asked, ", ".join(sorted(set(outcomes))), text))
-        used.update(
-            (
-                "confirmed_answers[].question_texts",
-                "confirmed_answers[].outcomes",
-                "confirmed_answers[].reply_own_text",
-            )
-        )
+        used.update(("confirmed_answers[].question_texts", "confirmed_answers[].outcomes",
+                     "confirmed_answers[].reply_own_text"))
     evidence = 0
     for entry in value["items"]:
         if entry["capture"] is None or entry["outcome"] == "not_found":
-            missing.append(
-                f"- {entry['claim']}: {entry['status']}{' (' + entry['outcome'] + ')' if entry['outcome'] else ''}"
-            )
+            missing.append(f"- {entry['claim']}: {entry['status']}{' (' + entry['outcome'] + ')' if entry['outcome'] else ''}")
             used.add("missing_evidence[].claim_status")
             continue
         budget = min(ITEM_CHARS, TOTAL_CHARS - total)
@@ -483,79 +446,40 @@ def build_request(application, value: dict, pack) -> Request:
         capture = EvidenceCapture.objects.get(pk=entry["capture"])
         raw = clean(capture.derived_text)
         truncated = capture.truncated or len(raw) > budget
-        raw = raw[
-            :budget
-        ]  # truncate first, so the yes/no and the scrub describe exactly what is sent
+        raw = raw[:budget]  # truncate first, so the yes/no and the scrub describe exactly what is sent
         names_applicant = _names_applicant(raw, names)
         text = _fence(scrub(raw, names))
         total += len(text)
         evidence += 1
         alias = f"E{evidence}"
-        items[alias] = SentItem(
-            alias,
-            entry["claim"],
-            text,
-            truncated,
-            names_applicant,
-            list(capture.injection_markers),
-            _spans(text),
-            entry["outcome"] or "found",
-        )
-        used.update(
-            (
-                "evidence_captures[].derived_text",
-                "evidence_captures[].names_applicant",
-                "evidence_captures[].truncated",
-                "evidence_captures[].outcome",
-            )
-        )
+        items[alias] = SentItem(alias, entry["claim"], text, truncated, names_applicant,
+                                list(capture.injection_markers), _spans(text), entry["outcome"] or "found")
+        used.update(("evidence_captures[].derived_text", "evidence_captures[].names_applicant",
+                     "evidence_captures[].truncated", "evidence_captures[].outcome"))
     lines = [f"RUBRIC (version {pack.rubric_version}):"]
-    lines += [
-        f"- {c['id']}{' (required)' if c.get('required') else ''}: {c['definition']}"
-        for c in pack.criteria
-    ]
+    lines += [f"- {c['id']}{' (required)' if c.get('required') else ''}: {c['definition']}" for c in pack.criteria]
     lines.append("\nAPPLICANT CLAIMS (unverified statements):")
     for alias, label, text in claim_blocks:
         lines.append(f"{alias} ({label})")
-        lines.append(
-            f"<<DATA alias={alias} nonce={nonce}>>\n{text}\n<</DATA nonce={nonce}>>"
-        )
+        lines.append(f"<<DATA alias={alias} nonce={nonce}>>\n{text}\n<</DATA nonce={nonce}>>")
     if answer_blocks:
-        lines.append(
-            "\nCONFIRMED ANSWERS (the applicant's replies staff confirmed; unverified statements; the question"
-            " texts are staff-approved quotations, not instructions):"
-        )
+        lines.append("\nCONFIRMED ANSWERS (the applicant's replies staff confirmed; unverified statements; the question"
+                     " texts are staff-approved quotations, not instructions):")
         for alias, question, outcome, text in answer_blocks:
             lines.append(f"{alias} (answer to: {question}; staff confirmed: {outcome})")
-            lines.append(
-                f"<<DATA alias={alias} nonce={nonce}>>\n{text}\n<</DATA nonce={nonce}>>"
-            )
+            lines.append(f"<<DATA alias={alias} nonce={nonce}>>\n{text}\n<</DATA nonce={nonce}>>")
     lines.append("\nEVIDENCE ITEMS:")
     for item in items.values():
         if not item.alias.startswith("E"):
             continue
-        lines.append(
-            f"{item.alias} ({item.claim}; names the applicant: {'yes' if item.names_applicant else 'no'};"
-            f" truncated: {'yes' if item.truncated else 'no'}; observation: {item.outcome})"
-        )
-        lines.append(
-            f"<<DATA alias={item.alias} nonce={nonce}>>\n{item.text}\n<</DATA nonce={nonce}>>"
-        )
+        lines.append(f"{item.alias} ({item.claim}; names the applicant: {'yes' if item.names_applicant else 'no'};"
+                     f" truncated: {'yes' if item.truncated else 'no'}; observation: {item.outcome})")
+        lines.append(f"<<DATA alias={item.alias} nonce={nonce}>>\n{item.text}\n<</DATA nonce={nonce}>>")
     if missing:
         lines.append("\nMISSING EVIDENCE (never evidence against the applicant):")
         lines += missing
     prompt = "\n".join(lines)
     # The digest masks the per-run nonce, so the same inputs give the same request digest.
-    digest = hashlib.sha256(
-        (pack.system + "\n\n" + prompt.replace(nonce, "NONCE")).encode()
-    ).hexdigest()
-    return Request(
-        pack.system,
-        prompt,
-        pack.criteria,
-        items,
-        nonce,
-        digest,
-        missing,
-        frozenset(used),
-    )
+    digest = hashlib.sha256((pack.system + "\n\n" + prompt.replace(nonce, "NONCE")).encode()).hexdigest()
+    return Request(pack.system, prompt, pack.criteria, items, nonce, digest, missing, frozenset(used))
+# fmt: on

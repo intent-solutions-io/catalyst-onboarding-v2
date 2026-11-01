@@ -19,6 +19,8 @@ from workflow.models import AutomationPause
 
 from .models import ImportedCase, ImportedRecord
 from . import review
+from . import agreements as legacy_agreements
+from agreements.models import AgreementTemplateVersion
 
 PAGE_SIZE = 50
 SIGNING_LINK = re.compile(
@@ -142,6 +144,14 @@ def history_response(request, public_ref, *, error="", note="", status=200):
                 and case.v1_state in review.SOURCE_STATES
             ),
             "review_digest": review.review_state(case.application)["digest"],
+            "can_adopt_envelope": legacy_agreements.can_adopt(request.user)
+            and case.application.stage == "agreements",
+            "legacy_envelopes": case.application.first_generation_records.filter(
+                v1_table="agreement"
+            ).order_by("pk"),
+            "historical_templates": AgreementTemplateVersion.objects.filter(
+                status="approved"
+            ).select_related("agreement_type"),
             "review_error": error,
             "review_note": note,
             "prepared_review": review.assessment_context(case.application),
@@ -173,3 +183,51 @@ def prepare_review(request, public_ref):
             request, public_ref, error=str(exc), note=note, status=409
         )
     return redirect("firstgen_staff:history", public_ref=public_ref)
+
+
+@admin.site.admin_view
+@require_POST
+def adopt_envelope(request, public_ref):
+    from agreements.provider import ProviderError
+    from correspondence.common import Refused
+    from django.db import IntegrityError
+
+    if not legacy_agreements.can_adopt(request.user):
+        raise PermissionDenied
+    case = get_object_or_404(ImportedCase, application__public_ref=public_ref)
+    note = request.POST.get("note", "")
+    try:
+        record_id = int(request.POST.get("record", ""))
+        version_id = int(request.POST.get("template", ""))
+    except ValueError:
+        return history_response(
+            request,
+            public_ref,
+            error="source_record_and_template_required",
+            note=note,
+            status=409,
+        )
+    try:
+        legacy_agreements.adopt(
+            case.application_id,
+            record_id,
+            version_id,
+            request.user,
+            expected_digest=request.POST.get("digest", ""),
+            source_stopped=request.POST.get("source_stopped") == "yes",
+            mapping_reviewed=request.POST.get("mapping_reviewed") == "yes",
+            note=note,
+        )
+    except (Refused, ProviderError) as exc:
+        return history_response(
+            request, public_ref, error=str(exc), note=note, status=409
+        )
+    except IntegrityError:
+        return history_response(
+            request,
+            public_ref,
+            error="envelope_ownership_conflict",
+            note=note,
+            status=409,
+        )
+    return redirect("agreements_staff:agreements", public_ref=public_ref)
