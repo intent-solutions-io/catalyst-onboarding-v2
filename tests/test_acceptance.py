@@ -477,6 +477,7 @@ DATABASE_CONSTRAINTS = {
     "model_use_approval_ref_is_a_code",  # oc4.9
     # P4 4B.1 (021 section 3)
     "agreement_template_one_per_version",
+    "agreement_template_one_current",
     "agreement_template_status_valid",
     "agreement_template_approved_has_actor",
     "agreement_issue_status_valid",

@@ -2006,6 +2006,14 @@ P6_SUPPORTING = {
         "test_custody_encryption::test_9kg_34_no_staging_service_holds_the_custody_key_volumes_or_the_wrapping_key_until_9kg_28",
         "test_custody_encryption::test_9kg_34_a_short_write_of_a_wrapped_key_is_completed_not_taken_for_the_whole",
     ],
+    "9kg.55 one current agreement template preserves historical approvals and legacy continuation": [
+        "test_template_current::test_template_replacement_is_current_and_preserves_retired_approval",
+        "test_template_current::test_template_database_rejects_two_current_versions_and_retired_mutation",
+        "test_template_current::test_template_concurrent_approvals_leave_only_the_newest_current",
+        "test_template_current::test_template_replacement_waits_for_native_issuance_to_commit",
+        "test_template_current::test_retired_template_keeps_legacy_adoption_timers_and_native_verification",
+        "test_template_current::test_template_migration_preserves_multiple_approvals_and_reverses_exactly",
+    ],
     "9kg.47 staff screens for the shell-only agreement states (021 section 20)": [
         "test_agreement_screens::test_an_unknown_create_is_decided_on_the_screen_and_refused_without_the_permission",
         "test_agreement_screens::test_an_unknown_distribute_is_decided_on_the_screen_and_cancelling_needs_the_manage_permission",
