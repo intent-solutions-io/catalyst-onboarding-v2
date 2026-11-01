@@ -185,6 +185,7 @@ APPROVED_MIGRATIONS = {
         "erasure",
         "0007_orphan_replay_lookup",
     ),  # 9kg.71: narrow orphan recovery reads and replay
+    ("erasure", "0008_model_handoff_evidence"),
 }
 
 
