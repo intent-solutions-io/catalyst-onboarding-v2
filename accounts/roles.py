@@ -10,10 +10,11 @@ application (D-23: the application role may not write users, memberships or perm
   0008 and 0012; the P3 groups in assessments 0002, 0005 and 0006; the P4 groups in agreements 0009; the P5 groups in
   provisioning 0007; the S1 read-only group in accounts 0003). The command only adds or removes a membership, and it
   refuses when a group's permissions differ from this matrix, so a role can never quietly carry more than it says.
-- **Direct roles.** Two permissions are never carried by a group: the qualification decision (`decisions.can_decide`
+- **Direct roles.** These permissions are never carried by a group: the qualification decision (`decisions.can_decide`
   counts only a direct grant, 3B.4 reviews) and the provisioning approval (P5-D-3: delegates need explicit named
   grants). The command grants them per user, and grants the qualification decision only while the authority is
-  configured (`CATALYST_QUALIFICATION_AUTHORITY`, POL-05).
+  configured (`CATALYST_QUALIFICATION_AUTHORITY`, POL-05). Optional community access
+  approval also requires a named direct grant (036); it is assigned to nobody by migration.
 
 Every grant and revocation writes an append-only `StaffRoleGrant` record (accounts migration 0006).
 """
@@ -171,6 +172,9 @@ DIRECT_ROLES = {
     ),
     "provisioning-approver": DirectRole(
         "provisioning", "approve_provisioning", "023 section 8, P5-D-3"
+    ),
+    "community-access-reviewer": DirectRole(
+        "provisioning", "approve_community_access", "036"
     ),
 }
 

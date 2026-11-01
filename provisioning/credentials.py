@@ -661,6 +661,9 @@ class Activate(_Action):
             actor_ref=actor,
         )
         core.set_status(request, "active")
+        from .community import activation_locked
+
+        activation_locked(application)
         if message is not None:
             enqueue_send(
                 message, 0

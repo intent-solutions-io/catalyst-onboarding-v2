@@ -355,6 +355,34 @@ REGISTRY = {
     # Closure, revocation and mailboxes (provisioning): the outcomes are restrictive, prepared before the commit. The
     # revocation's host calls come before that commit, so the journal entry does not cover them: a round whose outcome
     # the journal lacks is queued again by the post-restore review. The mailbox facts are read at the host.
+    "provisioning.community:revoke_locked": {
+        "journal": Site(
+            JOURNALED_BEFORE,
+            "restrictive entitlement before commit",
+            ("community_revoked",),
+        )
+    },
+    "provisioning.community:approve": {
+        "journal": Site(
+            JOURNALED_BEFORE,
+            "a narrowed role ceiling before commit, never new positive grants",
+            ("community_restricted",),
+        )
+    },
+    "provisioning.community_handlers:ReconcileCommunity.begun": {
+        "journal": Site(
+            JOURNALED_BEFORE,
+            "exact-role request intent before provider mutation",
+            ("community_effect",),
+        )
+    },
+    "provisioning.community_handlers:ReconcileCommunity.run": {
+        "discord": Site(
+            PROVIDER_READ,
+            "exact members are read during restore; lost bindings open review items",
+            by="provisioning.community_restore:read_members",
+        )
+    },
     "provisioning.closure:close_locked": {
         "journal": Site(
             JOURNALED_BEFORE,

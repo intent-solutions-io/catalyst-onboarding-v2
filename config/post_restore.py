@@ -260,6 +260,7 @@ def replay_journal(report: dict, hold_row) -> tuple[list, "EffectOpener"]:
     from accounts import restore as accounts_restore
     from correspondence import restore as correspondence_restore
     from provisioning import restore as provisioning_restore
+    from provisioning import community_restore
 
     effects = report.setdefault("effects", {})
     opener = EffectOpener(
@@ -281,6 +282,7 @@ def replay_journal(report: dict, hold_row) -> tuple[list, "EffectOpener"]:
         "correspondence": correspondence_restore,
         "provisioning": provisioning_restore,
         "accounts": accounts_restore,
+        "community": community_restore,
     }
     by_app = {
         "correspondence": [
@@ -301,6 +303,12 @@ def replay_journal(report: dict, hold_row) -> tuple[list, "EffectOpener"]:
             e for e in entries if e.kind in ("application_closed", "access_revocation")
         ],
         "accounts": [e for e in entries if e.kind == "staff_role_changed"],
+        "community": [
+            e
+            for e in entries
+            if e.kind
+            in ("community_revoked", "community_restricted", "community_effect")
+        ],
     }
     with (
         journal.replaying()
@@ -483,6 +491,7 @@ def read_providers(report: dict, entries, opener) -> None:
     from agreements import restore as agreements_restore
     from correspondence import restore as correspondence_restore
     from provisioning import restore as provisioning_restore
+    from provisioning import community_restore
     from workflow.models import AutomationPause
 
     effects = report.setdefault("effects", {})
@@ -497,9 +506,10 @@ def read_providers(report: dict, entries, opener) -> None:
     effects["sends"] = correspondence_restore.read_sent(since, entries, opener)
     effects["envelopes"] = agreements_restore.read_envelopes(since, opener)
     effects["mailboxes"] = provisioning_restore.read_mailboxes(opener)
+    effects["community"] = community_restore.read_members(opener)
     blocked = [
         name
-        for name in ("sends", "envelopes", "mailboxes")
+        for name in ("sends", "envelopes", "mailboxes", "community")
         if effects[name]["status"] != "ok"
     ]
     if effects.get("journal") != "ok":

@@ -76,6 +76,9 @@ KINDS = {
     },
     "repair": {"discarded_bytes", "last_good_hash"},
     "application_closed": {"outcome", "phase"},
+    "community_revoked": {"revision", "phase"},
+    "community_restricted": {"revision", "roles", "phase"},
+    "community_effect": {"revision", "operation", "role"},
     "access_revocation": {"state", "phase"},
     "automation_pause": {
         "state",
@@ -160,6 +163,8 @@ KINDS = {
     "agreement_countersign": {"phase", "outcome"},
 }
 RESTRICTIVE = (
+    "community_restricted",
+    "community_revoked",
     "application_closed",
     "access_revocation",
     "automation_pause",

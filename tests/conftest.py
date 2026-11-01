@@ -584,6 +584,9 @@ def protection_state(conn):
 
 # The protection the reset must find before it starts and leave behind (003 ADR-14 trigger inventory).
 EXPECTED_TRIGGERS = {
+    ("provisioning_communityaccess", "catalyst_no_truncate"),
+    ("provisioning_communityreceipt", "catalyst_no_truncate"),
+    ("provisioning_communityreceipt", "catalyst_append_only"),
     ("applications_submissionversion", "catalyst_append_only"),
     ("applications_applicationevent", "catalyst_append_only"),
     ("applications_submissionversion", "catalyst_no_truncate"),

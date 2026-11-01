@@ -238,6 +238,23 @@ def test_superusers_unknown_roles_drifted_groups_and_a_missing_approval_are_refu
     )
 
 
+def test_community_review_permission_has_only_a_named_owner_grant_path(p2):
+    user = staff(p2, "community-reviewer")
+    assert not Group.objects.filter(
+        permissions__codename="approve_community_access"
+    ).exists()
+    assert held_by(user) == set()
+    grant(p2, user.username, "community-access-reviewer")
+    assert held_by(user) == {("provisioning", "approve_community_access")}
+    record = StaffRoleGrant.objects.get(user=user)
+    assert (record.kind, record.target) == (
+        "permission",
+        "provisioning.approve_community_access",
+    )
+    grant(p2, user.username, "community-access-reviewer", "--revoke")
+    assert held_by(user) == set()
+
+
 def test_the_grant_record_is_append_only_for_every_role_and_names_no_secret(p2):
     user = staff(p2, "recorded-launch")
     grant(p2, user.username, "provisioning-operator")

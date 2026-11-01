@@ -478,3 +478,72 @@ class WithdrawalConfirmation(models.Model):
                 condition=~Q(requested_by=""), name="withdrawal_has_requester"
             ),
         ]
+
+
+class CommunityAccess(models.Model):
+    """Reviewed Discord binding and current desired grants; no implicit stage entitlement.
+
+    The sealed identity contains the immutable user ID and reviewed membership epoch.
+    identity_key is a keyed lookup digest, not an email or public username. This first
+    slice permits one binding per application; replacing a person requires review.
+    """
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    application = models.OneToOneField(
+        "applications.Application", on_delete=models.PROTECT
+    )
+    guild_id = models.CharField(max_length=20)
+    identity_key = models.CharField(max_length=64)
+    sealed_identity = models.TextField()
+    revision = models.PositiveIntegerField(default=1)
+    desired_roles = models.JSONField(default=list)
+    identity_evidence = models.CharField(max_length=64)
+    decision_evidence = models.CharField(max_length=64)
+    certified_evidence = models.CharField(max_length=64, blank=True, default="")
+    leaders_evidence = models.CharField(max_length=64, blank=True, default="")
+    reviewed_by = models.CharField(max_length=200)
+    revoked = models.BooleanField(default=False)
+    requires_review = models.BooleanField(default=False)
+    verified_roles = models.JSONField(default=list)
+    removal_verified = models.BooleanField(default=False)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        permissions = [
+            (
+                "approve_community_access",
+                "Review community identity and independent access grants",
+            )
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["guild_id", "identity_key"],
+                condition=~Q(identity_key=""),
+                name="community_identity_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(revision__gte=1), name="community_revision_positive"
+            ),
+            models.CheckConstraint(
+                condition=~Q(reviewed_by=""), name="community_has_reviewer"
+            ),
+            models.CheckConstraint(
+                condition=Q(revoked=False) | Q(desired_roles=[]),
+                name="community_revoked_no_grants",
+            ),
+        ]
+
+
+class CommunityReceipt(models.Model):
+    """Append-only codes and references; no Discord identities or response payloads."""
+
+    access = models.ForeignKey(
+        CommunityAccess, on_delete=models.PROTECT, related_name="receipts"
+    )
+    action_id = models.PositiveBigIntegerField()
+    revision = models.PositiveIntegerField()
+    operation = models.CharField(max_length=16)
+    role = models.CharField(max_length=16, blank=True, default="")
+    outcome = models.CharField(max_length=64)
+    created_at = models.DateTimeField(db_default=Now())
