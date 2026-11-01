@@ -97,8 +97,18 @@ COMMON_ENV = {
     # code defaults: the authority unset (everyone refused), three resends, the three paging wait classes.
     "CATALYST_QUALIFICATION_AUTHORITY": "${CATALYST_QUALIFICATION_AUTHORITY:-}",
     "CATALYST_VERIFICATION_RESEND_LIMIT": "${CATALYST_VERIFICATION_RESEND_LIMIT:-3}",
+    # bgl.2 (034 row 2): who may apply, the host's switch without a release. Unset is invitation-only; "open" is the
+    # public entry; anything else refuses start-up (config.guards). Every process reads it, so web and worker agree.
+    "CATALYST_INTAKE_MODE": "${CATALYST_INTAKE_MODE:-invitation}",
+    # bgl.2: the learning host's names for the public request pages (config.settings); empty is none.
+    "CATALYST_PUBLIC_HOST_ALIASES": "${CATALYST_PUBLIC_HOST_ALIASES:-}",
     "CATALYST_HEALTH_AGED_WAITS_PAGE": "${CATALYST_HEALTH_AGED_WAITS_PAGE:-replies_awaiting_processing,issued_agreements,provisioning_activation}",
     "CATALYST_HEALTH_PENDING_AGE_SECONDS": "${CATALYST_HEALTH_PENDING_AGE_SECONDS:-3600}",
+    # bgl.6 (034 section 3.2): the sender's display name and Reply-To, and the mailbox takeover (the swap act). Unset
+    # keeps today's headers and the first-generation denial; every Catalyst process checks them at start-up.
+    "CATALYST_FROM_DISPLAY_NAME": "${CATALYST_FROM_DISPLAY_NAME:-}",
+    "CATALYST_REPLY_TO": "${CATALYST_REPLY_TO:-}",
+    "CATALYST_MAIL_TAKEOVER": "${CATALYST_MAIL_TAKEOVER:-}",
 }
 EFFECTS = "catalyst-effects:/var/lib/catalyst/effects"
 # The inputs production adds to, or replaces in, every Catalyst process's environment (see the module docstring).
@@ -290,7 +300,10 @@ def definition(env: str = "staging") -> dict:
                 "cap_drop": ["ALL"],
                 "cap_add": ["NET_BIND_SERVICE"],
                 "environment": {"CATALYST_HTTPS_PORT": str(PUBLIC_PORT),
+                                "CATALYST_TRUSTED_PROXIES": "${CATALYST_TRUSTED_PROXIES:-127.0.0.1/32 ::1/128}",
                                 "CATALYST_PUBLIC_HOST": "${CATALYST_PUBLIC_HOST:?}",
+                                # bgl.2: the alias site needs an address; a placeholder name when none is set.
+                                "CATALYST_PUBLIC_HOST_ALIASES": "${CATALYST_PUBLIC_HOST_ALIASES:-alias.staging.test}",
                                 "CATALYST_STAFF_HOST": "${CATALYST_STAFF_HOST:?}",
                                 "CATALYST_STAFF_PORT": str(STAFF_PORT),
                                 # Inside the container every interface is the container's own: the host publish

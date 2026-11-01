@@ -560,7 +560,7 @@ def test_p3_50_the_recommendation_never_chooses_the_next_step(a, monkeypatch, se
 
 def test_p3_50_no_provider_client_and_no_output_field_in_control_flow():
     code = {p.name: p.read_text() for p in Path(support.ROOT, "assessments").rglob("*.py") if "migrations" not in p.parts}
-    flow = code["runs.py"] + code["services.py"] + code["collection.py"] + code["decisions.py"]
+    flow = code["runs.py"] + code["services.py"] + code["collection.py"] + code["decisions.py"] + code["routine.py"]
     for field in ("recommendation", "confidence", "proposed_questions", "injection_suspected", ".rating", '"rating"',
                   "'rating'"):
         assert field not in flow, field
@@ -570,9 +570,11 @@ def test_p3_50_no_provider_client_and_no_output_field_in_control_flow():
         assert field not in clarification, field
     propose = clarification.split("def propose_from_run")[1].split("\ndef ")[0]
     assert "proposed_questions" in propose and "transition" not in propose
-    for text in code.values():
-        for banned in ("import openai", "from openai", "import anthropic", "agreements", "provisioning", "logfire.configure"):
-            assert banned not in text, banned
+    for name, text in code.items():
+        # bgl.12: the provider client is imported by the live branch alone (assessments/live.py), behind its activation
+        for banned in (("import anthropic", "agreements", "provisioning", "logfire.configure")
+                       + (() if name == "live.py" else ("import openai", "from openai"))):
+            assert banned not in text, (name, banned)
 
 
 # --- staff: items, rerun, backfill and the screen --------------------------------------------------------
@@ -627,3 +629,22 @@ def test_the_screen_shows_the_advisory_run_and_never_preselects_it(a, monkeypatc
     section = page.split("Assessment (advisory)")[1].split("<h2>Clarification</h2>")[0]
     assert "Advisory recommendation: hold" in section and "not a decision" in section and QUOTE in section
     assert "<option" not in section and "checked" not in section  # shown, never pre-selected
+
+
+def test_owner_uncapped_usage_keeps_assessment_working_without_daily_or_applicant_quota(a, monkeypatch, settings):
+    for name in ("CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT", "CATALYST_ASSESSMENT_RUNS_PER_APPLICATION",
+                 "CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION", "CATALYST_ASSESSMENT_DAILY_REQUESTS",
+                 "CATALYST_ASSESSMENT_ROUNDS"):
+        setattr(settings, name, None)
+    app, run, seen = assessed(a, monkeypatch, valid())
+    assert run.status == "succeeded" and seen["calls"] == 1
+
+
+def test_provider_pacing_queues_assessment_without_call_or_consuming_an_attempt(a, monkeypatch, settings):
+    app, run, seen = queued(a, monkeypatch, settings, valid())
+    monkeypatch.setattr(runs.rate_limits, "reserve", lambda *args, **kwargs: 90)
+    claim = claim_run()
+    runs.RunAssessment().run(claim)
+    action = PendingAction.objects.get(pk=claim.id)
+    assert (action.status, action.last_error, action.attempts, seen["calls"]) == ("queued", "provider_rate_limited", 0, 0)
+    assert not AssessmentInvocation.objects.exists()

@@ -54,7 +54,8 @@ PHONE = {"viewport": {"width": 375, "height": 667}, "is_mobile": True, "has_touc
 DESKTOP = {"viewport": {"width": 1280, "height": 800}}
 WIDTHS = {"phone": PHONE, "desktop": DESKTOP}
 LONG_LINK = "https://work.example.test/" + "unbrokensyntheticpathsegment" * 8  # no hyphen or slash to break at
-CONTROLS = "main input:not([type=hidden]), main textarea, main select, main button"
+# bgl.2: the honeypot (applications.abuse) is off screen and out of the tab order on purpose: no person reaches it.
+CONTROLS = "main input:not([type=hidden]):not([name=website]), main textarea, main select, main button"
 
 
 @contextlib.contextmanager
@@ -193,6 +194,13 @@ def test_request_access_in_open_mode_then_received_then_confirm_fit_and_work(wid
         session.page.locator("#id_name").fill("Ada Example")
         session.page.locator("#id_email").fill(address)
         session.page.locator("#id_reason").fill("Synthetic reason for access, long enough to wrap. " * 3)
+        # bgl.3 (034 row 3): the first-generation answers the form requires.
+        session.page.locator("#id_residence_country").select_option("GB")
+        session.page.locator("#id_phone_country").select_option("GB")
+        session.page.locator("#id_phone").fill("+44 20 7946 0958")
+        session.page.locator("#id_interest_track").select_option("cert_only")
+        for box in ("#id_no_degree", "#id_no_certifications", "#id_verification_consent", "#id_age_attested"):
+            session.page.locator(box).check()
         # One unbroken link far wider than a phone: the confirm page must wrap it, not scroll sideways.
         session.page.locator("#id_work_url_1").fill(LONG_LINK)
         assert submit(session, "Send request", "Request received")["controls"] == 0

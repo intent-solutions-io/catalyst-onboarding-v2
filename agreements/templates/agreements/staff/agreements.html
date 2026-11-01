@@ -106,6 +106,25 @@
 {% endif %}</section>
 {% endfor %}
 
+{% for c in captured %}
+<section><h2>Details from the signed {{ c.type.key }}</h2>
+{% if c.confirmed %}<p>Version {{ c.confirmed.version }} ({{ c.confirmed.source }}{% if c.confirmed.source == "envelope" %}: read back from the signed agreement, confirmed by the applicant's signature{% else %}: a staff correction, confirmed{% endif %}).
+Address quality: {% if c.flags %}{% for f in c.flags %}<code>{{ f }}</code> {% endfor %}{% else %}no flags{% endif %} (codes only; a flag never blocks anything).</p>
+<p>{% for k, v in c.confirmed.values.items %}{{ k }} = <bdi>{{ v|visible }}</bdi>; {% endfor %}</p>{% else %}<p>No confirmed version yet.</p>{% endif %}
+{% if may.confirm_required_details %}
+<form method="post" action="{% url 'agreements_staff:act' application.public_ref %}">{% csrf_token %}
+<input type="hidden" name="action" value="record_details"><input type="hidden" name="type" value="{{ c.type.key }}">
+<p>Correct the details (D-46): record a new version from what the applicant confirmed, then confirm it. The version read from the envelope stays as read.</p>
+{% for f, value in c.posted %}<label>{{ f }} <input name="field-{{ f }}" maxlength="200" autocomplete="off" value="{{ value }}"></label>{% endfor %}
+<button>Record a correction as a draft</button></form>
+{% if c.draft %}<form method="post" action="{% url 'agreements_staff:act' application.public_ref %}">{% csrf_token %}
+<input type="hidden" name="action" value="confirm_details"><input type="hidden" name="details" value="{{ c.draft.public_id }}">
+<input type="hidden" name="digest" value="{{ c.draft.values_sha256 }}">
+<p>Draft correction, version {{ c.draft.version }}: {% for k, v in c.draft.values.items %}{{ k }} = <bdi>{{ v|visible }}</bdi>; {% endfor %}</p>
+<button>Confirm exactly these values</button></form>{% endif %}
+{% endif %}</section>
+{% endfor %}
+
 <h2>Open agreement items</h2>
 {% if items %}<ul>{% for item in items %}<li>{{ item.reason_code }} (opened {{ item.opened_at|date:"c" }})</li>{% endfor %}</ul>{% else %}<p>None.</p>{% endif %}
 

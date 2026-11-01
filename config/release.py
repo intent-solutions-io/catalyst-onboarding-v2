@@ -43,7 +43,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-APPS = ("accounts", "agreements", "applications", "assessments", "correspondence", "erasure", "provisioning", "workflow")
+APPS = ("accounts", "agreements", "applications", "assessments", "correspondence", "crm", "erasure", "firstgen",
+        "provisioning", "workflow")
 DEPLOY_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{3,63}")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 
@@ -63,13 +64,26 @@ BASELINE: dict[str, str] = {
     "correspondence": "0016_welcome_kind", "provisioning": "0006_revocation_and_withdrawal_protection",
     "workflow": "0004_restore_hold_protection",
     "erasure": "",  # 9kg.32: the app came after the guard, so every one of its migrations is scanned
+    "firstgen": "",  # bgl.16: likewise
+    "crm": "",  # bgl.14: likewise
 }
 # Later migrations that contracting() flags but a reviewer found safe for the previous image, with the reason.
 EXPAND_SAFE: dict[str, str] = {
+    "applications.0011_application_reference": (
+        "adds the reference nullable, preserves imported labels and backfills other existing rows before adding "
+        "uniqueness and format constraints; an empty database default plus a non-elevating BEFORE INSERT trigger "
+        "fills the label for an older image without granting direct function EXECUTE to the application role. "
+        "New writers supply a reference; old writers omit it; both satisfy the constraints. No existing column "
+        "is removed or renamed. Receipt/template activation is separately gated and needs a wording rollback plan"),
     "assessments.0010_decision_inputs_and_human_only_code": (
         "adds columns with database defaults and a CHECK constraint created NOT VALID: a previous image inserts decisions "
         "without the new columns (defaults fill them) and never a human-only row without a code it does not know, because "
         "its human-only rows are refused by the decision service's digest check first; nothing is removed or renamed"),
+    "agreements.0011_details_from_envelope": (
+        "adds two nullable-or-defaulted columns (`source` with a database default of `staff`, `instance` nullable) and "
+        "three constraints every row a previous image writes satisfies: a source of `staff` with no instance, and the "
+        "partial unique index over envelope versions, which a previous image never writes (bgl.8); nothing is removed, "
+        "renamed or made stricter for any row a previous image writes, and the frozen trigger is unchanged"),
     "applications.0009_tombstone_keys_unique": (
         "adds three partial unique indexes on email keys that start with `erased:` (9kg.32): no key has that form until "
         "an erasure writes one, and a previous image never writes one, so it cannot violate them; nothing is removed, "
@@ -81,6 +95,27 @@ EXPAND_SAFE: dict[str, str] = {
         "a revert sends nothing it should not; nothing is removed or renamed. Reversing the migration itself (not "
         "needed to run a previous image) needs no `decline` rows, because the narrower CHECK would refuse them; its "
         "reverse step returns the `send_decline` rows it cancelled to held"),
+    "applications.0010_lapsed_stage": (
+        "widens the stage CHECK and the field's choices by one value (`lapsed`, bgl.7) and rebuilds the one-open-per-"
+        "email-key partial unique index with `lapsed` among the open stages; the choices change is state only, every row "
+        "a previous image writes satisfies the wider CHECK, and no `lapsed` row exists until a lapse runs, which needs "
+        "owner-approved `lapse_note` wording. A previous image that meets a `lapsed` application links a reply to it as "
+        "usual without reopening it, refuses a repeat submission from that address on the unique index (nothing written, "
+        "never a second open application), and leaves the `lapse` and `remind_signing` actions queued (no handler); "
+        "nothing is removed or renamed. Reversing the migration itself needs no `lapsed` rows"),
+    "provisioning.0008_credential_setup_mode": (
+        "adds `mode` with a database default of `set_your_own` (bgl.10), so every row a previous image inserts gets the "
+        "mode its link flow is; replaces the token CHECK with one that exempts only `one_time_password` rows, which a "
+        "previous image never writes, so every row it writes is held to the same rule as before; adds a mode CHECK that "
+        "the default satisfies; the fixed-identity trigger also fixes the mode, which a previous image never updates. "
+        "Nothing is removed or renamed for any row a previous image writes (recorded at the parity integration)"),
+    "correspondence.0023_lapse_note": (
+        "widens the approved-message kind CHECK and the field's choices by one value (`lapse_note`, bgl.7) and seeds an "
+        "unapproved draft template; the choices change is state only and every row a previous image writes already "
+        "satisfies the wider CHECK. A previous image that meets a queued `lapse_note` send sends the frozen message "
+        "without the thread headers (its digest check covers only the frozen subject and body), as it would a reminder "
+        "frozen with its `Re:` subject; nothing is removed or renamed. Reversing the migration itself needs no "
+        "`lapse_note` rows, because the narrower CHECK would refuse them"),
 }
 
 

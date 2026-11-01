@@ -56,6 +56,8 @@ class Derived:
     defects: int = 0
     dsn_status: str = ""  # the first per-recipient Status of a delivery-status report, for example 5.1.1
     dsn_final_recipient: str = ""
+    # bgl.6: the decoded Subject, read only to find a first-generation `[CAT-...]` reference (association); never stored.
+    subject: str = ""
 
 
 class _Text(HTMLParser):
@@ -185,6 +187,7 @@ def derive(raw: bytes | None, *, max_text_chars: int, headers_only: bool = False
     derived.references = [clean(v) for v in _MSGID.findall(str(message.get("References", "")))]
     derived.from_addresses = [clean(addr) for _, addr in getaddresses([str(v) for v in message.get_all("From", [])])]
     derived.date_header = redact_short(str(message.get("Date", "")))[:200]
+    derived.subject = clean(str(message.get("Subject", "")))[:998]
     for name in ("Auto-Submitted", "Precedence", "X-Autoreply", "X-Autorespond", "List-Id", "List-Unsubscribe"):
         if message.get(name) is not None:
             derived.auto_markers[name.lower()] = redact_short(str(message.get(name)))[:200]

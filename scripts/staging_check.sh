@@ -369,11 +369,15 @@ if [ "$stack" = staging ]; then
     python manage.py catalyst_invite dark-deploy@example.test --issued-by "staging check" --note "dark deploy, TEST-P6-27"
   form="$(curl -sk -c "$jar" --resolve $public:18443:127.0.0.1 https://$public:18443/request-access/)"
   csrf="$(grep -oE 'name="csrfmiddlewaretoken" value="[^"]+"' <<<"$form" | head -1 | sed 's/.*value="//; s/"$//')"
+  form_token="$(grep -oE 'name="form_token" value="[^"]+"' <<<"$form" | head -1 | sed 's/.*value="//; s/"$//')"
+  sleep 4  # bgl.2: the form refuses a submission faster than CATALYST_INTAKE_FORM_MIN_AGE_SECONDS (3) after rendering
   check "TEST-P6-27 an applicant is accepted through the form" test "$(curl -sk -b "$jar" -o /dev/null -w '%{http_code}' \
     --resolve $public:18443:127.0.0.1 -H "Referer: https://$public:18443/request-access/" \
-    -H "Origin: https://$public:18443" --data-urlencode "csrfmiddlewaretoken=$csrf" \
+    -H "Origin: https://$public:18443" --data-urlencode "csrfmiddlewaretoken=$csrf" --data-urlencode "form_token=$form_token" \
     --data-urlencode 'name=Dark Deploy' --data-urlencode 'email=dark-deploy@example.test' \
-    --data-urlencode 'reason=Synthetic reason for access.' https://$public:18443/request-access/)" = 302
+    --data-urlencode 'reason=Synthetic reason for access.' \
+    --data-urlencode 'residence_country=GB' --data-urlencode 'phone_country=GB' --data-urlencode 'phone=+44 20 7946 0958' --data-urlencode 'interest_track=cert_only' --data-urlencode 'age_attested=on' --data-urlencode 'no_degree=on' --data-urlencode 'no_certifications=on' --data-urlencode 'verification_consent=on' \
+    https://$public:18443/request-access/)" = 302  # bgl.3: the answers the form requires
   dark_link=""
   for _ in $(seq 30); do
     dark_link="$(docker exec "$("${compose[@]}" ps -q worker)" sh -c 'grep -l dark-deploy@example.test /var/lib/catalyst/mail/* 2>/dev/null | xargs -r cat' | grep -oE '/confirm/[^/[:space:]]+/' | head -1 || true)"

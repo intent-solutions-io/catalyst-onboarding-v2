@@ -16,10 +16,13 @@ from django.db.models.functions import Now
 
 from . import reference as references
 
-# Journey stages (004 section 2). "Open" means any non-terminal stage, including `active`.
+# Journey stages (004 section 2). "Open" means any non-terminal stage, including `active` and `lapsed`: a lapsed
+# application (bgl.7; 034 row 21) is quiet, not closed. It still holds its email key, a repeat submission from that
+# address is a revision of it, and erasure and retention treat it as open. A reply or a signature reopens it to the
+# stage it lapsed from (correspondence.lapse).
 OPEN_STAGES = (
     "submitted", "contact_verified", "evidence", "assessing", "awaiting_answers", "awaiting_decision",
-    "on_hold", "admitted", "agreements", "agreements_complete", "provisioning", "active",
+    "on_hold", "admitted", "agreements", "agreements_complete", "provisioning", "active", "lapsed",
 )
 TERMINAL_STAGES = ("declined", "withdrawn", "closed")
 
@@ -37,6 +40,7 @@ class Stage(models.TextChoices):
     AGREEMENTS_COMPLETE = "agreements_complete"
     PROVISIONING = "provisioning"
     ACTIVE = "active"
+    LAPSED = "lapsed"  # bgl.7: quiet after the last reminder; open, reopened by a reply or a signature
     DECLINED = "declined"
     WITHDRAWN = "withdrawn"
     CLOSED = "closed"
@@ -46,9 +50,9 @@ class Application(models.Model):
     public_ref = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     # bgl.5: the applicant-facing `CAT-XXXX-XXXX` label (applications.reference), set once at creation; a label for
     # subjects and the dossier, never an authenticator. An imported first-generation application passes its own. The
-    # database default (migration 0010) covers a row inserted outside the ORM.
+    # INSERT trigger (migration 0011) also covers a previous image that omits the new column.
     reference = models.CharField(max_length=13, unique=True, default=references.new_reference, editable=False,
-                                 db_default=models.Func(function=references.DB_FUNCTION, output_field=models.CharField()))
+                                 db_default="")
     email = models.CharField(max_length=320)  # as typed; used for sending
     email_key = models.CharField(max_length=320)  # normalized identity key (005 S1.3)
     display_name = models.CharField(max_length=200)

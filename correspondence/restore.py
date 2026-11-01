@@ -214,7 +214,7 @@ def _replay_reminder(entry) -> str:
         if n + 1 <= settings.CATALYST_REMINDER_MAX:
             scheduling._create(scheduling.REMIND, scheduling.remind_key(question, n + 1), question, f"{question.public_id}:{n + 1}")
         else:
-            scheduling._create(scheduling.ESCALATE, scheduling.escalate_key(question), question, str(question.public_id))
+            scheduling.schedule_after_last(question)  # the escalation and, since bgl.7, the lapse
         scheduling.sync_reminders(question, question.status)
     if cancelled or scheduling.reminder_actions(question).count() > before:
         _replayed(question.application, entry)

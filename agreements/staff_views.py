@@ -27,7 +27,7 @@ from applications.models import Application
 from correspondence.models import StaffItem
 from workflow.models import AutomationPause, PendingAction
 
-from . import completion, handlers, services
+from . import address_quality, completion, handlers, services
 from .models import (AgreementDetailsVersion, AgreementInstance, AgreementTemplateVersion, AgreementType, EnvelopeAttempt,
                      ProviderObservation)
 
@@ -91,6 +91,11 @@ def _next_action(application, instances) -> tuple[str, str]:
     if reason == "waiting_for_gate":
         if any(r["instance"].signing_status == "partially_signed" and r["instance"].replaced_at is None for r in instances):
             # 9kg.41: the countersignature wait (029 section 5.1) is named, not shown as the applicant's
+            from django.conf import settings
+
+            if settings.CATALYST_AGREEMENT_COUNTERSIGN == "automatic":  # bgl.9: by hand only after the hand-off item
+                return ("Waiting for the remaining required signer (the countersignature, signed automatically; by hand"
+                        " at the provider if it is handed off), then custody", "the system, then the countersigner")
             return ("Waiting for the remaining required signer (the countersignature, signed by hand at the provider),"
                     " then custody", "the countersigner, then the system")
         return "Waiting for the applicant to sign, and for custody", "applicant, then the system"
@@ -144,10 +149,29 @@ def _context(request, application, *, error="", form=None):
                 "draft": AgreementDetailsVersion.objects.filter(
                     application=application, agreement_type=t, status="draft").order_by("-version").first(),
                 "confirmed": completion.details_confirmed(application, t)})
+    # bgl.8 (034 rows 32, 33): the details read back from a signed envelope, with their address-quality codes, and the
+    # staff correction (D-46) as a later version: shown for every type that has a version and no configured field list.
+    captured = []
+    for t in types:
+        if completion.required_details(t):
+            continue
+        fields = services.correction_fields(application.pk, t)
+        if not fields:
+            continue  # no version and no layout for this type: nothing to show or correct
+        versions = AgreementDetailsVersion.objects.filter(application=application, agreement_type=t).select_related("instance")
+        confirmed = versions.filter(status="confirmed").order_by("-version").first()
+        draft = versions.filter(status="draft", version__gt=(confirmed.version if confirmed else 0)).order_by("-version").first()
+        mine = form.get("action") == "record_details" and form.get("type") == t.key
+        captured.append({
+            "type": t, "confirmed": confirmed, "draft": draft,
+            "flags": list(address_quality.flags(confirmed.values)) if confirmed else [],
+            "posted": [(f, form.get(f"field-{f}", "") if mine else (confirmed.values.get(f, "") if confirmed else ""))
+                       for f in fields],
+        })
     next_action, owner = _next_action(application, rows)
     user = request.user
     return {
-        "application": application, "rows": rows, "referenced": referenced, "details": details,
+        "application": application, "rows": rows, "referenced": referenced, "details": details, "captured": captured,
         "next_action": next_action, "owner": owner,
         "items": StaffItem.objects.filter(application=application, status="open", reason_code__startswith="agreement_"),
         "handoff": PendingAction.objects.filter(kind=completion.HANDOFF, subject_id=application.public_ref).first(),

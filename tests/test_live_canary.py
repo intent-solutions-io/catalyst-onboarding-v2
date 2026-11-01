@@ -207,14 +207,16 @@ class FakePlaywright:
 
         class Locator:
             def fill(self, value): pass
+            def select_option(self, value): pass  # bgl.3: the country and interest selects
+            def check(self): pass  # bgl.3: the "none" ticks, the consent and the 18+ attestation
             def click(self): pass
             def inner_text(self): return "Email address confirmed"
             def count(self): return 0
 
         class Expectation:
             def to_have_text(self, *a, **k): pass
-            def to_contain_text(self, *a, **k): pass
-            def to_have_count(self, *a, **k): pass
+            def to_contain_text(self, *a, **k): fake.contained = [*getattr(fake, "contained", []), a]
+            def to_have_count(self, *a, **k): fake.counted = [*getattr(fake, "counted", []), a]
             def not_to_have_text(self, *a, **k): pass
 
         class Response:
@@ -227,6 +229,7 @@ class FakePlaywright:
             def get_by_role(self, role, name=None): return Locator()
             def get_by_text(self, text, exact=False): return Locator()
             def screenshot(self, path, full_page=False, mask=()): Path(path).write_bytes(b"\x89PNG")
+            def wait_for_timeout(self, ms): fake.waited = getattr(fake, "waited", 0) + ms
 
         class Tracing:
             def start(self, **kwargs): fake.tracing_options = kwargs
@@ -393,3 +396,23 @@ def test_9kg_87_the_login_address_and_a_superseding_invitation_are_refused_as_th
     assert "already existed" in report["steps"][0]["error"] and not report["journey_ok"]
     erase = next(s for s in report["steps"] if s["step"] == "erase the canary person")
     assert erase["not_run"] and "outcome is unknown" in erase["detail"]
+
+
+def test_bgl_2_open_intake_checks_that_no_data_notice_is_shown_and_still_invites_the_erasure_subject(journey):
+    run_main, calls, deletions, fake, out = journey
+    assert run_main("--retention", "ssh host erase", "--intake-mode", "open") == 0
+    _, report = _report(out)
+    names = [s["step"] for s in report["steps"]]
+    assert report["ok"] and "no data notice (open intake)" in names and "data notice shown" not in names
+    assert ("pseudonymous record",) not in fake.contained and (0,) in fake.counted
+    assert any("catalyst_invite" in c for c in calls) and report["invitation"] == INVITATION
+    assert fake.waited >= 4000  # past the form's minimum age before submitting
+
+
+def test_bgl_2_invitation_mode_is_the_default_and_checks_the_data_notice(journey):
+    run_main, calls, deletions, fake, out = journey
+    assert run_main("--retention", "ssh host erase") == 0
+    _, report = _report(out)
+    names = [s["step"] for s in report["steps"]]
+    assert "data notice shown" in names and "no data notice (open intake)" not in names
+    assert ("pseudonymous record",) in fake.contained

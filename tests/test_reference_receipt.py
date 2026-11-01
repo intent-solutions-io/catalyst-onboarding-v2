@@ -2,7 +2,7 @@
 application, the reference on applicant subjects when a template version asks for it (016 A1 amended for the reference
 alone), and the receipt at the first submission, alone or as the verification mail.
 
-Everything synthetic: the seeded placeholder templates (correspondence migration 0022), example.test addresses, and
+Everything synthetic: the seeded placeholder templates (correspondence migration 0026), example.test addresses, and
 wording written here. Tests that send commit real data (`privileged_reset`) and run the real worker command.
 """
 
@@ -18,7 +18,7 @@ from django.test import Client
 from django.urls import reverse
 from psycopg import errors
 
-from applications import forms, notices, reference
+from applications import notices, reference
 from applications.links import CONFIRM_PATH
 from applications.models import Application, ApplicationEvent, SubmissionVersion
 from correspondence import outbound, receipt, verification
@@ -31,8 +31,8 @@ from tests.test_system_health import health
 from tests.test_worker import FORM, VALID, intake, link_in, worker  # noqa: F401  (fixture)
 from workflow.models import PendingAction
 
-SEED = import_module("correspondence.migrations.0022_intake_receipt_templates")
-BACKFILL = import_module("applications.migrations.0010_application_reference")
+SEED = import_module("correspondence.migrations.0026_intake_receipt_templates")
+BACKFILL = import_module("applications.migrations.0011_application_reference")
 VERIFICATION_SEED = import_module("correspondence.migrations.0020_verification_template")
 SUFFIX = re.compile(r" \[(CAT-[0-9A-Z]{4}-[0-9A-Z]{4})\]$")
 
@@ -84,20 +84,21 @@ def test_bgl_5_the_database_holds_the_reference_unique_and_well_formed_and_an_im
 
 
 def test_bgl_5_a_row_inserted_outside_the_orm_gets_a_reference_and_the_application_cannot_change_one(privileged_reset):
-    owner = privileged_reset.connect("owner", autocommit=True)
-    made = owner.execute("INSERT INTO applications_application (public_ref, email, email_key, display_name, stage,"
+    app = privileged_reset.connect("app", autocommit=True)
+    # An older application image omits the column. It must still insert successfully after migration.
+    made = app.execute("INSERT INTO applications_application (public_ref, email, email_key, display_name, stage,"
                          " next_version_number) VALUES (gen_random_uuid(), 'raw@example.test', 'raw@example.test',"
                          " 'Synthetic', 'submitted', 1) RETURNING reference").fetchone()[0]
     assert reference.GENERATED.fullmatch(made)
-    app = privileged_reset.connect("app", autocommit=True)
     with pytest.raises(errors.InsufficientPrivilege):
         app.execute("UPDATE applications_application SET reference = 'CAT-0000-0000' WHERE reference = %s", [made])
-    with pytest.raises(errors.InsufficientPrivilege):  # the database default is the owner's, never the application's
-        app.execute("SELECT public.catalyst_new_reference()")
+    with pytest.raises(errors.InsufficientPrivilege):  # trigger execution does not grant direct function access
+        app.execute("SELECT public.catalyst_application_reference()")
 
 
 def test_bgl_5_the_backfill_gives_each_existing_application_a_distinct_reference_and_keeps_any_already_set():
     rows = {1: None, 2: "CAT-AAAA-AAAA", 3: None, 4: None}
+    imported = SimpleNamespace(objects=SimpleNamespace(values_list=lambda *_: [(3, "CAT-OLD1-ABCD")]))
 
     class Query:
         def __init__(self, keep):
@@ -119,10 +120,11 @@ def test_bgl_5_the_backfill_gives_each_existing_application_a_distinct_reference
             for pk in [p for p in rows if self.keep(p)]:
                 rows[pk] = reference
 
-    apps = SimpleNamespace(get_model=lambda *_: SimpleNamespace(objects=Query(lambda pk: True)))
+    apps = SimpleNamespace(get_model=lambda app, _: imported if app == "firstgen" else SimpleNamespace(objects=Query(lambda pk: True)))
     BACKFILL.backfill(apps, None)
     assert rows[2] == "CAT-AAAA-AAAA" and len(set(rows.values())) == 4
-    assert all(reference.GENERATED.fullmatch(value) for value in rows.values())
+    assert rows[3] == "CAT-OLD1-ABCD"
+    assert all(re.fullmatch(reference.STORED_PATTERN, value) for value in rows.values())
 
 
 def test_bgl_5_the_reference_is_never_an_authenticator(privileged_reset):
@@ -157,14 +159,14 @@ def test_bgl_5_the_staff_dossier_shows_the_reference(privileged_reset):
 def test_bgl_5_the_version_digest_covers_the_subject_reference_flag_and_subjects_stay_static():
     subject, body = "Synthetic subject", "Synthetic body.\n"
     assert version_digest(subject, body) == canonical_digest(subject, body)  # every existing version keeps its digest
-    assert version_digest(subject, body, True) != version_digest(subject, body)
-    assert version_digest(subject, body, True) == canonical_digest(subject + " [$reference]", body)
+    assert version_digest(subject, body, subject_reference=True) != version_digest(subject, body)
+    assert version_digest(subject, body, subject_reference=True) == canonical_digest(subject + " [$reference]", body)
     template = SimpleNamespace(secret_bearing=False)
     version = SimpleNamespace(subject=subject, body_text=body, variables=[], secret_bearing=False, template=template,
                               subject_reference=True, content_sha256=canonical_digest(subject, body))
     with pytest.raises(TemplateRefused, match="^content_digest_mismatch$"):  # flipping the flag breaks the digest
         check_version(version)
-    version.content_sha256 = version_digest(subject, body, True)
+    version.content_sha256 = version_digest(subject, body, subject_reference=True)
     check_version(version)
     version.subject = "Hello $reference"
     with pytest.raises(TemplateRefused, match="^placeholder_in_subject$"):  # no variable in a subject (016 A1)
@@ -202,7 +204,7 @@ def test_bgl_5_the_verification_mail_carries_the_reference_when_its_version_asks
     template = MessageTemplate.objects.get(key=seeded.KEY)
     asking = MessageTemplateVersion.objects.create(
         template=template, version=2, subject=seeded.SUBJECT, body_text=seeded.BODY, variables=["link"], secret_bearing=True,
-        subject_reference=True, content_sha256=version_digest(seeded.SUBJECT, seeded.BODY, True))
+        subject_reference=True, content_sha256=version_digest(seeded.SUBJECT, seeded.BODY, subject_reference=True))
     outbound.approve_template_version(asking.pk, template_owner(privileged_reset, "subject-owner"))
     other = intake(email="grace@example.test", name="Grace Example")
     worker()
@@ -218,7 +220,7 @@ def test_bgl_5_a_frozen_message_carries_the_reference_when_its_version_asks(read
     asking = MessageTemplateVersion.objects.create(
         template=MessageTemplate.objects.get(key="question_request"), version=2, subject=QUESTION_SUBJECT,
         body_text=QUESTION_BODY, variables=["display_name", "question_text"], subject_reference=True,
-        content_sha256=version_digest(QUESTION_SUBJECT, QUESTION_BODY, True))
+        content_sha256=version_digest(QUESTION_SUBJECT, QUESTION_BODY, subject_reference=True))
     outbound.approve_template_version(asking.pk, env.owner)
     _, message = ask(env, "Which synthetic tool did you build?")
     assert message.frozen_subject == f"{QUESTION_SUBJECT} [{env.app.reference}]"
@@ -287,7 +289,7 @@ def test_bgl_5_the_receipt_is_the_verification_mail_when_so_configured(worker, s
     assert len(mail.outbox) == 1
 
 
-def test_bgl_5_the_receipt_values_follow_the_first_generation(monkeypatch):
+def test_bgl_5_the_receipt_values_follow_the_first_generation():
     assert receipt.greeting("Ada Example") == "Hello Ada"
     assert receipt.greeting("Zoë-Anne O’Neil") == "Hello Zoë-Anne"
     for unplain in ("", "   ", "ada@example.test", "<b>Ada</b>", "1234", "x" * 41, "[erased]"):
@@ -298,9 +300,7 @@ def test_bgl_5_the_receipt_values_follow_the_first_generation(monkeypatch):
     version = SimpleNamespace(submitted_fields={"name": "Ada Example", "interest_track": "cert_only"},
                               received_at=datetime(2026, 10, 31, 12, tzinfo=UTC))
     assert receipt.values(app, version) == {"greeting": "Hello Ada", "reference": "CAT-AB12-CD34",
-                                            "submitted_on": "31 October 2026", "interest": "cert_only"}
-    monkeypatch.setattr(forms, "INTEREST_LABELS", {"cert_only": "Certification support only"}, raising=False)
-    assert receipt.values(app, version)["interest"] == "Certification support only"  # the form's label when it has one
+                                            "submitted_on": "31 October 2026", "interest": "Certification support only"}
     version.submitted_fields = {"name": "Ada Example"}  # a form without the field
     assert receipt.values(app, version)["interest"] == ""
     assert set(receipt.values(app, version)) == set(notices.RECEIPT_VARIABLES) == set(SEED.VARIABLES)
@@ -318,7 +318,7 @@ def test_bgl_5_a_live_environment_withholds_intake_until_the_receipt_wording_is_
     real_body = "$greeting,\n\nWe have your request $reference of $submitted_on ($interest).\n"
     real = MessageTemplateVersion.objects.create(
         template=seeded.template, version=2, subject="Synthetic real receipt", body_text=real_body, variables=SEED.VARIABLES,
-        subject_reference=True, content_sha256=version_digest("Synthetic real receipt", real_body, True), synthetic=False)
+        subject_reference=True, content_sha256=version_digest("Synthetic real receipt", real_body, subject_reference=True), synthetic=False)
     outbound.approve_template_version(real.pk, template_owner(privileged_reset, "receipt-owner"))
     assert not notices.receipt_withheld()
     receipt_mode(settings, "verification")  # the verification mail is now the receipt with the link: its template decides

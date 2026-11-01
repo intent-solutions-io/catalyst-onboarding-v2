@@ -700,7 +700,8 @@ def test_9kg_32_the_command_runs_only_as_the_retention_login_and_never_as_web_or
 
 def test_9kg_32_the_erasure_migration_reverses_and_reapplies_and_keeps_the_rows(privileged_reset, decided):
     """The reverse leaves every guarded function exactly as it is in a database that never ran erasure 0002 (a fresh
-    one migrated to 0002's dependencies only), and the reapply restores the branches."""
+    one migrated to 0002's dependencies and the later independent credential-mode guard),
+    and the reapply restores the branches. Always restore the full schema, including on assertion failure."""
     import importlib
 
     from tests.test_backup_commands import admin
@@ -719,23 +720,30 @@ def test_9kg_32_the_erasure_migration_reverses_and_reapplies_and_keeps_the_rows(
         for app_label, name in importlib.import_module("erasure.migrations.0002_erasure_path").Migration.dependencies:
             result = run([sys.executable, "manage.py", "migrate", app_label, name, "--verbosity", "0"], timeout=300, **env)
             assert result.returncode == 0, result.stderr
+        # The mode guard is independent of erasure. Reversing erasure must retain it;
+        # the comparison database therefore needs that same non-erasure migration.
+        result = run([sys.executable, "manage.py", "migrate", "provisioning", "0008", "--verbosity", "0"],
+                     timeout=300, **env)
+        assert result.returncode == 0, result.stderr
         with admin(fresh) as conn:
             before = dict(conn.execute(query, [list(catalog.GUARDED_FUNCTIONS)]).fetchall())
         assert set(before) == set(catalog.GUARDED_FUNCTIONS)
         manage_as_owner("migrate", "erasure", "0001", "--verbosity", "0")
         assert dict(owner.execute(query, [list(catalog.GUARDED_FUNCTIONS)]).fetchall()) == before  # exactly as before
         assert all(definition == catalog.without_branch(installed[name]) for name, definition in before.items())
+        assert owner.execute("SELECT count(*) FROM pg_proc WHERE proname IN ('catalyst_erase', 'catalyst_erase_replay',"
+                             " 'catalyst_erasure_admits', 'catalyst_erasable_append_only')").fetchone()[0] == 0
+        assert owner.execute("SELECT count(*) FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid"
+                             " WHERE p.proname = 'catalyst_append_only_strict' AND t.tgname <> 'catalyst_no_truncate'"
+                             " AND t.tgrelid::regclass::text IN ('applications_retentionaudit', 'agreements_agreementrecipient',"
+                             " 'agreements_documentaccess', 'correspondence_staffitemresolution',"
+                             " 'provisioning_provisioningevidence')").fetchone()[0] == 5
     finally:
-        with admin("postgres") as conn:
-            conn.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(fresh)))
-    assert owner.execute("SELECT count(*) FROM pg_proc WHERE proname IN ('catalyst_erase', 'catalyst_erase_replay',"
-                         " 'catalyst_erasure_admits', 'catalyst_erasable_append_only')").fetchone()[0] == 0
-    assert owner.execute("SELECT count(*) FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid"
-                         " WHERE p.proname = 'catalyst_append_only_strict' AND t.tgname <> 'catalyst_no_truncate'"
-                         " AND t.tgrelid::regclass::text IN ('applications_retentionaudit', 'agreements_agreementrecipient',"
-                         " 'agreements_documentaccess', 'correspondence_staffitemresolution',"
-                         " 'provisioning_provisioningevidence')").fetchone()[0] == 5
-    manage_as_owner("migrate", "--verbosity", "0")
+        try:
+            manage_as_owner("migrate", "--verbosity", "0")
+        finally:
+            with admin("postgres") as conn:
+                conn.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(fresh)))
     assert dict(owner.execute(query, [list(catalog.GUARDED_FUNCTIONS)]).fetchall()) == installed
     assert erase(privileged_reset, app.public_ref).status == "erased"
 

@@ -108,7 +108,7 @@ class HostGuard:
     - the health paths answer only on the local host names (the proxy's socket);
     - the staff screens and the admin answer only on the staff host; in the local environments (test, development)
       with no staff host configured, on any host but the public one;
-    - every other host, the public one included, gets 404 for those paths.
+    - every other host, the public one and its aliases included, gets 404 for those paths.
     """
 
     def __init__(self, get_response):
@@ -128,8 +128,9 @@ def _staff_allowed(host: str) -> bool:
     staff_host = _host(settings.CATALYST_STAFF_HOST)
     if staff_host:
         return host == staff_host
-    public_host = _host(urlsplit(settings.CATALYST_PUBLIC_BASE_URL).hostname or "")
-    return settings.CATALYST_ENV in ("test", "development") and host != public_host
+    public_hosts = {_host(urlsplit(settings.CATALYST_PUBLIC_BASE_URL).hostname or ""),
+                    *(_host(alias) for alias in settings.CATALYST_PUBLIC_HOST_ALIASES)}  # bgl.2: never on an alias
+    return settings.CATALYST_ENV in ("test", "development") and host not in public_hosts
 
 
 def _host(name: str) -> str:

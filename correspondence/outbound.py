@@ -49,8 +49,8 @@ from .models import (
     StaffItem,
 )
 from .common import DECIDABLE, Refused, actor_ref, require  # noqa: F401  (re-exported for callers)
-from .messages import build_email, enqueue_file_copy, message_id, verified_address  # noqa: F401
-from .rendering import TemplateRefused, canonical_digest, check_version, render
+from .messages import build_email, enqueue_file_copy, message_id, thread_headers, verified_address  # noqa: F401
+from .rendering import TemplateRefused, canonical_digest, check_version, frozen_html, html_inputs, render
 from .questions import sent_text
 from .scheduling import schedule_after_acceptance
 from .staff_items import event, hard_bounce_open, open_item, resolve_item
@@ -129,16 +129,19 @@ def current_template_version(key: str) -> MessageTemplateVersion | None:
             .filter(template__key=key, status=MessageTemplateVersion.Status.APPROVED).order_by("-version").first())
 
 
-def _freeze(application, kind, recipient, version, values, authorized_by, authority, supersedes=None) -> ApprovedMessage:
-    subject, body = render(version, values)
-    if version.subject_reference:  # bgl.5: the sender appends the reference; the frozen subject is the subject as sent
-        subject = with_reference(subject, application.reference)
+def _freeze(application, kind, recipient, version, values, authorized_by, authority, supersedes=None,
+            subject: str | None = None) -> ApprovedMessage:
+    """`subject` replaces the template's static subject for a threaded reply (bgl.7: a reminder's `Re: <the question's
+    subject>`); the digest covers what is frozen, so the send check still proves the wire message is the frozen one."""
+    rendered_subject, body = render(version, values)
+    if subject is None:
+        subject = with_reference(rendered_subject, application.reference) if version.subject_reference else rendered_subject
     if version.secret_bearing:
         raise Refused("secret_bearing_kind_not_in_this_task")  # reproducible-inputs kinds arrive with their task
     return ApprovedMessage.objects.create(
         kind=kind, application=application, recipient=recipient, template_version=version, frozen_subject=subject,
         frozen_body=body, content_sha256=canonical_digest(subject, body), authorized_by=authorized_by,
-        authority=authority, supersedes=supersedes,
+        authority=authority, supersedes=supersedes, reproducible_inputs=html_inputs(version, values),
     )
 
 
@@ -186,6 +189,50 @@ def approve_question(question_id: int, user) -> ApprovedMessage:
             transition(application.pk, (Stage.AWAITING_DECISION,), Stage.AWAITING_ANSWERS, event_kind="clarification_started",
                        data={"question": str(question.public_id)}, actor_type=ApplicationEvent.ActorType.STAFF,
                        actor_ref=actor_ref(user))
+    return message
+
+
+def approve_questions_by_policy(application_id: int, question_ids: list, *, body: str, actor: str) -> ApprovedMessage:
+    """bgl.12 (assessments.routine): the routine-advance policy approves, in one frozen message, the questions it was
+    allowed to send. Inside the caller's transaction with the application locked. The same preconditions as a staff
+    approval; the body is the checked draft (its own template value), the authority is `system_policy`, and the stage
+    opens the clarification round as a staff approval would. Nothing here reads model output: the caller has already
+    passed the draft through the second check and the question screen."""
+    application = Application.objects.select_for_update(of=("self",)).get(pk=application_id)
+    questions = list(Question.objects.select_for_update(of=("self",)).filter(pk__in=question_ids, application=application).order_by("id"))
+    if len(questions) != len(question_ids) or not questions:
+        raise Refused("question_not_found")
+    if any(q.status == Question.Status.WITHDRAWN or q.approval_state == Question.Approval.APPROVED for q in questions):
+        raise Refused("question_not_approvable")
+    if application.stage != Stage.AWAITING_DECISION:
+        raise Refused("application_not_awaiting_decision")
+    if StaffItem.objects.filter(question_id__in=[q.pk for q in questions], reason_code="restore_effect_unknown_send",
+                                status=StaffItem.Status.OPEN).exists():
+        raise Refused("sent_after_backup_pending_review")
+    recipient = verified_address(application)
+    if recipient is None:
+        raise Refused("contact_not_verified")
+    version = current_template_version(QUESTION_TEMPLATE)
+    if version is None:
+        raise Refused("no_approved_template_version")
+    try:
+        message = _freeze(application, ApprovedMessage.Kind.QUESTION, recipient, version,
+                          {"display_name": application.display_name, "question_text": body}, actor, ApprovedMessage.Authority.SYSTEM_POLICY)
+    except TemplateRefused as exc:
+        raise Refused(str(exc)) from None
+    Question.objects.filter(pk__in=[q.pk for q in questions]).update(
+        approval_state=Question.Approval.APPROVED, approved_by=actor, approved_at=Now(), updated_at=Now())
+    for question in questions:
+        ApprovedMessageQuestion.objects.create(approved_message=message, question=question,
+                                               purpose=ApprovedMessageQuestion.Purpose.INITIAL)
+        event(application, "question_approved", {"question": str(question.public_id), "send_ref": str(message.send_ref),
+                                                  "authority": ApprovedMessage.Authority.SYSTEM_POLICY}, actor_ref=actor)
+        journal.record("question_approved", f"send:{message.send_ref}:{question.public_id}", {
+            "question": str(question.public_id), "send_ref": str(message.send_ref), "content_sha256": message.content_sha256})
+    enqueue_send(message, 0)
+    transition(application.pk, (Stage.AWAITING_DECISION,), Stage.AWAITING_ANSWERS, event_kind="clarification_started",
+               data={"questions": [str(q.public_id) for q in questions], "authority": ApprovedMessage.Authority.SYSTEM_POLICY},
+               actor_ref=actor)
     return message
 
 
@@ -353,7 +400,11 @@ class SendMessage:
             if digest != message.content_sha256:
                 return refuse("content_digest_mismatch")
             try:
-                payload = build_email(message, subject, body)
+                page = frozen_html(message)  # bgl.11: multipart when the approved version has an HTML part
+            except TemplateRefused as exc:
+                return refuse(str(exc))
+            try:
+                payload = build_email(message, subject, body, thread_headers(message), html=page)  # bgl.7: in its thread
             except ValueError:
                 return refuse("message_refused_by_header_policy")
             number = (OutboundMessage.objects.filter(approved_message=message).aggregate(n=Max("attempt_number"))["n"] or 0) + 1

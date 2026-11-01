@@ -74,5 +74,5 @@ def unseed(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("correspondence", "0021_subject_reference")]
+    dependencies = [("correspondence", "0025_subject_reference")]
     operations = [migrations.RunPython(seed, unseed)]

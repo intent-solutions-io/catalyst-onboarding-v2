@@ -4,6 +4,7 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 
+from agreements.views import signing_return
 from config import health
 from config.staff_admin import configure_site
 
@@ -19,6 +20,9 @@ urlpatterns = [
     path("staff/", admin.site.urls),
     path("setup/", include("provisioning.urls")),  # applications.links.SETUP_PATH (P5 5B.2)
     path("withdraw/", include("provisioning.withdraw_urls")),  # applications.links.WITHDRAW_PATH (P5 5B.3)
+    path("signing/return/", signing_return, name="signing_return"),  # agreements.provider.RETURN_PATH (bgl.8, 034 row 29)
+    # The first generation's exact path, which its envelopes in flight redirect to: a route, not an APPEND_SLASH hop.
+    path("signing/return", signing_return, name="signing_return_exact"),
     path("", include("applications.urls")),
 ]
 # The Documenso webhook (P4 4B.2, 021 section 6): mounted only in test and development until the P6 exposure

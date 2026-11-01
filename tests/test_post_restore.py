@@ -514,7 +514,13 @@ def test_9kg_33_closures_and_revocations_after_the_backup_are_replayed_and_acces
     assert kinds(again, "provisioning")["replayed"] == 0
 
 
-def test_9kg_33_a_reminder_that_left_after_the_backup_moves_the_series_position(ready, tmp_path):
+# The two-reminder synthetic cadence this series test was written for (bgl.7 made one reminder the default). The owner-run
+# process is a child, so it gets the same values through its environment.
+TWO_REMINDERS = {"CATALYST_REMINDER_MAX": "2", "CATALYST_REMINDER_INTERVAL_BUSINESS_DAYS": "0"}
+
+
+def test_9kg_33_a_reminder_that_left_after_the_backup_moves_the_series_position(ready, tmp_path, settings):
+    settings.CATALYST_REMINDER_MAX, settings.CATALYST_REMINDER_INTERVAL_BUSINESS_DAYS = 2, 0
     question, message = ask(ready)
     run_worker()  # accepted: reminder 1 is scheduled (E1); `send_begun` was journaled before the exchange
     [begun] = [e for e in entries() if e.kind == "send_begun"]
@@ -524,14 +530,36 @@ def test_9kg_33_a_reminder_that_left_after_the_backup_moves_the_series_position(
     journal.append("send_begun", f"send:{uuid.uuid4()}", {"kind": "reminder", "series": 0, "attempt": 1,
                                                           "question": str(question.public_id), "n": 1})  # left after T
     place_hold()
-    result, report = post_restore(**with_sent(tmp_path))
+    result, report = post_restore(**with_sent(tmp_path), **TWO_REMINDERS)
     assert result.returncode == 0, result.stderr
     first.refresh_from_db()
     assert (first.status, first.last_error) == ("cancelled", "replayed_sent_after_backup")  # never sent twice
     assert PendingAction.objects.filter(kind="remind", idempotency_key=f"remind:{question.public_id}:2", status="queued").exists()
-    result, again = post_restore(**with_sent(tmp_path))
+    result, again = post_restore(**with_sent(tmp_path), **TWO_REMINDERS)
     assert kinds(again, "correspondence")["replayed"] == 0
     assert PendingAction.objects.filter(kind="remind", idempotency_key__startswith=f"remind:{question.public_id}:").count() == 2
+
+
+def test_bgl7_the_last_reminder_left_after_the_backup_still_leads_to_the_escalation_and_the_lapse(ready, tmp_path):
+    """At the first-generation defaults (one reminder, the lapse ten business days on), a replayed last reminder schedules
+    what its acceptance would have: the staff escalation and the lapse, once each."""
+    question, message = ask(ready)
+    run_worker()  # accepted: reminder 1 is scheduled (E1)
+    first = PendingAction.objects.get(kind="remind", idempotency_key=f"remind:{question.public_id}:1")
+    journal.append("send_begun", f"send:{uuid.uuid4()}", {"kind": "reminder", "series": 0, "attempt": 1,
+                                                          "question": str(question.public_id), "n": 1})  # left after T
+    place_hold()
+    result, report = post_restore(**with_sent(tmp_path))
+    assert result.returncode == 0, result.stderr
+    first.refresh_from_db()
+    assert (first.status, first.last_error) == ("cancelled", "replayed_sent_after_backup")
+    assert not PendingAction.objects.filter(kind="remind", idempotency_key=f"remind:{question.public_id}:2").exists()
+    [escalate] = PendingAction.objects.filter(kind="escalate_unanswered", idempotency_key=f"escalate_unanswered:{question.public_id}")
+    [lapse] = PendingAction.objects.filter(kind="lapse", idempotency_key=f"lapse:question:{question.public_id}")
+    assert escalate.status == lapse.status == "queued" and lapse.input_ref == f"question:{question.public_id}"
+    result, again = post_restore(**with_sent(tmp_path))
+    assert kinds(again, "correspondence")["replayed"] == 0
+    assert PendingAction.objects.filter(kind__in=("escalate_unanswered", "lapse"), input_ref__contains=str(question.public_id)).count() == 2
 
 
 def write_copy(directory, message, subject=None, body=None, message_id=None, date=None):

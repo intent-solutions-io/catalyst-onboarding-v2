@@ -55,6 +55,14 @@ REASONS = {
     "assessment_suspended": "refused by suspension: model advice is disabled, a human-only assessment applies (oc4.12)",
     # 9kg.41: plain words for the launch's other common items (the dossier and the staff item page share them)
     "escalate_unanswered": "a question stayed unanswered after the last reminder",
+    # bgl.7: the lapse after the last reminder and the signing reminder
+    "lapse_note_refused": "the application should lapse but its closing note could not be prepared (no approved wording"
+                          " or no verified address); it looks again by itself",
+    "lapse_failed": "the lapse could not be recorded; the application still waits",
+    "signing_reminder_unavailable": "a signing reminder was due but the service has no way to send the signing link"
+                                    " again yet; the applicant was not reminded",
+    "signing_reminder_refused": "a signing reminder could not be prepared (the recipient is not the verified address)",
+    "signing_reminder_failed": "the signing reminder could not be recorded",
     "evidence_required_unavailable": "a required evidence item could not be read; re-fetch it or proceed without it",
     "claims_missing": "the adopted submission carries no claim fields; a new submission with claims is needed",
     "agreement_declined": "an agreement was declined at the provider; automation is paused",
@@ -66,6 +74,13 @@ REASONS = {
     "agreement_integrity_hold": "a signed agreement no longer matches what was verified; it is held",
     "agreement_custody_failed": "the signed copy could not be stored; retry custody on the agreements screen",
     "agreement_provider_unavailable": "the signing provider could not be reached",
+    # bgl.8 (034 rows 27, 32, 33): the service-sent link, the read-back of typed details and their address quality
+    "agreement_link_send_failed": "the signing-link mail could not be sent, or the applicant was not found on the envelope;"
+                                  " check the agreements screen and the provider",
+    "agreement_details_readback_incomplete": "not every detail could be read back from the signed agreement; record the"
+                                             " details on the agreements screen from the signed copy",
+    "agreement_address_quality": "the address typed on the signed agreement looks incomplete or its postal code does not fit"
+                                 " its country; nothing is blocked, check it on the agreements screen",
     "provisioning_activation_blocked": "activation is blocked; fix the cause, then retry activation",
     "decline_not_notified": "the decline notice bounced permanently; the applicant was not notified",  # oc4.11
     "decline_notice_refused": "the decline notice could not be prepared. If its wording is not approved for this"
@@ -77,6 +92,13 @@ REASONS = {
     "verification_expired": "the applicant's only verification link expired before they confirmed; no working link is out",
     "agreement_reference_needs_decision": "the NDA is on file from the first generation but the User Agreement is not;"
                                           " nothing is issued until the owner decides",  # 9kg.52, D-15
+    # bgl.14: the Twenty projection's review cases (crm.projection.REVIEW_REASONS; the first generation's crm_review_item)
+    "twenty_ambiguous_match": "several Twenty people match this application; link the right one (catalyst_twenty_link)",
+    "twenty_person_linked_elsewhere": "the Twenty person that matches is linked to another open application",
+    "twenty_linked_person_missing": "the linked Twenty person no longer exists; link another (catalyst_twenty_link)",
+    "twenty_field_overwritten": "a field someone edited in Twenty was overwritten by the projection",
+    "twenty_request_rejected": "Twenty refused a projection request; it is not retried",
+    "twenty_projection_failed": "the Twenty projection failed after its last attempt",
 }
 
 
@@ -202,6 +224,8 @@ def next_steps(application) -> list[Step]:
         return steps + [Step("Staff", "Awaiting the qualification decision: record it on the decision screen", attention=True)]
     if application.stage == "on_hold":
         return steps + [Step("Staff", "On hold: the way on is an admit or a decline on the decision screen", attention=True)]
+    if application.stage == "lapsed":  # bgl.7: quiet, not closed
+        return steps + [Step("Applicant", "Lapsed after the last reminder went unanswered; a reply or a signature reopens it")]
     if action.status == PendingAction.Status.HELD:
         return steps + [Step("Blocked", "Start evidence collection is held until the owner releases it (activation command, 018 4.1)")]
     return steps + [Step("Blocked", f"Start evidence collection is {action.status}")]

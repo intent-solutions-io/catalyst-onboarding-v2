@@ -35,7 +35,7 @@ from .reference import with_reference
 DATA_NOTICE = "data_notice"
 INVITATION = "invitation"
 VERIFICATION = "verification_invitation"  # 9kg.80: the verification mail (correspondence migration 0020)
-# bgl.5: the receipt at the first submission (correspondence migration 0022): alone, or as the verification mail.
+# bgl.5: the receipt at the first submission (correspondence migration 0026): alone, or as the verification mail.
 RECEIPT = "intake_receipt"
 RECEIPT_CONFIRM = "intake_receipt_confirm"
 RECEIPT_VARIABLES = ("greeting", "reference", "submitted_on", "interest")
@@ -58,6 +58,7 @@ class Rendered:
     subject: str
     text: str
     synthetic: bool = True
+    html: str = ""  # bgl.11: the HTML alternative, or "" for a text-only version
     subject_reference: bool = False  # bgl.5: the sender appends the application's reference to the subject
 
 
@@ -80,6 +81,7 @@ class Wording:
     subject: str
     text: str
     approved: bool
+    html: str = ""  # bgl.11: the rendered HTML alternative of an approved version, or ""; a draft is sent as text only
     subject_reference: bool = False
 
     @property
@@ -144,7 +146,7 @@ def verification_withheld() -> bool:
     "verification" receipt mode the verification mail is the receipt with the link, so that template decides."""
     if verification_template() == RECEIPT_CONFIRM:
         return _withheld(RECEIPT_CONFIRM, {**_TRIAL_RECEIPT, "link": _TRIAL_LINK})
-    return _withheld(VERIFICATION, {"link": _TRIAL_LINK})
+    return _withheld(VERIFICATION, {"link": _TRIAL_LINK, "display_name": "Applicant"})
 
 
 def receipt_withheld() -> bool:
@@ -162,12 +164,13 @@ def wording(key: str, values: dict | None = None) -> Wording:
         if rendered.synthetic and not drafts_allowed:
             raise Unavailable(f"{key}_synthetic")
         return Wording(key, rendered.version, rendered.sha256, rendered.subject, rendered.text, approved=True,
-                       subject_reference=rendered.subject_reference)
+                       html=rendered.html, subject_reference=rendered.subject_reference)
     if not drafts_allowed:
         raise Unavailable(f"{key}_not_approved")
     draft = _source("draft")(key)
     if draft is None:
         raise Unavailable(f"{key}_missing")
+    values = _source("fit_greeting")(draft.variables, values)
     if set(values) != set(draft.variables):
         raise Unavailable(f"{key}_values_do_not_match_allow_list")
     try:

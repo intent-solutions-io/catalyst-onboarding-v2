@@ -73,7 +73,9 @@ def test_6b8_every_token_bearing_route_is_a_private_path():
 def test_6b8_the_public_site_serves_only_the_applicant_routes():
     public = site(renderer().render(), "CATALYST_PUBLIC_HOST")
     allowed = re.search(r"@applicant path (.+)", public).group(1).split()
-    assert allowed == ["/request-access/", "/request-access/received/", *(p + "*" for p in PRIVATE_PATHS)]
+    assert allowed == ["/request-access/", "/request-access/received/", "/request-access", "/request-access/received",
+                       "/signing/return/", "/signing/return",  # bgl.8: the signing return page (provider.return_url)
+                       *(p + "*" for p in PRIVATE_PATHS)]  # bgl.2: the first generation's exact paths too
     for absent in ("/staff", "/admin", "/healthz", "/readyz", "/static", "/hooks"):
         assert absent not in public
     assert "import catalyst_not_found" in public and "max_size 128KB" in public
@@ -87,10 +89,12 @@ def test_6b8_the_staff_site_binds_privately_and_carries_only_staff_and_static():
         assert absent not in staff
 
 
-def test_6b8_caddy_trusts_no_proxy_and_sets_the_forwarded_values_itself():
+def test_6b8_caddy_trusts_only_configured_proxies_and_sets_the_forwarded_values_itself():
     text = renderer().render()
-    assert "trusted_proxies" not in text  # the edge: no client's forwarded headers are believed
-    assert "header_up X-Forwarded-Proto {scheme}" in text and "header_up X-Forwarded-For {remote_host}" in text
+    assert "trusted_proxies static {$CATALYST_TRUSTED_PROXIES:127.0.0.1/32 ::1/128}" in text
+    assert "trusted_proxies_strict" in text and "client_ip_headers X-Forwarded-For" in text
+    assert "private_ranges" not in text
+    assert "header_up X-Forwarded-Proto {scheme}" in text and "header_up X-Forwarded-For {client_ip}" in text
     assert "header_up -X-Forwarded-Host" in text and "unix//run/catalyst/web.sock" in text
 
 
@@ -105,3 +109,14 @@ def test_6b8_caddy_responses_carry_safe_headers_and_slow_clients_time_out():
 def test_6b8_there_is_no_webhook_site():
     text = renderer().render()
     assert "documenso" not in text.lower() and "/hooks/" not in text  # not mounted until the pilot (P6-D-4)
+
+
+def test_bgl_2_the_alias_site_serves_only_the_public_request_pages():
+    module = renderer()
+    alias = site(module.render(), "CATALYST_PUBLIC_HOST_ALIASES")
+    allowed = re.search(r"@alias path (.+)", alias).group(1).split()
+    assert allowed == ["/request-access/", "/request-access/received/", "/request-access", "/request-access/received",
+                       "/signing/return/", "/signing/return"]  # bgl.8: the signing return page on the learning host too
+    for absent in ("/staff", "/confirm", "/setup", "/withdraw", "/healthz", "/readyz", "/static", "bind "):
+        assert absent not in alias, absent
+    assert "import catalyst_not_found" in alias and "max_size 128KB" in alias

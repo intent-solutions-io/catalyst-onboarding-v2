@@ -51,7 +51,7 @@ from workflow import ledger
 from workflow.models import PendingAction
 
 FORM = reverse("applications:request_access")
-VALID = {"name": "Ada Example", "email": "ada@example.test", "reason": "Synthetic reason for access."}
+VALID = {"name": "Ada Example", "email": "ada@example.test", "reason": "Synthetic reason for access.", **support.INTAKE_ANSWERS}
 QUESTION_SUBJECT = "A question about your application"
 QUESTION_BODY = "Hello $display_name,\n\nWe have a question about your application:\n\n$question_text\n\nPlease reply to this message.\n"
 Attempt = OutboundMessage.Status

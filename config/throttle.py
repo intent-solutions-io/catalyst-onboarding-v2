@@ -128,4 +128,4 @@ def sweep() -> int:
     """Remove buckets nobody touched for a day (run with the staff-session clean-up, 6B.9). Returns the count."""
     from accounts.models import RequestThrottle
 
-    return RequestThrottle.objects.filter(updated_at__lt=Now() - SWEEP_AFTER).delete()[0]
+    return RequestThrottle.objects.filter(updated_at__lt=Now() - SWEEP_AFTER, window_start__lte=Now()).delete()[0]

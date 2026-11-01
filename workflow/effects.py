@@ -29,7 +29,8 @@ journaled-before site writes after the effect (an outcome recorded once the effe
 
 Families, by what the scanner finds: `journal` (append, record, prepare), `smtp` (`correspondence.transport.send`),
 `django_mail` (a `django.core.mail` message sent), `documenso` (`agreements.provider` writes), `mailhost`
-(`provisioning.adapter.MailHost` writes), `imap` (a mailbox client's `append`) and `model` (a PydanticAI agent run).
+(`provisioning.adapter.MailHost` writes), `imap` (a mailbox client's `append`), `model` (a PydanticAI agent run) and
+`twenty` (`crm.twenty` writes: a person or a note created or updated, a note attached; bgl.14).
 Network, subprocess and file-writing primitives outside these are a separate allow-list in the test, not classified
 here.
 """
@@ -84,6 +85,15 @@ REGISTRY = {
     "agreements.handlers:DistributeAgreement.call": {
         "documenso": Site(CHECKED_BEFORE, "re-reads the envelope and skips one already PENDING",
                           by="agreements.handlers:DistributeAgreement.call")},
+    # bgl.9: the automated countersignature reads the envelope first and signs only for a company recipient that has not
+    # signed (a restored run finds a signature already there); `begun` is appended before the call, `done` on commit.
+    "agreements.countersign:CountersignAgreement.run": {
+        "journal": Site(JOURNALED_BEFORE, "a countersignature begun, appended before the provider call",
+                        ("agreement_countersign",)),
+        "documenso": Site(CHECKED_BEFORE, "reads the envelope first; signs only a company recipient not yet signed",
+                          by="agreements.countersign:CountersignAgreement.run")},
+    "agreements.countersign:CountersignAgreement._signed": {
+        "journal": Site(JOURNALED_AFTER, "a countersignature verified by a fresh read, on commit", ("agreement_countersign",))},
     "agreements.handlers:CancelEnvelope.call": {
         "documenso": Site(PROVIDER_READ, "a restored instance's envelope is read by id; a cancel shows", by=READ_ENVELOPES)},
     # Custody keys (agreements.keystore, catalyst_custody_keys): appended and fsynced before any file is unlinked or
@@ -122,6 +132,8 @@ REGISTRY = {
                      by="correspondence.inbound:FileCopy.run")},
     "correspondence.outbound:approve_question": {
         "journal": Site(JOURNALED_AFTER, "an approved question, on commit", ("question_approved",))},
+    "correspondence.outbound:approve_questions_by_policy": {  # bgl.12, registered at the parity integration
+        "journal": Site(JOURNALED_AFTER, "a question the routine-advance policy approved, on commit", ("question_approved",))},
     "correspondence.outbound:SendMessage.run": {
         "journal": Site(JOURNALED_BEFORE, "send_begun, appended after the claim and before SMTP", ("send_begun",)),
         "smtp": Site(PROVIDER_READ, "the Sent folder is read; an unknown copy opens an item", by=READ_SENT)},
@@ -145,6 +157,12 @@ REGISTRY = {
         "journal": Site(JOURNALED_AFTER, "a resolved staff item, on commit", ("staff_item_resolved",))},
     # The contact-confirmation link: the review supersedes every unused challenge and opens an item for an applicant
     # left waiting.
+    # bgl.8, registered at the parity integration: the service-sent signing link carries the applicant's own provider
+    # token. After a restore the envelope is read by id; a signed applicant gets no further link, and a repeated mail
+    # to an unsigned one carries the identical link (at least once, as the verification mail, D-20), disclosing nothing new.
+    "agreements.signing_mail:SendSigningLink.run": {
+        "django_mail": Site(PROVIDER_READ, "the envelope is read by id after a restore; a repeat is the identical link",
+                            by=READ_ENVELOPES)},
     "correspondence.verification:SendVerification.run": {
         "django_mail": Site(COVERED_BY_REVIEW, "the review supersedes every unused confirmation link", by=CLOSE_LINKS)},
     # bgl.5: the receipt carries no link; a receipt action live at the restore point becomes uncertain with a staff item
@@ -180,7 +198,26 @@ REGISTRY = {
     "provisioning.credentials:set_password": {
         "mailhost": Site(COVERED_BY_REVIEW, "a password cannot be read back; the review closes every open setup",
                          by=CLOSE_LINKS)},
+    # The Twenty projection (bgl.14): every write is preceded in its own function by the read that finds it done, so a
+    # restored run that repeats it finds the person by its link or the case id it carries, the note by id or marker and
+    # the attachment by its targets, and writes only what differs (the restored link rows lose nothing that matters).
+    "crm.projection:project_person": {
+        "twenty": Site(CHECKED_BEFORE, "reads the person by link, case id or email before any create or update",
+                       by="crm.projection:project_person")},
+    "crm.projection:write_note": {
+        "twenty": Site(CHECKED_BEFORE, "reads the note by id or title and marker, and its targets, before writing",
+                       by="crm.projection:write_note")},
+    "crm.projection:fill_person": {
+        "twenty": Site(CHECKED_BEFORE, "reads the person and fills only the blanks it shows", by="crm.projection:fill_person")},
     "provisioning.handlers:CreateMailbox.run": {
         "mailhost": Site(PROVIDER_READ, "restored requests are read by address; every create reads absence first",
                          by=READ_MAILBOXES)},
+    # The one-time-password welcome (034 row 39): the set cannot be read back and the welcome carries the credential;
+    # the review supersedes every open round, marks a set in flight unknown and tells staff, and the reissued round
+    # sets a new password, so a credential the restored record does not account for stops working.
+    "provisioning.password_welcome:SendPasswordWelcome._exchange": {
+        "mailhost": Site(COVERED_BY_REVIEW, "the one-time password set; the review closes every open round and a new round "
+                                            "sets a new one", by=CLOSE_LINKS),
+        "django_mail": Site(COVERED_BY_REVIEW, "the welcome carrying that password; the review closes the round and staff "
+                                               "reissue", by=CLOSE_LINKS)},
 }

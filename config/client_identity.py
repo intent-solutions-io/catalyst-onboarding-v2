@@ -3,8 +3,8 @@
 One value, from one place, decided by CATALYST_CLIENT_IDENTITY (fixed in code, config.guards):
 
 - `proxy`: the `X-Forwarded-For` header. The web process listens only on the proxy's unix socket and the proxy
-  overwrites that header with the peer address on every request (`header_up X-Forwarded-For {remote_host}`, and no
-  trusted proxies), so the header is trusted because of where the process listens, not because of anything the
+  overwrites that header with the validated client address on every request (`header_up X-Forwarded-For {client_ip}`,
+  with only explicitly configured upstream proxies trusted), so the header is trusted because of where the process listens, not because of anything the
   client sent. It must be exactly one IP literal: a list (a hop that was not the proxy), an empty value or anything
   that is not an address is "no identity", and issuance is then refused (config.throttle).
 - `direct`: the peer address (`REMOTE_ADDR`), for the local environments, where the test client or the development

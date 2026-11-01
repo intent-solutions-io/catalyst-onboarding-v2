@@ -11,13 +11,17 @@ import re
 from urllib.parse import urlsplit
 from collections.abc import Mapping
 
+from config import parity
+
 POSTGRESQL_ENGINE = "django.db.backends.postgresql"
 
 # The secrets Catalyst reads (6B.5, 026 section 5): one list, used by settings to read them and by the guards to refuse
 # them in the environment outside test and development.
 SECRET_ENV_NAMES = ("CATALYST_SECRET_KEY", "CATALYST_VERIFICATION_KEY", "CATALYST_VERIFICATION_FALLBACK_KEYS",
                     "CATALYST_DB_PASSWORD", "CATALYST_MAIL_PASSWORD", "CATALYST_ERASURE_KEY",
-                    "CATALYST_CUSTODY_WRAPPING_KEY", "CATALYST_CUSTODY_NEXT_WRAPPING_KEY")
+                    "CATALYST_CUSTODY_WRAPPING_KEY", "CATALYST_CUSTODY_NEXT_WRAPPING_KEY",
+                    "CATALYST_ASSESSMENT_API_KEY",  # bgl.12: the live model key, a file outside test and development
+                    "CATALYST_TWENTY_TOKEN", "CATALYST_AGREEMENT_PROVIDER_TOKEN")  # bgl.14: the Twenty token, a file outside test and development
 
 # Environments Catalyst may run in. `staging` (026 P6-D-2, D-49) is synthetic like `test`: the same fakes under the
 # same strict rules, never a real provider. `production` (9kg.31.11, 026 section 18) is admitted in code with every
@@ -59,7 +63,9 @@ SINK_EMAIL_BACKENDS = frozenset({
     REFUSING_EMAIL_BACKEND,
 })
 
-# Catalyst's own providers (D-04 to D-08): any variable with these prefixes is refused.
+# Catalyst's own providers (D-04 to D-08): any variable with these prefixes is refused. The first generation's Twenty
+# variables (TWENTY_*) stay refused after bgl.14: v2's projection reads only its own CATALYST_TWENTY_* settings, fixed in
+# code, and a token file (twenty_problems).
 PROVIDER_ENV_PREFIXES = ("MINIMAX_", "DOCUMENSO_", "TWENTY_", "MXROUTE_", "SMTP_", "EMAIL_HOST")
 
 # Other model-provider and telemetry credential or export settings, refused by exact name (owner
@@ -129,6 +135,12 @@ SENT_FOLDER_SOURCE = "correspondence.sent_reader.SentFolderSource"
 # A host name: lower-case labels, and a final label with a letter (never an all-digit or address-like name).
 HOST_NAME = re.compile(r"([a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?\.)+[a-z0-9-]*[a-z][a-z0-9-]*")
 SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+# bgl.6: the one value of CATALYST_MAIL_TAKEOVER, the swap act that clears the first-generation guard (config/settings.py).
+MAIL_TAKEOVER_VALUE = "first-generation-poll-stopped"
+# bgl.6: a plain mailbox address for the sender settings: one local part and one domain, no display name, comment,
+# white space or list separator, so a header built from it names exactly one mailbox.
+PLAIN_ADDRESS = re.compile(r"[^@\s<>()\[\]\\,;:\"]+@[^@\s<>()\[\]\\,;:\"]+")
+DISPLAY_NAME_MAX = 64
 
 
 def mail_host_allowed(environment: str, host: str, test_host: str, allowed_hosts=(), role: str = "", purpose: str = "smtp") -> bool:
@@ -161,8 +173,9 @@ def mail_allow_list_problems(settings) -> list[str]:
     """9kg.49: the allow-list is exact, non-empty in a live environment, empty everywhere else. A live environment
     also requires the positive pin of the one v2 mailbox login (`CATALYST_MAIL_USER_SHA256`, a 64-hex digest the
     login must hash to) and a non-empty denied list of 64-hex digests (the first-generation mailbox), so the rule is
-    never opt-in there (security review of PR #89); a denied login is refused in every environment. The digest
-    values are private: never pasted into a pull request or a document."""
+    never opt-in there (security review of PR #89); a denied login is refused in every environment until the swap
+    value lifts the denial (bgl.6, takeover_problems). The digest values are private: never pasted into a pull request
+    or a document."""
     environment = getattr(settings, "CATALYST_ENV", "")
     allowed = list(getattr(settings, "CATALYST_MAIL_ALLOWED_HOSTS", []) or [])
     problems = []
@@ -184,14 +197,71 @@ def mail_allow_list_problems(settings) -> list[str]:
             problems.append("CATALYST_MAIL_USER_SHA256 must pin the v2 mailbox login in a live environment")
         elif user and not user_pinned(user, pin):
             problems.append("CATALYST_MAIL_USER does not hash to CATALYST_MAIL_USER_SHA256 (not the pinned v2 mailbox)")
-        if pin and pin in denied:
+        if pin and pin in denied and not takeover(settings):  # bgl.6: the swap lifts the denial (takeover_problems)
             problems.append("CATALYST_MAIL_USER_SHA256 names a denied mailbox")
         if getattr(settings, "CATALYST_SEND_EVIDENCE_SOURCE", "") != SENT_FOLDER_SOURCE:
             problems.append("CATALYST_SEND_EVIDENCE_SOURCE must be the Sent-folder reader in a live environment (9kg.49)")
     elif allowed:
         problems.append("CATALYST_MAIL_ALLOWED_HOSTS is allowed only in a live environment (synthetic and development use loopback)")
-    if denied and user and user_digest(user) in denied:
+    if denied and user and user_digest(user) in denied and not takeover(settings):
         problems.append("CATALYST_MAIL_USER is a denied mailbox (the first-generation mailbox is never a v2 source)")
+    return problems
+
+
+def takeover(settings) -> bool:
+    """bgl.6: whether this configuration has taken over the first generation's mailbox (the swap act)."""
+    return getattr(settings, "CATALYST_MAIL_TAKEOVER", "") == MAIL_TAKEOVER_VALUE
+
+
+def sender_address(settings) -> str:
+    return str(getattr(settings, "DEFAULT_FROM_EMAIL", "") or "").strip().lower()
+
+
+def takeover_problems(settings) -> list[str]:
+    """bgl.6 (034 section 3.2; the owner's answer of 2026-10-31): the swap lifts the first-generation guard, and only
+    explicitly: CATALYST_MAIL_TAKEOVER is empty (the denied digests refuse the first generation's login, the default)
+    or exactly MAIL_TAKEOVER_VALUE (the denial is lifted; the digests stay configured, so unsetting the value restores
+    the refusal). With it, v2 must read the mailbox it sends from: the login, where this process holds one, equals
+    CATALYST_FROM_EMAIL, and in a live environment the pin every process holds is that address's digest. Messages
+    name settings, never a mailbox."""
+    value = getattr(settings, "CATALYST_MAIL_TAKEOVER", "") or ""
+    if not value:
+        return []
+    if value != MAIL_TAKEOVER_VALUE:
+        return [f"CATALYST_MAIL_TAKEOVER must be empty or exactly {MAIL_TAKEOVER_VALUE!r} (the swap act)"]
+    problems = []
+    sender = sender_address(settings)
+    user = str(getattr(settings, "CATALYST_MAIL_USER", "") or "").strip().lower()
+    if user and user != sender:
+        problems.append("CATALYST_MAIL_USER must be the CATALYST_FROM_EMAIL mailbox under CATALYST_MAIL_TAKEOVER "
+                        "(v2 reads the mailbox it sends from)")
+    pin = str(getattr(settings, "CATALYST_MAIL_USER_SHA256", "") or "").strip().lower()
+    if getattr(settings, "CATALYST_ENV", "") in LIVE_ENVIRONMENTS and pin and pin != user_digest(sender):
+        problems.append("CATALYST_MAIL_USER_SHA256 must pin the CATALYST_FROM_EMAIL mailbox under CATALYST_MAIL_TAKEOVER")
+    return problems
+
+
+def sender_problems(settings) -> list[str]:
+    """bgl.6 (034 rows 10 and 22): the sender headers of every applicant mail. CATALYST_FROM_EMAIL is one plain address;
+    the display name, when set, is one short line of printable text that holds no address (no look-alike sender);
+    Reply-To, when set, is one plain address, and in a live environment the From address itself, so a reply reaches
+    the mailbox v2 reads (the first generation's own rule: Reply-To the same)."""
+    problems = []
+    sender = str(getattr(settings, "DEFAULT_FROM_EMAIL", "") or "")
+    if not PLAIN_ADDRESS.fullmatch(sender):
+        problems.append("CATALYST_FROM_EMAIL must be one plain address (the display name is CATALYST_FROM_DISPLAY_NAME)")
+    name = str(getattr(settings, "CATALYST_FROM_DISPLAY_NAME", "") or "")
+    if name and (len(name) > DISPLAY_NAME_MAX or not name.isprintable() or any(c in name for c in '@<>"\\')
+                 or name != name.strip()):
+        problems.append(f"CATALYST_FROM_DISPLAY_NAME must be one line of at most {DISPLAY_NAME_MAX} printable characters "
+                        "with no address, quote, angle bracket or backslash")
+    reply_to = str(getattr(settings, "CATALYST_REPLY_TO", "") or "")
+    if reply_to:
+        if not PLAIN_ADDRESS.fullmatch(reply_to):
+            problems.append("CATALYST_REPLY_TO must be one plain address")
+        elif getattr(settings, "CATALYST_ENV", "") in LIVE_ENVIRONMENTS and reply_to.lower() != sender.strip().lower():
+            problems.append("CATALYST_REPLY_TO must be the CATALYST_FROM_EMAIL address in a live environment (replies "
+                            "reach the mailbox v2 reads)")
     return problems
 
 
@@ -200,7 +270,7 @@ def mail_problems(settings) -> list[str]:
     test_host = getattr(settings, "CATALYST_MAIL_TEST_HOST", "")
     allowed = getattr(settings, "CATALYST_MAIL_ALLOWED_HOSTS", []) or []
     role = ANY_KIND
-    problems = mail_allow_list_problems(settings)
+    problems = mail_allow_list_problems(settings) + takeover_problems(settings)
     if test_host and settings.CATALYST_ENV != "test":
         problems.append("CATALYST_MAIL_TEST_HOST is allowed only in the test environment")
     if host and not mail_host_allowed(settings.CATALYST_ENV, host, test_host, allowed, role):
@@ -236,7 +306,11 @@ def mail_problems(settings) -> list[str]:
 
 
 DISPATCH_SETTINGS = ("CATALYST_ATTENTION_OPENER", "CATALYST_ACTION_HANDLERS", "CATALYST_REPLY_INTERPRETER",
-                     "CATALYST_ANSWERS_CONFIRMED_HOOK", "CATALYST_REPLY_INTERPRETATION_ACTIVATION")
+                     "CATALYST_ANSWERS_CONFIRMED_HOOK", "CATALYST_REPLY_INTERPRETATION_ACTIVATION",
+                     "CATALYST_FOREIGN_THREAD_RESOLVER")
+# bgl.6: the one module that may resolve replies to first-generation threads (config/settings.py), and only with its app
+# installed; tests name their own fake under `tests.`.
+FOREIGN_THREAD_RESOLVER = "firstgen.threads"
 
 
 def dispatch_problems(settings, environ: Mapping[str, str]) -> list[str]:
@@ -252,9 +326,14 @@ def dispatch_problems(settings, environ: Mapping[str, str]) -> list[str]:
             problems.append(f"{name} must name an assessments object")
     for kind, path in (getattr(settings, "CATALYST_ACTION_HANDLERS", None) or {}).items():
         if not str(path).startswith(("correspondence.", "workflow.", "assessments.", "agreements.", "provisioning.",
-                                     "accounts.")):  # accounts: the session clean-up (6B.9)
+                                     "accounts.", "crm.")):  # accounts: the session clean-up (6B.9); crm: bgl.14
             problems.append(f"CATALYST_ACTION_HANDLERS[{kind!r}] must name a correspondence, workflow, assessments, "
-                            "agreements, provisioning or accounts handler")
+                            "agreements, provisioning, accounts or crm handler")
+    resolver = str(getattr(settings, "CATALYST_FOREIGN_THREAD_RESOLVER", "") or "")
+    installed = list(getattr(settings, "INSTALLED_APPS", []) or [])
+    if resolver and not ((resolver == FOREIGN_THREAD_RESOLVER and "firstgen" in installed)
+                         or (resolver.startswith("tests.") and getattr(settings, "CATALYST_ENV", "") == "test")):
+        problems.append(f"CATALYST_FOREIGN_THREAD_RESOLVER must be empty or {FOREIGN_THREAD_RESOLVER!r} with its app installed")
     return problems
 
 
@@ -283,15 +362,61 @@ def evidence_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return problems
 
 
+# bgl.12: the settings that reach a live model, allowed only in the synthetic environments and only under the activation.
+LIVE_MODEL_TEST_ONLY = ("CATALYST_ASSESSMENT_LIVE_BASE_URL", "CATALYST_ASSESSMENT_API_KEY")
+CODE_FIXED_ASSESSMENT = ("CATALYST_ASSESSMENT_MODEL", "CATALYST_ASSESSMENT_LIVE_ACTIVATION", "CATALYST_ROUTINE_ADVANCE_ACTIVATION")
+
+
 def assessment_problems(settings, environ: Mapping[str, str]) -> list[str]:
-    """018 5.5 (P3 3B.2): no live model anywhere. "test" (a PydanticAI test model) only in the test and
-    staging environments; every other environment must say "none"; never from the environment."""
-    problems = ["CATALYST_ASSESSMENT_MODEL may not be set from the environment"] if "CATALYST_ASSESSMENT_MODEL" in environ else []
+    """018 5.5 (P3 3B.2) and bgl.12: "test" (a PydanticAI test model) only in the test and staging environments; a live
+    value "<provider>:<model id>" only there too, and only with CATALYST_ASSESSMENT_LIVE_ACTIVATION on; every other
+    environment must say "none". The live base URL and key are allowed only in those environments, and none of the
+    model, the activations or the routine policy's activation may come from the environment."""
+    problems = [f"{name} may not be set from the environment" for name in CODE_FIXED_ASSESSMENT if name in environ]
     mode = getattr(settings, "CATALYST_ASSESSMENT_MODEL", "none")
-    if mode not in ("none", "test"):
-        problems.append("CATALYST_ASSESSMENT_MODEL must be 'none' or 'test'; live model use is not authorized")
-    elif mode == "test" and not synthetic(getattr(settings, "CATALYST_ENV", "")):
-        problems.append("CATALYST_ASSESSMENT_MODEL 'test' is allowed only in the test and staging environments")
+    environment = getattr(settings, "CATALYST_ENV", "")
+    live_activation = int(getattr(settings, "CATALYST_ASSESSMENT_LIVE_ACTIVATION", 0) or 0)
+    if mode == "test":
+        if not synthetic(environment):
+            problems.append("CATALYST_ASSESSMENT_MODEL 'test' is allowed only in the test and staging environments")
+    elif mode != "none":
+        from assessments.approval import parse_model
+
+        if parse_model(mode) is None or not (synthetic(environment) or parity.enabled(settings)) or live_activation < 1:
+            problems.append("CATALYST_ASSESSMENT_MODEL must be 'none' or 'test', or name '<provider>:<model id>' in a synthetic "
+                            "environment with CATALYST_ASSESSMENT_LIVE_ACTIVATION on; live model use is not authorized here")
+    if not synthetic(environment) and not parity.enabled(settings):
+        for name in LIVE_MODEL_TEST_ONLY:
+            if getattr(settings, name, ""):
+                problems.append(f"{name} is allowed only in the test and staging environments (no live model elsewhere)")
+        if live_activation >= 1:
+            problems.append("CATALYST_ASSESSMENT_LIVE_ACTIVATION is allowed only in the test and staging environments")
+    url = getattr(settings, "CATALYST_ASSESSMENT_LIVE_BASE_URL", "")
+    if url:
+        from assessments.live import base_url_problem
+
+        if base_url_problem(url):
+            problems.append("CATALYST_ASSESSMENT_LIVE_BASE_URL must be an https URL, or http to a loopback literal")
+    routine = int(getattr(settings, "CATALYST_ROUTINE_ADVANCE_ACTIVATION", 0) or 0)
+    if routine not in (0, 1, 2):
+        problems.append("CATALYST_ROUTINE_ADVANCE_ACTIVATION must be 0 (off), 1 (shadow) or 2 (act)")
+    if routine >= 1:
+        from assessments.policy import Thresholds
+
+        try:
+            problems += Thresholds.from_settings(settings).problems()
+        except AttributeError:
+            problems.append("the routine-advance thresholds must be set when CATALYST_ROUTINE_ADVANCE_ACTIVATION is on")
+    if environment == "production" and live_activation >= 1:
+        # The largest job drafts and checks one clarification (two bounded attempts).
+        if getattr(settings, "CATALYST_MINIMAX_REQUESTS_PER_MINUTE", 0) < 4:
+            problems.append("CATALYST_MINIMAX_REQUESTS_PER_MINUTE must cover one bounded clarification job")
+    if parity.enabled(settings):
+        problems += parity.endpoint_problems(settings, "CATALYST_ASSESSMENT_LIVE_BASE_URL")
+        if live_activation not in (0, 1):
+            problems.append("CATALYST_ASSESSMENT_LIVE_ACTIVATION must be 0 or 1")
+        if mode not in ("none", "test") and not mode.startswith("minimax:"):
+            problems.append("the production model provider must be minimax")
     return problems + attempt_lease_problems(settings)
 
 
@@ -343,7 +468,34 @@ def decision_problems(settings, environ: Mapping[str, str]) -> list[str]:
 AGREEMENT_TEST_ONLY = ("CATALYST_AGREEMENT_PROVIDER_URL", "CATALYST_AGREEMENT_PROVIDER_ADDRESS",
                        "CATALYST_AGREEMENT_PROVIDER_CA_FILE", "CATALYST_AGREEMENT_PROVIDER_TOKEN",
                        "CATALYST_AGREEMENT_WEBHOOK_SECRETS", "CATALYST_AGREEMENT_STORAGE_DIR",
-                       "CATALYST_AGREEMENT_REQUIRED_DETAILS", "CATALYST_CUSTODY_KEY_DIR", "CATALYST_CUSTODY_KEY_MIRROR_DIR")
+                       "CATALYST_AGREEMENT_REQUIRED_DETAILS", "CATALYST_CUSTODY_KEY_DIR", "CATALYST_CUSTODY_KEY_MIRROR_DIR",
+                       # bgl.8: the signing host and the read-back layouts are synthetic until POL-18 and the canary
+                       "CATALYST_AGREEMENT_SIGNING_BASE_URL", "CATALYST_AGREEMENT_FIELD_LAYOUTS")
+AGREEMENT_DISTRIBUTIONS = ("provider", "service")  # bgl.8: who mails the signing request (config.settings)
+
+
+def _distribution_problems(settings, environ: Mapping[str, str]) -> list[str]:
+    """bgl.8: the distribution mode is one of two known values, fixed in code; "service" needs the public signing host,
+    https with nothing but a host, from which the service-sent link is built (agreements.signing_mail)."""
+    problems = []
+    if "CATALYST_AGREEMENT_DISTRIBUTION" in environ:
+        problems.append("CATALYST_AGREEMENT_DISTRIBUTION may not be set from the environment")
+    mode = getattr(settings, "CATALYST_AGREEMENT_DISTRIBUTION", "provider")
+    if mode not in AGREEMENT_DISTRIBUTIONS:
+        problems.append("CATALYST_AGREEMENT_DISTRIBUTION must be 'provider' or 'service'")
+    base = getattr(settings, "CATALYST_AGREEMENT_SIGNING_BASE_URL", "")
+    if mode == "service" and not base:
+        problems.append("CATALYST_AGREEMENT_SIGNING_BASE_URL is required when CATALYST_AGREEMENT_DISTRIBUTION is 'service'")
+    if base:
+        parts = urlsplit(base)
+        if parts.scheme != "https" or not parts.hostname or parts.path not in ("", "/") or parts.query or parts.fragment:
+            problems.append("CATALYST_AGREEMENT_SIGNING_BASE_URL must be https with a host and nothing else")
+    layouts = getattr(settings, "CATALYST_AGREEMENT_FIELD_LAYOUTS", {}) or {}
+    if layouts:
+        from agreements.details import layout_problems
+
+        problems += layout_problems(layouts)
+    return problems
 
 
 def agreement_problems(settings, environ: Mapping[str, str]) -> list[str]:
@@ -352,13 +504,18 @@ def agreement_problems(settings, environ: Mapping[str, str]) -> list[str]:
     the URL must be https on a `.test` host and the pinned address a literal loopback address, so only the local fake
     can answer."""
     problems = [f"{name} may not be set from the environment" for name in AGREEMENT_TEST_ONLY if name in environ]
-    if not synthetic(getattr(settings, "CATALYST_ENV", "")):
+    problems += _distribution_problems(settings, environ)
+    if not synthetic(getattr(settings, "CATALYST_ENV", "")) and not parity.enabled(settings):
         for name in AGREEMENT_TEST_ONLY:
             if getattr(settings, name, ""):
                 problems.append(f"{name} is allowed only in the test and staging environments (synthetic agreements only)")
         return problems
     url = getattr(settings, "CATALYST_AGREEMENT_PROVIDER_URL", "")
-    if url:
+    if parity.enabled(settings):
+        problems += parity.endpoint_problems(settings, "CATALYST_AGREEMENT_PROVIDER_URL",
+                                             pinned="CATALYST_AGREEMENT_PROVIDER_ADDRESS", trust="CATALYST_AGREEMENT_PROVIDER_CA_FILE")
+        problems += parity.endpoint_problems(settings, "CATALYST_AGREEMENT_SIGNING_BASE_URL", origin=True)
+    elif url:
         if not url.startswith("https://"):
             problems.append("CATALYST_AGREEMENT_PROVIDER_URL must be https")
         host = (urlsplit(url).hostname or "") if url.startswith("https://") else ""
@@ -379,7 +536,54 @@ def agreement_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return problems
 
 
-PROVISIONING_TEST_ONLY = ("CATALYST_PROVISIONING_ADAPTER", "CATALYST_PROVISIONING_DOMAIN")
+# bgl.9 (034 rows 30 and 36): the automated countersignature and release. The modes are fixed in code; the company
+# recipient's identity is provider identity, so like the provider URL it is empty outside `test` and `staging`.
+COUNTERSIGN_MODES = ("manual", "automatic")
+RELEASE_MODES = ("owner", "automatic")
+COMPANY_TEST_ONLY = ("CATALYST_AGREEMENT_COMPANY_EMAIL", "CATALYST_AGREEMENT_COMPANY_NAME",
+                     "CATALYST_AGREEMENT_COUNTERSIGN_SIGNATURE")
+AUTOMATION_FIXED = ("CATALYST_AGREEMENT_COUNTERSIGN", "CATALYST_AGREEMENT_COMPANY_ROLE", "CATALYST_RELEASE_MODE")
+
+
+def automation_problems(settings, environ: Mapping[str, str]) -> list[str]:
+    """bgl.9: each mode one of its known values and never from the environment; the company recipient's address, name
+    and typed signature refused outside `test` and `staging`, and in those a `.test` address only; "automatic"
+    countersigning needs the recipient and the signature text."""
+    problems = [f"{name} may not be set from the environment" for name in (*AUTOMATION_FIXED, *COMPANY_TEST_ONLY)
+                if name in environ]
+    mode = getattr(settings, "CATALYST_AGREEMENT_COUNTERSIGN", "manual")
+    if mode not in COUNTERSIGN_MODES:
+        problems.append("CATALYST_AGREEMENT_COUNTERSIGN must be 'manual' or 'automatic'")
+    if getattr(settings, "CATALYST_RELEASE_MODE", "owner") not in RELEASE_MODES:
+        problems.append("CATALYST_RELEASE_MODE must be 'owner' or 'automatic'")
+    if getattr(settings, "CATALYST_AGREEMENT_COMPANY_ROLE", "APPROVER") not in ("APPROVER", "SIGNER"):
+        problems.append("CATALYST_AGREEMENT_COMPANY_ROLE must be 'APPROVER' or 'SIGNER'")
+    if not synthetic(getattr(settings, "CATALYST_ENV", "")) and not parity.enabled(settings):
+        for name in COMPANY_TEST_ONLY:
+            if getattr(settings, name, ""):
+                problems.append(f"{name} is allowed only in the test and staging environments (synthetic agreements only)")
+    elif not parity.enabled(settings):
+        email = getattr(settings, "CATALYST_AGREEMENT_COMPANY_EMAIL", "") or ""
+        if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.test", email.lower()):
+            problems.append("CATALYST_AGREEMENT_COMPANY_EMAIL must be an address at a .test domain")
+    if parity.enabled(settings):
+        email = getattr(settings, "CATALYST_AGREEMENT_COMPANY_EMAIL", "")
+        if email and not re.fullmatch(r"[^@\s]+@intentsolutions\.io", email):
+            problems.append("the company recipient must be at the approved company domain")
+    if mode == "automatic" and not (getattr(settings, "CATALYST_AGREEMENT_COMPANY_EMAIL", "")
+                                    and getattr(settings, "CATALYST_AGREEMENT_COUNTERSIGN_SIGNATURE", "")):
+        problems.append("CATALYST_AGREEMENT_COUNTERSIGN 'automatic' needs CATALYST_AGREEMENT_COMPANY_EMAIL and "
+                        "CATALYST_AGREEMENT_COUNTERSIGN_SIGNATURE")
+    return problems
+
+
+PROVISIONING_TEST_ONLY = ("CATALYST_PROVISIONING_ADAPTER", "CATALYST_PROVISIONING_DOMAIN",
+                          # the live mail host's values (034 row 37): fixed in code, empty outside test and staging
+                          "CATALYST_PROVISIONING_API_URL", "CATALYST_PROVISIONING_API_SERVER",
+                          "CATALYST_PROVISIONING_API_ACCOUNT", "CATALYST_PROVISIONING_API_KEY_FILE",
+                          "CATALYST_PROVISIONING_IMAP_HOST")
+NAMING_POLICIES = ("first_last", "first_name")
+CREDENTIAL_MODES = ("set_your_own", "one_time_password")
 
 
 def provisioning_problems(settings, environ: Mapping[str, str]) -> list[str]:
@@ -404,16 +608,21 @@ def provisioning_problems(settings, environ: Mapping[str, str]) -> list[str]:
         for host in getattr(settings, "ALLOWED_HOSTS", []) or []:
             if host.strip() in ("*", ".") or _production_host(host.strip().lstrip(".")):
                 problems.append(f"ALLOWED_HOSTS in staging may not include {host!r}")
-    if not synthetic(environment):
+    if getattr(settings, "CATALYST_PROVISIONING_NAMING_POLICY", "first_last") not in NAMING_POLICIES:
+        problems.append("CATALYST_PROVISIONING_NAMING_POLICY must be first_last or first_name")
+    if getattr(settings, "CATALYST_PROVISIONING_CREDENTIAL_MODE", "set_your_own") not in CREDENTIAL_MODES:
+        problems.append("CATALYST_PROVISIONING_CREDENTIAL_MODE must be set_your_own or one_time_password")
+    if not synthetic(environment) and not parity.enabled(settings):
         for name in PROVISIONING_TEST_ONLY:
             if getattr(settings, name, ""):
                 problems.append(f"{name} is allowed only in the test and staging environments (synthetic provisioning only)")
         return problems
     adapter = getattr(settings, "CATALYST_PROVISIONING_ADAPTER", "")
-    if adapter and not adapter.startswith("tests."):
+    if adapter and not adapter.startswith("tests.") and not parity.enabled(settings):
         problems.append("CATALYST_PROVISIONING_ADAPTER must name a test fake")
+    problems += parity.provisioning_problems(settings) if parity.enabled(settings) else _live_host_problems(settings)
     domain = getattr(settings, "CATALYST_PROVISIONING_DOMAIN", "")
-    if domain and not domain.lower().endswith(".test"):
+    if domain and not domain.lower().endswith(".test") and not parity.enabled(settings):
         problems.append("CATALYST_PROVISIONING_DOMAIN must be a .test domain")
     if getattr(settings, "CATALYST_PROVISIONING_METHOD", "api") not in ("api", "checklist"):
         problems.append("CATALYST_PROVISIONING_METHOD must be api or checklist")
@@ -422,6 +631,70 @@ def provisioning_problems(settings, environ: Mapping[str, str]) -> list[str]:
         problems.append("CATALYST_PROVISIONING_QUOTA_MB must be at least 1 (never unlimited, P5-D-2)")
     if not (isinstance(limit, int) and 1 <= limit <= 9600):
         problems.append("CATALYST_PROVISIONING_SEND_LIMIT must be between 1 and 9600")
+    return problems
+
+
+def _live_host_problems(settings) -> list[str]:
+    """The live mail host's values in test and staging (034 row 37): the API origin is https on a `.test` host or http
+    on loopback, with no path, query or fragment; the key file is an absolute path; the IMAP host is loopback or a
+    `.test` name, its port in range. Nothing here may name a real host."""
+    problems = []
+    api = getattr(settings, "CATALYST_PROVISIONING_API_URL", "") or ""
+    if api:
+        parts = urlsplit(api)
+        host = parts.hostname or ""
+        origin = (parts.scheme == "https" and host.isascii() and host.lower().endswith(".test")) or (
+            parts.scheme == "http" and is_loopback_literal(host))
+        if not origin or parts.path not in ("", "/") or parts.query or parts.fragment or "@" in parts.netloc:
+            problems.append("CATALYST_PROVISIONING_API_URL must be an https origin on a .test host, or http on loopback")
+    key_file = getattr(settings, "CATALYST_PROVISIONING_API_KEY_FILE", "") or ""
+    if key_file and not key_file.startswith("/"):
+        problems.append("CATALYST_PROVISIONING_API_KEY_FILE must be an absolute path")
+    imap = getattr(settings, "CATALYST_PROVISIONING_IMAP_HOST", "") or ""
+    if imap and not (is_loopback_literal(imap) or (imap.isascii() and imap.lower().endswith(".test"))):
+        problems.append("CATALYST_PROVISIONING_IMAP_HOST must be loopback or a .test host")
+    port = getattr(settings, "CATALYST_PROVISIONING_IMAP_PORT", 993)
+    if not (isinstance(port, int) and 1 <= port <= 65535):
+        problems.append("CATALYST_PROVISIONING_IMAP_PORT must be a port number")
+    return problems
+
+
+TWENTY_TEST_ONLY = ("CATALYST_TWENTY_PROJECTION", "CATALYST_TWENTY_URL", "CATALYST_TWENTY_ADDRESS", "CATALYST_TWENTY_CA_FILE")
+# The process roles that never call Twenty (the fetcher reaches applicant-supplied addresses; the post-restore step reads
+# only the restored tables and the Sent folder).
+TWENTY_TOKEN_DENIED_ROLES = ("fetcher", "reconcile")
+
+
+def twenty_problems(settings, environ: Mapping[str, str], kind: str = "") -> list[str]:
+    """bgl.14 (034 rows 42 and 43; owner answer of 2026-10-31 reversing D-08 on activation): the Twenty projection.
+    The switch, the URL, the pinned address and the trust store are fixed in code, never from the environment, and,
+    with the token file, empty or off outside `test` and `staging` until the swap's own reviewed code change admits
+    production. In those two the URL must be https on a `.test` host and the address a literal loopback address, so only
+    the local stub can answer. The token is a secret file (`twenty_token`), held by the worker and the owner-run commands
+    only: the web process and the fetcher and post-restore roles refuse to start with it."""
+    problems = [f"{name} may not be set from the environment" for name in TWENTY_TEST_ONLY if name in environ]
+    token = getattr(settings, "CATALYST_TWENTY_TOKEN", "")
+    if token and (kind == "web" or getattr(settings, "CATALYST_PROCESS_ROLE", "") in TWENTY_TOKEN_DENIED_ROLES):
+        problems.append("CATALYST_TWENTY_TOKEN may be given only to the worker and the owner-run commands")
+    if not synthetic(getattr(settings, "CATALYST_ENV", "")) and not parity.enabled(settings):
+        for name in (*TWENTY_TEST_ONLY, "CATALYST_TWENTY_TOKEN"):
+            if getattr(settings, name, ""):
+                problems.append(f"{name} is allowed only in the test and staging environments until the Twenty swap")
+        return problems
+    url = getattr(settings, "CATALYST_TWENTY_URL", "")
+    if parity.enabled(settings):
+        problems += parity.endpoint_problems(settings, "CATALYST_TWENTY_URL",
+                                             pinned="CATALYST_TWENTY_ADDRESS", trust="CATALYST_TWENTY_CA_FILE")
+    elif url:
+        parts = urlsplit(url) if url.startswith("https://") else None
+        if parts is None:
+            problems.append("CATALYST_TWENTY_URL must be https")
+        elif not (parts.hostname or "").endswith(".test") or parts.query or parts.fragment or parts.username:
+            problems.append("CATALYST_TWENTY_URL must name a .test host, with no user, query or fragment")
+        if not is_loopback_literal(getattr(settings, "CATALYST_TWENTY_ADDRESS", "")):
+            problems.append("CATALYST_TWENTY_ADDRESS must be a literal loopback address")
+        if not getattr(settings, "CATALYST_TWENTY_CA_FILE", ""):
+            problems.append("CATALYST_TWENTY_CA_FILE is required with CATALYST_TWENTY_URL (never the system store)")
     return problems
 
 
@@ -449,7 +722,8 @@ def live_problems(settings) -> list[str]:
     """9kg.31.11 (029 sections 4.1, 7 and 13; the owner directive of 2026-10-26): the rails a live environment adds,
     failing closed (security review of PR #118: a deny-list of bad hosts let `\\@`, percent-encoding and ports past).
 
-    - Intake stays invitation-only: open intake is the public cutover, separately authorized.
+    - The intake mode is not a live rail: "invitation" or "open" is checked for every environment (intake_problems);
+      open intake on the first-generation URLs is the owner's switch (034 row 2, bgl.2).
     - The public base URL is exactly `https://<host>`: no user part, port, path, query or fragment, and nothing a
       browser could read differently from Python (a backslash, a percent sign, white space).
     - The public host and the staff host are distinct plain DNS names, never the learning site's host, the apex of
@@ -460,8 +734,6 @@ def live_problems(settings) -> list[str]:
     if getattr(settings, "CATALYST_ENV", "") not in LIVE_ENVIRONMENTS:
         return []
     problems = []
-    if getattr(settings, "CATALYST_INTAKE_MODE", None) != "invitation":
-        problems.append("CATALYST_INTAKE_MODE must be 'invitation' in a live environment (open intake is the public cutover)")
     base = str(getattr(settings, "CATALYST_PUBLIC_BASE_URL", "") or "")
     match = re.fullmatch(r"https://([^/?#@\\%\s:]+)", base)
     public = match.group(1) if match else ""
@@ -479,10 +751,11 @@ def live_problems(settings) -> list[str]:
         elif host in PRODUCTION_DOMAINS or any(host == f"www.{domain}" for domain in PRODUCTION_DOMAINS):
             problems.append(f"{name} may not be a production domain's apex or www name (a dedicated v2 host only)")
     local = [str(h) for h in (getattr(settings, "CATALYST_LOCAL_HOSTS", []) or [])]
-    expected = {h for h in (public, staff, *local) if h}
+    aliases = [str(h) for h in (getattr(settings, "CATALYST_PUBLIC_HOST_ALIASES", []) or [])]  # bgl.2, alias_problems
+    expected = {h for h in (public, staff, *local, *aliases) if h}
     extra = sorted(h for h in (getattr(settings, "ALLOWED_HOSTS", []) or []) if h not in expected)
     if extra:
-        problems.append(f"ALLOWED_HOSTS may hold only the public, staff and local hosts in a live environment, not {extra}")
+        problems.append(f"ALLOWED_HOSTS may hold only the public, staff, local and alias hosts in a live environment, not {extra}")
     if getattr(settings, "EMAIL_BACKEND", "") not in LIVE_EMAIL_BACKENDS:
         problems.append(f"EMAIL_BACKEND must be {TRANSPORT_EMAIL_BACKEND} (or the {REFUSING_EMAIL_BACKEND} hold) "
                         "in a live environment")
@@ -490,6 +763,23 @@ def live_problems(settings) -> list[str]:
     domain = sender.rpartition("@")[2]
     if not domain or not _live_host(domain) or domain.endswith((".invalid", ".example")) or domain.startswith("example."):
         problems.append("CATALYST_FROM_EMAIL must be the v2 sender address in a live environment, not a synthetic one")
+    return problems
+
+
+def alias_problems(settings) -> list[str]:
+    """bgl.2: every public host alias is a plain lower-case DNS name (no wildcard, port, address or look-alike), never
+    the staff host and never a local host, so an alias can only ever reach the public applicant pages."""
+    staff = (getattr(settings, "CATALYST_STAFF_HOST", "") or "").lower().rstrip(".")
+    local = {str(h).lower().rstrip(".") for h in getattr(settings, "CATALYST_LOCAL_HOSTS", []) or []}
+    problems = []
+    for alias in getattr(settings, "CATALYST_PUBLIC_HOST_ALIASES", []) or []:
+        alias = str(alias)
+        if "*" in alias or not _live_host(alias):
+            problems.append(f"CATALYST_PUBLIC_HOST_ALIASES entries must be plain lower-case host names, not {alias!r}")
+        elif staff and alias.rstrip(".") == staff:
+            problems.append("CATALYST_PUBLIC_HOST_ALIASES may not include the staff host")
+        elif alias.rstrip(".") in local:
+            problems.append("CATALYST_PUBLIC_HOST_ALIASES may not include a local host")
     return problems
 
 
@@ -691,19 +981,26 @@ def custody_key_problems(settings, kind: str) -> list[str]:
     return problems
 
 
-INTAKE_FIXED = ("CATALYST_INTAKE_MODE", "CATALYST_CLIENT_IDENTITY")
+INTAKE_FIXED = ("CATALYST_CLIENT_IDENTITY",)
 INTAKE_MODES = ("invitation", "open")
 CLIENT_IDENTITY_SOURCES = ("proxy", "direct")
 
 
 def intake_problems(settings, environ: Mapping[str, str]) -> list[str]:
-    """9kg.29 and 9kg.43: the intake mode and the client-identity source are fixed in code, never from the
-    environment; the mode is "invitation" (the default) or "open", nothing else, so an unset or mistyped value refuses
-    start-up instead of opening the form; the identity source is "proxy" everywhere the web process listens on the
-    proxy's socket (026 section 8) and may be "direct" only in test and development."""
+    """9kg.29, 9kg.43 and bgl.2: the intake mode comes from the environment and is "invitation" (the default when
+    unset) or "open", nothing else, so an empty or mistyped value refuses start-up instead of opening the form; the
+    form checks are fixed in code and on outside the test suite; the client-identity source is fixed in code, never
+    from the environment, "proxy" everywhere the web process listens on the proxy's socket (026 section 8) and
+    "direct" only in test and development."""
     problems = [f"{name} may not be set from the environment" for name in INTAKE_FIXED if name in environ]
     if getattr(settings, "CATALYST_INTAKE_MODE", None) not in INTAKE_MODES:
         problems.append("CATALYST_INTAKE_MODE must be 'invitation' (the default) or 'open'")
+    if getattr(settings, "CATALYST_INTAKE_FORM_CHECKS", True) is not True and getattr(settings, "CATALYST_ENV", "") != "test":
+        problems.append("CATALYST_INTAKE_FORM_CHECKS must be on outside the test suite")
+    low, high = (getattr(settings, name, None) for name in ("CATALYST_INTAKE_FORM_MIN_AGE_SECONDS",
+                                                             "CATALYST_INTAKE_FORM_MAX_AGE_SECONDS"))
+    if isinstance(low, int) and isinstance(high, int) and low >= high:
+        problems.append("CATALYST_INTAKE_FORM_MIN_AGE_SECONDS must be below CATALYST_INTAKE_FORM_MAX_AGE_SECONDS")
     source = getattr(settings, "CATALYST_CLIENT_IDENTITY", None)
     if source not in CLIENT_IDENTITY_SOURCES:
         problems.append("CATALYST_CLIENT_IDENTITY must be 'proxy' or 'direct'")
@@ -718,13 +1015,16 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + environment_problems(settings.CATALYST_ENV)
         + provider_problems(settings.EMAIL_BACKEND, environ, settings.CATALYST_ENV)
         + mail_problems(settings)
+        + sender_problems(settings)
         + dispatch_problems(settings, environ)
         + evidence_problems(settings, environ)
         + assessment_problems(settings, environ)
         + decision_problems(settings, environ)
         + agreement_problems(settings, environ)
         + provisioning_problems(settings, environ)
+        + twenty_problems(settings, environ, _process_kind())
         + host_problems(settings)
+        + alias_problems(settings)
         + live_problems(settings)
         + secret_problems(settings, environ)
         + journal_problems(settings)
@@ -732,6 +1032,8 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + erasure_key_problems(settings, _process_kind())
         + custody_key_problems(settings, _process_kind())
         + intake_problems(settings, environ)
+        + automation_problems(settings, environ)
+        + parity.process_problems(settings, _process_kind())
     )
 
 

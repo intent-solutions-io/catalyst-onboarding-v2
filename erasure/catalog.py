@@ -90,7 +90,7 @@ TABLES = {
     "agreements_agreementdetailsversion": Table(
         selector=APP, subject={"values": S("agreement_records", OBJECT), "values_sha256": S("agreement_records", EMPTY)},
         staff="recorded_by confirmed_by",
-        other="id public_id version status confirmed_at created_at agreement_type_id application_id"),
+        other="id public_id version status confirmed_at created_at agreement_type_id application_id source instance_id"),
     "agreements_agreementinstance": Table(other=(
         "id public_id external_key envelope_id issue_status signing_status custody_status created_at updated_at"
         " application_id template_version_id agreement_type_id cancel_requested_at replaced_at replacement_reason")),
@@ -116,6 +116,9 @@ TABLES = {
     "agreements_storeddocument": Table(other=(  # the PDF itself is in custody: registry row signed_documents (9kg.34)
         "id public_id envelope_id item_id version storage_key sha256 size stored_at application_id instance_id"
         " observation_id")),
+    "agreements_countersignclaim": Table(other=(  # bgl.9: the single-writer claim; references, codes and times only
+        "id envelope_id external_key holder action_id state attempts last_code first_failure_at claimed_at updated_at"
+        " finished_at instance_id")),
     "agreements_custodyenvelope": Table(other=(  # 9kg.34: random references, digests and sizes; no key material
         "id storage_key scheme key_ref wrapping_key_id cipher_sha256 cipher_size migrated sealed_at document_id")),
     # --- applications --------------------------------------------------------------------------------------------
@@ -188,6 +191,11 @@ TABLES = {
     "django_content_type": Table(other="id app_label model"),
     "django_migrations": Table(other="id app name applied"),
     "django_session": Table(staff="session_data", secret="session_key", other="expire_date"),
+    # --- crm (bgl.14): the Twenty link; the person and the note at Twenty are the `twenty` handoff -------------------
+    "crm_twentylink": Table(
+        selector=APP, subject={"field_hashes": S("application_identity", OBJECT)},  # digests of low-entropy values
+        other=("id person_id link_method note_id note_sha256 projection_version projected_at created_at updated_at"
+               " application_id")),
     # --- correspondence ------------------------------------------------------------------------------------------
     "correspondence_approvedmessage": Table(
         selector=APP,
@@ -216,7 +224,7 @@ TABLES = {
         " duplicates_seen created_at")),
     "correspondence_messagetemplate": Table(other="id key purpose secret_bearing created_at"),
     "correspondence_messagetemplateversion": Table(staff="approved_by", other=(
-        "id version subject body_text variables secret_bearing status approved_at content_sha256 synthetic created_at"
+        "id version subject body_text body_html variables secret_bearing status approved_at content_sha256 synthetic created_at"
         " template_id subject_reference")),
     "correspondence_outboundmessage": Table(
         selector=APP, subject={"recipient": S("mail_derivatives")},
@@ -256,6 +264,14 @@ TABLES = {
     "otp_totp_totpdevice": Table(secret="key", other=(
         "id name confirmed step t0 digits tolerance drift last_t user_id throttling_failure_count"
         " throttling_failure_timestamp created_at last_used_at")),
+    # --- the first-generation import (bgl.16, 035): provenance; the record's data is the person's history ----------
+    "firstgen_importedcase": Table(other=(  # identifiers, verbatim states, CRM references, finding codes, times
+        "id v1_case_id reference v1_state v1_resume_state v1_cohort v1_created_at v1_state_changed_at mapped_stage"
+        " crm_person_id crm_note_id findings run_ref imported_at application_id")),
+    "firstgen_importedrecord": Table(
+        selector=APP, subject={"data": S("history_events", OBJECT)},  # a row without an application holds nothing personal
+        other="id v1_table v1_id kind occurred_at message_id target run_ref imported_at application_id"),
+    "firstgen_importrun": Table(staff="actor_ref", other="id public_id source_ref report recorded_at"),  # counts and codes
     # --- provisioning --------------------------------------------------------------------------------------------
     "provisioning_accessrevocation": Table(
         selector=REQUEST, subject={"note": S("staff_notes")}, staff="decided_by",
@@ -265,7 +281,7 @@ TABLES = {
         staff="reviewed_by released_by", other="id public_id domain basis released_at created_at application_id"),
     "provisioning_credentialsetup": Table(
         selector=REQUEST, subject={"recipient": S("provisioning_records")}, secret="token_sha256",
-        other="id public_id series state expires_at set_attempts set_started_at completed_at created_at updated_at request_id"),
+        other="id public_id series mode state expires_at set_attempts set_started_at completed_at created_at updated_at request_id"),
     "provisioning_provisioningattempt": Table(other=(
         "id public_id step series outcome code absent_before started_at finished_at request_id")),
     "provisioning_provisioningevidence": Table(
@@ -529,6 +545,19 @@ def erase_sql(retention_literal: str, existing: dict, replay: bool = False) -> s
     RAISE EXCEPTION 'erasure: an access revocation is not final' USING ERRCODE = 'CE005';
   END IF;
 """
+    # bgl.14: the person and the applicant file note at Twenty, once the schema has the link table (erasure 0006). The
+    # parity integration adds the person and note the first generation wrote for an imported case (bgl.16): they are at
+    # Twenty whether or not v2 ever projected the case, so the owner deletes them too.
+    owed = []
+    if "crm_twentylink" in existing:
+        owed.append("EXISTS (SELECT 1 FROM public.crm_twentylink t WHERE t.application_id = ANY(v_apps)"
+                    " AND (t.person_id <> '' OR t.note_id <> ''))")
+    if "crm_twentylink" in existing and "firstgen_importedcase" in existing:
+        owed.append("EXISTS (SELECT 1 FROM public.firstgen_importedcase f WHERE f.application_id = ANY(v_apps)"
+                    " AND (f.crm_person_id <> '' OR f.crm_note_id <> ''))")
+    twenty = ("" if not owed else
+              f"  IF {' OR '.join(owed)} THEN\n"
+              "    v_handoffs := v_handoffs || 'twenty'::text;\n  END IF;\n")
     unknown = "      RAISE EXCEPTION 'erasure: unknown subject' USING ERRCODE = 'CE002';\n"
     if replay:  # data review of PR #103, finding 1: a key the backup holds only on rows outside an application or invitation
         unknown = ("      IF p_key IS NULL OR pg_catalog.strpos(p_key, '@') = 0 THEN\n"
@@ -607,7 +636,7 @@ BEGIN
   IF EXISTS (SELECT 1 FROM public.assessments_assessmentrun r WHERE r.application_id = ANY(v_apps)) THEN
     v_handoffs := v_handoffs || 'model_provider'::text;  -- what the model provider kept of a request, if anything
   END IF;
-  -- Not erased by this function: the custody PDFs (registry row signed_documents; 9kg.34 destroys their keys).
+{twenty}  -- Not erased by this function: the custody PDFs (registry row signed_documents; 9kg.34 destroys their keys).
   IF EXISTS (SELECT 1 FROM public.agreements_storeddocument d WHERE d.application_id = ANY(v_apps)) THEN
     v_retained := v_retained || 'custody_documents'::text;
   END IF;

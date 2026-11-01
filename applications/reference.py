@@ -4,13 +4,13 @@ Every application carries one reference in the first generation's format, `CAT-X
 characters from Crockford's base32 alphabet without I, L, O and U, so it survives being read aloud or retyped. Eight
 characters from a 32-letter alphabet are 40 random bits from `secrets`. It is assigned when the application is created
 (the first submission), held unique by the database, never changed by the application role (no column grant, applications
-migration 0010) and shown to staff on the dossier and in subjects (`with_reference`).
+migration 0011) and shown to staff on the dossier and in subjects (`with_reference`).
 
 It is a label, never an authenticator: no applicant-facing view looks anything up by it, and nothing an applicant sends
 is trusted because it quotes it (the confirmation link, a signed random id, is the only applicant credential;
 applications.links). An imported first-generation application keeps the reference its applicant already holds: the
 importer passes `reference=` when it creates the application, and the database refuses a duplicate. A row inserted
-outside the ORM gets one from the database default, `public.catalyst_new_reference()` (applications migration 0010):
+outside the ORM gets one from the INSERT trigger (applications migration 0011):
 the same alphabet and length, from the 40 random bits that open a `gen_random_uuid()` (a strong random source).
 """
 
@@ -24,7 +24,6 @@ ATTEMPTS = 5
 # reference is never refused for its letters; a reference generated here always uses ALPHABET.
 STORED_PATTERN = r"^CAT-[0-9A-Z]{4}-[0-9A-Z]{4}$"
 GENERATED = re.compile(rf"CAT-[{ALPHABET}]{{{GROUP}}}-[{ALPHABET}]{{{GROUP}}}")
-DB_FUNCTION = "public.catalyst_new_reference"  # the same format in SQL, for a row inserted outside the ORM
 
 
 class ReferenceExhausted(RuntimeError):

@@ -60,7 +60,8 @@ from django.utils import timezone
 
 from workflow import journal
 
-HANDOFFS = ("documenso", "mail_sent", "mail_inbox", "mail_host_mailbox", "model_provider")
+# bgl.14: `twenty`, the person and the applicant file note the projection wrote to Twenty (crm.projection).
+HANDOFFS = ("documenso", "mail_sent", "mail_inbox", "mail_host_mailbox", "model_provider", "twenty")
 RETAINED = ("custody_documents",)  # reported while signed_documents is `retain`; `destroy_key` removes it (9kg.34)
 SUBJECT_PREFIX = b"catalyst-erasure-subject\n"
 KEY_ID_PREFIX = b"catalyst-erasure-key-id\n"

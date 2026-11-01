@@ -194,7 +194,8 @@ def test_p4_24_signing_tokens_and_links_are_never_stored_or_logged(g, monkeypatc
         assert not any(s in dump for s in SIGNING_SECRETS), table
     assert not any(s in caplog.text for s in SIGNING_SECRETS) and TOKEN not in caplog.text
     parsed = provider.read(nda(app).envelope_id)
-    assert set(vars(parsed.recipients[0])) == {"email", "role", "signing_order", "signing_status", "expired"}
+    # bgl.8 added the provider's numeric recipient id (what a typed field's recipientId names; not a secret)
+    assert set(vars(parsed.recipients[0])) == {"email", "role", "signing_order", "signing_status", "expired", "id"}
 
 
 # --- TEST-P4-11, 30: unknown creates ---------------------------------------------------------------------------

@@ -27,6 +27,7 @@ from applications.identity import email_key
 from applications.links import CONFIRM_PATH, SALT, verification_link
 from applications.models import Application, ApplicationEvent, ContactChallenge, SubmissionVersion, VersionAdoption
 from config import redaction, runtime
+from tests import support
 from tests.test_intake import SLICE, app_role_rows, wait_for_waiters
 from workflow.models import PendingAction
 
@@ -36,7 +37,7 @@ APP_ROLE = settings.CATALYST_DB_ROLES["app"]
 
 
 def intake(client=None, **fields):
-    data = {**VALID, **fields}
+    data = {**VALID, **support.INTAKE_ANSWERS, **fields}
     response = (client or Client()).post(FORM, urlencode(data), content_type="application/x-www-form-urlencoded")
     assert response.status_code == 302
     return Application.objects.get(email_key=email_key(data["email"]))
@@ -349,7 +350,7 @@ def test_s1_10_a_confirmation_racing_a_repeat_submission(privileged_reset, first
     results = {"confirmation": [], "repeat": []}
     calls = {
         "confirmation": lambda: post_confirm(Client(), link, v1),
-        "repeat": lambda: Client().post(FORM, urlencode({**VALID, "reason": "A second synthetic reason."}),
+        "repeat": lambda: Client().post(FORM, urlencode({**VALID, **support.INTAKE_ANSWERS, "reason": "A second synthetic reason."}),
                                         content_type="application/x-www-form-urlencoded"),
     }
     second = "repeat" if first == "confirmation" else "confirmation"

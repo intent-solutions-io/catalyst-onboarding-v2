@@ -40,7 +40,7 @@ from workflow import ledger
 from workflow.models import AutomationPause, PendingAction
 
 FORM = reverse("applications:request_access")
-VALID = {"name": "Ada Example", "email": "ada@example.test", "reason": "Synthetic reason for access."}
+VALID = {"name": "Ada Example", "email": "ada@example.test", "reason": "Synthetic reason for access.", **support.INTAKE_ANSWERS}
 APP_ROLE = settings.CATALYST_DB_ROLES["app"]
 
 

@@ -15,7 +15,8 @@ from django.utils.html import format_html, format_html_join
 
 from config.staff_admin import ReadOnlyModelAdmin, ReadOnlyTabularInline
 
-from . import invitations, members, staff
+from . import countries, invitations, members, staff
+from .forms import INTEREST_LABELS
 from .models import Application, ApplicationEvent, ContactChallenge, SubmissionVersion, VersionAdoption
 
 
@@ -34,7 +35,7 @@ class NeedsAttentionFilter(admin.SimpleListFilter):
 
 class VersionInline(ReadOnlyTabularInline):
     model = SubmissionVersion
-    fields = ("version_number", "trust", "origin", "name", "email", "reason", "received_at")
+    fields = ("version_number", "trust", "origin", "name", "email", "reason", "answers", "received_at")
     readonly_fields = fields
     ordering = ("version_number",)
     verbose_name = "submission version"
@@ -58,6 +59,36 @@ class VersionInline(ReadOnlyTabularInline):
     @admin.display(description="reason")
     def reason(self, obj):
         return obj.submitted_fields.get("reason", "")
+
+    @admin.display(description="answers (034 row 3)")
+    def answers(self, obj):
+        """The first-generation answers of this version (bgl.3), as the applicant gave them; a version recorded before
+        the fields existed says so. Every value is escaped by format_html; nothing here is a link."""
+        return describe_answers(obj.submitted_fields)
+
+
+def describe_answers(fields: dict):
+    """A definition list of the 034 row 3 answers in a submission, for the dossier."""
+    if "residence_country" not in fields:
+        return "none recorded (a version before the first-generation fields)"
+    yes_no = {True: "yes", False: "no"}
+    education = fields.get("education") or []
+    credentials = (fields.get("claims") or {}).get("credentials") or []
+    rows = [
+        ("Country of residence", f"{countries.name(fields['residence_country'])} ({fields['residence_country']})"),
+        ("Phone", f"{fields.get('phone_e164', '')} (read for {countries.name(fields.get('phone_country', ''))})"),
+        ("Interest", INTEREST_LABELS.get(fields.get("interest_track"), str(fields.get("interest_track")))),
+        ("Marketing updates", f"{yes_no.get(fields.get('marketing_opt_in'), 'unknown')}"
+                              f" (wording {fields.get('marketing_wording_version', 'unrecorded')})"),
+        ("18 or older", yes_no.get(fields.get("age_attested"), "unknown")),
+        ("Education", "; ".join(f"{e.get('institution', '')}: {e.get('credential', '')}" for e in education)
+                      or ("none, by the applicant's tick" if fields.get("no_degree") else "none listed")),
+        ("Certifications", f"{len(credentials)} row(s), see the claims" if credentials
+                           else ("none, by the applicant's tick" if fields.get("no_certifications") else "none listed")),
+        ("Verification consent", f"{yes_no.get(fields.get('verification_consent'), 'unknown')}"
+                                 f" (wording {fields.get('verification_wording_version', 'unrecorded')})"),
+    ]
+    return format_html("<dl>{}</dl>", format_html_join("", "<dt>{}</dt><dd>{}</dd>", rows))
 
 
 class ChallengeInline(ReadOnlyTabularInline):

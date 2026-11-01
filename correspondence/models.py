@@ -100,6 +100,10 @@ class MessageTemplateVersion(models.Model):
     # (correspondence.rendering.version_digest), so approving a version approves whether its subject carries it.
     subject_reference = models.BooleanField(default=False, db_default=False)
     body_text = models.TextField()
+    # bgl.11: the optional HTML alternative (blank: a text-only message). The same `$name` allow-list as the text; a
+    # value is HTML-escaped when substituted, and a link variable may stand only in an href the author wrote
+    # (correspondence.rendering). Part of content_sha256 when not blank, so an approved version stays immutable.
+    body_html = models.TextField(blank=True, default="", db_default="")
     variables = models.JSONField(default=list)  # the allow-list of $names the body may use
     # Copied from the template at creation (code keeps them equal) so the database can enforce 3.1's rule.
     secret_bearing = models.BooleanField(default=False)
@@ -190,6 +194,7 @@ class ApprovedMessage(models.Model):
         STAFF_MESSAGE = "staff_message"  # 2B.4
         WELCOME = "welcome"  # P5 5B.2: queued by activation, sent by the P2 sender
         DECLINE = "decline"  # oc4.11: frozen by assessments.decline, sent by the P2 sender to a declined applicant
+        LAPSE_NOTE = "lapse_note"  # bgl.7: the one closing note of a lapse (correspondence.lapse), sent by the P2 sender
 
     class Authority(models.TextChoices):
         SYSTEM_POLICY = "system_policy"
@@ -230,7 +235,8 @@ class ApprovedMessage(models.Model):
     class Meta:
         permissions = [("decide_uncertain_send", "Decide an unknown, exhausted, blocked or rejected send (decision-maker, D-30)")]
         constraints = [
-            models.CheckConstraint(condition=Q(kind__in=["question", "reminder", "staff_message", "welcome", "decline"]),
+            models.CheckConstraint(condition=Q(kind__in=["question", "reminder", "staff_message", "welcome", "decline",
+                                                         "lapse_note"]),
                                    name="approved_message_kind_valid"),
             models.CheckConstraint(condition=Q(authority__in=["system_policy", "staff"]), name="approved_message_authority_valid"),
             models.CheckConstraint(condition=Q(disposition__in=DISPOSITIONS), name="approved_message_disposition_valid"),

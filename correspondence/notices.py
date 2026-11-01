@@ -13,7 +13,8 @@ never an error page.
 from applications.notices import Draft, Rendered, Unavailable
 
 from .models import MessageTemplateVersion
-from .rendering import TemplateRefused, render
+from .rendering import TemplateRefused, render, render_html
+from .rendering import fit_greeting as fit_greeting  # explicit export through the existing notice-source seam
 
 Status = MessageTemplateVersion.Status
 
@@ -36,10 +37,10 @@ def approved(key: str, values: dict) -> Rendered | None:
         raise Unavailable(f"{key}_retired")
     try:
         subject, text = render(version, values)
+        page = render_html(version, values)
     except TemplateRefused as refused:
         raise Unavailable(f"{key}_{refused}") from None
-    return Rendered(version.version, version.content_sha256, subject, text, synthetic=version.synthetic,
-                    subject_reference=version.subject_reference)
+    return Rendered(version.version, version.content_sha256, subject, text, synthetic=version.synthetic, html=page, subject_reference=version.subject_reference)
 
 
 def draft(key: str) -> Draft | None:

@@ -5,6 +5,8 @@
 Variables: {% for name in version.variables %}{{ name }}{% if not forloop.last %}, {% endif %}{% endfor %}. Digest {{ version.content_sha256 }}.</p>
 <p>Subject: <bdi>{{ version.subject|visible }}</bdi>{% if version.subject_reference %} [the application's reference, added by the sender]{% endif %}</p>
 <pre class="untrusted">{{ version.body_text|visible }}</pre>
+{% if version.body_html %}<p>HTML part (shown as source; values are escaped when sent):</p>
+<pre class="untrusted">{{ version.body_html|visible }}</pre>{% endif %}
 {% if can_approve %}
 <form method="post" action="{% url 'correspondence_staff:approve_template' version.pk %}">{% csrf_token %}
 <input type="hidden" name="digest" value="{{ version.content_sha256 }}">

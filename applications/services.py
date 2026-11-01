@@ -23,6 +23,17 @@ before its verification send, when the separate receipt is on (`notices.receipt_
 application, so there is never a second: a repeat, a revision or a reissue adds none (the first generation's "no second
 receipt"). In "verification" mode the verification mail is the receipt and nothing extra is queued.
 
+Global caps (bgl.2, 034 row 5; the first generation's semantics): CATALYST_INTAKE_GLOBAL_PER_HOUR new applications per
+UTC clock hour and CATALYST_INTAKE_GLOBAL_PER_DAY per UTC day. A new application over a cap is still accepted and
+stored, and the applicant sees the same received page; its `send_verification` action is queued with `due_at` at the
+start of the first window that still has room, and its challenge's lifetime runs from then, so the verification mail,
+the confirmation and everything after it wait and the backlog drains at the capped rate. A window counts every new
+application released into it: a deferred one counts in the window it was deferred to (recorded as `deferred_until` on
+its `submission_received` event), so a backlog never releases faster than the caps allow. Revisions, repeats and
+reissues do not count and are not deferred. A transaction-scoped advisory lock serialises the count and the insert, so
+two simultaneous new applications cannot both take the last place in a window. The deferral is only the queue time of the
+verification send: nothing new runs it, the worker's ordinary due-time claim does.
+
 Failure guarantee: acceptance is atomic, so the records above commit together or not at all. A
 DatabaseError raised before the commit means nothing was committed. A connection lost at the commit
 itself leaves the caller unable to tell whether it committed (PostgreSQL reports the outcome only over
@@ -31,14 +42,15 @@ version, no extra challenge or send while the existing one is reusable).
 """
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, timedelta
 from uuid import UUID
 
 from django.conf import settings
 from django.utils.module_loading import import_string
-from django.db import IntegrityError, transaction
-from django.db.models import F, Q
-from django.db.models.functions import Now
+from django.db import IntegrityError, connection, transaction
+from django.db.models import DateTimeField, F, Q
+from django.db.models.fields.json import KT
+from django.db.models.functions import Cast, Coalesce, Now
 
 from workflow.models import PendingAction
 
@@ -87,12 +99,13 @@ def send_receipt_key(application_public_ref) -> str:
     return f"{SEND_RECEIPT}:{application_public_ref}"
 
 
-def _queue_receipt(application, version) -> None:
+def _queue_receipt(application, version, release=None) -> None:
     """bgl.5: the separate receipt for a new application, for the version that created it, queued before the
     verification send (the claim order is due time, then id), so the receipt is the applicant's first mail."""
     PendingAction.objects.create(
         kind=SEND_RECEIPT, subject_type="application", subject_id=application.public_ref, input_ref=str(version.public_id),
         idempotency_key=send_receipt_key(application.public_ref), status=PendingAction.Status.QUEUED,
+        **({"due_at": release} if release is not None else {}),
     )
 
 
@@ -160,25 +173,26 @@ def _active_challenge(application):
     )
 
 
-def _issue_challenge(application) -> bool:
+def _issue_challenge(application, release=None) -> bool:
     """Reuse the active challenge or supersede it and queue a new one. Returns True if one was issued."""
     active = _active_challenge(application)
     if active is not None and _reusable(active):
         return False
-    reissue_challenge(application, active)
+    reissue_challenge(application, active, release=release)
     return True
 
 
-def reissue_challenge(application, active=None) -> ContactChallenge:
+def reissue_challenge(application, active=None, *, release=None) -> ContactChallenge:
     """Inside the caller's transaction with the application locked: supersede the active challenge, if any, and issue
     a new one with its queued send, exactly as intake does (the same lifetime, template and action). The staff resend
-    (9kg.50, correspondence.staff_actions.resend_verification) uses this, so a resend never differs from issuance."""
+    (9kg.50, correspondence.staff_actions.resend_verification) uses this, so a resend never differs from issuance.
+    `release` (bgl.2 caps): when the send may run; the challenge's lifetime starts then."""
     active = active if active is not None else _active_challenge(application)
     if active is not None:
         ContactChallenge.objects.filter(pk=active.pk).update(superseded_at=Now())
     lifetime = timedelta(seconds=settings.CATALYST_CHALLENGE_LIFETIME_SECONDS)
     challenge = ContactChallenge.objects.create(
-        application=application, email_at_issue=application.email, expires_at=Now() + lifetime
+        application=application, email_at_issue=application.email, expires_at=(release or Now()) + lifetime
     )
     PendingAction.objects.create(
         kind=SEND_VERIFICATION,
@@ -187,8 +201,61 @@ def reissue_challenge(application, active=None) -> ContactChallenge:
         input_ref=str(challenge.public_id),
         idempotency_key=send_verification_key(challenge.public_id),
         status=PendingAction.Status.QUEUED,
+        **({"due_at": release} if release is not None else {}),
     )
     return challenge
+
+
+CAP_LOCK = (12_003, 2)  # pg_advisory_xact_lock(namespace, key): the intake cap count and insert
+HOUR, DAY = timedelta(hours=1), timedelta(days=1)
+CAP_LOOKAHEAD = 24 * 400  # hours: past this the cap settings are absurd; the last candidate is used
+
+
+def _hour(when):
+    return when.replace(minute=0, second=0, microsecond=0)
+
+
+def _day(when):
+    return when.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _database_now():
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT statement_timestamp()")
+        return cursor.fetchone()[0]
+
+
+def cap_deferral(now):
+    """None when a new application arriving `now` (UTC) is inside both caps; otherwise the start of the first hour
+    with room in both its hour and its day. Counts each new application at its release: its `deferred_until`, else
+    when it arrived."""
+    hourly, daily = settings.CATALYST_INTAKE_GLOBAL_PER_HOUR, settings.CATALYST_INTAKE_GLOBAL_PER_DAY
+    release = Coalesce(Cast(KT("data__deferred_until"), DateTimeField()), "occurred_at")
+    released = list(ApplicationEvent.objects.filter(kind="submission_received").annotate(release=release)
+                    .filter(release__gte=_day(now)).values_list("release", flat=True))
+    by_hour, by_day = {}, {}
+    for when in released:
+        by_hour[_hour(when)] = by_hour.get(_hour(when), 0) + 1
+        by_day[_day(when)] = by_day.get(_day(when), 0) + 1
+    candidate = now
+    for _ in range(CAP_LOOKAHEAD):
+        if by_day.get(_day(candidate), 0) >= daily:
+            candidate = _day(candidate) + DAY
+        elif by_hour.get(_hour(candidate), 0) >= hourly:
+            candidate = _hour(candidate) + HOUR
+        else:
+            break
+    return None if candidate == now else candidate
+
+
+def _new_application_release():
+    """Inside the intake transaction, once the new application is inserted: take the cap lock (held to the commit, so
+    the next count sees this application's event) and say when its verification may be sent. Taken after the
+    application insert, never before, so the same-key race (TEST-S1-04) runs as it did; nothing takes it the other way."""
+    if connection.vendor == "postgresql":
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", CAP_LOCK)
+    return cap_deferral(_database_now().astimezone(UTC))
 
 
 def accept_submission(data) -> Outcome:
@@ -198,20 +265,25 @@ def accept_submission(data) -> Outcome:
     email = data["email"]  # EmailField has already trimmed it
     key = email_key(email)
     fields = {"name": data["name"], "email": email, "reason": data["reason"]}
+    if data.get("answers"):
+        fields.update(data["answers"])  # 034 row 3: the first-generation answers, versioned with the rest (bgl.3)
     if data.get("claims"):
         fields["claims"] = data["claims"]  # 018 section 2: claims live in the same versioned submission
     with transaction.atomic():
         application, new_application = _lock_or_create_application(email, key, data["name"])
+        release = _new_application_release() if new_application else None
         number = _next_version_number(application)
         verified = application.contact_verified_at is not None
         origin = SubmissionVersion.Origin.REPEAT_AFTER_VERIFICATION if verified else SubmissionVersion.Origin.FORM
         version = SubmissionVersion.objects.create(application=application, version_number=number, origin=origin,
                                                    submitted_fields=fields)
         if new_application and notices.receipt_mode() == "separate":
-            _queue_receipt(application, version)
-        new_challenge = False if verified else _issue_challenge(application)
+            _queue_receipt(application, version, release)
+        new_challenge = False if verified else _issue_challenge(application, release)
         event = dict(application=application, actor_type=ApplicationEvent.ActorType.APPLICANT, data={"version_number": number})
-        ApplicationEvent.objects.create(kind="submission_received" if new_application else "repeat_submission", **event)
+        received = {**event["data"], "deferred_until": release.isoformat()} if release is not None else event["data"]
+        ApplicationEvent.objects.create(kind="submission_received" if new_application else "repeat_submission",
+                                        **{**event, "data": received if new_application else event["data"]})
         if verified:
             reason = "repeat_after_decline" if application.stage == "declined" else "repeat_after_verification"
             attention = ApplicationEvent.objects.create(

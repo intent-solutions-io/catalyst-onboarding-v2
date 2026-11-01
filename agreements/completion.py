@@ -29,6 +29,7 @@ from django.db.models.functions import Greatest, Least, Now
 from applications import members
 from applications.models import Application, Stage
 from applications.stages import StageConflict, transition
+from correspondence import lapse
 from correspondence.models import StaffItem
 from correspondence.staff_items import event, open_item
 from workflow import journal, ledger
@@ -224,8 +225,15 @@ class ReadAgreement:
         if instance is None or str(instance.application.public_ref) != str(claim.subject_id) or not instance.envelope_id:
             ledger.finish(claim, self, status=Status.DONE, error="nothing_to_read")
             return
+        from . import details
+
+        fields = ()
         try:
             env = provider.read(instance.envelope_id)  # outside any transaction
+            if (env.status == "COMPLETED" and instance.issue_status == "issued"
+                    and instance.signing_status != "signing_complete_verified"
+                    and details.layout_for(instance.template_version) is not None):
+                fields = provider.read_fields(instance.envelope_id)  # bgl.8: the typed details, for the read-back alone
         except provider.ProviderError as exc:
             if claim.final:
                 def failed():  # staff are told, and the sweep goes on: an outage never ends it (4B.2 review)
@@ -237,7 +245,7 @@ class ReadAgreement:
                 due = timedelta(seconds=exc.retry_after) if exc.retry_after is not None else None
                 ledger.finish(claim, self, status=Status.QUEUED, error=exc.code, due_in=due)
             return
-        ledger.finish(claim, self, status=Status.DONE, write=lambda: apply_read(claim, instance.pk, env))
+        ledger.finish(claim, self, status=Status.DONE, write=lambda: apply_read(claim, instance.pk, env, fields))
 
 
 def _keep_sweeping(instance_ref) -> None:
@@ -258,8 +266,9 @@ def _closed_follow_up(instance, claim_id) -> None:
         event(instance.application, "agreement_closed_watch_ended", {"instance": str(instance.public_id)})
 
 
-def apply_read(claim, instance_id: int, env: provider.Envelope) -> None:
-    """Record one fresh read and move the instance by what it shows (inside the fenced result transaction)."""
+def apply_read(claim, instance_id: int, env: provider.Envelope, fields=()) -> None:
+    """Record one fresh read and move the instance by what it shows (inside the fenced result transaction). `fields`
+    are the typed fields read alongside a completed envelope (bgl.8): recorded as the details version on verification."""
     instance = AgreementInstance.objects.select_related("application", "template_version").get(pk=instance_id)
     application = instance.application
     actor = f"pending_action:{claim.id}"
@@ -302,12 +311,17 @@ def apply_read(claim, instance_id: int, env: provider.Envelope) -> None:
         return
     if instance.issue_status != "issued" or instance.signing_status == "signing_complete_verified":
         return
+    if application.stage == Stage.LAPSED and any(r.signing_status == "SIGNED" for r in env.recipients):
+        # bgl.7: a signature reopens a lapsed application to `agreements` before anything advances (034 row 21)
+        lapse.reopen(application, trigger=f"signature:{ref}", actor_ref=actor)
     if env.status == "COMPLETED":
         if data["all_required_signed"]:
             status(signing_status="signing_complete_verified", custody_status="pending")
             event(application, "agreement_signing_verified", {"instance": ref}, actor_ref=actor)
+            from . import details
             from .custody import enqueue_store
 
+            details.capture(instance, env, fields, claim.id, actor)  # bgl.8: the typed details, once, from this envelope
             enqueue_store(instance)  # 4B.3: custody next; the advance follows custody where the gate needs it
             enqueue_advance(application)
             return
@@ -340,6 +354,9 @@ def apply_read(claim, instance_id: int, env: provider.Envelope) -> None:
     elif instance.signing_status == "signing_complete_observed":
         status(signing_status="partially_signed" if any(r.signing_status == "SIGNED" for r in env.recipients)
                else "not_started")  # a webhook claimed completion that the read does not show
+    from .countersign import after_read
+
+    after_read(instance, env)  # bgl.9: under the automatic countersignature, the applicant's signature queues it now
     _sweep_on(instance)  # the sweep
 
 
@@ -551,9 +568,13 @@ class AdvanceAgreements:
                        data={"prerequisites": refs, "digest": digest}, actor_ref=f"pending_action:{claim.id}")
         except StageConflict:
             return
-        PendingAction.objects.create(kind=HANDOFF, subject_type="application", subject_id=application.public_ref,
-                                     input_ref=f"agreements:{digest}", idempotency_key=f"{HANDOFF}:{application.public_ref}",
-                                     status=Status.HELD)
+        handoff = PendingAction.objects.create(
+            kind=HANDOFF, subject_type="application", subject_id=application.public_ref, input_ref=f"agreements:{digest}",
+            idempotency_key=f"{HANDOFF}:{application.public_ref}", status=Status.HELD)
+        if settings.CATALYST_RELEASE_MODE == "automatic":  # bgl.9: the release runs without a person (decision 13)
+            from provisioning.auto_release import enqueue as enqueue_release
+
+            enqueue_release(application, handoff)
 
     def issue(self, claim, application, previous, next_type, env) -> None:
         actor = f"pending_action:{claim.id}"

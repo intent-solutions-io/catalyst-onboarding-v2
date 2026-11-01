@@ -73,11 +73,22 @@ APPROVED_MIGRATIONS = {
     ("applications", "0009_tombstone_keys_unique"), ("erasure", "0001_initial"), ("erasure", "0002_erasure_path"),
     ("correspondence", "0019_decline_notice"),  # oc4.11: the decline kind and template; held send_decline cancelled
     ("correspondence", "0020_verification_template"),  # 9kg.80: the verification mail as an approvable template
+    ("correspondence", "0024_template_html_part"),  # bgl.11: the optional HTML alternative, frozen once approved
     ("agreements", "0010_custody_envelope"), ("erasure", "0003_custody_keys"),  # 9kg.34: custody sealed at rest
     ("workflow", "0006_restore_hold_insert_guard"), ("erasure", "0004_erase_replay"),  # 9kg.25: the replay variant of the erase function, under the restore hold only
     # bgl.5: the CAT- reference on every application, the subject-reference flag on a template version, the receipt templates
-    ("applications", "0010_application_reference"), ("correspondence", "0021_subject_reference"),
-    ("correspondence", "0022_intake_receipt_templates"),
+    ("applications", "0011_application_reference"), ("correspondence", "0025_subject_reference"),
+    ("correspondence", "0026_intake_receipt_templates"),
+    # bgl.16 (035): the first-generation import's provenance tables, their protection and the reinstalled erasure functions
+    ("firstgen", "0001_initial"), ("firstgen", "0002_protection"), ("erasure", "0005_first_generation_import"),
+    # bgl.8: a details version read back from the signed envelope, and the service-sent signing-link templates
+    ("agreements", "0011_details_from_envelope"), ("correspondence", "0021_agreement_link_templates"),
+    ("agreements", "0012_countersign_claim"),  # bgl.9: the single-writer countersign claim
+    # bgl.10: a credential series' mode, and the key of the secret-bearing one-time-password welcome (no version seeded)
+    ("provisioning", "0008_credential_setup_mode"), ("correspondence", "0022_password_welcome_template"),
+    ("applications", "0010_lapsed_stage"), ("correspondence", "0023_lapse_note"),  # bgl.7: the lapsed stage and the closing note
+    # bgl.14 (034 rows 42 and 43): the Twenty link, its grants and the reinstalled erasure functions (the twenty handoff)
+    ("crm", "0001_initial"), ("crm", "0002_grants"), ("erasure", "0006_twenty_projection"),
 }
 
 

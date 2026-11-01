@@ -37,13 +37,14 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.conf import settings
-from django.core.mail import EmailMessage
+from django.core.mail import EmailMultiAlternatives
 from django.db import connection, transaction
 from django.db.models.functions import Now
 
 from applications import notices
 from applications.models import OPEN_STAGES, Application, ApplicationEvent, SubmissionVersion
 from applications.services import SEND_RECEIPT, send_receipt_key
+from config.mail import from_header, reply_to
 from workflow import ledger
 from workflow.models import AutomationPause, PendingAction
 
@@ -51,7 +52,7 @@ from .models import OutboundMessage
 
 logger = logging.getLogger(__name__)
 Status = PendingAction.Status
-SEED = import_module("correspondence.migrations.0022_intake_receipt_templates")
+SEED = import_module("correspondence.migrations.0026_intake_receipt_templates")
 WORDING_RECHECK_SECONDS = 3600
 GREETING_MAX = 40
 _GREETING_PUNCTUATION = frozenset("-'’")
@@ -152,8 +153,10 @@ class SendReceipt:
             self._stop(claim, Stop(Status.QUEUED, str(refused), WORDING_RECHECK_SECONDS))
             return
         message_id = make_msgid(idstring=f"r{claim.attempt}", domain=urlsplit(settings.CATALYST_PUBLIC_BASE_URL).hostname)
-        message = EmailMessage(subject=mail.subject_for(decision.reference), body=mail.display, to=[decision.recipient],
-                               headers={"Message-ID": message_id})
+        message = EmailMultiAlternatives(subject=mail.subject_for(decision.reference), body=mail.display, to=[decision.recipient],
+                               from_email=from_header(), reply_to=reply_to(), headers={"Message-ID": message_id})
+        if mail.html:
+            message.attach_alternative(mail.html, "text/html")
         outbound = dict(application_id=decision.application_id, pending_action_id=claim.id, attempt_number=claim.attempt,
                         template_key=mail.key, template_version=f"{mail.version}:{mail.sha256[:24]}",
                         recipient=decision.recipient, message_id=message_id)

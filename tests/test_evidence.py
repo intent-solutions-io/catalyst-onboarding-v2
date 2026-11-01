@@ -25,12 +25,13 @@ from config import guards
 from correspondence.models import StaffItem
 from tests.http_fixture import ScriptedHTTPS, slow_drip
 from tests.test_inbound import tls  # noqa: F401  (session TLS material)
+from tests import support
 from tests.test_outbound import p2, run_worker, staff  # noqa: F401
 from workflow.models import AutomationPause, PendingAction
 
 HOST, MIRROR, ELSEWHERE = "evidence.example.test", "mirror.example.test", "elsewhere.example.test"
 FORM = reverse("applications:request_access")
-BASE = {"name": "Ada Example", "email": "ada@example.test", "reason": "Synthetic reason for access."}
+BASE = {"name": "Ada Example", "email": "ada@example.test", "reason": "Synthetic reason for access.", **support.INTAKE_ANSWERS}
 
 
 @pytest.fixture
@@ -96,7 +97,7 @@ def items(app):
 
 def test_claims_are_stored_in_the_adopted_version_and_shown_before_confirmation(ev):
     data = {**BASE, "work_url_1": "https://evidence.example.test/w", "work_note_1": "A synthetic page",
-            "contribution": "I wrote the parser.", "cred_name_1": "Synthetic cert", "cred_identifier_1": "ID-1"}
+            "contribution": "I wrote the parser.", "cred_name_1": "Synthetic cert", "cred_identifier_1": "ID-1", "no_certifications": ""}
     Client().post(FORM, urlencode(data), content_type="application/x-www-form-urlencoded")
     run_worker()
     path = re.search(r"http://catalyst\.example\.test(/confirm/\S+/)", mail.outbox[-1].body).group(1)
@@ -113,7 +114,7 @@ def test_a_submission_without_claims_keeps_the_s1_shape_and_http_links_are_refus
                              content_type="application/x-www-form-urlencoded")
     assert response.status_code == 200 and "https://" in response.content.decode()  # a form error, nothing saved
     Client().post(FORM, urlencode(BASE), content_type="application/x-www-form-urlencoded")
-    assert set(Application.objects.get().versions.get().submitted_fields) == {"name", "email", "reason"}
+    assert set(Application.objects.get().versions.get().submitted_fields) == {"name", "email", "reason", *support.STORED_ANSWERS}
 
 
 # --- TEST-P3-09, 10: activation and slots ----------------------------------------------------------------
@@ -146,7 +147,7 @@ def test_p3_10_slots_per_claim_and_source_and_a_changed_adoption_is_refused(ev):
     ev.site.page("/w", "<p>Work.</p>")
     ev.site.page("/c", "<p>Credential ID-7 is valid.</p>")
     app = collect(ev, work_url_1=url(ev, "/w"), work_url_2=url(ev, "/x", host=ELSEWHERE),
-                  cred_name_1="Cert", cred_identifier_1="ID-7", cred_url_1=url(ev, "/c"))
+                  cred_name_1="Cert", cred_identifier_1="ID-7", cred_url_1=url(ev, "/c"), no_certifications="")
     work1, work2, cred = (next(i for i in items(app) if i.claim_ref == r) for r in ("work:1", "work:2", "credential:1"))
     assert (work1.status, cred.status) == ("fetched", "fetched")
     assert (work2.status, work2.reason_code) == ("refused", "no_approved_source")  # never a negative finding
@@ -391,7 +392,8 @@ def test_the_evidence_screen_shows_claims_beside_observations_for_assessment_rol
     source(ev)
     hostile = "<script>x</script>‮"
     ev.site.page("/w", f"<p>Work {hostile}</p>")
-    app = collect(ev, work_url_1=url(ev, "/w"), contribution=f"I did it {hostile}", cred_name_1="Unchecked cert")
+    app = collect(ev, work_url_1=url(ev, "/w"), contribution=f"I did it {hostile}", cred_name_1="Unchecked cert",
+                  cred_identifier_1="ID-9", no_certifications="")
     page_url = reverse("assessments_staff:evidence", args=[app.public_ref])
     owner_only = staff(ev, "template-owner-p3", "Template owner")
     for user in (owner_only, ev.operator, staff(ev, "root-p3", superuser=True)):
@@ -415,8 +417,14 @@ def test_no_provider_client_or_network_library_is_imported_by_assessments():
 
     for path in Path(support.ROOT, "assessments").rglob("*.py"):
         text = path.read_text().lower()
-        for banned in ("import openai", "from openai", "anthropic", "minimax", "import requests", "import httpx", "urllib.request"):
-            assert banned not in text, (path.name, banned)
+        # bgl.12: the live branch (assessments/live.py) alone names the provider and imports its client, behind an
+        # activation that is off in code; the fetcher and everything else stay free of any client or network library
+        allowed = ("import openai", "from openai") if path.name == "live.py" else ()
+        # Provider names in settings/approval metadata are not client imports.
+        for banned in ("import openai", "from openai", "import anthropic", "from anthropic",
+                       "import minimax", "from minimax", "import requests", "from requests",
+                       "import httpx", "from httpx", "urllib.request"):
+            assert banned in allowed or banned not in text, (path.name, banned)
 
 
 

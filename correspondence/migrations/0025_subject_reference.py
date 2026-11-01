@@ -23,11 +23,11 @@ FROZEN = """
           END IF;
           IF TG_OP = 'DELETE'
              OR (NEW.status IS DISTINCT FROM OLD.status AND NOT (OLD.status = 'approved' AND NEW.status = 'retired'))
-             OR (NEW.id, NEW.template_id, NEW.version, NEW.subject, NEW.body_text, NEW.variables::text,
+             OR (NEW.id, NEW.template_id, NEW.version, NEW.subject, NEW.body_text, NEW.body_html, NEW.variables::text,
                  NEW.secret_bearing, NEW.approved_by, NEW.approved_at, NEW.content_sha256, NEW.synthetic,
                  NEW.created_at, NEW.subject_reference)
                 IS DISTINCT FROM
-                (OLD.id, OLD.template_id, OLD.version, OLD.subject, OLD.body_text, OLD.variables::text,
+                (OLD.id, OLD.template_id, OLD.version, OLD.subject, OLD.body_text, OLD.body_html, OLD.variables::text,
                  OLD.secret_bearing, OLD.approved_by, OLD.approved_at, OLD.content_sha256, OLD.synthetic,
                  OLD.created_at, OLD.subject_reference) THEN
             RAISE EXCEPTION 'message template version: % refused (an approved version is final; it may only retire)',
@@ -53,11 +53,11 @@ FROZEN_BEFORE = """
           END IF;
           IF TG_OP = 'DELETE'
              OR (NEW.status IS DISTINCT FROM OLD.status AND NOT (OLD.status = 'approved' AND NEW.status = 'retired'))
-             OR (NEW.id, NEW.template_id, NEW.version, NEW.subject, NEW.body_text, NEW.variables::text,
+             OR (NEW.id, NEW.template_id, NEW.version, NEW.subject, NEW.body_text, NEW.body_html, NEW.variables::text,
                  NEW.secret_bearing, NEW.approved_by, NEW.approved_at, NEW.content_sha256, NEW.synthetic,
                  NEW.created_at)
                 IS DISTINCT FROM
-                (OLD.id, OLD.template_id, OLD.version, OLD.subject, OLD.body_text, OLD.variables::text,
+                (OLD.id, OLD.template_id, OLD.version, OLD.subject, OLD.body_text, OLD.body_html, OLD.variables::text,
                  OLD.secret_bearing, OLD.approved_by, OLD.approved_at, OLD.content_sha256, OLD.synthetic,
                  OLD.created_at) THEN
             RAISE EXCEPTION 'message template version: % refused (an approved version is final; it may only retire)',
@@ -79,7 +79,7 @@ def unprotect(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('correspondence', '0020_verification_template'),
+        ('correspondence', '0024_template_html_part'),
     ]
 
     operations = [

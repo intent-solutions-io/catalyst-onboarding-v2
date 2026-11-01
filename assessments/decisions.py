@@ -26,6 +26,11 @@ P3-D-16; D-35: per-criterion rationale, the selection-policy reference, and the 
   (`cohort_criteria_must_be_unrated`), so taking part is never an appraisal of a colleague. `COHORT_BOUNDARY` is
   lifted only by a reviewed release before wider enrollment.
 
+bgl.12 (`record_routine_admit`): under `CATALYST_ROUTINE_ADVANCE_ACTIVATION` (0 in code) the routine-advance policy
+(`assessments.policy`, acted on by `assessments.routine`) may record an **admit** on this same path with the same
+record and refusals, as `actor_ref` `policy:routine_advance:v<n>`; it never records a decline or a hold, and the
+human screen is unchanged. At the default configuration no such decision exists.
+
 Then: the `QualificationDecision` row, the stage move (`admitted`, `declined` or `on_hold`), an event, and the
 follow-on: a held `issue_nda:<application>` for admit (P4 releases it); for decline a queued
 `send_decline:<application>` (oc4.11, `assessments.decline`: the decline notice), unless the decision-maker chose to
@@ -60,6 +65,7 @@ from correspondence.common import Refused as NoteRefused
 from correspondence.staff_items import clean_note as _clean_note, resolve_item
 from workflow.models import AutomationPause, PendingAction
 
+from .quotas import exceeds
 from . import decline as declines, pack as packs, snapshot
 from .models import AssessmentRun, EvidenceItem, QualificationDecision
 from .services import Refused
@@ -165,7 +171,7 @@ def human_only_code(application, run, current: str, succeeded, in_flight: bool) 
     if application.stage in (Stage.AWAITING_DECISION, Stage.ON_HOLD):
         return "returned_without_reassessment"  # handed back without a reassessment (the round cap, or none could be queued)
     if (application.stage == Stage.ASSESSING  # no run can be queued any more: the run cap is reached
-            and AssessmentRun.objects.filter(application=application).count() >= settings.CATALYST_ASSESSMENT_RUNS_PER_APPLICATION):
+            and exceeds(AssessmentRun.objects.filter(application=application).count() + 1, settings.CATALYST_ASSESSMENT_RUNS_PER_APPLICATION)):
         return "run_cap_reached" if capped_exit else ""
     return ""
 
@@ -322,39 +328,100 @@ def record_decision(application_id: int, user, *, outcome: str, reason_code: str
             if constraint == "decision_one_final_per_application":
                 raise Refused("already_decided") from None  # one admit or decline per application (TEST-P3-45)
             raise Refused("decision_invalid") from None
-        try:
-            transition(application.pk, from_stages, STAGE_FOR[outcome], event_kind=f"qualification_{outcome}",
-                       data={"decision": str(decision.public_id), "basis": decision.basis, "policy": decision.policy_ref,
-                             "human_only_code": code},
-                       actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
-        except StageConflict:
-            raise Refused("stage_not_decidable") from None
-        # Unsent proposed questions end with the decision: nothing is sent to a decided applicant (3B.4 review).
-        unsent = Question.objects.filter(application=application, approval_state=Question.Approval.PROPOSED).exclude(
-            status=Question.Status.WITHDRAWN)
-        withdrawn = [str(q) for q in unsent.values_list("public_id", flat=True)]
-        unsent.update(status=Question.Status.WITHDRAWN, withdrawn_by=actor, withdrawn_reason="decided",
-                      withdrawn_at=Now(), updated_at=Now())
-        if withdrawn:
-            ApplicationEvent.objects.create(application=application, kind="questions_withdrawn_by_decision",
-                                            actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor,
-                                            data={"decision": str(decision.public_id), "questions": withdrawn})
+        _follow_on(application, decision, from_stages, code, actor, ApplicationEvent.ActorType.STAFF)
         if human_only:  # oc4.12: the suspended (or capped) item is answered by this decision; it must not page forever
             for item in StaffItem.objects.filter(application=application, status=StaffItem.Status.OPEN,
                                                  reason_code__in=("assessment_suspended", "assessment_capped")):
                 resolve_item(item, code="human_only_decision", actor_ref=actor, effects={"decision": str(decision.public_id)},
                              actor_type=ApplicationEvent.ActorType.STAFF)
-        kind = FOLLOW_ON.get(outcome)
-        if kind:
-            PendingAction.objects.create(kind=kind, subject_type="application", subject_id=application.public_ref,
-                                         input_ref=str(decision.public_id), idempotency_key=f"{kind}:{application.public_ref}",
-                                         status=PendingAction.Status.HELD)
         if notice is not None and notice["choice"] == declines.SEND:
             declines.enqueue(application, decision)  # exactly one notice per decline (the key is per application)
         elif notice is not None:
             ApplicationEvent.objects.create(application=application, kind="decline_notice_withheld",
                                             actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor,
                                             data={"decision": str(decision.public_id), "reason": notice["reason"]})
+    return decision
+
+
+def _follow_on(application, decision, from_stages, code: str, actor: str, actor_type) -> None:
+    """The stage move, the withdrawal of unsent proposed questions and the held follow-on action, shared by the human
+    decision and the routine policy's admit (bgl.12). Inside the decision's transaction."""
+    outcome = decision.outcome
+    try:
+        transition(application.pk, from_stages, STAGE_FOR[outcome], event_kind=f"qualification_{outcome}",
+                   data={"decision": str(decision.public_id), "basis": decision.basis, "policy": decision.policy_ref,
+                         "human_only_code": code},
+                   actor_type=actor_type, actor_ref=actor)
+    except StageConflict:
+        raise Refused("stage_not_decidable") from None
+    # Unsent proposed questions end with the decision: nothing is sent to a decided applicant (3B.4 review).
+    unsent = Question.objects.filter(application=application, approval_state=Question.Approval.PROPOSED).exclude(
+        status=Question.Status.WITHDRAWN)
+    withdrawn = [str(q) for q in unsent.values_list("public_id", flat=True)]
+    unsent.update(status=Question.Status.WITHDRAWN, withdrawn_by=actor, withdrawn_reason="decided",
+                  withdrawn_at=Now(), updated_at=Now())
+    if withdrawn:
+        ApplicationEvent.objects.create(application=application, kind="questions_withdrawn_by_decision",
+                                        actor_type=actor_type, actor_ref=actor,
+                                        data={"decision": str(decision.public_id), "questions": withdrawn})
+    kind = FOLLOW_ON.get(outcome)
+    if kind:
+        PendingAction.objects.create(kind=kind, subject_type="application", subject_id=application.public_ref,
+                                     input_ref=str(decision.public_id), idempotency_key=f"{kind}:{application.public_ref}",
+                                     status=PendingAction.Status.HELD)
+
+
+ROUTINE_REASON = "routine_advance"  # the reason code of every automatic admit; the actor names the policy version
+
+
+def record_routine_admit(application, run, *, rationale: dict, verdict: dict, actor: str) -> QualificationDecision:
+    """bgl.12 (034 rows 15 and 18): the routine-advance policy's admit, on the existing admit path and with the same
+    record, inside the caller's transaction with the application locked. The decision stands on the valid succeeded run
+    for the current snapshot (basis `model_assisted`), carries the policy's per-criterion rationale (validated like a
+    human's) and its verdict in `decision_inputs`, and ends in the same held `issue_nda`. Everything the human path
+    refuses is refused here too (a stale run, pending evidence, an open identity item, an open question, a pause, the
+    cohort boundary), and the authority setting is not consulted: this is not a person deciding, and the policy runs
+    only under its own activation. Never a decline, never a hold."""
+    state = decision_state(application)
+    if state["pack"] is None or state["manifest"] is None:
+        raise Refused("no_snapshot")
+    if settings.CATALYST_SELECTION_POLICY and state["pack"].name != bound_pack():
+        raise Refused("policy_not_bound_to_pack")
+    if state["run"] is None or state["run"].pk != run.pk:
+        raise Refused("no_valid_assessment")  # the run is stale or superseded: nothing automatic stands on it
+    if AssessmentRun.objects.filter(application=application, status__in=("queued", "reserved")).exists():
+        raise Refused("assessment_in_flight")
+    version = application.versions.get(public_id=state["manifest"]["version"])
+    if EvidenceItem.objects.filter(application=application, adopted_version=version, status="pending").exists():
+        raise Refused("evidence_pending")
+    if application.stage != Stage.AWAITING_DECISION:
+        raise Refused("stage_not_decidable")
+    if StaffItem.objects.filter(application=application, status="open", reason_code__in=IDENTITY_ITEMS).exists():
+        raise Refused("identity_item_open")
+    if Question.objects.filter(application=application, approval_state=Question.Approval.APPROVED,
+                               status__in=(Question.Status.OPEN, Question.Status.REPLY_PENDING)).exists():
+        raise Refused("open_question_pending")
+    if AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists():
+        raise Refused("admit_refused_while_paused")
+    if cohort_boundary():
+        raise Refused("cohort_boundary")  # 033 Q6: nothing automatic in the internal cohort
+    checked = _rationale(state["pack"], rationale)
+    inputs = {"policy": state["policy_ref"], "pack": state["pack"].name, "pack_sha256": state["pack_sha256"],
+              "rubric_version": state["rubric_version"], "snapshot": state["snapshot"],
+              "evidence": state["evidence_manifest"], "runs": state["runs"], "questions": state["questions"],
+              "human_only_code": "", "suspension_ref": "", "routine_policy": verdict}
+    try:
+        with transaction.atomic():
+            decision = QualificationDecision.objects.create(
+                application=application, adopted_version=version, run=run, outcome="admit",
+                basis=QualificationDecision.Basis.MODEL_ASSISTED, reason_code=ROUTINE_REASON,
+                reason_text="", rationale=checked, snapshot_sha256=state["snapshot"], decision_digest=state["digest"],
+                policy_ref=state["policy_ref"], prompt_pack=state["pack"].name, prompt_pack_sha256=state["pack_sha256"],
+                rubric_version=state["rubric_version"], decision_inputs=inputs, actor_ref=actor)
+    except IntegrityError as exc:
+        constraint = getattr(getattr(exc.__cause__, "diag", None), "constraint_name", "")
+        raise Refused("already_decided" if constraint == "decision_one_final_per_application" else "decision_invalid") from None
+    _follow_on(application, decision, (Stage.AWAITING_DECISION,), "", actor, ApplicationEvent.ActorType.SYSTEM)
     return decision
 
 
