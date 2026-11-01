@@ -24,7 +24,14 @@ import time
 from datetime import timedelta
 
 from django.conf import settings
-from django.db import DataError, IntegrityError, InterfaceError, OperationalError, connection, transaction
+from django.db import (
+    DataError,
+    IntegrityError,
+    InterfaceError,
+    OperationalError,
+    connection,
+    transaction,
+)
 from django.db.models.functions import Now
 
 from applications.models import TERMINAL_STAGES, Application, ApplicationEvent
@@ -45,7 +52,14 @@ from .models import (
 )
 from .common import Refused
 from .rendering import TemplateRefused, frozen_html
-from .messages import FILE_COPY, build_email, enqueue_file_copy, message_id, only_duplicate_key, verified_address  # noqa: F401
+from .messages import (
+    FILE_COPY,
+    build_email,
+    enqueue_file_copy,  # noqa: F401 (compatibility re-export used by the inbound tests)
+    message_id,
+    only_duplicate_key,
+    verified_address,
+)
 from .scheduling import sync_reminders
 from .staff_items import open_item
 from . import lapse
@@ -57,14 +71,27 @@ Inbound = InboundMessage.Status
 
 COLLECT = "collect"
 PROCESS_REPLY = "process_reply"
-DECLINE_NOT_NOTIFIED = "decline_not_notified"  # oc4.11: the decline notice bounced permanently
+DECLINE_NOT_NOTIFIED = (
+    "decline_not_notified"  # oc4.11: the decline notice bounced permanently
+)
 CURSOR_SUBJECT = "mailbox_cursor"
 # bgl.6: the two takeover refusals block like a configuration fault: an operator acts (`catalyst_mail_cursor_start`).
 TAKEOVER_NOT_STARTED = "takeover_cursor_not_set"
 TAKEOVER_VALIDITY = "takeover_uidvalidity_mismatch"
 TAKEOVER_START = "takeover"  # the cursor's start_mode when `start_cursor` set it
-BLOCKING = ("auth_failed", "tls_refused", "peer_refused", "not_configured", TAKEOVER_NOT_STARTED, TAKEOVER_VALIDITY)
-ANSWERABLE = (Question.Status.OPEN, Question.Status.PARTIALLY_ANSWERED, Question.Status.REPLY_PENDING)
+BLOCKING = (
+    "auth_failed",
+    "tls_refused",
+    "peer_refused",
+    "not_configured",
+    TAKEOVER_NOT_STARTED,
+    TAKEOVER_VALIDITY,
+)
+ANSWERABLE = (
+    Question.Status.OPEN,
+    Question.Status.PARTIALLY_ANSWERED,
+    Question.Status.REPLY_PENDING,
+)
 
 
 def collect_key(cursor, n: int) -> str:
@@ -76,8 +103,12 @@ def enqueue_pass(cursor, n: int, delay: float = 0.0) -> None:
     try:
         with transaction.atomic():
             PendingAction.objects.create(
-                kind=COLLECT, subject_type=CURSOR_SUBJECT, subject_id=cursor.public_id, input_ref="",
-                idempotency_key=collect_key(cursor, n), due_at=Now() + timedelta(seconds=delay),
+                kind=COLLECT,
+                subject_type=CURSOR_SUBJECT,
+                subject_id=cursor.public_id,
+                input_ref="",
+                idempotency_key=collect_key(cursor, n),
+                due_at=Now() + timedelta(seconds=delay),
                 max_attempts=settings.CATALYST_MAIL_SEND_ATTEMPTS,
             )
     except IntegrityError as exc:
@@ -85,10 +116,15 @@ def enqueue_pass(cursor, n: int, delay: float = 0.0) -> None:
 
 
 def _pass_number(claim) -> int:
-    key = PendingAction.objects.filter(pk=claim.id).values_list("idempotency_key", flat=True).first() or ""
+    key = (
+        PendingAction.objects.filter(pk=claim.id)
+        .values_list("idempotency_key", flat=True)
+        .first()
+        or ""
+    )
     try:
         return int(key.rsplit(":", 1)[1])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         return 0
 
 
@@ -108,7 +144,9 @@ def refresh_question_status(question: Question) -> str:
         status = Question.Status.OPEN
     if status != question.status:
         Question.objects.filter(pk=question.pk).update(status=status, updated_at=Now())
-    sync_reminders(question, status)  # E3, in the same transaction as every status change
+    sync_reminders(
+        question, status
+    )  # E3, in the same transaction as every status change
     return status
 
 
@@ -117,110 +155,206 @@ def _item(reason, message, application=None):
 
 
 def _exception(message, reason, application=None, item=True):
-    InboundMessage.objects.filter(pk=message.pk).update(status=Inbound.EXCEPTION, exception_reason=reason,
-                                                        application_id=application.pk if application else None)
+    InboundMessage.objects.filter(pk=message.pk).update(
+        status=Inbound.EXCEPTION,
+        exception_reason=reason,
+        application_id=application.pk if application else None,
+    )
     if item:
         _item(reason, message, application)
 
 
 def queue_processing(message, application) -> None:
     PendingAction.objects.create(
-        kind=PROCESS_REPLY, subject_type="application", subject_id=application.public_ref, input_ref=str(message.public_id),
-        idempotency_key=f"{PROCESS_REPLY}:{message.public_id}", max_attempts=settings.CATALYST_MAIL_SEND_ATTEMPTS)
+        kind=PROCESS_REPLY,
+        subject_type="application",
+        subject_id=application.public_ref,
+        input_ref=str(message.public_id),
+        idempotency_key=f"{PROCESS_REPLY}:{message.public_id}",
+        max_attempts=settings.CATALYST_MAIL_SEND_ATTEMPTS,
+    )
 
 
 def _associate(message: InboundMessage, derived) -> None:
     """C0 to C3 for a newly stored message (inside the per-message transaction)."""
     refs = association.candidate_refs(derived)
-    found = {m.send_ref: m for m in ApprovedMessage.objects.select_related("application").filter(send_ref__in=refs)}
-    approved = next((found[r] for r in refs if r in found), None)  # In-Reply-To first, then References newest first
-    classification = "bounce" if derived.is_bounce else ("automatic" if association.is_automatic(derived.auto_markers) else "human")
+    found = {
+        m.send_ref: m
+        for m in ApprovedMessage.objects.select_related("application").filter(
+            send_ref__in=refs
+        )
+    }
+    approved = next(
+        (found[r] for r in refs if r in found), None
+    )  # In-Reply-To first, then References newest first
+    classification = (
+        "bounce"
+        if derived.is_bounce
+        else (
+            "automatic" if association.is_automatic(derived.auto_markers) else "human"
+        )
+    )
     InboundMessage.objects.filter(pk=message.pk).update(classification=classification)
     if approved is None:
         # bgl.6: a reply to a first-generation thread (an imported case) associates through the optional resolver; it
         # links no v2 question and is otherwise processed like any reply to that application, trust rules unchanged.
         foreign = association.foreign_application_id(derived)
-        application = (Application.objects.select_for_update(of=("self",)).filter(pk=foreign).first()
-                       if foreign is not None else None)
+        application = (
+            Application.objects.select_for_update(of=("self",))
+            .filter(pk=foreign)
+            .first()
+            if foreign is not None
+            else None
+        )
         if application is None:
             _exception(message, "unmatched")
             return
         questions = []
-        InboundMessage.objects.filter(pk=message.pk).update(application_id=application.pk)
+        InboundMessage.objects.filter(pk=message.pk).update(
+            application_id=application.pk
+        )
     else:
-        application = Application.objects.select_for_update(of=("self",)).get(pk=approved.application_id)
-        questions = list(Question.objects.select_for_update(of=("self",))
-                         .filter(message_links__approved_message=approved).order_by("id"))
-        InboundMessage.objects.filter(pk=message.pk).update(application_id=application.pk, approved_message_id=approved.pk)
-    if (approved is not None and classification == "bounce" and approved.kind == ApprovedMessage.Kind.DECLINE
-            and not derived.dsn_status.startswith("4")):
+        application = Application.objects.select_for_update(of=("self",)).get(
+            pk=approved.application_id
+        )
+        questions = list(
+            Question.objects.select_for_update(of=("self",))
+            .filter(message_links__approved_message=approved)
+            .order_by("id")
+        )
+        InboundMessage.objects.filter(pk=message.pk).update(
+            application_id=application.pk, approved_message_id=approved.pk
+        )
+    if (
+        approved is not None
+        and classification == "bounce"
+        and approved.kind == ApprovedMessage.Kind.DECLINE
+        and not derived.dsn_status.startswith("4")
+    ):
         # oc4.11: a declined application is terminal, so reply processing never runs for it; a permanent bounce of the
         # decline notice would otherwise surface only as "a reply arrived for a closed application". It says first
         # that the applicant was not notified. Only a delayed (4.x.x) report is not a failure and gets only the
         # exception; a report with no Status at all is treated as a possible failure (PR #98 review).
-        open_item(DECLINE_NOT_NOTIFIED, f"decline:{approved.send_ref}", application=application, approved_message=approved)
+        open_item(
+            DECLINE_NOT_NOTIFIED,
+            f"decline:{approved.send_ref}",
+            application=application,
+            approved_message=approved,
+        )
     if application.stage in TERMINAL_STAGES:
         _exception(message, "application_closed", application)
         return
     if classification != "human":
         # Automatic messages and bounces never make a question reply_pending (016 D1); 2B.3 classifies them.
-        InboundMessage.objects.filter(pk=message.pk).update(status=Inbound.AWAITING_PROCESSING)
+        InboundMessage.objects.filter(pk=message.pk).update(
+            status=Inbound.AWAITING_PROCESSING
+        )
         queue_processing(message, application)
         return
-    sender_ok = association.from_matches(derived.from_addresses, verified_address(application))
+    sender_ok = association.from_matches(
+        derived.from_addresses, verified_address(application)
+    )
     evidence = association.auth_evidence(derived.authentication_results)
     decision = association.trust_decision(evidence, sender_ok)
     InboundMessage.objects.filter(pk=message.pk).update(
-        from_matches_verified_address=sender_ok, auth_evidence=evidence[:24], trust_decision=decision)
+        from_matches_verified_address=sender_ok,
+        auth_evidence=evidence[:24],
+        trust_decision=decision,
+    )
     if decision != association.TRUSTED:
-        reason = {association.AUTH_FAILED: "reply_auth_failed", association.UNVERIFIED: "reply_unverified",
-                  association.SENDER_MISMATCH: "sender_mismatch"}[decision]
+        reason = {
+            association.AUTH_FAILED: "reply_auth_failed",
+            association.UNVERIFIED: "reply_unverified",
+            association.SENDER_MISMATCH: "sender_mismatch",
+        }[decision]
         _exception(message, reason, application)
         return
     # bgl.7: a trusted reply reopens a lapsed application to the stage it lapsed from, before the reply is linked.
-    lapse.reopen(application, trigger=f"reply:{message.public_id}", actor_ref=f"inbound:{message.public_id}",
-                 actor_type=ApplicationEvent.ActorType.APPLICANT)
+    lapse.reopen(
+        application,
+        trigger=f"reply:{message.public_id}",
+        actor_ref=f"inbound:{message.public_id}",
+        actor_type=ApplicationEvent.ActorType.APPLICANT,
+    )
     for question in questions:
         if question.status in ANSWERABLE:
-            QuestionReplyLink.objects.create(question=question, inbound_message=message, state="pending")
+            QuestionReplyLink.objects.create(
+                question=question, inbound_message=message, state="pending"
+            )
             refresh_question_status(question)
-    InboundMessage.objects.filter(pk=message.pk).update(status=Inbound.AWAITING_PROCESSING)
+    InboundMessage.objects.filter(pk=message.pk).update(
+        status=Inbound.AWAITING_PROCESSING
+    )
     queue_processing(message, application)
 
 
-def ingest(cursor_id: int, validity: int, uid: int, size: int, internal_date: str, raw: bytes | None, headers_only: bool):
+def ingest(
+    cursor_id: int,
+    validity: int,
+    uid: int,
+    size: int,
+    internal_date: str,
+    raw: bytes | None,
+    headers_only: bool,
+):
     """One message, one transaction (016 B4). Returns a short outcome code."""
     cursor = MailboxCursor.objects.select_for_update(of=("self",)).get(pk=cursor_id)
     if cursor.uidvalidity != validity or cursor.last_uid >= uid:
         return "stale_position"
-    location = dict(mailbox_ref=cursor.mailbox_ref, folder=cursor.folder, uidvalidity=validity, uid=uid)
+    location = dict(
+        mailbox_ref=cursor.mailbox_ref,
+        folder=cursor.folder,
+        uidvalidity=validity,
+        uid=uid,
+    )
 
     def advance(outcome):
-        MailboxCursor.objects.filter(pk=cursor.pk, uidvalidity=validity, last_uid__lt=uid).update(last_uid=uid, last_batch_at=Now())
+        MailboxCursor.objects.filter(
+            pk=cursor.pk, uidvalidity=validity, last_uid__lt=uid
+        ).update(last_uid=uid, last_batch_at=Now())
         return outcome
 
     if InboundMessageLocation.objects.filter(**location).exists():
         return advance("location_known")
     try:
-        derived = mime.derive(raw, max_text_chars=settings.CATALYST_MAIL_MAX_TEXT_CHARS, headers_only=headers_only)
+        derived = mime.derive(
+            raw,
+            max_text_chars=settings.CATALYST_MAIL_MAX_TEXT_CHARS,
+            headers_only=headers_only,
+        )
         failed = False
     except Exception:  # a parser defect must not block the cursor (016 B4): recorded as processing_error
         derived, failed = mime.Derived(), True
     digest = "" if headers_only or raw is None else mime.digest(raw)
     if digest:
-        known = InboundMessage.objects.filter(mailbox_ref=cursor.mailbox_ref, original_sha256=digest).first()
+        known = InboundMessage.objects.filter(
+            mailbox_ref=cursor.mailbox_ref, original_sha256=digest
+        ).first()
         if known is not None:
-            InboundMessageLocation.objects.create(message=known, matched_by="digest", **location)
-            MailboxCursor.objects.filter(pk=cursor.pk).update(duplicates_seen=cursor.duplicates_seen + 1)
+            InboundMessageLocation.objects.create(
+                message=known, matched_by="digest", **location
+            )
+            MailboxCursor.objects.filter(pk=cursor.pk).update(
+                duplicates_seen=cursor.duplicates_seen + 1
+            )
             return advance("duplicate")
     elif derived.message_id:
-        known = InboundMessage.objects.filter(mailbox_ref=cursor.mailbox_ref, identity_state="unestablished",
-                                              message_id_header=derived.message_id, size=size, internal_date=internal_date).first()
+        known = InboundMessage.objects.filter(
+            mailbox_ref=cursor.mailbox_ref,
+            identity_state="unestablished",
+            message_id_header=derived.message_id,
+            size=size,
+            internal_date=internal_date,
+        ).first()
         if known is not None:
-            InboundMessageLocation.objects.create(message=known, matched_by="metadata", **location)
+            InboundMessageLocation.objects.create(
+                message=known, matched_by="metadata", **location
+            )
             return advance("duplicate_by_metadata")
     try:
-        with transaction.atomic():  # savepoint: a value the database refuses must not poison the cursor
+        with (
+            transaction.atomic()
+        ):  # savepoint: a value the database refuses must not poison the cursor
             message = _store(cursor, derived, size, internal_date, digest)
     except DataError:
         failed = True
@@ -231,17 +365,42 @@ def ingest(cursor_id: int, validity: int, uid: int, size: int, internal_date: st
 
 def _store(cursor, derived, size, internal_date, digest):
     return InboundMessage.objects.create(
-        mailbox_ref=cursor.mailbox_ref, message_id_header=derived.message_id[:998],
-        in_reply_to=" ".join(derived.in_reply_to)[:4000], references=" ".join(derived.references)[:8000],
-        from_address=(derived.from_addresses[0] if len(derived.from_addresses) == 1 else "")[:320],
-        from_normalized=(derived.from_addresses[0].casefold() if len(derived.from_addresses) == 1 else "")[:320],
-        auto_markers={**derived.auto_markers, **({"dsn_status": derived.dsn_status,
-                                                    "dsn_final_recipient": derived.dsn_final_recipient}
-                                                   if derived.dsn_status else {})},
-        date_header=derived.date_header, internal_date=internal_date[:64], size=size,
-        original_sha256=digest, derived_text=derived.text, derived_text_sha256=mime.digest(derived.text.encode()), derivation_version=mime.DERIVATION_VERSION,
-        redaction_version=mime.REDACTION_VERSION, truncated=derived.truncated, truncated_at_chars=derived.truncated_at_chars,
-        omitted_parts=derived.omitted_parts, redactions=derived.redactions, attachments=derived.attachments,
+        mailbox_ref=cursor.mailbox_ref,
+        message_id_header=derived.message_id[:998],
+        in_reply_to=" ".join(derived.in_reply_to)[:4000],
+        references=" ".join(derived.references)[:8000],
+        from_address=(
+            derived.from_addresses[0] if len(derived.from_addresses) == 1 else ""
+        )[:320],
+        from_normalized=(
+            derived.from_addresses[0].casefold()
+            if len(derived.from_addresses) == 1
+            else ""
+        )[:320],
+        auto_markers={
+            **derived.auto_markers,
+            **(
+                {
+                    "dsn_status": derived.dsn_status,
+                    "dsn_final_recipient": derived.dsn_final_recipient,
+                }
+                if derived.dsn_status
+                else {}
+            ),
+        },
+        date_header=derived.date_header,
+        internal_date=internal_date[:64],
+        size=size,
+        original_sha256=digest,
+        derived_text=derived.text,
+        derived_text_sha256=mime.digest(derived.text.encode()),
+        derivation_version=mime.DERIVATION_VERSION,
+        redaction_version=mime.REDACTION_VERSION,
+        truncated=derived.truncated,
+        truncated_at_chars=derived.truncated_at_chars,
+        omitted_parts=derived.omitted_parts,
+        redactions=derived.redactions,
+        attachments=derived.attachments,
         identity_state="established" if digest else "unestablished",
     )
 
@@ -252,16 +411,26 @@ def _after_store(cursor, message, derived, digest, failed, headers_only, advance
     elif headers_only:
         _exception(message, "inbound_oversize")
     elif derived.filed_copy and association.send_ref_of(derived.message_id) is not None:
-        InboundMessage.objects.filter(pk=message.pk).update(classification="own_copy", status=Inbound.PROCESSED,
-                                                            processed_at=Now())  # our own filed copy: no effect
-    elif digest and derived.message_id and InboundMessage.objects.filter(
-            mailbox_ref=cursor.mailbox_ref, message_id_header=derived.message_id).exclude(pk=message.pk).exists():
-        _exception(message, "message_id_conflict")  # same Message-ID, different bytes: kept, staff decide
+        InboundMessage.objects.filter(pk=message.pk).update(
+            classification="own_copy", status=Inbound.PROCESSED, processed_at=Now()
+        )  # our own filed copy: no effect
+    elif (
+        digest
+        and derived.message_id
+        and InboundMessage.objects.filter(
+            mailbox_ref=cursor.mailbox_ref, message_id_header=derived.message_id
+        )
+        .exclude(pk=message.pk)
+        .exists()
+    ):
+        _exception(
+            message, "message_id_conflict"
+        )  # same Message-ID, different bytes: kept, staff decide
     else:
         try:
             with transaction.atomic():
                 _associate(message, derived)
-        except (OperationalError, InterfaceError):
+        except OperationalError, InterfaceError:
             raise  # a database failure aborts the pass (016 B4); it is never demoted to processing_error
         except Exception:
             _exception(message, "processing_error")
@@ -270,19 +439,27 @@ def _after_store(cursor, message, derived, digest, failed, headers_only, advance
 
 class Collect:
     kind = COLLECT
-    redeliverable = True  # internal and idempotent (D-27): reads the mailbox, sends nothing
+    redeliverable = (
+        True  # internal and idempotent (D-27): reads the mailbox, sends nothing
+    )
     automated = True
 
     def lock_subject(self, claim) -> None:
-        MailboxCursor.objects.select_for_update(of=("self",)).filter(public_id=claim.subject_id).first()
+        MailboxCursor.objects.select_for_update(of=("self",)).filter(
+            public_id=claim.subject_id
+        ).first()
 
     def record(self, claim, kind, data) -> None:
         """The chain survives a final failure or the poison rule (016 B1), unless the cursor is blocked."""
-        if kind in ("action_attempts_exhausted",) or (kind == "action_failed" and data.get("final")):
+        if kind in ("action_attempts_exhausted",) or (
+            kind == "action_failed" and data.get("final")
+        ):
             cursor = MailboxCursor.objects.filter(public_id=claim.subject_id).first()
             if cursor is not None and cursor.state != State.BLOCKED:
                 n = _pass_number(claim)
-                MailboxCursor.objects.filter(pk=cursor.pk).update(pass_number=n + 1, last_error_code="pass_failed")
+                MailboxCursor.objects.filter(pk=cursor.pk).update(
+                    pass_number=n + 1, last_error_code="pass_failed"
+                )
                 enqueue_pass(cursor, n + 1, settings.CATALYST_MAIL_POLL_SECONDS)
                 open_item("collector_pass_failed", f"cursor:{cursor.public_id}")
 
@@ -291,15 +468,34 @@ class Collect:
 
         def write():
             failures = cursor.consecutive_failures + 1
-            if code in BLOCKING or failures >= settings.CATALYST_MAIL_COLLECT_FAILURE_LIMIT:
+            if (
+                code in BLOCKING
+                or failures >= settings.CATALYST_MAIL_COLLECT_FAILURE_LIMIT
+            ):
                 MailboxCursor.objects.filter(pk=cursor.pk).update(
-                    state=State.BLOCKED, blocked_reason=code, last_error_code=code, consecutive_failures=failures, pass_number=n)
-                open_item("mailbox_auth_failed" if code == "auth_failed" else "collector_blocked", f"cursor:{cursor.public_id}")
+                    state=State.BLOCKED,
+                    blocked_reason=code,
+                    last_error_code=code,
+                    consecutive_failures=failures,
+                    pass_number=n,
+                )
+                open_item(
+                    "mailbox_auth_failed"
+                    if code == "auth_failed"
+                    else "collector_blocked",
+                    f"cursor:{cursor.public_id}",
+                )
             else:
-                MailboxCursor.objects.filter(pk=cursor.pk).update(last_error_code=code, consecutive_failures=failures,
-                                                                  pass_number=n + 1)
+                MailboxCursor.objects.filter(pk=cursor.pk).update(
+                    last_error_code=code,
+                    consecutive_failures=failures,
+                    pass_number=n + 1,
+                )
                 enqueue_pass(cursor, n + 1, settings.CATALYST_MAIL_POLL_SECONDS)
-        ledger.finish(claim, self, status=Status.DONE, error=f"mailbox:{code}", write=write)
+
+        ledger.finish(
+            claim, self, status=Status.DONE, error=f"mailbox:{code}", write=write
+        )
 
     def run(self, claim) -> None:
         cursor = MailboxCursor.objects.filter(public_id=claim.subject_id).first()
@@ -307,7 +503,9 @@ class Collect:
             ledger.finish(claim, self, status=Status.FAILED, error="cursor_not_found")
             return
         if cursor.state == State.BLOCKED:
-            ledger.finish(claim, self, status=Status.DONE, error="cursor_blocked")  # no successor (016 B1)
+            ledger.finish(
+                claim, self, status=Status.DONE, error="cursor_blocked"
+            )  # no successor (016 B1)
             return
         with connection.cursor() as db:
             db.execute("SELECT now()")
@@ -315,7 +513,9 @@ class Collect:
         lease_half = settings.CATALYST_WORKER_LEASE_SECONDS / 2
         budget = time.monotonic() + lease_half
         try:
-            client = MailboxClient(timeout=min(settings.CATALYST_MAIL_SEND_DEADLINE_SECONDS, lease_half))
+            client = MailboxClient(
+                timeout=min(settings.CATALYST_MAIL_SEND_DEADLINE_SECONDS, lease_half)
+            )
         except MailboxError as exc:
             self._blocked_or_backoff(claim, cursor, exc.code)
             return
@@ -329,13 +529,22 @@ class Collect:
             target = uidnext - 1
             refusal = takeover_refusal(cursor, validity)
             if refusal:
-                self._blocked_or_backoff(claim, cursor, refusal)  # nothing read: never a resync of the whole inbox
+                self._blocked_or_backoff(
+                    claim, cursor, refusal
+                )  # nothing read: never a resync of the whole inbox
                 return
             if cursor.uidvalidity is None or cursor.uidvalidity != validity:
                 self._new_validity(claim, cursor, validity)
                 cursor.refresh_from_db()
-            elif cursor.state == State.OK and InboundMessageLocation.objects.filter(
-                    mailbox_ref=cursor.mailbox_ref, folder=cursor.folder, uidvalidity=validity, uid__gt=cursor.last_uid).exists():
+            elif (
+                cursor.state == State.OK
+                and InboundMessageLocation.objects.filter(
+                    mailbox_ref=cursor.mailbox_ref,
+                    folder=cursor.folder,
+                    uidvalidity=validity,
+                    uid__gt=cursor.last_uid,
+                ).exists()
+            ):
                 # A regressed cursor (for example a restore): walk forward as a recovery; known locations are skipped.
                 MailboxCursor.objects.filter(pk=cursor.pk).update(state=State.RECOVERY)
                 cursor.refresh_from_db()
@@ -345,7 +554,7 @@ class Collect:
                 self._blocked_or_backoff(claim, cursor, classify(exc).code)
                 return
             if len(uids) > settings.CATALYST_MAIL_BATCH_SIZE:
-                uids, complete = uids[:settings.CATALYST_MAIL_BATCH_SIZE], False
+                uids, complete = uids[: settings.CATALYST_MAIL_BATCH_SIZE], False
             for uid in uids:
                 if time.monotonic() > budget:
                     complete = False
@@ -353,15 +562,30 @@ class Collect:
                 try:
                     size, internal_date = client.meta(uid)
                     headers_only = size > settings.CATALYST_MAIL_MAX_MESSAGE_BYTES
-                    raw = client.fetch_headers(uid) if headers_only else client.fetch(uid)
-                except (MailboxError, *NETWORK_ERRORS) as exc:  # the connection failed mid-message
+                    raw = (
+                        client.fetch_headers(uid) if headers_only else client.fetch(uid)
+                    )
+                except (
+                    MailboxError,
+                    *NETWORK_ERRORS,
+                ) as exc:  # the connection failed mid-message
                     fetch_failed = classify(exc).code
                     complete = False
                     break
                 try:
                     with transaction.atomic():
-                        ingest(cursor.pk, validity, uid, size, internal_date, raw, headers_only)
-                        ledger.fence(claim)  # last: a lost lease rolls this message back and stops the pass
+                        ingest(
+                            cursor.pk,
+                            validity,
+                            uid,
+                            size,
+                            internal_date,
+                            raw,
+                            headers_only,
+                        )
+                        ledger.fence(
+                            claim
+                        )  # last: a lost lease rolls this message back and stops the pass
                 except ledger.LeaseLost:
                     logger.warning("collect %s: lease lost; pass stopped", claim.id)
                     return
@@ -371,50 +595,88 @@ class Collect:
             return
 
         def write():
-            fields = {"pass_number": n + 1, "consecutive_failures": 0, "last_error_code": ""}
+            fields = {
+                "pass_number": n + 1,
+                "consecutive_failures": 0,
+                "last_error_code": "",
+            }
             if complete:
-                fields.update(complete_through_uid=target, complete_through_at=pass_started_at, state=State.OK)
+                fields.update(
+                    complete_through_uid=target,
+                    complete_through_at=pass_started_at,
+                    state=State.OK,
+                )
             MailboxCursor.objects.filter(pk=cursor.pk).update(**fields)
             enqueue_pass(cursor, n + 1, settings.CATALYST_MAIL_POLL_SECONDS)
+
         ledger.finish(claim, self, status=Status.DONE, write=write)
 
     def _new_validity(self, claim, cursor, validity: int) -> None:
         """First sight in recovery, or a UIDVALIDITY change (016 4.1): one fenced transaction."""
         with transaction.atomic():
-            locked = MailboxCursor.objects.select_for_update(of=("self",)).get(pk=cursor.pk)
+            locked = MailboxCursor.objects.select_for_update(of=("self",)).get(
+                pk=cursor.pk
+            )
             if locked.uidvalidity is None:
-                MailboxCursor.objects.filter(pk=locked.pk).update(uidvalidity=validity, last_uid=0)
+                MailboxCursor.objects.filter(pk=locked.pk).update(
+                    uidvalidity=validity, last_uid=0
+                )
             else:
                 MailboxCursor.objects.filter(pk=locked.pk).update(
-                    state=State.RESYNC, epoch=locked.epoch + 1, uidvalidity=validity, last_uid=0,
-                    complete_through_uid=None, complete_through_at=None)
-                open_item("mailbox_uidvalidity_changed", f"cursor:{locked.public_id}:{validity}")
+                    state=State.RESYNC,
+                    epoch=locked.epoch + 1,
+                    uidvalidity=validity,
+                    last_uid=0,
+                    complete_through_uid=None,
+                    complete_through_at=None,
+                )
+                open_item(
+                    "mailbox_uidvalidity_changed",
+                    f"cursor:{locked.public_id}:{validity}",
+                )
             ledger.fence(claim)
 
 
 # --- bootstrap and recovery (016 B0; host-level commands) ------------------------------------------------
 
+
 def _locations_exist(mailbox_ref, folder) -> bool:
-    return InboundMessageLocation.objects.filter(mailbox_ref=mailbox_ref, folder=folder).exists()
+    return InboundMessageLocation.objects.filter(
+        mailbox_ref=mailbox_ref, folder=folder
+    ).exists()
 
 
 def bootstrap_mailbox(start_mode: str, start_uid: int | None = None) -> MailboxCursor:
-    mailbox_ref, folder = settings.CATALYST_MAIL_MAILBOX_REF, settings.CATALYST_MAIL_COLLECT_FOLDER
-    if start_mode not in ("from_now", "from_uid") or (start_mode == "from_uid" and not start_uid):
+    mailbox_ref, folder = (
+        settings.CATALYST_MAIL_MAILBOX_REF,
+        settings.CATALYST_MAIL_COLLECT_FOLDER,
+    )
+    if start_mode not in ("from_now", "from_uid") or (
+        start_mode == "from_uid" and not start_uid
+    ):
         raise Refused("start_mode_must_be_from_now_or_from_uid")
-    if MailboxCursor.objects.filter(mailbox_ref=mailbox_ref, folder=folder).exists() or _locations_exist(mailbox_ref, folder):
+    if MailboxCursor.objects.filter(
+        mailbox_ref=mailbox_ref, folder=folder
+    ).exists() or _locations_exist(mailbox_ref, folder):
         raise Refused("mailbox_already_collected_use_recovery")
     with MailboxClient(timeout=settings.CATALYST_MAIL_SEND_DEADLINE_SECONDS) as client:
         validity, uidnext = client.examine(folder)
     last = uidnext - 1 if start_mode == "from_now" else start_uid - 1
     with transaction.atomic():
         cursor = MailboxCursor.objects.create(
-            mailbox_ref=mailbox_ref, folder=folder, uidvalidity=validity, last_uid=max(last, 0), start_mode=start_mode,
-            complete_through_uid=last if start_mode == "from_now" else None)
+            mailbox_ref=mailbox_ref,
+            folder=folder,
+            uidvalidity=validity,
+            last_uid=max(last, 0),
+            start_mode=start_mode,
+            complete_through_uid=last if start_mode == "from_now" else None,
+        )
         if start_mode == "from_now":
             MailboxCursor.objects.filter(pk=cursor.pk).update(complete_through_at=Now())
             # Messages already in the mailbox are explicitly out of scope, and that is recorded (016 B0).
-            open_item("mailbox_history_out_of_scope", f"cursor:{cursor.public_id}:bootstrap")
+            open_item(
+                "mailbox_history_out_of_scope", f"cursor:{cursor.public_id}:bootstrap"
+            )
         enqueue_pass(cursor, 1)
     return cursor
 
@@ -422,17 +684,19 @@ def bootstrap_mailbox(start_mode: str, start_uid: int | None = None) -> MailboxC
 def takeover_refusal(cursor, validity: int) -> str:
     """bgl.6: under CATALYST_MAIL_TAKEOVER the mailbox is the first generation's, so a cursor from v2's own mailbox (or
     a bootstrap) would meet a new UIDVALIDITY and resynchronize from UID 1, reprocessing every message ever received:
-    collection refuses any cursor `start_cursor` did not set. A cursor it set must find the UIDVALIDITY it was given
-    until its first completed pass (a mistyped value, or a pass against the wrong mailbox, blocks instead of resyncing);
-    after that the ordinary rules apply (016 4.1)."""
+    collection refuses any cursor `start_cursor` did not set. Every pass must find the reviewed UIDVALIDITY:
+    even after a successful pass, v2 has no MIME digests for mail processed only by v1. Automatic resync could
+    replay that history as new replies. A changed epoch requires a reviewed boundary through `start_cursor`."""
     if guards.takeover(settings) and cursor.start_mode != TAKEOVER_START:
         return TAKEOVER_NOT_STARTED
-    if cursor.start_mode == TAKEOVER_START and cursor.complete_through_at is None and cursor.uidvalidity != validity:
+    if cursor.start_mode == TAKEOVER_START and cursor.uidvalidity != validity:
         return TAKEOVER_VALIDITY
     return ""
 
 
-def start_cursor(from_uid: int, uidvalidity: int, override: bool = False) -> MailboxCursor:
+def start_cursor(
+    from_uid: int, uidvalidity: int, override: bool = False
+) -> MailboxCursor:
     """bgl.6 (the swap): the configured mailbox's cursor starts at `from_uid` under `uidvalidity` (the first generation's
     own cursor: its UIDVALIDITY and its last UID plus one), recorded with start mode `takeover`. Nothing connects to the
     mailbox: the command runs before the deploy that switches the login. Messages below `from_uid` are out of scope,
@@ -441,46 +705,112 @@ def start_cursor(from_uid: int, uidvalidity: int, override: bool = False) -> Mai
     Refused when a cursor or collected locations exist for the mailbox, unless `override`: then the existing cursor is
     moved to the new position (a new epoch, the watermark and any block cleared). Refused even then when a location is
     already known at or after `from_uid` under that UIDVALIDITY (walking back over collected mail is `recover`)."""
-    mailbox_ref, folder = settings.CATALYST_MAIL_MAILBOX_REF, settings.CATALYST_MAIL_COLLECT_FOLDER
-    if not isinstance(from_uid, int) or not isinstance(uidvalidity, int) or from_uid < 1 or uidvalidity < 1:
+    mailbox_ref, folder = (
+        settings.CATALYST_MAIL_MAILBOX_REF,
+        settings.CATALYST_MAIL_COLLECT_FOLDER,
+    )
+    if (
+        not isinstance(from_uid, int)
+        or not isinstance(uidvalidity, int)
+        or from_uid < 1
+        or uidvalidity < 1
+    ):
         raise Refused("from_uid_and_uidvalidity_must_be_positive")
     with transaction.atomic():
-        cursor = MailboxCursor.objects.select_for_update(of=("self",)).filter(mailbox_ref=mailbox_ref, folder=folder).first()
-        if (cursor is not None or _locations_exist(mailbox_ref, folder)) and not override:
+        cursor = (
+            MailboxCursor.objects.select_for_update(of=("self",))
+            .filter(mailbox_ref=mailbox_ref, folder=folder)
+            .first()
+        )
+        if (
+            cursor is not None or _locations_exist(mailbox_ref, folder)
+        ) and not override:
             raise Refused("cursor_already_set_use_override")
-        if InboundMessageLocation.objects.filter(mailbox_ref=mailbox_ref, folder=folder, uidvalidity=uidvalidity,
-                                                 uid__gte=from_uid).exists():
+        if InboundMessageLocation.objects.filter(
+            mailbox_ref=mailbox_ref,
+            folder=folder,
+            uidvalidity=uidvalidity,
+            uid__gte=from_uid,
+        ).exists():
             raise Refused("locations_known_at_or_after_from_uid_use_recover")
-        position = dict(uidvalidity=uidvalidity, last_uid=from_uid - 1, start_mode=TAKEOVER_START, state=State.OK,
-                        complete_through_uid=None, complete_through_at=None, blocked_reason="", last_error_code="",
-                        consecutive_failures=0)
+        position = dict(
+            uidvalidity=uidvalidity,
+            last_uid=from_uid - 1,
+            start_mode=TAKEOVER_START,
+            state=State.OK,
+            complete_through_uid=None,
+            complete_through_at=None,
+            blocked_reason="",
+            last_error_code="",
+            consecutive_failures=0,
+        )
         if cursor is None:
-            cursor = MailboxCursor.objects.create(mailbox_ref=mailbox_ref, folder=folder, **position)
+            cursor = MailboxCursor.objects.create(
+                mailbox_ref=mailbox_ref, folder=folder, **position
+            )
         else:
-            MailboxCursor.objects.filter(pk=cursor.pk).update(epoch=cursor.epoch + 1, **position)
-        open_item("mailbox_history_out_of_scope", f"cursor:{cursor.public_id}:start:{uidvalidity}:{from_uid}")
-        if not PendingAction.objects.filter(kind=COLLECT, subject_id=cursor.public_id,
-                                            status__in=(Status.QUEUED, Status.RUNNING)).exists():
-            enqueue_pass(cursor, PendingAction.objects.filter(kind=COLLECT, subject_id=cursor.public_id).count() + 1)
+            MailboxCursor.objects.filter(pk=cursor.pk).update(
+                epoch=cursor.epoch + 1, **position
+            )
+        open_item(
+            "mailbox_history_out_of_scope",
+            f"cursor:{cursor.public_id}:start:{uidvalidity}:{from_uid}",
+        )
+        if not PendingAction.objects.filter(
+            kind=COLLECT,
+            subject_id=cursor.public_id,
+            status__in=(Status.QUEUED, Status.RUNNING),
+        ).exists():
+            enqueue_pass(
+                cursor,
+                PendingAction.objects.filter(
+                    kind=COLLECT, subject_id=cursor.public_id
+                ).count()
+                + 1,
+            )
     cursor.refresh_from_db()
     return cursor
 
 
 def recover_mailbox() -> MailboxCursor:
-    mailbox_ref, folder = settings.CATALYST_MAIL_MAILBOX_REF, settings.CATALYST_MAIL_COLLECT_FOLDER
+    mailbox_ref, folder = (
+        settings.CATALYST_MAIL_MAILBOX_REF,
+        settings.CATALYST_MAIL_COLLECT_FOLDER,
+    )
     with transaction.atomic():
-        cursor = MailboxCursor.objects.select_for_update(of=("self",)).filter(mailbox_ref=mailbox_ref, folder=folder).first()
+        cursor = (
+            MailboxCursor.objects.select_for_update(of=("self",))
+            .filter(mailbox_ref=mailbox_ref, folder=folder)
+            .first()
+        )
         if cursor is not None and cursor.state == State.BLOCKED:
-            raise Refused("cursor_blocked_use_restart_collector")  # only restart_collector resumes a blocked cursor
+            raise Refused(
+                "cursor_blocked_use_restart_collector"
+            )  # only restart_collector resumes a blocked cursor
         if cursor is None:
             if not _locations_exist(mailbox_ref, folder):
                 raise Refused("nothing_to_recover_use_bootstrap")
-            cursor = MailboxCursor.objects.create(mailbox_ref=mailbox_ref, folder=folder, uidvalidity=None, last_uid=0,
-                                                  state=State.RECOVERY, start_mode="recovery")
+            cursor = MailboxCursor.objects.create(
+                mailbox_ref=mailbox_ref,
+                folder=folder,
+                uidvalidity=None,
+                last_uid=0,
+                state=State.RECOVERY,
+                start_mode="recovery",
+            )
         else:
-            MailboxCursor.objects.filter(pk=cursor.pk).update(state=State.RECOVERY, last_uid=0, complete_through_uid=None,
-                                                              complete_through_at=None, blocked_reason="")
-        n = (PendingAction.objects.filter(kind=COLLECT, subject_id=cursor.public_id).count()) + 1
+            MailboxCursor.objects.filter(pk=cursor.pk).update(
+                state=State.RECOVERY,
+                last_uid=0,
+                complete_through_uid=None,
+                complete_through_at=None,
+                blocked_reason="",
+            )
+        n = (
+            PendingAction.objects.filter(
+                kind=COLLECT, subject_id=cursor.public_id
+            ).count()
+        ) + 1
         enqueue_pass(cursor, n)
     cursor.refresh_from_db()
     return cursor
@@ -488,43 +818,95 @@ def recover_mailbox() -> MailboxCursor:
 
 # --- filed copies (016 A4) -------------------------------------------------------------------------------
 
+
 class FileCopy:
     kind = FILE_COPY
     redeliverable = True  # a mailbox record for humans; a repeat is at worst a duplicate copy, never a send
     automated = True
 
     def lock_subject(self, claim) -> None:
-        Application.objects.select_for_update(of=("self",)).filter(public_ref=claim.subject_id).first()
+        Application.objects.select_for_update(of=("self",)).filter(
+            public_ref=claim.subject_id
+        ).first()
 
     def record(self, claim, kind, data) -> None:
-        if kind == "action_attempts_exhausted" or (kind == "action_failed" and data.get("final")):
-            message = ApprovedMessage.objects.select_related("application").filter(send_ref=claim.input_ref).first()
+        if kind == "action_attempts_exhausted" or (
+            kind == "action_failed" and data.get("final")
+        ):
+            message = (
+                ApprovedMessage.objects.select_related("application")
+                .filter(send_ref=claim.input_ref)
+                .first()
+            )
             if message is not None:
-                OutboundMessage.objects.filter(approved_message=message, filed_copy_state="pending").update(filed_copy_state="failed")
-                open_item("filed_copy_failed", str(message.send_ref), application=message.application, approved_message=message)
+                OutboundMessage.objects.filter(
+                    approved_message=message, filed_copy_state="pending"
+                ).update(filed_copy_state="failed")
+                open_item(
+                    "filed_copy_failed",
+                    str(message.send_ref),
+                    application=message.application,
+                    approved_message=message,
+                )
 
     def run(self, claim) -> None:
-        message = ApprovedMessage.objects.select_related("application", "template_version").filter(send_ref=claim.input_ref).first()
+        message = (
+            ApprovedMessage.objects.select_related("application", "template_version")
+            .filter(send_ref=claim.input_ref)
+            .first()
+        )
         if message is None:
-            ledger.finish(claim, self, status=Status.FAILED, error="approved_message_not_found")
+            ledger.finish(
+                claim, self, status=Status.FAILED, error="approved_message_not_found"
+            )
             return
-        if message.template_version is not None and message.template_version.secret_bearing:
-            ledger.finish(claim, self, status=Status.CANCELLED, error="secret_bearing_never_filed")
+        if (
+            message.template_version is not None
+            and message.template_version.secret_bearing
+        ):
+            ledger.finish(
+                claim, self, status=Status.CANCELLED, error="secret_bearing_never_filed"
+            )
             return
         mid = message_id(message.send_ref)
         try:
-            with MailboxClient(timeout=settings.CATALYST_MAIL_SEND_DEADLINE_SECONDS) as client:
-                if not client.search_message_id(settings.CATALYST_MAIL_SENT_FOLDER, mid):
+            with MailboxClient(
+                timeout=settings.CATALYST_MAIL_SEND_DEADLINE_SECONDS
+            ) as client:
+                if not client.search_message_id(
+                    settings.CATALYST_MAIL_SENT_FOLDER, mid
+                ):
                     try:
-                        page = frozen_html(message)  # bgl.11: the filed copy carries the HTML the send carried
+                        page = frozen_html(
+                            message
+                        )  # bgl.11: the filed copy carries the HTML the send carried
                     except TemplateRefused:
                         page = ""  # the send itself refused this message; a text-only copy is the most that left
-                    data = build_email(message, message.frozen_subject, message.frozen_body, html=page,
-                                       extra_headers={mime.FILED_COPY_HEADER: str(message.send_ref)})
+                    data = build_email(
+                        message,
+                        message.frozen_subject,
+                        message.frozen_body,
+                        html=page,
+                        extra_headers={mime.FILED_COPY_HEADER: str(message.send_ref)},
+                    )
                     client.append(settings.CATALYST_MAIL_SENT_FOLDER, data)
         except (MailboxError, *NETWORK_ERRORS) as exc:
-            ledger.fail_or_retry(claim, self, f"mailbox:{classify(exc).code}",
-                                 write=lambda: self.record(claim, "action_failed", {"final": claim.final}) if claim.final else None)
+            ledger.fail_or_retry(
+                claim,
+                self,
+                f"mailbox:{classify(exc).code}",
+                write=lambda: (
+                    self.record(claim, "action_failed", {"final": claim.final})
+                    if claim.final
+                    else None
+                ),
+            )
             return
-        ledger.finish(claim, self, status=Status.DONE, write=lambda: OutboundMessage.objects.filter(
-            approved_message=message, filed_copy_state="pending").update(filed_copy_state="filed"))
+        ledger.finish(
+            claim,
+            self,
+            status=Status.DONE,
+            write=lambda: OutboundMessage.objects.filter(
+                approved_message=message, filed_copy_state="pending"
+            ).update(filed_copy_state="filed"),
+        )

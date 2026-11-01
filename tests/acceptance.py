@@ -1649,6 +1649,7 @@ P6_SUPPORTING = {
         "test_mailbox_takeover::test_bgl6_a_set_cursor_is_moved_only_with_the_override_and_never_back_over_collected_mail",
         "test_mailbox_takeover::test_bgl6_a_wrong_uidvalidity_blocks_instead_of_reprocessing_the_inbox",
         "test_mailbox_takeover::test_bgl6_under_the_swap_a_cursor_the_command_did_not_set_never_reads",
+        "test_legacy_mailbox_takeover::test_imported_thread_takeover_never_replays_v1_mail_after_a_completed_pass",
     ],
     "9kg.51 every unbounded wait has an age bound in the health report (029 section 5.2)": [
         "test_system_health::test_9kg_51_each_aged_wait_raises_its_code_and_clears_when_resolved",
