@@ -39,6 +39,19 @@
   <p><label>Handover evidence <textarea name="note" minlength="10" maxlength="500" required>{{ review_note }}</textarea></label></p>
   <button type="submit">Read and adopt the existing envelope</button>
 </form>
+{% if adopted_envelopes %}
+<h3>Continue signing follow-ups</h3>
+{% for receipt in signing_timer_receipts %}<p>Follow-up handover recorded: {{ receipt.data.delivered_followups }} earlier reminders or resends.{% if receipt.data.action %} Original due time: {{ receipt.data.due_at|visible }}. Overdue timers receive grace on resume.{% else %} No new timer: {{ receipt.data.reason|visible }}.{% endif %}</p>{% endfor %}
+<p>Transfer the remaining reminder or closing-note timer using the preserved delivery history and a fresh envelope read. Uncertain v1 deliveries must be reconciled first. Existing reminders count against the allowance. The case stays paused; overdue timers receive the normal grace period when staff resume it.</p>
+<form method="post" action="{% url 'firstgen_staff:prepare_signing_timers' application.public_ref %}">
+  {% csrf_token %}<input type="hidden" name="digest" value="{{ review_digest }}">
+  <p><label>Adopted agreement <select name="instance" required><option value="">Choose an agreement</option>{% for instance in adopted_envelopes %}<option value="{{ instance.pk }}">{{ instance.agreement_type.key }} — {{ instance.envelope_id|visible }}</option>{% endfor %}</select></label></p>
+  <p><label><input type="checkbox" name="source_stopped" value="yes" required> I verified that v1 no longer sends or schedules work for this envelope.</label></p>
+  <p><label><input type="checkbox" name="timers_reviewed" value="yes" required> I reviewed the delivery history, resends and outstanding jobs in the frozen source.</label></p>
+  <p><label>Timer handover evidence <textarea name="note" minlength="10" maxlength="500" required>{{ review_note }}</textarea></label></p>
+  <button type="submit">Record and prepare remaining follow-ups</button>
+</form>
+{% endif %}
 {% endif %}
 {% if case.findings %}<ul>{% for finding in case.findings %}<li><bdi>{{ finding|visible }}</bdi></li>{% endfor %}</ul>{% endif %}
 <h2>Preserved records</h2>
