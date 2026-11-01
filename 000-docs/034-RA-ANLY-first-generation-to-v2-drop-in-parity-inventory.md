@@ -510,3 +510,22 @@ receipt. Ambiguous deliveries after a restore require review under the existing 
 
 These are repository behaviors, not evidence of production activation or approved real wording.
 The confirmation page also displays the new form answers before the applicant adopts that version.
+
+## Talent profile and search integration contract (bgl.15)
+
+The staff Applications page links to `/staff/p2/talent/`. It uses the same active staff and explicit
+correspondence permissions as that page; template-only staff and superusers receive no implicit access.
+Profiles read the immutable adopted submission, including mapped first-generation education and
+certifications. An unconfirmed submission or later repeat cannot create or replace a searchable profile.
+The original rows remain the stored profile; there is no second personal-data store or search service.
+
+Search matches all entered words across confirmed names, education, certifications, contributions and
+experience, using PostgreSQL full-text search with the simple dictionary. Contact details, confidential
+work descriptions, consent and JSON field names are excluded. Results show self-reported credentials,
+the application stage and confirmed version, newest first, with 25 profiles per page. Credential links
+are displayed as text. Credential verification remains off; searching schedules no work or provider call.
+Erasure clears the source and removes the profile from both browsing and search.
+
+`tests/test_talent.py` covers authority, escaped display, pagination, confirmed-version selection,
+cross-field matching, excluded data, erasure and a synthetic first-generation import. This is a
+repository implementation contract; production availability requires the normal tested-image deployment.
