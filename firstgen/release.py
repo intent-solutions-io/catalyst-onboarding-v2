@@ -11,7 +11,7 @@ from correspondence.staff_items import clean_note, event
 from provisioning import auto_release, services
 from workflow.models import PendingAction
 
-from . import mapping, review, signing_history
+from . import mailbox_history, mapping, review, signing_history
 
 PREPARED = "legacy_release_handoff_prepared"
 
@@ -64,6 +64,13 @@ def _validated(application, expected_digest):
         any(r["v1_table"] in ("case_release", "mailbox_account") for r in records)
         or application.provisioning_requests.exists()
     ):
+        raise Refused("legacy_provisioning_requires_reconciliation")
+    provisioning = mailbox_history.settled(
+        application, reviewed["case"].v1_case_id
+    ).data
+    if provisioning["case_state"] != "release_pending":
+        raise Refused("later_legacy_state_requires_reconciliation")
+    if provisioning["accounts"] or provisioning["releases"]:
         raise Refused("legacy_provisioning_requires_reconciliation")
     # The append-only original rows must not hide a later source transition or agreement change.
     agreements = [r for r in records if r["v1_table"] == "agreement"]

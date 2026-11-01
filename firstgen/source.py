@@ -2,8 +2,8 @@
 
 The source is untrusted data: every table is read with `SELECT *` into plain dicts (so a column added after
 migration 0023 is carried, not refused), inside one REPEATABLE READ, READ ONLY transaction so every table is read at
-the same instant. The job queue is counted, with open-job references and a narrow projection of signing
-delivery metadata for timer handover. No job payload or credential is loaded. Times are the first
+the same instant. The job queue is counted, with open-job references and narrow signing,
+release, mailbox and delivery metadata for handover. No job payload or credential is loaded. Times are the first
 generation's naive UTC and become aware UTC here.
 """
 
@@ -66,6 +66,7 @@ class Snapshot:
     signing_jobs: list | None = (
         None  # payload-free delivery metadata; None means the job table was unavailable
     )
+    mailbox_jobs: list | None = None  # release/create/welcome metadata, never payloads
     dormant: dict = field(
         default_factory=dict
     )  # {table: row count}, only tables that exist
@@ -132,6 +133,9 @@ def read(dsn: str) -> Snapshot:
                 from .signing_history import read_jobs
 
                 snap.signing_jobs = read_jobs(cur)
+                from .mailbox_history import read_jobs as read_mailbox_jobs
+
+                snap.mailbox_jobs = read_mailbox_jobs(cur)
             for table in DORMANT:
                 if _exists(cur, table):
                     cur.execute(

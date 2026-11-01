@@ -11,7 +11,7 @@ from provisioning import adapter, closure, core, services
 from provisioning.models import ProvisioningEvidence, ProvisioningRequest
 from workflow.models import PendingAction
 
-from . import review
+from . import mailbox_history, review
 from .models import ImportedRecord
 
 CONFIRMED = "legacy_mailbox_ownership_confirmed"
@@ -57,10 +57,22 @@ def _state(application, request_id, expected_digest):
     if len(records) != 1:
         raise Refused("imported_mailbox_required")
     record = records[0]
+    snapshot = mailbox_history.settled(application, state["case"].v1_case_id)
+    current = next(
+        (a for a in snapshot.data["accounts"] if a["id"] == record.v1_id), None
+    )
+    if current is None or current["address_sha256"] != mailbox_history.address_digest(
+        request.reservation.local_part, request.reservation.domain
+    ):
+        raise Refused("legacy_mailbox_identity_changed")
+    if snapshot.data["case_state"] != state["case"].v1_state:
+        raise Refused("legacy_mailbox_case_requires_reconciliation")
+    if current.get("welcome_send_started_at") and not current.get("welcome_sent_at"):
+        raise Refused("legacy_welcome_delivery_requires_reconciliation")
     if (
         record.data.get("case_id") != state["case"].v1_case_id
-        or record.data.get("status") != "created"
-        or not record.data.get("created_at_provider")
+        or current.get("status") != "created"
+        or not current.get("created_at_provider")
     ):
         raise Refused("legacy_mailbox_creation_requires_reconciliation")
     if request.status not in ("active", "stopped") or request.method != "checklist":
@@ -174,6 +186,7 @@ def confirm(
                 "record": record.pk,
                 "evidence": evidence.pk,
                 "source_sha256": state["sha256"],
+                "mailbox_history": mailbox_history.latest(application).pk,
                 "source_stopped_attested": True,
                 "ownership_reviewed": True,
                 "revocation_requested": stopped,

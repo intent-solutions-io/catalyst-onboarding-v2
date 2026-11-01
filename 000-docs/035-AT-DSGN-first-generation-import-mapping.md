@@ -370,3 +370,31 @@ key cannot be silently reused.
 A v1 release or mailbox record makes this a reconciliation case instead. Approved-but-uncertain
 mailbox creation, welcome-delivery reconciliation, live provider checks and the cutover/rollback
 rehearsal remain separate requirements. This path does not authorize a production source stop.
+
+## 14. Current release and mailbox history (bgl.23)
+
+Original imported mailbox rows remain immutable. Each import now also captures a minimal
+`mailbox_history` snapshot per case, in the same read-only source snapshot and destination
+transaction as the import. It includes the current case state, release references, mailbox
+creation markers, welcome round and delivery markers, and release/create/welcome/owner-notice
+job status, attempts and uncertainty. It stores an address digest for identity comparison,
+not another copy of the mailbox address. Job payloads, passwords, raw action keys and welcome
+content are excluded. Known action keys are reduced to case/mailbox/round references; unknown
+or conflicting identities remain visible and prevent a handover from treating them as settled.
+
+An unchanged import creates no duplicate snapshot. A changed row appends a new revision;
+returning to an earlier value also creates a new current revision. Missing source tables are
+explicitly incomplete, never evidence that no mailbox or delivery exists. Existing imports
+must be topped up from the frozen source before the release or mailbox handover can proceed.
+
+Both handovers require complete current snapshots. Running/reconciling jobs, unknown outcomes,
+attempted queued jobs and mismatched identities require reconciliation. Unattempted queued jobs
+may remain only under the handover's explicit source-stop attestation; v2 never replays them.
+Mailbox ownership also checks the current address, creation status and source case state, and
+refuses a welcome-start marker without a sent marker even if the original import says an older
+welcome was sent. The fresh provider read is followed by the same lock-time digest revalidation.
+A release-pending handover refuses a changed case state or any existing release/mailbox effect.
+
+These snapshots supply reconciliation evidence, not a claim that uncertain creates or welcome
+sends are resolved. No source job is cancelled by import, no provider operation is replayed,
+and source freeze, explicit dispositions and live rollback verification remain required.

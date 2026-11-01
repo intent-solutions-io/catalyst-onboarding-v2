@@ -2179,6 +2179,15 @@ P6_SUPPORTING = {
         "test_reference_receipt::test_bgl_5_the_receipt_handler_is_registered_redeliverable_and_reviewed_after_a_restore",
         "test_reference_receipt::test_bgl_5_the_request_page_answers_the_same_with_the_receipt_on",
     ],
+    "bgl.23 current source mailbox and delivery facts govern handover": [
+        "test_legacy_mailbox_history::test_mailbox_top_up_preserves_current_round_and_original_evidence",
+        "test_legacy_mailbox_history::test_missing_job_or_mailbox_table_never_proves_absent_effects",
+        "test_legacy_mailbox_history::test_mailbox_handover_refuses_late_uncertain_welcome_even_with_original_sent_receipt",
+        "test_legacy_mailbox_history::test_mailbox_handover_refuses_running_mismatched_and_unknown_jobs",
+        "test_legacy_mailbox_history::test_mailbox_handover_revalidates_current_address_and_source_during_provider_read",
+        "test_legacy_mailbox_history::test_release_handover_requires_settled_source_release_jobs",
+        "test_legacy_mailbox_history::test_mailbox_case_change_without_a_new_event_requires_reconciliation",
+    ],
     "bgl.23 release-pending imports enter native provisioning once after reviewed handover": [
         "test_legacy_release::test_missing_source_agreements_cannot_be_replaced_by_a_member_reference",
         "test_legacy_release::test_legacy_release_refuses_uncertain_source_delivery",
