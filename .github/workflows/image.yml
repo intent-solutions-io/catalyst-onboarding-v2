@@ -57,6 +57,7 @@ jobs:
       - name: Vulnerability scan (fixable high and critical fail the build)
         uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
         with:
+          cache-db: true # restore the database, then check for updates before scanning
           sbom: catalyst-image.spdx.json
           fail-build: true
           severity-cutoff: high

@@ -14,7 +14,10 @@ SUPPORTING is evidence the S1-T8 bead also requires that is not a numbered case:
 contract (ADR-14) and the test-only reset (D-21). It is reported the same way and gated the same way.
 """
 
+import json
+import os
 import re
+import time
 
 CASES = {
     "TEST-S1-01": [
@@ -224,6 +227,13 @@ SUPPORTING = {
     "GATE-S1 enforcement": [
         "test_acceptance::test_the_gate_fails_a_full_run_with_a_case_not_pass_and_spares_a_selected_subset",
         "test_acceptance::test_ci_runs_the_whole_suite_with_no_selection",
+        "test_ci_shards::test_the_union_covers_every_parametrized_instance_and_unmapped_test",
+        "test_ci_shards::test_incomplete_stale_duplicate_or_unsuccessful_evidence_is_refused",
+        "test_ci_shards::test_missing_acceptance_cases_and_invalid_registers_are_refused",
+        "test_ci_shards::test_the_aggregate_writes_the_full_register_and_removes_stale_success_on_failure",
+        "test_ci_shards::test_real_pytest_shards_collect_the_same_manifest_and_merge_without_losing_instances",
+        "test_ci_shards::test_sharding_refuses_selected_or_collection_only_runs",
+        "test_ci_shards::test_required_checks_preserve_parallel_fast_feedback_and_complete_evidence",
         "test_acceptance::test_the_acceptance_map_names_exactly_the_cases_in_005",
         "test_acceptance::test_every_mapped_test_exists",
     ],
@@ -1336,7 +1346,7 @@ P6_CASES = {
         "test_web_security::test_6b2_every_page_carries_the_csp_and_framing_headers",
         "test_web_security::test_6b2_an_anonymous_page_creates_no_session",
         "test_startup::test_6b2_staging_cookies_are_secure_host_only_and_sessions_idle_out",
-        "test_staging_proxy::test_6b8_caddy_trusts_no_proxy_and_sets_the_forwarded_values_itself",
+        "test_staging_proxy::test_6b8_caddy_trusts_only_configured_proxies_and_sets_the_forwarded_values_itself",
         "test_staging_proxy::test_6b8_caddy_responses_carry_safe_headers_and_slow_clients_time_out",
         "test_cutover::test_6b11_the_snippets_overwrite_the_forwarded_headers_and_default_to_the_web_socket",
         "test_web_security::test_6b2_an_idle_staff_session_is_refused_after_30_minutes",
@@ -1555,6 +1565,29 @@ P6_CASES = {
 }
 
 P6_SUPPORTING = {
+    # bgl.12 (034 section 2.2 rows 15 to 19): the live MiniMax branch and the routine-advance policy, both behind
+    # activations that are off in code; a named design rule like the 9kg groups, never a staging case.
+    "bgl.12 the live model branch and the routine-advance policy act only under their activations": [
+        "test_routine_advance::test_bgl12_the_default_configuration_reaches_no_live_branch",
+        "test_routine_advance::test_bgl12_the_live_branch_is_selected_only_when_settings_say_so_and_requests_are_allowed",
+        "test_routine_advance::test_bgl12_a_live_call_runs_fenced_and_a_provider_failure_is_never_adverse",
+        "test_routine_advance::test_bgl12_the_guards_refuse_every_live_setting_outside_the_synthetic_environments",
+        "test_routine_advance::test_bgl12_the_policy_decision_table",
+        "test_routine_advance::test_bgl12_the_policy_never_advances_on_claims_alone_and_thresholds_are_settings",
+        "test_routine_advance::test_bgl12_below_the_activation_nothing_is_queued_and_shadow_records_without_acting",
+        "test_routine_advance::test_bgl12_a_routine_applicant_is_admitted_on_the_existing_path_without_a_person",
+        "test_routine_advance::test_bgl12_an_ask_drafts_checks_and_sends_only_on_a_pass",
+        "test_routine_advance::test_bgl12_a_check_that_does_not_pass_sends_nothing_and_leaves_the_proposal_on_the_screen",
+        "test_routine_advance::test_bgl12_an_injection_shaped_draft_the_check_sends_to_a_person_is_never_sent",
+        "test_routine_advance::test_bgl12_nothing_is_drafted_or_sent_when_automatic_action_is_off",
+        "test_routine_advance::test_bgl12_the_send_cap_and_a_pause_are_rechecked_at_the_send",
+        "test_routine_advance::test_bgl12_a_draft_that_fails_the_screen_is_repaired_once_then_held",
+        "test_routine_advance::test_bgl12_the_daily_send_cap_is_a_hard_stop_with_a_staff_item",
+        "test_routine_advance::test_bgl12_the_daily_request_cap_stops_the_draft_before_any_reservation",
+        "test_routine_advance::test_bgl12_a_self_caused_failure_retries_bounded_then_opens_a_staff_item",
+        "test_routine_advance::test_bgl12_a_hold_waits_and_needs_human_lands_on_the_screen",
+        "test_routine_advance::test_bgl12_only_the_policy_module_reads_the_advisory_fields_and_only_live_imports_the_client",
+    ],
     "9kg.2 a system pause resumes only past its cause (pre-staging hardening)": [
         "test_processing::test_9kg_2_every_system_pause_reason_is_a_resumable_cause_with_a_resolution",
         "test_processing::test_9kg_2_the_screen_offers_a_system_resume_only_to_a_decision_maker_with_a_required_reason",
@@ -1593,6 +1626,27 @@ P6_SUPPORTING = {
         "test_guards::test_9kg_49_the_first_generation_mailbox_can_never_be_a_source",
         "test_guards::test_9kg_49_only_the_sent_folder_reader_is_an_evidence_source_outside_test",
         "test_guards::test_9kg_49_a_live_peer_must_be_the_allow_listed_host_on_a_global_address",
+    ],
+    # bgl.6 (034 rows 10 and 22, section 3.2; the owner's answer of 2026-10-31): the drop-in sender and the mailbox takeover.
+    "bgl.6 applicant mail carries the configured display name and Reply-To, the swap lifts the first-generation denial only to read the mailbox v2 sends from, first-generation replies associate through an optional resolver, and the cursor starts where the first generation stopped (034)": [
+        "test_mailbox_takeover::test_bgl6_the_p2_sender_and_the_verification_mail_carry_the_display_name_and_reply_to",
+        "test_mailbox_takeover::test_bgl6_unset_the_headers_are_todays_bare_address_and_no_reply_to",
+        "test_mailbox_takeover::test_bgl6_the_setup_welcome_and_withdrawal_mails_carry_the_display_name_and_reply_to",
+        "test_mailbox_takeover::test_bgl6_the_django_transport_sends_a_named_sender_from_the_bare_envelope_address",
+        "test_mailbox_takeover::test_bgl6_the_sender_settings_are_checked_at_start_up",
+        "test_mailbox_takeover::test_bgl6_the_first_generation_login_is_denied_until_the_swap_value_lifts_it",
+        "test_mailbox_takeover::test_bgl6_under_the_swap_v2_must_read_the_mailbox_it_sends_from",
+        "test_mailbox_takeover::test_bgl6_production_starts_after_the_swap_only_reading_the_mailbox_it_sends_from",
+        "test_mailbox_takeover::test_bgl6_a_reply_to_a_first_generation_message_id_associates_and_is_processed_as_a_reply",
+        "test_mailbox_takeover::test_bgl6_a_first_generation_subject_reference_associates_when_no_message_id_matches",
+        "test_mailbox_takeover::test_bgl6_trust_rules_are_unchanged_for_a_first_generation_reply",
+        "test_mailbox_takeover::test_bgl6_no_match_or_no_resolver_keeps_the_unmatched_item_for_staff",
+        "test_mailbox_takeover::test_bgl6_a_v2_message_id_wins_and_the_resolver_is_not_asked",
+        "test_mailbox_takeover::test_bgl6_the_resolver_is_fixed_in_code_and_names_only_the_first_generation_app",
+        "test_mailbox_takeover::test_bgl6_the_cursor_starts_where_the_first_generation_stopped_and_nothing_earlier_is_read",
+        "test_mailbox_takeover::test_bgl6_a_set_cursor_is_moved_only_with_the_override_and_never_back_over_collected_mail",
+        "test_mailbox_takeover::test_bgl6_a_wrong_uidvalidity_blocks_instead_of_reprocessing_the_inbox",
+        "test_mailbox_takeover::test_bgl6_under_the_swap_a_cursor_the_command_did_not_set_never_reads",
     ],
     "9kg.51 every unbounded wait has an age bound in the health report (029 section 5.2)": [
         "test_system_health::test_9kg_51_each_aged_wait_raises_its_code_and_clears_when_resolved",
@@ -1788,6 +1842,28 @@ P6_SUPPORTING = {
     ],
     "D-53 the real wave 1 wording is added as drafts, never approved by code, and served live only once the owner approves it (033)": [
         "test_wave1_wording::test_d53_the_real_wording_is_added_as_drafts_once_and_served_live_only_after_the_owner_approves",
+    ],
+    "bgl.11 the first generation's wording loads from a private source as new versions with their HTML part, approved only through the staff service, and v2 sends multipart mail (034)": [
+        "test_firstgen_wording::test_bgl11_conversion_maps_variables_drops_unmapped_lines_and_resolves_includes",
+        "test_firstgen_wording::test_bgl11_token_assets_map_to_v2_variables_and_the_pilot_card_is_removed",
+        "test_firstgen_wording::test_bgl11_subjects_fill_an_allowed_constant_and_branches_follow_the_flags",
+        "test_firstgen_wording::test_bgl11_unsupported_template_constructs_are_refused",
+        "test_firstgen_wording::test_bgl11_html_values_are_escaped_and_text_values_are_plain",
+        "test_firstgen_wording::test_bgl11_links_only_in_an_authored_href_and_nothing_inside_tags_scripts_or_styles",
+        "test_firstgen_wording::test_bgl11_the_content_digest_covers_the_html_and_is_unchanged_without_it",
+        "test_firstgen_wording::test_bgl11_dry_run_writes_nothing_prints_no_wording_and_skips_missing_keys",
+        "test_firstgen_wording::test_bgl11_loads_new_drafts_with_both_parts_and_a_rerun_skips_identical_content",
+        "test_firstgen_wording::test_bgl11_approve_as_uses_the_staff_approval_service_and_the_new_version_becomes_current",
+        "test_firstgen_wording::test_bgl11_a_variable_outside_the_allow_list_is_refused_and_nothing_is_written",
+        "test_firstgen_wording::test_bgl11_a_source_inside_the_repository_is_refused",
+        "test_firstgen_wording::test_bgl11_an_approved_html_part_is_final_for_every_role",
+        "test_firstgen_wording::test_bgl11_a_version_with_html_is_sent_multipart_and_one_without_as_text_only",
+        # parity integration: the first-name greeting and the HTML part of the four senders outside the frozen path
+        "test_firstgen_wording::test_bgl11_the_greeting_takes_the_first_word_of_the_name_and_falls_back_to_the_display_name",
+        "test_firstgen_wording::test_bgl11_a_question_frozen_from_a_first_name_version_greets_by_the_first_word",
+        "test_agreement_parity::test_bgl11_the_signing_link_and_the_cover_are_sent_multipart_and_greet_by_first_name",
+        "test_parity_mxroute::test_bgl11_the_one_time_password_welcome_is_sent_multipart_and_greets_by_first_name",
+        "test_signing_reminder::test_bgl11_the_lapse_note_is_sent_multipart_and_greets_by_first_name",
     ],
     "9kg.87 the live browser canary records no address or token, follows only this run's verification mail on the exact origin, and cleans up one message by UID (032)": [
         "test_live_canary::test_9kg_87_redaction_removes_every_token_and_every_form_of_the_login_address_and_password",
@@ -2083,6 +2159,142 @@ P6_SUPPORTING = {
         "test_intake_fields::test_parity_form_the_dossier_shows_the_answers_of_each_version",
         "test_intake_fields::test_parity_form_erasure_clears_the_answers_with_the_submission",
     ],
+    "bgl.16 the first-generation import converts every v1 record, reports every row and keeps the person erasable (035)": [
+        "test_first_generation_import::test_bgl16_a_dry_run_reports_every_row_and_leaves_nothing",
+        "test_first_generation_import::test_bgl16_every_v1_state_maps_to_its_stage_is_paused_and_nothing_is_queued_or_sent",
+        "test_first_generation_import::test_bgl16_agreements_details_mailboxes_crm_and_the_decline",
+        "test_first_generation_import::test_bgl16_replies_to_first_generation_threads_associate_by_message_id_and_reference",
+        "test_first_generation_import::test_bgl16_a_second_run_creates_nothing_and_a_late_row_is_added_once",
+        "test_first_generation_import::test_bgl16_a_failed_person_is_reported_and_everyone_else_is_imported",
+        "test_first_generation_import::test_bgl16_the_command_runs_only_as_the_owner_and_never_schedules_followups",
+        "test_first_generation_import::test_bgl16_erasing_an_imported_person_clears_everything_the_import_wrote",
+    ],
+    # bgl.8 (034 section 2.3 rows 27 to 29, 31 to 33): the first-generation signing behaviour behind the agreements
+    # activation: distribution "service" with the service-sent link and cover, the return page, the 300 s sweep default,
+    # the details read-back as an envelope version a staff correction supersedes, and the address-quality codes.
+    "bgl.8 service-sent signing link and cover, the return page, the 300 s poll, the details read-back and address quality"
+    " (034 section 2.3)": [
+        "test_agreement_parity::test_bgl8_under_the_provider_distribution_nothing_changes_but_the_redirect",
+        "test_agreement_parity::test_bgl8_under_the_service_distribution_the_provider_mails_nobody_and_the_service_sends_the_link",
+        "test_agreement_parity::test_bgl8_the_user_agreement_gets_the_branded_cover_with_its_own_link",
+        "test_agreement_parity::test_bgl8_the_link_waits_while_paused_skips_once_signed_and_a_series_is_sent_once",
+        "test_agreement_parity::test_bgl8_a_signer_missing_from_the_envelope_or_a_changed_address_sends_nothing_and_tells_staff",
+        "test_agreement_parity::test_bgl8_the_return_page_is_public_static_and_carries_no_case_data",
+        "test_agreement_parity::test_bgl8_the_sweep_interval_defaults_to_300_seconds_and_3600_stays_selectable",
+        "test_agreement_parity::test_bgl8_typed_details_are_read_back_as_an_envelope_version_and_a_staff_correction_supersedes_it",
+        "test_agreement_parity::test_bgl8_an_incomplete_read_back_records_nothing_opens_a_staff_item_and_never_holds_the_agreement",
+        "test_agreement_parity::test_bgl8_no_layout_reads_nothing_back_and_an_unreadable_field_list_is_a_provider_error",
+        "test_agreement_parity::test_bgl8_address_quality_codes_and_the_staff_screen_shows_them",
+        "test_agreement_parity::test_bgl8_the_distribution_and_layout_settings_are_guarded",
+    ],
+    # bgl.9 (034 rows 30 and 36; first-generation decisions 12 and 13, owner YES 2026-10-31): the automated company
+    # countersignature under a single-writer claim and the automatic release, both off by default.
+    "bgl.9 automated company countersignature with a single-writer claim, and the automatic release (034 rows 30, 36)": [
+        "test_countersign_release::test_bgl9_the_company_countersigns_once_after_the_applicant_and_the_read_path_verifies",
+        "test_countersign_release::test_bgl9_a_countersignature_is_verified_by_a_fresh_read_not_by_the_call",
+        "test_countersign_release::test_bgl9_two_workers_one_claim_one_signature",
+        "test_countersign_release::test_bgl9_the_claim_is_unique_per_envelope_and_only_for_v2_keys",
+        "test_countersign_release::test_bgl9_a_foreign_envelope_is_refused_and_never_touched",
+        "test_countersign_release::test_bgl9_a_failure_is_retried_and_the_retry_signs_once",
+        "test_countersign_release::test_bgl9_after_thirty_minutes_of_failure_the_owner_countersigns_by_hand",
+        "test_countersign_release::test_bgl9_a_paused_case_is_never_countersigned",
+        # parity integration: a lapsed case (bgl.7) is never countersigned; the signature that reopens it resumes it
+        "test_countersign_release::test_bgl9_a_lapsed_case_is_never_countersigned_and_the_signature_that_reopens_it_resumes_it",
+        "test_countersign_release::test_bgl9_both_modes_off_by_default_leave_todays_behaviour",
+        "test_countersign_release::test_bgl9_under_manual_the_company_recipient_waits_for_the_owner",
+        "test_countersign_release::test_bgl9_the_new_settings_are_guarded",
+        "test_countersign_release::test_bgl9_the_release_runs_once_without_a_person_and_queues_the_welcome",
+        "test_countersign_release::test_bgl9_the_hand_off_queues_the_release_itself",
+        "test_countersign_release::test_bgl9_each_blocking_condition_refuses_once_with_one_staff_item",
+        "test_countersign_release::test_bgl9_a_resolved_condition_releases_on_the_next_check",
+        "test_countersign_release::test_bgl9_a_reviewed_address_exception_waits_for_the_named_approver",
+        "test_countersign_release::test_bgl9_end_to_end_countersigned_agreements_release_without_a_person",
+    ],
+    # bgl.10 (034 rows 37 to 39): the live MXroute adapter over a stub transport, the first-name username policy with
+    # the host-side collision check, and the one-time-password welcome beside P5-D-6. Built and gated here; nothing
+    # activates in production (the live canary is a separate owner-gated bead).
+    "bgl.10 the live mail-host adapter, the first-name username policy and the one-time-password welcome": [
+        "test_parity_mxroute::test_bgl10_the_adapter_speaks_the_documented_routes_with_the_three_headers_and_reads_the_key_from_its_file",
+        "test_parity_mxroute::test_bgl10_a_missing_or_empty_key_file_refuses_before_any_call_and_the_key_never_appears_in_an_error",
+        "test_parity_mxroute::test_bgl10_the_adapter_maps_answers_to_the_p4_error_taxonomy",
+        "test_parity_mxroute::test_bgl10_the_default_transport_is_the_covered_http_client_and_opens_nothing_in_tests",
+        "test_parity_mxroute::test_bgl10_the_login_check_verifies_the_certificate_and_tells_a_refusal_from_a_failure",
+        "test_parity_mxroute::test_bgl10_create_when_absent_reads_then_posts_then_reads_again_and_the_password_is_in_no_record",
+        "test_parity_mxroute::test_bgl10_a_mailbox_present_and_not_ours_is_refused_with_a_staff_item_and_never_changed",
+        "test_parity_mxroute::test_bgl10_a_crashed_create_finds_its_own_mailbox_on_the_next_run_and_never_posts_twice",
+        "test_parity_mxroute::test_bgl10_a_lost_answer_after_the_create_landed_continues_by_reading_never_by_a_second_post",
+        "test_parity_mxroute::test_bgl10_a_connection_refused_before_sending_is_retried_never_called_a_rejection",
+        "test_parity_mxroute::test_bgl10_the_first_name_policy_folds_names_and_orders_eleven_candidates",
+        "test_parity_mxroute::test_bgl10_the_first_name_policy_skips_names_taken_at_the_host_up_to_the_ninth_suffix",
+        "test_parity_mxroute::test_bgl10_the_first_name_policy_skips_reserved_role_and_held_addresses_without_reading_the_host",
+        "test_parity_mxroute::test_bgl10_the_default_policy_without_the_host_check_proposes_as_before_and_reads_nothing",
+        "test_parity_mxroute::test_bgl10_a_host_that_cannot_answer_the_collision_check_leaves_the_handoff_held",
+        "test_parity_mxroute::test_bgl10_the_one_time_password_welcome_sets_checks_by_imap_then_sends_to_the_personal_address_only",
+        "test_parity_mxroute::test_bgl10_a_refused_imap_login_sends_no_welcome_and_each_new_round_sets_a_new_password",
+        "test_parity_mxroute::test_bgl10_an_unknown_password_set_sends_nothing_checks_nothing_and_the_next_round_succeeds",
+        "test_parity_mxroute::test_bgl10_an_uncertain_welcome_send_is_never_repeated_with_the_same_password",
+        "test_parity_mxroute::test_bgl10_without_a_usable_password_template_nothing_is_set_and_staff_are_told",
+        "test_parity_mxroute::test_bgl10_a_crash_during_the_exchange_is_never_replayed_and_the_sweep_covers_a_round_that_never_returns",
+        "test_parity_mxroute::test_bgl10_the_link_flow_and_its_records_are_untouched_when_the_mode_stays_default",
+        "test_parity_mxroute::test_bgl10_the_mode_of_a_series_is_fixed_for_every_role",
+        "test_parity_mxroute::test_bgl10_closing_the_application_cancels_a_queued_password_welcome_before_any_password_is_set",
+        "test_parity_mxroute::test_bgl10_the_password_generator_is_strong_and_within_the_documented_bounds",
+        "test_parity_mxroute::test_bgl10_live_host_settings_are_refused_outside_test_and_staging_and_bounded_inside",
+    ],
+    # bgl.7 (034 rows 20, 21 and 34): the first-generation follow-up cadence. Business days are Monday to Friday by the
+    # UTC date; one clarification reminder five business days on, in the question's thread; the lapse ten quiet business
+    # days after the last reminder with one closing note from owner-approved wording, reopened by a trusted reply or a
+    # signature; one signing reminder five business days after an envelope is issued unsigned, through the seam bgl.8 fills.
+    "bgl.7 the follow-up cadence matches the first generation: business days, one reminder in the thread, the lapse and its reopening, the signing reminder": [
+        "test_business_days::test_bgl7_only_monday_to_friday_count_and_the_start_day_itself_never_does",
+        "test_business_days::test_bgl7_after_is_midnight_utc_of_the_day_the_business_days_have_passed",
+        "test_business_days::test_bgl7_zero_days_is_the_start_itself_and_negative_or_naive_input_is_refused",
+        "test_business_days::test_bgl7_another_zone_is_read_by_its_utc_date",
+        "test_reminders::test_bgl7_one_reminder_five_business_days_on_in_the_questions_thread_then_the_escalation_and_the_lapse",
+        "test_reminders::test_bgl7_the_lapse_falls_exactly_at_ten_quiet_business_days_moves_the_stage_and_sends_one_note_in_the_thread",
+        "test_reminders::test_bgl7_a_replayed_lapse_on_an_already_lapsed_application_cancels_itself",
+        "test_reminders::test_bgl7_a_trusted_reply_reopens_a_lapsed_application_to_the_stage_it_lapsed_from",
+        "test_reminders::test_bgl7_quiet_hours_hold_the_closing_note_and_a_pending_reply_holds_the_lapse",
+        "test_reminders::test_bgl7_a_pause_holds_the_lapse_and_a_resume_spreads_it_instead_of_sending_the_note_at_once",
+        "test_reminders::test_bgl7_without_approved_closing_wording_the_lapse_waits_with_one_staff_item",
+        "test_reminders::test_bgl7_a_zero_business_day_interval_keeps_the_seconds_cadence_and_a_zero_lapse_never_lapses",
+        "test_reminders::test_bgl7_the_lapse_handler_is_registered_redeliverable_and_automated_and_the_defaults_are_the_first_generations",
+        "test_signing_reminder::test_bgl7_issuing_an_envelope_schedules_one_signing_reminder_five_business_days_on",
+        "test_signing_reminder::test_bgl7_without_a_service_signing_mail_the_reminder_records_once_that_the_applicant_was_not_reminded",
+        "test_signing_reminder::test_bgl7_through_the_seam_the_reminder_goes_once_and_the_lapse_and_the_signature_follow",
+        "test_signing_reminder::test_bgl7_a_signature_before_the_reminder_cancels_it_and_a_pause_holds_it",
+        "test_signing_reminder::test_bgl7_closing_the_application_cancels_its_signing_reminder_and_its_lapse",
+        # parity integration: under the service distribution (bgl.8) the reminder sends the signing link once more
+        "test_signing_reminder::test_bgl7_under_the_service_distribution_the_reminder_sends_the_signing_link_once_more",
+        "test_post_restore::test_bgl7_the_last_reminder_left_after_the_backup_still_leads_to_the_escalation_and_the_lapse",
+        "test_data_model::test_open_stage_set_matches_the_journey",
+    ],
+    "bgl.14 the Twenty projection, the applicant file note and the daily details fill, behind the switch (034 rows 42, 43)": [
+        "test_twenty_projection::test_bgl14_with_the_switch_off_nothing_is_queued_and_a_queued_action_calls_nothing",
+        "test_twenty_projection::test_bgl14_an_event_creates_the_person_with_the_first_generation_fields_and_one_applicant_file",
+        "test_twenty_projection::test_bgl14_the_note_is_created_once_and_then_updated_in_place",
+        "test_twenty_projection::test_bgl14_the_stored_person_id_is_used_first",
+        "test_twenty_projection::test_bgl14_an_email_match_is_exact_after_trim_and_case_fold_and_never_fuzzy",
+        "test_twenty_projection::test_bgl14_several_matches_open_one_staff_item_and_write_nothing",
+        "test_twenty_projection::test_bgl14_a_person_linked_to_another_open_application_is_not_taken",
+        "test_twenty_projection::test_bgl14_a_lost_reply_is_recovered_by_reading_and_nothing_is_duplicated",
+        "test_twenty_projection::test_bgl14_an_outage_is_retried_within_the_bound_and_the_last_failure_opens_one_item",
+        "test_twenty_projection::test_bgl14_a_refusal_opens_one_item_and_is_not_retried",
+        "test_twenty_projection::test_bgl14_a_field_edited_in_twenty_opens_one_item_and_is_overwritten",
+        "test_twenty_projection::test_bgl14_the_daily_fill_writes_only_blank_details_and_never_overwrites",
+        "test_twenty_projection::test_bgl14_details_never_overwrite_a_name_the_intake_wrote",
+        "test_twenty_projection::test_bgl14_an_imported_application_continues_its_first_generation_person_and_note",
+        # parity integration: v2's lapsed stage (bgl.7) projects as the first generation's LAPSED state
+        "test_twenty_projection::test_bgl14_a_lapsed_application_is_projected_as_the_first_generations_lapsed_state",
+        # parity integration: an imported person's first-generation Twenty record is owed to the owner at erasure
+        "test_twenty_projection::test_bgl14_an_erased_imported_person_owes_the_twenty_handoff_for_the_first_generations_person",
+        "test_twenty_projection::test_bgl14_an_erased_person_owes_the_twenty_handoff_and_the_link_keeps_no_digest",
+        "test_twenty_projection::test_bgl14_an_erased_application_is_never_projected",
+        "test_twenty_projection::test_bgl14_the_guards_refuse_live_twenty_settings_outside_test_and_staging",
+        "test_twenty_projection::test_bgl14_the_shipped_settings_keep_the_projection_off_and_empty",
+        "test_twenty_projection::test_bgl14_the_client_refuses_an_unpinned_or_unconfigured_target_before_sending",
+        "test_effect_registry::test_9kg62_the_scanner_knows_every_write_method_of_each_provider_client",
+    ],
 }
 
 # Cases with no pytest evidence of their own: shown only by a live script (026 section 16).
@@ -2336,3 +2548,23 @@ def instance_key(nodeid: str) -> str:
     """'tests/test_x.py::test_name[param]' -> 'test_x::test_name[param]' (one instance)."""
     path, _, name = nodeid.partition("::")
     return f"{path.rsplit('/', 1)[-1].removesuffix('.py')}::{name}"
+
+
+def write_register(statuses, path, commit, exit_status, image_digest=None):
+    """The same atomic evidence register for local full runs and a verified CI shard union."""
+    rows = register(statuses)
+    gate_counts = {}
+    for _, gate, cases, supporting in gates():
+        gate_counts[gate] = {kind: {s: [statuses[g] for g in groups].count(s) for s in ("PASS", "FAIL", "INCOMPLETE", "NOT RUN")}
+                       for kind, groups in (("numbered", cases), ("supporting", supporting))}
+    # Written beside the target and moved into place (PR #95 review), so a reader never sees a half-written file.
+    temporary = path + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as out:
+        json.dump({"gate": "GATE-STAGING", "commit": commit, "exit_status": exit_status,
+                   "image_digest": image_digest,
+                   "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "rows": rows,
+                   "summary": summarise(rows),
+                   "supporting": {group: statuses[group] for group in P6_SUPPORTING},
+                   "gates": gate_counts}, out, indent=1, sort_keys=True)
+    os.replace(temporary, path)
+    return path

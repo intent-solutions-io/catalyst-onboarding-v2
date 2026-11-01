@@ -85,6 +85,8 @@ INSTALLED_APPS = [
     "agreements",  # P4 (021; D-37)
     "provisioning",  # P5 (023; D-47)
     "erasure",  # 9kg.32 (029 section 6.2): the authorized erasure path
+    "firstgen",  # bgl.16 (035): the first-generation import's provenance
+    "crm",  # bgl.14 (034 rows 42 and 43): the Twenty projection, behind CATALYST_TWENTY_PROJECTION
 ]
 MIDDLEWARE = [
     "config.redaction.PrivateConfirmationResponses",  # outermost: covers responses built outside the view
@@ -256,11 +258,14 @@ CATALYST_ACTION_HANDLERS = {
     "send_staff_message": "correspondence.outbound.SendStaffMessage",  # 016 3.4, not automated (P2 2B.4)
     "remind": "correspondence.reminders.SendReminder",  # 016 E2 (P2 2B.4)
     "escalate_unanswered": "correspondence.reminders.EscalateUnanswered",  # 016 E1, J-08 (P2 2B.4)
+    "lapse": "correspondence.lapse.Lapse",  # bgl.7: ten quiet business days after the last reminder (034 row 21)
+    "remind_signing": "agreements.signing_reminder.RemindSigning",  # bgl.7: the signing reminder (034 row 34)
     # P3 3B.1 (018 4.1): the S1 action stays held until the owner-run activation command releases it.
     "start_evidence_collection": "assessments.collection.StartEvidenceCollection",
     "fetch_evidence": "assessments.collection.FetchEvidence",
     "complete_evidence_collection": "assessments.collection.CompleteEvidenceCollection",  # 9kg.24: run by the worker
     "run_assessment": "assessments.runs.RunAssessment",  # 018 4 step 4 (P3 3B.2); test models only
+    "routine_advance": "assessments.routine.RoutineAdvance",  # bgl.12: queued only under CATALYST_ROUTINE_ADVANCE_ACTIVATION
     "interpret_message": "correspondence.processing.InterpretMessage",  # 018 5.4 (P3 3B.3); test models only
     # oc4.11: a recorded decline queues `send_decline`, which freezes the decline notice and hands it to send_message.
     "send_decline": "assessments.decline.SendDecline",
@@ -275,6 +280,8 @@ CATALYST_ACTION_HANDLERS = {
     "advance_agreements": "agreements.completion.AdvanceAgreements",
     "cancel_agreement": "agreements.completion.CancelAgreement",
     "store_agreement": "agreements.custody.StoreAgreement",  # 4B.3 (021 section 7)
+    # bgl.8 (034 rows 27, 28): the service-sent signing link and cover, only under CATALYST_AGREEMENT_DISTRIBUTION "service"
+    "send_signing_link": "agreements.signing_mail.SendSigningLink",
     # P5 5B.1 (023 sections 5 and 11): the held `provision` hand-off stays held until `activate_provisioning`.
     "provision_create": "provisioning.handlers.CreateMailbox",
     "provision_reconcile": "provisioning.handlers.ReconcileMailbox",
@@ -283,10 +290,20 @@ CATALYST_ACTION_HANDLERS = {
     "provision_invite": "provisioning.credentials.SendSetupInvitation",
     "provision_setup_sweep": "provisioning.credentials.SweepSetup",
     "provision_activate": "provisioning.credentials.Activate",
+    # First-generation parity (034 row 39): the one-time-password welcome, run only when the credential mode selects it.
+    "provision_welcome_password": "provisioning.password_welcome.SendPasswordWelcome",
     # P5 5B.3 (023 sections 6 and 11.6)
     "provision_revoke": "provisioning.closure.RevokeAccess",
     "provision_withdraw_send": "provisioning.closure.SendWithdrawalLink",
     "clear_sessions": "accounts.staff_access.ClearSessions",  # 6B.9: expired staff sessions, hourly
+    # bgl.9 (034 rows 30, 36): the automated countersignature and release; each does nothing unless its mode is on.
+    "countersign_sweep": "agreements.countersign.CountersignSweep",
+    "countersign_agreement": "agreements.countersign.CountersignAgreement",
+    "auto_release": "provisioning.auto_release.AutoRelease",
+    # bgl.14 (034 rows 42 and 43): the Twenty projection and the daily User Agreement details fill. Queued only while
+    # CATALYST_TWENTY_PROJECTION is on; a queued one finds the switch off and does nothing.
+    "twenty_project": "crm.projection.ProjectApplication",
+    "twenty_details_fill": "crm.projection.FillDetails",
 }
 # P5 provisioning (023; D-47). Synthetic only: the adapter is a local fake set by tests, the domain a `.test` domain
 # (P5-D-1), and the limits labelled synthetic defaults (P5-D-2), never unlimited. A live adapter, a provider key and
@@ -297,6 +314,7 @@ CATALYST_PROVISIONING_METHOD = "api"  # P5-D-4: API-first against the fake; "che
 CATALYST_PROVISIONING_QUOTA_MB = 1024  # synthetic default (P5-D-2)
 CATALYST_PROVISIONING_SEND_LIMIT = 100  # synthetic default (P5-D-2)
 CATALYST_PROVISIONING_RESERVED_LOCAL_PARTS = []
+CATALYST_PROVISIONING_RESERVED_PREFIXES = []  # 034 row 38: a local part starting with one is reserved (owner's list)
 CATALYST_PROVISIONING_ATTEMPTS = 3
 CATALYST_PROVISIONING_RECONCILE_CHECKS = 3
 CATALYST_PROVISIONING_RECONCILE_GRACE_SECONDS = 30
@@ -306,6 +324,26 @@ CATALYST_SETUP_LINK_SECONDS = 86400
 CATALYST_SETUP_INVITE_MAX_SERIES = 3  # 023 11.2: then staff decide (OWNER: the production bound)
 CATALYST_SETUP_SET_ATTEMPTS = 3  # 023 11.11: definite password rejections before a new series
 CATALYST_SETUP_SET_TIMEOUT_SECONDS = 60  # a set_pending older than this is set_uncertain (023 11.5)
+# First-generation parity (034 rows 37 to 39; bead catalyst-v2-bgl.10). Every value is fixed in code, never read from
+# the environment; the live-host values are empty by default and refused outside the test and staging environments
+# (config.guards), where the adapter must still name a test fake. Nothing here activates a live mail host: the live
+# canary is a separate, owner-gated act.
+# The drop-in swap (owner, 2026-10-31: production uses the first-generation policy and the one-time-password welcome)
+# flips exactly NAMING_POLICY to "first_name", NAMING_HOST_CHECK to True and CREDENTIAL_MODE to "one_time_password",
+# with the live-host values below and the owner's RESERVED_LOCAL_PARTS and RESERVED_PREFIXES lists; the code defaults
+# stay P5's until that separate, owner-gated swap.
+CATALYST_PROVISIONING_NAMING_POLICY = "first_last"  # P5-D-1; "first_name" is the first-generation convention (row 38)
+CATALYST_PROVISIONING_NAMING_HOST_CHECK = False  # read each candidate at the host (mailboxes, forwarders) before reserving it
+CATALYST_PROVISIONING_CREDENTIAL_MODE = "set_your_own"  # P5-D-6, the default; "one_time_password" is the alternative (row 39)
+CATALYST_PROVISIONING_API_URL = ""  # the mail host's API origin: https on a .test host, or http on loopback, in test and staging
+CATALYST_PROVISIONING_API_SERVER = ""  # the X-Server header
+CATALYST_PROVISIONING_API_ACCOUNT = ""  # the X-Username header: one hosting user, never a reseller (023 11.1)
+CATALYST_PROVISIONING_API_KEY_FILE = ""  # an absolute path to the key's file: a reference, read by the adapter at call time only
+CATALYST_PROVISIONING_API_CONNECT_SECONDS = 5.0
+CATALYST_PROVISIONING_API_READ_SECONDS = 20.0
+CATALYST_PROVISIONING_IMAP_HOST = ""  # the login check of a one-time password: implicit TLS, certificate verified
+CATALYST_PROVISIONING_IMAP_PORT = 993
+CATALYST_PROVISIONING_IMAP_TIMEOUT_SECONDS = 20.0
 # The one seam through which the applications app opens a staff item for a `needs_staff_attention` event
 # (016 3.8; 2B.3). Like the handler mapping, a fixed dotted path in code, so `applications` never imports
 # `correspondence` (003 ADR-01) and the creation logic exists once.
@@ -317,6 +355,12 @@ CATALYST_NOTICE_SOURCE = "correspondence.notices"
 # interpreter and the answers-confirmed hook through these fixed paths and never imports `assessments`.
 CATALYST_REPLY_INTERPRETER = "assessments.interpret.Interpreter"
 CATALYST_ANSWERS_CONFIRMED_HOOK = "assessments.clarification.answers_settled"
+# bgl.6 (034 section 3.2 (c)): the optional resolver of replies to threads v2 did not start. After the swap v2 reads the
+# first generation's mailbox, so a reply may answer a first-generation message; correspondence.association asks this
+# module (two functions: `application_for_message_ids` and `application_for_subject`) only when no Message-ID of v2's
+# own matched. The first-generation import app's module when that app is installed, else none (today's behaviour: the
+# reply is an unmatched item for staff). Fixed in code, never from the environment (config.guards.dispatch_problems).
+CATALYST_FOREIGN_THREAD_RESOLVER = "firstgen.threads" if "firstgen" in INSTALLED_APPS else ""
 # The activation version of message-level reply interpretation (018 5.4). 0: off; process_reply creates no
 # `interpret_message` row. The owner turns it on by changing this value in code, then releases earlier replies
 # with `activate_reply_interpretation`. Even when on, no model runs outside tests (CATALYST_ASSESSMENT_MODEL).
@@ -358,9 +402,21 @@ CATALYST_MAIL_COLLECTOR_STALE_FACTOR = number("CATALYST_MAIL_COLLECTOR_STALE_FAC
 # automation and open a staff item. Synthetic values; POL-06 production values are not decided.
 CATALYST_MAIL_LOOP_THRESHOLD = number("CATALYST_MAIL_LOOP_THRESHOLD", "3", minimum=2)  # 1 would break the single-autoresponder rule
 CATALYST_MAIL_LOOP_WINDOW_SECONDS = number("CATALYST_MAIL_LOOP_WINDOW_SECONDS", "86400")
-# Reminders (016 E; POL-06 cadence). Synthetic values; production numbers are decided later (8.2).
-CATALYST_REMINDER_MAX = number("CATALYST_REMINDER_MAX", "2", minimum=0)  # then escalate_unanswered
+# Reminders (016 E; POL-06 cadence). The defaults are the first-generation production cadence (034 row 20; bgl.7): one
+# reminder, five business days (Monday to Friday, UTC; workflow.business_days) after the question or the previous
+# reminder was accepted. A business-day interval of 0 falls back to the seconds interval, so an environment keeps its
+# earlier cadence with CATALYST_REMINDER_MAX=2 CATALYST_REMINDER_INTERVAL_BUSINESS_DAYS=0. POL-06 production wording is
+# still open; the cadence values here are the parity defaults, not a POL-06 decision.
+CATALYST_REMINDER_MAX = number("CATALYST_REMINDER_MAX", "1", minimum=0)  # then escalate_unanswered (and the lapse)
+CATALYST_REMINDER_INTERVAL_BUSINESS_DAYS = number("CATALYST_REMINDER_INTERVAL_BUSINESS_DAYS", "5", minimum=0)
 CATALYST_REMINDER_INTERVAL_SECONDS = number("CATALYST_REMINDER_INTERVAL_SECONDS", "259200", minimum=0)
+# The signing reminder (034 row 34): one more copy of the signing link mail after five business days unsigned, through
+# agreements.signing_mail (the seam bead bgl.8 fills). 0 reminders, or 0 days, schedules none.
+CATALYST_SIGNING_REMINDER_MAX = number("CATALYST_SIGNING_REMINDER_MAX", "1", minimum=0)
+CATALYST_SIGNING_REMINDER_BUSINESS_DAYS = number("CATALYST_SIGNING_REMINDER_BUSINESS_DAYS", "5", minimum=0)
+# The lapse (034 row 21): after the last reminder, this many quiet business days with no reply and nothing signed move
+# the application to `lapsed` with one closing note (correspondence.lapse); 0 never lapses.
+CATALYST_LAPSE_AFTER_BUSINESS_DAYS = number("CATALYST_LAPSE_AFTER_BUSINESS_DAYS", "10", minimum=0)
 CATALYST_REMINDER_MIN_GAP_SECONDS = number("CATALYST_REMINDER_MIN_GAP_SECONDS", "86400", minimum=0)
 # 9kg.85 (033 Q9): 02:00 to 13:00 UTC, the night across the cohort's US time zones.
 CATALYST_REMINDER_QUIET_START_HOUR = number("CATALYST_REMINDER_QUIET_START_HOUR", "2", minimum=0)  # UTC; equal = none
@@ -391,25 +447,42 @@ CATALYST_EVIDENCE_MAX_TEXT_CHARS = number("CATALYST_EVIDENCE_MAX_TEXT_CHARS", "2
 if CATALYST_EVIDENCE_DEADLINE_SECONDS * 2 > CATALYST_WORKER_LEASE_SECONDS:
     raise ImproperlyConfigured("CATALYST_EVIDENCE_DEADLINE_SECONDS must be at most half of CATALYST_WORKER_LEASE_SECONDS")
 # The assessment run (018 5.5, 6; P3 3B.2). "none" everywhere except `test`, where "test" selects a PydanticAI
-# test model; there is no live value (config.guards.assessment_problems). Fixed in code, never from the environment.
+# test model; a live value "<provider>:<model id>" is accepted only in a synthetic environment under
+# CATALYST_ASSESSMENT_LIVE_ACTIVATION below (config.guards.assessment_problems). Fixed in code, never from the environment.
 CATALYST_ASSESSMENT_MODEL = "none"
+
+
+def usage_quota(name: str, synthetic_default: str):
+    """Owner 2026-10-31: production has no cumulative model/correspondence quota.
+
+    Explicit numeric limits remain available for synthetic checks and operator policy. Zero
+    still means no allowance; only the literal unlimited removes a quota. Rate limits and
+    request/retry bounds are separate and always finite.
+    """
+    default = "unlimited" if CATALYST_ENV == "production" else synthetic_default
+    if os.environ.get(name, default).strip().lower() == "unlimited":
+        return None
+    return number(name, default, minimum=0)
+
 CATALYST_ASSESSMENT_ATTEMPTS = number("CATALYST_ASSESSMENT_ATTEMPTS", "2")
-CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT = number("CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT", "4")
-CATALYST_ASSESSMENT_RUNS_PER_APPLICATION = number("CATALYST_ASSESSMENT_RUNS_PER_APPLICATION", "6")
-CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION = number("CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION", "150000")
-CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST = number("CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST", "16000")
-CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT = number("CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT", "8000")
+CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT = usage_quota("CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT", "4")
+CATALYST_ASSESSMENT_RUNS_PER_APPLICATION = usage_quota("CATALYST_ASSESSMENT_RUNS_PER_APPLICATION", "6")
+CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION = None if CATALYST_ENV == "production" else usage_quota("CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION", "150000")
+CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST = None if CATALYST_ENV == "production" else number("CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST", "16000")
+CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT = None if CATALYST_ENV == "production" else number("CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT", "8000")
 CATALYST_ASSESSMENT_CONCURRENT_RUNS = number("CATALYST_ASSESSMENT_CONCURRENT_RUNS", "2")
+# Set from the actual account/model limits at activation; zero refuses live traffic.
+CATALYST_MINIMAX_REQUESTS_PER_MINUTE = number("CATALYST_MINIMAX_REQUESTS_PER_MINUTE", "0", minimum=0)
 # oc4.9 / oc4.10 item 7: the wall time of one model request, enforced by Catalyst around the call (agent.run_checked)
 # and passed to the provider client. One attempt (the call and the repair) must fit in half the worker lease
 # (config.guards.assessment_problems), so a lease is never reclaimed while an attempt is in flight.
 # Unset: a quarter of the lease, at most 60 s (018 section 6).
 CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS = number(
     "CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS", str(min(60.0, CATALYST_WORKER_LEASE_SECONDS / 4)), cast=float, minimum=0.1)
-# Fail-closed: no run proceeds until the owner sets a daily budget (018 6).
-CATALYST_ASSESSMENT_DAILY_REQUESTS = number("CATALYST_ASSESSMENT_DAILY_REQUESTS", "0", minimum=0)
+# Production usage is uncapped by owner instruction; activation and per-minute rate checks still apply.
+CATALYST_ASSESSMENT_DAILY_REQUESTS = usage_quota("CATALYST_ASSESSMENT_DAILY_REQUESTS", "0")
 # Clarification (018 section 6 and step 5): at most 3 assessment rounds per application, 3 proposals per round.
-CATALYST_ASSESSMENT_ROUNDS = number("CATALYST_ASSESSMENT_ROUNDS", "3")
+CATALYST_ASSESSMENT_ROUNDS = usage_quota("CATALYST_ASSESSMENT_ROUNDS", "3")
 # The qualification decision (018 section 7; P3 3B.4). Who may decide is POL-05: until the owner records it this
 # stays unset (None) and every decision is refused, superusers included. The one value the code implements is
 # "explicit_permission" (assessments.record_qualification_decision, granted to named people only, by
@@ -436,7 +509,32 @@ if CATALYST_CAPPED_EXIT not in ("human_only", "none"):
     raise ImproperlyConfigured("CATALYST_CAPPED_EXIT must be 'human_only' or 'none'")
 CATALYST_QUESTIONS_PER_ROUND = number("CATALYST_QUESTIONS_PER_ROUND", "3")
 # Reply interpretation may use at most this many of the shared daily requests per application (3B.3 review).
-CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION = number("CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION", "10")
+CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION = usage_quota("CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION", "10")
+# bgl.12 (034 section 2.2 rows 15 to 19): the live model branch and the routine-advance policy, both OFF in code and
+# refused in a live environment (config.guards.assessment_problems). Nothing below changes what production does:
+# D-53 ("no model") and the launch-wide suspension hold at these defaults.
+# The live activation (fixed in code, never from the environment): 0 off; 1 lets `assessments.live` build the MiniMax
+# model in a synthetic environment when CATALYST_ASSESSMENT_MODEL names "<provider>:<model id>", the owner's approval is
+# recorded (approve_model_use) and the base URL and key below are set. The worker entry point alone switches
+# PydanticAI's request flag on, and only under this activation.
+CATALYST_ASSESSMENT_LIVE_ACTIVATION = 0
+CATALYST_ASSESSMENT_LIVE_BASE_URL = os.environ.get("CATALYST_ASSESSMENT_LIVE_BASE_URL", "").strip()  # https, or loopback http
+CATALYST_ASSESSMENT_API_KEY = secret("CATALYST_ASSESSMENT_API_KEY", "")  # a per-secret file outside test and development
+# The routine-advance policy (assessments.policy, assessments.routine): 0 off; 1 shadow (every verdict is recorded as an
+# event, nothing acts); 2 act (a routine admit runs the existing admit path, a drafted and checked clarification is
+# sent). Fixed in code; a decline is never automatic at any level.
+CATALYST_ROUTINE_ADVANCE_ACTIVATION = 0
+CATALYST_ROUTINE_ADVANCE_CONFIDENCE = os.environ.get("CATALYST_ROUTINE_ADVANCE_CONFIDENCE", "high")  # low, medium, high
+CATALYST_ROUTINE_ADVANCE_REQUIRED_RATING = os.environ.get("CATALYST_ROUTINE_ADVANCE_REQUIRED_RATING", "supported")
+CATALYST_ROUTINE_ADVANCE_OTHER_RATING = os.environ.get("CATALYST_ROUTINE_ADVANCE_OTHER_RATING", "partly_supported")
+# Daily caps (the first generation capped runs and sends per UTC day): sends default to 0, fail-closed, like the daily
+# request budget; a cap is a hard stop that records why and opens a staff item. Requests share
+# CATALYST_ASSESSMENT_DAILY_REQUESTS with the assessment and the reply interpreter.
+CATALYST_ROUTINE_DAILY_SENDS = usage_quota("CATALYST_ROUTINE_DAILY_SENDS", "0")
+# A hold (automation paused, contact unverified, a question open, evidence pending) or a self-caused failure of the draft
+# or the check retries after this many seconds, at most this many times, then opens a staff item.
+CATALYST_ROUTINE_RETRY_AFTER_SECONDS = number("CATALYST_ROUTINE_RETRY_AFTER_SECONDS", "3600", minimum=0)
+CATALYST_ROUTINE_RETRY_LIMIT = number("CATALYST_ROUTINE_RETRY_LIMIT", "2", minimum=0)
 CATALYST_STAFF_DRAFT_TTL_SECONDS = number("CATALYST_STAFF_DRAFT_TTL_SECONDS", "1800")  # 016 3.4: a preview expires
 CATALYST_REMINDER_OVERDUE_MARGIN_SECONDS = number("CATALYST_REMINDER_OVERDUE_MARGIN_SECONDS", "3600", minimum=0)
 if CATALYST_REMINDER_QUIET_START_HOUR > 23 or CATALYST_REMINDER_QUIET_END_HOUR > 23:
@@ -463,9 +561,19 @@ CATALYST_MAIL_SENT_SCAN_LIMIT = number("CATALYST_MAIL_SENT_SCAN_LIMIT", "500")  
 # the synthetic ones and in development, where only loopback (or the named test host) is ever allowed.
 CATALYST_MAIL_ALLOWED_HOSTS = [h.strip().lower() for h in os.environ.get("CATALYST_MAIL_ALLOWED_HOSTS", "").split(",") if h.strip()]
 # 9kg.49: SHA-256 digests (lower-case hex) of mailbox logins that may never be configured as this service's
-# mailbox: the first-generation service's own mailbox, so v2 can never become a second poller or reader of it.
+# mailbox: the first-generation service's own mailbox, so v2 can never become a second poller or reader of it (until
+# the swap lifts the denial: CATALYST_MAIL_TAKEOVER below).
 # Digests, not names: the repository is public and names nothing.
 CATALYST_MAIL_DENIED_USER_SHA256 = [d.strip().lower() for d in os.environ.get("CATALYST_MAIL_DENIED_USER_SHA256", "").split(",") if d.strip()]
+# bgl.6 (034 section 3.2; the owner's answer of 2026-10-31): the mailbox takeover at the swap. The denied digest above is
+# the default protection: while the first generation still polls its mailbox, v2 must never become a SECOND reader of it
+# (M8, P6-D-10, 211.7.3: two pollers would duplicate and race). Clearing that guard is the swap act, taken only after
+# the first generation's poll is stopped and v2's cursor is set (`catalyst_mail_cursor_start`): production sets this to
+# exactly "first-generation-poll-stopped", which lifts the denial (the digests stay configured, so unsetting the value
+# restores it). Start-up then requires the mailbox v2 reads to be the one it sends from (CATALYST_MAIL_USER and its pin
+# equal CATALYST_FROM_EMAIL) and refuses any other value (config.guards.takeover_problems); collection refuses a cursor
+# the start command did not set (correspondence.inbound.takeover_refusal).
+CATALYST_MAIL_TAKEOVER = os.environ.get("CATALYST_MAIL_TAKEOVER", "").strip()
 # 9kg.49 (security review): the positive pin of the one v2 mailbox login, a SHA-256 hex digest CATALYST_MAIL_USER must
 # hash to; required in a live environment, re-checked before any login. Private: never pasted into a PR or a doc.
 CATALYST_MAIL_USER_SHA256 = os.environ.get("CATALYST_MAIL_USER_SHA256", "").strip().lower()
@@ -501,6 +609,24 @@ CATALYST_CUSTODY_KEY_MIRROR_DIR = ""
 # Required details per agreement type (POL-18 open: no production field list). Synthetic field names only, set by
 # tests; fixed in code and empty everywhere else.
 CATALYST_AGREEMENT_REQUIRED_DETAILS: dict = {}
+# bgl.8 (034 section 2.3 rows 27 to 29, 31 to 33): the first-generation signing behaviour, selectable, off by default.
+# Who emails the signing request. "provider": Documenso distributes and mails the applicant (P4-D-4, P4-D-14; today's
+# behaviour). "service": the envelope is created and distributed with `distributionMethod: NONE`, so the provider mails
+# nothing, and Catalyst sends the signing link itself (`agreements.signing_mail`, the `agreement_link_<type>` message
+# templates the owner approves) from its own sender. Fixed in code, like CATALYST_INTAKE_MODE: changing it is a code
+# change shipped as a release, never an environment value (config.guards). The owner answered on 2026-10-31 that
+# production will use "service" (distribution NONE); the v1-to-v2 swap flips this value, together with a production
+# signing host below and the read-back layouts once POL-18 names the field list. Until then nothing here activates.
+CATALYST_AGREEMENT_DISTRIBUTION = "provider"
+# The public signing host whose `/sign/<token>` page the service-sent link opens (the provider's public URL, not its
+# API). Synthetic only: fixed in code, empty outside `test` and `staging` like the provider URL; required under "service".
+CATALYST_AGREEMENT_SIGNING_BASE_URL = ""
+# The field layouts that read an applicant's typed details back from a completed envelope (agreements.details), keyed
+# "<type key>:<template version>" so a template change is a new layout, never an edit: {"name": "ua_v24", "tolerance":
+# 2.0, "fields": {"legal_name": {"kind": "TEXT", "page": 4, "x": 12.5, "y": 30.0}, ...}}. Positions are the provider's
+# page percentages (a prefill may replace a label, so labels are never matched). Empty: nothing is read back. Synthetic
+# only until POL-18 names the production field list: fixed in code, empty outside `test` and `staging`.
+CATALYST_AGREEMENT_FIELD_LAYOUTS: dict = {}
 CATALYST_AGREEMENT_DEADLINE_SECONDS = number("CATALYST_AGREEMENT_DEADLINE_SECONDS",
                                              str(max(1, min(10, CATALYST_WORKER_LEASE_SECONDS // 2))))
 CATALYST_AGREEMENT_MAX_BYTES = number("CATALYST_AGREEMENT_MAX_BYTES", "1048576")
@@ -512,7 +638,10 @@ CATALYST_AGREEMENT_LIST_PAGES = number("CATALYST_AGREEMENT_LIST_PAGES", "3")  # 
 CATALYST_AGREEMENT_LIST_PAGE_SIZE = number("CATALYST_AGREEMENT_LIST_PAGE_SIZE", "50")
 CATALYST_AGREEMENT_ORPHAN_CHECKS = number("CATALYST_AGREEMENT_ORPHAN_CHECKS", "6")  # P4-D-19: watching an old key
 CATALYST_AGREEMENT_RETRY_AFTER_MAX_SECONDS = number("CATALYST_AGREEMENT_RETRY_AFTER_MAX_SECONDS", "3600", minimum=0)
-CATALYST_AGREEMENT_READ_INTERVAL_SECONDS = number("CATALYST_AGREEMENT_READ_INTERVAL_SECONDS", "3600", minimum=0)  # the sweep
+# The completion sweep: how often an issued envelope is re-read while it waits for signatures. 300 s is the production
+# default (bgl.8, 034 row 31: the first generation's poll, so the next agreement follows within minutes); the earlier
+# 3600 s stays selectable through the environment. The minimum interval below still bounds webhook-driven reads.
+CATALYST_AGREEMENT_READ_INTERVAL_SECONDS = number("CATALYST_AGREEMENT_READ_INTERVAL_SECONDS", "300", minimum=0)  # the sweep
 CATALYST_AGREEMENT_READ_MIN_INTERVAL_SECONDS = number("CATALYST_AGREEMENT_READ_MIN_INTERVAL_SECONDS", "60", minimum=0)
 CATALYST_AGREEMENT_WEBHOOK_MAX_BYTES = number("CATALYST_AGREEMENT_WEBHOOK_MAX_BYTES", "65536")
 CATALYST_AGREEMENT_MAX_ITEMS = number("CATALYST_AGREEMENT_MAX_ITEMS", "5")  # envelope items stored per agreement
@@ -522,6 +651,53 @@ if CATALYST_AGREEMENT_LIST_PAGE_SIZE > 100:
     raise ImproperlyConfigured("CATALYST_AGREEMENT_LIST_PAGE_SIZE is at most 100 (the installed API's limit)")
 if CATALYST_AGREEMENT_MAX_BYTES > 16 * 1024 * 1024 or CATALYST_AGREEMENT_LIST_PAGES > 20:
     raise ImproperlyConfigured("CATALYST_AGREEMENT_MAX_BYTES is at most 16 MiB and CATALYST_AGREEMENT_LIST_PAGES at most 20")
+
+# bgl.9 (034 rows 30 and 36; first-generation decisions 12 and 13, owner YES 2026-10-31). Both off by default, so
+# today's behaviour holds: the owner countersigns by hand and releases with `activate_provisioning`. Each mode is fixed
+# in code, never read from the environment (config.guards), like CATALYST_INTAKE_MODE: the v1-to-v2 swap flips them in
+# a release.
+# The company countersignature: "manual" (the owner signs at the provider) or "automatic" (agreements.countersign signs
+# as the company recipient once the applicant has signed). "automatic" needs the company recipient below.
+CATALYST_AGREEMENT_COUNTERSIGN = "manual"
+# The company recipient (P4-D-3, POL-08): added at order 2 to every agreement whose template version has a `<ROLE>:2`
+# slot, once the address is set. ROLE is "APPROVER" (the first generation's service templates) or "SIGNER". The address,
+# the name and the typed signature text are provider identity: fixed in code and empty outside `test` and `staging`
+# until the Documenso canary (config.guards), like the provider URL.
+CATALYST_AGREEMENT_COMPANY_EMAIL = ""
+CATALYST_AGREEMENT_COMPANY_NAME = ""
+CATALYST_AGREEMENT_COMPANY_ROLE = "APPROVER"
+CATALYST_AGREEMENT_COUNTERSIGN_SIGNATURE = ""  # the typed signature the company's signature fields receive
+CATALYST_AGREEMENT_COUNTERSIGN_SWEEP_SECONDS = 600  # the first generation's timer: every 10 minutes
+CATALYST_AGREEMENT_COUNTERSIGN_RETRY_SECONDS = 600
+CATALYST_AGREEMENT_COUNTERSIGN_HANDOFF_SECONDS = 1800  # then the owner countersigns by hand (one staff item)
+CATALYST_AGREEMENT_COUNTERSIGN_ATTEMPTS = 4  # with the retry interval: about the hand-off window
+# The release: "owner" (the owner-run `activate_provisioning` releases each held hand-off, P4-D-13, and a named approver
+# approves the mailbox, P5-D-3) or "automatic" (provisioning.auto_release releases, approves the derived address and
+# lets the welcome follow, with no person, under decision 13). A refused automatic release is checked again after
+# CATALYST_RELEASE_RECHECK_SECONDS.
+CATALYST_RELEASE_MODE = "owner"
+CATALYST_RELEASE_RECHECK_SECONDS = 600
+
+# bgl.14 (034 rows 42 and 43; owner answer of 2026-10-31, which reverses D-08 on activation): the Twenty projection. Off
+# by default. The switch, the URL, the pinned address and the trust store are fixed in code, never from the environment,
+# and the guards refuse each of them, and the token file, outside `test` and `staging` (config.guards.twenty_problems):
+# the swap to production is its own reviewed code change. The token is a secret file (`twenty_token`) outside test and
+# development, never a setting value here.
+CATALYST_TWENTY_PROJECTION = False
+CATALYST_TWENTY_URL = ""  # e.g. https://twenty.example.test:<port> in tests
+CATALYST_TWENTY_ADDRESS = ""  # the literal address the Twenty host is pinned to
+CATALYST_TWENTY_CA_FILE = ""
+CATALYST_TWENTY_TOKEN = secret("CATALYST_TWENTY_TOKEN", "")
+# One exchange's deadline (half the lease at most, like every provider call), the response cap, the attempts of one
+# projection (the first generation's 8: about two hours of outage at the worker's doubling backoff) and the interval of
+# the details fill (daily, as the first generation's).
+CATALYST_TWENTY_DEADLINE_SECONDS = number("CATALYST_TWENTY_DEADLINE_SECONDS",
+                                          str(max(1, min(10, CATALYST_WORKER_LEASE_SECONDS // 2))))
+CATALYST_TWENTY_MAX_BYTES = number("CATALYST_TWENTY_MAX_BYTES", "1048576")
+CATALYST_TWENTY_ATTEMPTS = number("CATALYST_TWENTY_ATTEMPTS", "8")
+CATALYST_TWENTY_FILL_SECONDS = number("CATALYST_TWENTY_FILL_SECONDS", "86400", minimum=60)
+if CATALYST_TWENTY_DEADLINE_SECONDS * 2 > CATALYST_WORKER_LEASE_SECONDS:
+    raise ImproperlyConfigured("CATALYST_TWENTY_DEADLINE_SECONDS must be at most half of CATALYST_WORKER_LEASE_SECONDS")
 
 # ADR-18 (D-19): the custom user model exists before the first migration.
 AUTH_USER_MODEL = "accounts.User"
@@ -623,3 +799,14 @@ EMAIL_BACKEND = env(
 )
 EMAIL_FILE_PATH = os.environ.get("CATALYST_EMAIL_FILE_PATH") or None  # the filebased sink's private directory
 DEFAULT_FROM_EMAIL = env("CATALYST_FROM_EMAIL", "onboarding@example.invalid")  # synthetic (POL-17)
+# bgl.6 (034 rows 10 and 22, section 3.2; the owner's answer of 2026-10-31): the display name in the From header and the
+# Reply-To of every applicant mail (the P2 sender and the three Django link mails; config.mail.from_header and
+# reply_to). Empty, the default, keeps today's headers: the bare address and no Reply-To. Checked at start-up
+# (config.guards.sender_problems): the name is one short line with no address in it; Reply-To is one plain address, and
+# in a live environment the From address itself, so replies reach the mailbox v2 reads.
+CATALYST_FROM_DISPLAY_NAME = os.environ.get("CATALYST_FROM_DISPLAY_NAME", "").strip()
+CATALYST_REPLY_TO = os.environ.get("CATALYST_REPLY_TO", "").strip()
+
+# D-54 production wiring is opt-in and digest-bound; no profile preserves wave one.
+from config.parity import configure as configure_parity  # noqa: E402
+configure_parity(globals(), os.environ, secret)

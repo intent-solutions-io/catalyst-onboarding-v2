@@ -15,7 +15,10 @@ redirect, an unreadable 2xx) is an **unknown** outcome, reconciled and never ret
 
 Responses are parsed into an allowlist (`Envelope`, `Recipient`). Signing tokens and signing links, which the
 installed version returns from `envelope/use`, `envelope/distribute` and envelope reads, are dropped here and never
-reach a record, a log or a screen (021 section 6, TEST-P4-24).
+reach a record, a log or a screen (021 section 6, TEST-P4-24). Two bgl.8 readers are the exceptions, each for one
+purpose and each kept out of records: `signing_token` hands the applicant's token to the service-sent link mail
+(`signing_mail`, under CATALYST_AGREEMENT_DISTRIBUTION "service") and `read_fields` hands the typed details of a
+completed envelope to the read-back (`details`).
 """
 
 import http.client
@@ -77,6 +80,40 @@ class Recipient:
     signing_order: int | None
     signing_status: str
     expired: bool = False
+    id: int | None = None  # the provider's recipient id (not personal): what a typed field's `recipientId` names (bgl.8)
+
+
+@dataclass(frozen=True)
+class TypedField:
+    """One inserted TEXT or DROPDOWN field of an envelope with what the recipient typed or chose (bgl.8; 034 row 32).
+    Personal data: returned only by `read_fields`, for the details read-back, and never logged or stored raw. Positions
+    are the provider's page percentages; a chosen dropdown option arrives as the field's `customText`."""
+
+    recipient_id: int | None
+    kind: str  # "TEXT" or "DROPDOWN"
+    page: int
+    x: float
+    y: float
+    text: str
+
+    def __repr__(self):  # never the text
+        return f"TypedField({self.kind}, page={self.page}, x={self.x}, y={self.y})"
+
+
+TYPED_KINDS = ("TEXT", "DROPDOWN")
+MAX_FIELDS = 100
+MAX_FIELD_TEXT = 500
+TOKEN = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
+RETURN_PATH = "/signing/return/"  # agreements.views.signing_return (034 row 29); the provider redirects here after signing
+
+
+def return_url() -> str:
+    return f"{settings.CATALYST_PUBLIC_BASE_URL}{RETURN_PATH}"
+
+
+def distribution() -> str:
+    """bgl.8: `EMAIL` (the provider mails the signing request) or `NONE` (the service mails it: `signing_mail`)."""
+    return "NONE" if settings.CATALYST_AGREEMENT_DISTRIBUTION == "service" else "EMAIL"
 
 
 @dataclass(frozen=True)
@@ -114,7 +151,13 @@ def _target():
         loopback = ipaddress.ip_address(address).is_loopback
     except ValueError:
         loopback = False
-    if not loopback:  # re-checked here, not only at start-up: synthetic P4 talks to a local fake only
+    from config import parity
+
+    if parity.enabled(settings):
+        if parity.endpoint_problems(settings, "CATALYST_AGREEMENT_PROVIDER_URL",
+                                    pinned="CATALYST_AGREEMENT_PROVIDER_ADDRESS", trust="CATALYST_AGREEMENT_PROVIDER_CA_FILE"):
+            raise ProviderError("provider_target_not_approved", sent=False)
+    elif not loopback:  # synthetic P4 talks to a local fake only
         raise ProviderError("provider_address_not_pinned", sent=False)
     if not settings.CATALYST_AGREEMENT_PROVIDER_CA_FILE:
         raise ProviderError("provider_trust_store_missing", sent=False)  # never the system store, never SSL_CERT_* vars
@@ -128,9 +171,15 @@ def _tls_context():
 
 
 def exchange(method: str, path: str, *, query: dict | None = None, body: bytes | None = None,
-             content_type: str = "") -> Response:
-    """One bounded HTTPS exchange. Raises ProviderError for anything but a 2xx or a 4xx response with a body."""
+             content_type: str = "", recipient_route: bool = False) -> Response:
+    """One bounded HTTPS exchange. Raises ProviderError for anything but a 2xx or a 4xx response with a body.
+
+    `recipient_route` (bgl.9, the countersignature): `path` is from the host's root, not under the API base, and the
+    request carries no API key; it sends the instance's own `Origin` instead, the check the installed version applies
+    to a token-authenticated mutation. The credential is the recipient token in the body."""
     host, port, base, address = _target()
+    if recipient_route:
+        base = ""
     deadline = time.monotonic() + settings.CATALYST_AGREEMENT_DEADLINE_SECONDS
     sent = False
     raw, watchdog, expired, live = None, None, threading.Event(), {}
@@ -168,7 +217,10 @@ def exchange(method: str, path: str, *, query: dict | None = None, body: bytes |
         connection.putheader("User-Agent", USER_AGENT)
         connection.putheader("Accept-Encoding", "identity")
         connection.putheader("Connection", "close")
-        connection.putheader("Authorization", settings.CATALYST_AGREEMENT_PROVIDER_TOKEN)
+        if recipient_route:
+            connection.putheader("Origin", f"https://{host}" + ("" if port == 443 else f":{port}"))
+        else:
+            connection.putheader("Authorization", settings.CATALYST_AGREEMENT_PROVIDER_TOKEN)
         if body is not None:
             connection.putheader("Content-Type", content_type)
             connection.putheader("Content-Length", str(len(body)))
@@ -263,7 +315,41 @@ def _recipient(raw) -> Recipient:
     order = raw.get("signingOrder")
     return Recipient(email=_text(raw.get("email")), role=_enum(raw.get("role"), ROLES),
                      signing_order=order if isinstance(order, int) and not isinstance(order, bool) else None,
-                     signing_status=_enum(raw.get("signingStatus"), SIGNING), expired=bool(raw.get("expired")))
+                     signing_status=_enum(raw.get("signingStatus"), SIGNING), expired=bool(raw.get("expired")),
+                     id=_int(raw.get("id")))
+
+
+def _int(value) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _number(value) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    try:
+        number = float(value)
+    except ValueError:
+        return None
+    return number if math.isfinite(number) else None
+
+
+def typed_fields(raw) -> tuple:
+    """The inserted TEXT and DROPDOWN fields of an envelope read, with their values (bgl.8). Anything else in `fields`
+    (signatures, initials, uninserted or oddly shaped entries) is dropped; the count and each text are capped."""
+    fields = raw.get("fields", []) if isinstance(raw, dict) else []
+    if not isinstance(fields, list):
+        raise ProviderError("response_unreadable", sent=True, status=200)
+    out = []
+    for item in fields[:MAX_FIELDS]:
+        if not isinstance(item, dict) or item.get("type") not in TYPED_KINDS or item.get("inserted") is not True:
+            continue
+        page, x, y = _int(item.get("page")), _number(item.get("positionX")), _number(item.get("positionY"))
+        text = item.get("customText")
+        if page is None or x is None or y is None or not isinstance(text, str):
+            continue
+        out.append(TypedField(recipient_id=_int(item.get("recipientId")), kind=item["type"], page=page, x=x, y=y,
+                              text=text[:MAX_FIELD_TEXT]))
+    return tuple(out)
 
 
 def envelope(raw) -> Envelope:
@@ -290,10 +376,13 @@ def _multipart(payload: dict) -> tuple[bytes, str]:
 # --- operations (the installed v2.20.0 envelope API; 021 section 15) -------------------------------------------
 
 def create_from_template(template_ref: str, external_key: str, recipients: list[dict]) -> str:
-    """`POST /envelope/use` as a draft (`distributeDocument: false`, P4-D-4). Returns the new envelope id only."""
+    """`POST /envelope/use` as a draft (`distributeDocument: false`, P4-D-4). Returns the new envelope id only. The
+    override carries the distribution method (bgl.8: `NONE` under the service mode, so the provider never mails) and
+    the page the signer lands on afterwards (`redirectUrl`, 034 row 29)."""
     body, content_type = _multipart({"envelopeId": template_ref, "externalId": external_key,
                                      "recipients": recipients, "distributeDocument": False,
-                                     "override": {"emailSettings": dict(EMAIL_SETTINGS)}})
+                                     "override": {"emailSettings": dict(EMAIL_SETTINGS), "distributionMethod": distribution(),
+                                                  "redirectUrl": return_url()}})
     data = _json(exchange("POST", "/envelope/use", body=body, content_type=content_type))
     if not isinstance(data, dict):
         raise ProviderError("response_unreadable", sent=True, status=200)
@@ -301,14 +390,39 @@ def create_from_template(template_ref: str, external_key: str, recipients: list[
 
 
 def distribute(envelope_id: str) -> None:
-    """`POST /envelope/distribute`: Documenso emails the recipients. No subject or message is sent (021 section 10)."""
+    """`POST /envelope/distribute`: the draft becomes pending. With `EMAIL` Documenso emails the recipients; no subject
+    or message is sent (021 section 10). With `NONE` (bgl.8) it mails nothing and the service sends the link."""
     body = json.dumps({"envelopeId": envelope_id,
-                       "meta": {"distributionMethod": "EMAIL", "emailSettings": dict(EMAIL_SETTINGS)}}).encode()
+                       "meta": {"distributionMethod": distribution(), "emailSettings": dict(EMAIL_SETTINGS)}}).encode()
     _json(exchange("POST", "/envelope/distribute", body=body, content_type="application/json"))
 
 
 def read(envelope_id: str) -> Envelope:
     return envelope(_json(exchange("GET", f"/envelope/{quote(envelope_id, safe='')}")))
+
+
+def read_fields(envelope_id: str) -> tuple:
+    """The typed fields of an envelope (bgl.8; 034 row 32): a fresh `GET envelope/{id}` read for the details read-back
+    alone. The envelope's own facts come from `read`; this returns personal data and is called only once a completed
+    envelope is being verified (agreements.completion)."""
+    return typed_fields(_json(exchange("GET", f"/envelope/{quote(envelope_id, safe='')}")))
+
+
+def signing_token(envelope_id: str, email: str) -> str | None:
+    """The signing token of the recipient with this address and the SIGNER role, from a fresh envelope read (bgl.8;
+    034 row 27: the service-sent link). The one place a token crosses the allowlist: it goes straight into the mail
+    body of `agreements.signing_mail`, in memory, and is never recorded or logged. None when that recipient is not
+    on the envelope or the token is not a plain token."""
+    raw = _json(exchange("GET", f"/envelope/{quote(envelope_id, safe='')}"))
+    recipients = raw.get("recipients", []) if isinstance(raw, dict) else []
+    if not isinstance(recipients, list):
+        return None
+    for item in recipients:
+        if (isinstance(item, dict) and item.get("role") == "SIGNER" and isinstance(item.get("email"), str)
+                and item["email"].casefold() == email.casefold()):
+            token = item.get("token")
+            return token if isinstance(token, str) and TOKEN.fullmatch(token) else None
+    return None
 
 
 def find(template_number: int, page: int) -> tuple[list[Envelope], int]:
@@ -345,6 +459,95 @@ def download(item_id: str) -> bytes:
     if not response.body.startswith(b"%PDF-"):
         raise ProviderError("download_not_pdf", sent=True, status=response.status)
     return response.body
+
+
+# --- the company countersignature (bgl.9; 034 row 30; first-generation decision 12) ----------------------------------
+# The installed version has no API-key route that signs as a recipient. The first generation signs through the routes
+# the provider's own signing page uses, authenticated by the recipient's token: `envelope.field.sign` for each of the
+# company recipient's signature fields, then `recipient.completeDocumentWithToken`. The provider then runs its own
+# checks (pending envelope, signing order, required fields, expiry), writes its own audit log and seals the document.
+# The request and response shapes below are the ones the first generation uses against its installed version; for v2
+# they are NOT VERIFIED until an authorized canary, like every other provider shape here (021 section 15).
+RECIPIENT_TOKEN = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
+DOCUMENT_NUMBER = re.compile(r"^document_([0-9]{1,12})$")
+SIGN_FIELD = "/api/trpc/envelope.field.sign"
+COMPLETE = "/api/trpc/recipient.completeDocumentWithToken"
+UNSIGNED_COMPANY_FIELDS = ("SIGNATURE", "DATE")  # a DATE field is filled by the provider at completion
+
+
+class CountersignRefused(Exception):
+    """A condition for signing does not hold. Nothing was sent: `code` names the failed check."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+def countersign(envelope_id: str, external_key: str, email: str, role: str, signature: str) -> str:
+    """Sign as the company recipient (`email`, `role`, order 2) and complete its part; returns the provider's status
+    for the completion (`SIGNED`, or `ALREADY_SIGNED` when the recipient had completed meanwhile).
+
+    A fresh `GET envelope/{id}` first, and nothing is sent unless it shows our envelope (`externalId` equal to
+    `external_key`, which must be a v2 `ag_` key: an envelope v2 did not create is never touched), PENDING, exactly two
+    recipients in order with the applicant SIGNER signed, the company recipient not signed and not expired, nobody
+    rejected, the company's own unsigned fields only signatures (and dates the provider fills), at least one signature
+    field, and a plain token. Raises CountersignRefused for a failed condition (nothing sent) and ProviderError for an
+    exchange that failed (its `sent` says whether a write may have reached the provider). The recipient token is used
+    in memory for these two calls and never returned, recorded or logged."""
+    if not external_key.startswith("ag_"):
+        raise CountersignRefused("not_a_v2_envelope")
+    raw = _json(exchange("GET", f"/envelope/{quote(envelope_id, safe='')}"))
+    if not isinstance(raw, dict) or raw.get("id") != envelope_id:
+        raise CountersignRefused("identity_mismatch")
+    if raw.get("externalId") != external_key:
+        raise CountersignRefused("not_a_v2_envelope")
+    if raw.get("status") != "PENDING":
+        raise CountersignRefused("envelope_not_pending")
+    recipients = raw.get("recipients")
+    if not isinstance(recipients, list) or len(recipients) != 2 or not all(isinstance(r, dict) for r in recipients):
+        raise CountersignRefused("recipients_unexpected")
+    applicant, company = sorted(recipients, key=lambda r: r.get("signingOrder") if isinstance(r.get("signingOrder"), int) else 99)
+    if (applicant.get("signingOrder"), company.get("signingOrder")) != (1, 2) or applicant.get("role") != "SIGNER":
+        raise CountersignRefused("recipients_unexpected")
+    if (not isinstance(company.get("email"), str) or company["email"].casefold() != email.casefold()
+            or company.get("role") != role):
+        raise CountersignRefused("company_recipient_unexpected")
+    if any(r.get("signingStatus") == "REJECTED" for r in recipients):
+        raise CountersignRefused("rejected")
+    if applicant.get("signingStatus") != "SIGNED":
+        raise CountersignRefused("applicant_not_signed")
+    if company.get("signingStatus") == "SIGNED":
+        return "ALREADY_SIGNED"
+    if company.get("signingStatus") != "NOT_SIGNED" or company.get("expired"):
+        raise CountersignRefused("company_recipient_not_signable")
+    token = company.get("token")
+    if not isinstance(token, str) or not RECIPIENT_TOKEN.fullmatch(token):
+        raise CountersignRefused("recipient_token_missing")
+    number = DOCUMENT_NUMBER.fullmatch(str(raw.get("secondaryId") or ""))
+    if number is None:
+        raise CountersignRefused("document_number_missing")
+    fields = raw.get("fields", [])
+    own = [f for f in fields if isinstance(f, dict) and f.get("recipientId") == company.get("id")] \
+        if isinstance(fields, list) and company.get("id") is not None else []
+    if not any(f.get("type") == "SIGNATURE" for f in own):
+        raise CountersignRefused("company_signature_field_missing")
+    if any(f.get("inserted") is not True and f.get("type") not in UNSIGNED_COMPANY_FIELDS for f in own):
+        raise CountersignRefused("company_fields_unexpected")
+    for field in own:
+        if field.get("type") != "SIGNATURE" or field.get("inserted") is True:
+            continue
+        if not isinstance(field.get("id"), int) or isinstance(field.get("id"), bool):
+            raise CountersignRefused("company_fields_unexpected")
+        body = json.dumps({"json": {"token": token, "fieldId": field["id"],
+                                    "fieldValue": {"type": "SIGNATURE", "value": signature}}}).encode()
+        _json(exchange("POST", SIGN_FIELD, body=body, content_type="application/json", recipient_route=True))
+    body = json.dumps({"json": {"token": token, "documentId": int(number.group(1))}}).encode()
+    data = _json(exchange("POST", COMPLETE, body=body, content_type="application/json", recipient_route=True))
+    result = ((data.get("result") or {}).get("data") or {}).get("json") if isinstance(data, dict) else None
+    status = result.get("status") if isinstance(result, dict) else None
+    if status not in ("SIGNED", "ALREADY_SIGNED"):
+        raise ProviderError("countersign_unexpected_response", sent=True)  # unknown: the next attempt reads first
+    return status
 
 
 EVENTS = ("DOCUMENT_CREATED", "DOCUMENT_SENT", "DOCUMENT_OPENED", "DOCUMENT_SIGNED", "DOCUMENT_RECIPIENT_COMPLETED",

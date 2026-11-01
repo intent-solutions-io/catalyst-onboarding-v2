@@ -302,7 +302,7 @@ DATABASE_CONSTRAINTS = {
     "provisioning_attempt_outcome_valid",
     "provisioning_one_open_create",
     "setup_series_unique", "setup_one_live_per_request", "setup_token_unique", "setup_state_valid",  # 5B.2
-    "setup_invited_has_token", "setup_completed_consistent",
+    "setup_invited_has_token", "setup_completed_consistent", "setup_mode_valid",  # bgl.10
     "revocation_one_per_kind", "revocation_kind_valid", "revocation_state_valid", "revocation_exception_decided",  # 5B.3
     "withdrawal_token_unique", "withdrawal_one_live_per_application", "withdrawal_state_valid", "withdrawal_has_requester",
     "invitation_one_live_per_email_key", "invitation_expires_after_issue", "invitation_has_issuer",  # 9kg.43
@@ -310,9 +310,12 @@ DATABASE_CONSTRAINTS = {
     "member_on_file_covers_something", "member_on_file_has_recorder",
     "stored_document_one_per_item", "stored_document_signed_only", "document_access_outcome_valid",  # 4B.3
     "details_one_per_version", "details_status_valid", "details_confirmed_has_actor",
+    # bgl.8: an envelope-sourced details version names its envelope, once per instance
+    "details_source_valid", "details_envelope_names_its_instance", "details_one_envelope_read_per_instance",
     "application_tombstone_key_unique", "invitation_tombstone_key_unique", "member_on_file_tombstone_key_unique",  # 9kg.32
     "erasure_audit_authority_is_a_code", "erasure_audit_reason_is_a_code",
     "custody_envelope_scheme_known", "custody_envelope_cipher_sha256_hex", "custody_envelope_key_ref_hex",  # 9kg.34
+    "countersign_claim_state_valid", "countersign_claim_v2_envelope_only",  # bgl.9
 }
 
 
@@ -462,10 +465,10 @@ def test_the_gate_fails_a_full_run_with_a_case_not_pass_and_spares_a_selected_su
 
 
 def test_ci_runs_the_whole_suite_with_no_selection():
-    """The gate only binds a full run, so CI's runtime step must not select: no path, -k, -m or deselect."""
+    """Every shard collects the full suite; only the verified union may satisfy the runtime gate."""
     ci = (ROOT / ".github/workflows/ci.yml").read_text()
     commands = re.findall(r"run: (.*-m pytest.*)$", ci, flags=re.M)
-    assert commands == ["/tmp/venv/bin/python -m pytest -v"]
+    assert commands == ["/tmp/venv/bin/python -m pytest -v --durations=25 --ci-shard=${{ matrix.shard }}/4 --ci-shard-output=shard.json"]
     assert "PYTEST_ADDOPTS" not in ci  # options injected through the environment could select too
     import tomllib
     addopts = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["pytest"]["ini_options"].get("addopts", "")
@@ -727,7 +730,7 @@ def test_the_report_prints_the_register_and_counts_partial_live_only_and_support
 def test_the_run_commit_is_stamped_by_test_sh_and_ci_keeps_the_register_as_a_pinned_artifact():
     """9kg.64: local runs record the commit too (the test image has no git): scripts/test.sh exports it from the
     host's git and compose.yaml passes it to the test service; CI uploads register.json whatever the result, through
-    an action pinned by commit like every other, without touching the test command or the job names."""
+    an action pinned by commit like every other; the aggregate retains the required check name."""
     test_sh = (ROOT / "scripts/test.sh").read_text()
     assert 'CATALYST_RUN_COMMIT="$(git rev-parse HEAD 2>/dev/null)"' in test_sh and "export CATALYST_RUN_COMMIT" in test_sh
     assert test_sh.index("export CATALYST_RUN_COMMIT") < test_sh.index('"${COMPOSE[@]}" run --rm test')
@@ -737,7 +740,7 @@ def test_the_run_commit_is_stamped_by_test_sh_and_ci_keeps_the_register_as_a_pin
     for uses in re.findall(r"uses: (\S+)", ci):
         assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", uses), uses
     runtime = ci[ci.index("\n  runtime:\n"):ci.index("\n  docs:\n")]
-    tests_step = runtime.index("- name: Test suite (PostgreSQL)")
+    tests_step = runtime.index("- name: Verify complete coverage and every acceptance gate")
     upload = runtime[runtime.index("- name: Keep the evidence register (register.json)"):]
     assert tests_step < runtime.index("- name: Keep the evidence register (register.json)")
     assert "if: ${{ always() }}" in upload and "uses: actions/upload-artifact@" in upload and "path: register.json" in upload
@@ -778,7 +781,11 @@ def test_every_p6_test_is_mapped():
                 # PR #87 (029 section 13.3 batch item 3): every test of the four new files is a named design rule
                 "test_staff_roles", "test_hold_and_resend", "test_human_only", "test_agreement_screens",
                 # 9kg.41: the walkthrough file
-                "test_screen_walkthrough")
+                "test_screen_walkthrough",
+                # bgl.8: the first-generation signing parity file
+                "test_agreement_parity",
+                # bgl.9: the automated countersignature and release file
+                "test_countersign_release")
     found = set()
     for path in sorted((ROOT / "tests").glob("test_*.py")):
         pattern = r"^(?:async )?def (test_\w+)" if path.stem in p6_files else r"^(?:async )?def (test_(?:6b|9kg|p6|oc4)\w*)"

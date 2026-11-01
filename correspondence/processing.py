@@ -80,6 +80,9 @@ ACKNOWLEDGE_ONLY = {"processing_error", "message_id_conflict", "mailbox_uidvalid
                     "filed_copy_failed", "inbound_oversize", "application_closed", "collector_pass_failed",
                     "mailbox_history_out_of_scope", "loop_threshold",
                     "escalate_unanswered", "reminder_refused", "reminder_failed",  # 2B.4 (escalation may also end by withdrawal)
+                    # bgl.7: the lapse and the signing reminder; a refused note or reminder looks again by itself
+                    "lapse_note_refused", "lapse_failed", "signing_reminder_unavailable", "signing_reminder_refused",
+                    "signing_reminder_failed",
                     # P3 3B.1: acknowledged after staff act (a new submission with claims, or a re-fetch on /staff/p3/)
                     "claims_missing", "adoption_changed", "evidence_collection_failed",
                     # P3 3B.2: acknowledged by staff; also resolved by the system when a later run succeeds or staff rerun
@@ -89,7 +92,17 @@ ACKNOWLEDGE_ONLY = {"processing_error", "message_id_conflict", "mailbox_uidvalid
                     "decline_notice_refused", "decline_notice_member_on_file",
                     # 9kg.66: the staff resend resolves it, and the sweep closes it once the applicant is verified or
                     # the application closed; an acknowledgement records that staff saw it
-                    "verification_expired"}
+                    "verification_expired",
+                    # bgl.8: the service-sent link that failed, an incomplete read-back and an address-quality flag are
+                    # acknowledged after staff act on the agreements screen; none of them holds the sequence
+                    "agreement_link_send_failed", "agreement_details_readback_incomplete", "agreement_address_quality",
+                    # bgl.12: the routine-advance policy stopped (a daily cap, exhausted retries); the case is on the
+                    # decision screen either way, so an acknowledgement records that staff saw it
+                    "routine_advance_failed", "routine_send_cap_reached", "routine_request_cap_reached",
+                    # bgl.14: the Twenty projection's review cases, acknowledged once staff acted in Twenty or linked the
+                    # person (catalyst_twenty_link); the next projection reopens one whose cause remains
+                    "twenty_ambiguous_match", "twenty_person_linked_elsewhere", "twenty_linked_person_missing",
+                    "twenty_field_overwritten", "twenty_request_rejected", "twenty_projection_failed"}
 # 9kg.41 (owner decision on the PR #93 review): a suspended or capped snapshot closes only through the human-only
 # decision on the decision screen (which resolves it) or a later successful run, never by an acknowledgement that would
 # leave the case looking as if a run were coming.
@@ -175,6 +188,7 @@ class InterpretResult:
 @dataclass(frozen=True)
 class InterpretUnavailable:
     code: str  # a reason code: the reply goes to staff without a proposal
+    retry_after: int = 0  # provider throttling delays the job without recording a staff-only outcome
 
 
 class ReplyInterpreter(Protocol):
@@ -485,10 +499,11 @@ class InterpretMessage:
                 ledger.fence(claim)
                 early, prepared = self.precall(claim)
                 if early is not None:
-                    status, code = early
+                    status, code, *wait = early
                     # A pause before anything is recorded returns the attempt (the 3B.2 rule for runs).
-                    ledger.finish(claim, self, status=status, error=code, refund_attempt=code == "automation_paused",
-                                  due_in=timedelta(seconds=settings.CATALYST_WORKER_POLL_SECONDS) if status == Status.QUEUED else None)
+                    ledger.finish(claim, self, status=status, error=code, refund_attempt=code in ("automation_paused", "provider_rate_limited"),
+                                  due_in=timedelta(seconds=wait[0] if wait else settings.CATALYST_WORKER_POLL_SECONDS)
+                                  if status == Status.QUEUED else None)
                     return
         except ledger.LeaseLost:
             return
@@ -498,6 +513,12 @@ class InterpretMessage:
                 outcome = interpreter.interpret(request)  # outside any transaction
         except ledger.LeaseLost:
             return  # another claim owns the action: nothing further is requested or recorded here
+        if isinstance(outcome, InterpretUnavailable) and outcome.retry_after and not claim.final:
+            ledger.finish(claim, self, status=Status.QUEUED, error="provider_rate_limited",
+                          due_in=max(ledger.retry_delay(claim.attempt), timedelta(seconds=outcome.retry_after)),
+                          write=lambda: ReplyInterpretation.objects.filter(pk=interpretation.pk).update(
+                              status=ReplyInterpretation.Status.ABANDONED, code="provider_rate_limited", finished_at=Now()))
+            return
         ledger.finish(claim, self, status=Status.DONE, write=lambda: self._record(interpretation, request, questions, outcome))
 
     def precall(self, claim):
@@ -535,6 +556,9 @@ class InterpretMessage:
                                                text_sha256=message.derived_text_sha256, status="unavailable", code=refusal,
                                                finished_at=Now())
             return (Status.DONE, refusal), None
+        delay = getattr(interpreter, "rate_wait", lambda: 0)()
+        if delay:
+            return (Status.QUEUED, "provider_rate_limited", delay), None
         interpretation = ReplyInterpretation.objects.create(
             message=message, application=application, attempt=attempt, text_sha256=message.derived_text_sha256,
             reserved_requests=interpreter.requests_per_attempt)

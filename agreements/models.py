@@ -311,11 +311,19 @@ class AgreementDetailsVersion(models.Model):
     """POL-18 required details for one agreement type, as staff recorded them from what the applicant provided (an
     email is never adopted as an answer by itself) and then explicitly confirmed (021 section 8; 4B.3). Versioned:
     a change is a new version; a confirmed version is frozen. The production field list is undecided (POL-18): only
-    synthetic fields exist."""
+    synthetic fields exist.
+
+    bgl.8 (034 row 32): a version may instead come from the signed envelope itself (`source` envelope, `instance` the
+    agreement it was read from; agreements.details), confirmed by the applicant's signature. A staff correction (D-46)
+    is a later `staff` version; the envelope version stays as read."""
 
     class Status(models.TextChoices):
         DRAFT = "draft"
         CONFIRMED = "confirmed"
+
+    class Source(models.TextChoices):
+        STAFF = "staff"
+        ENVELOPE = "envelope"
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="agreement_details")
@@ -327,6 +335,9 @@ class AgreementDetailsVersion(models.Model):
     recorded_by = models.CharField(max_length=200)
     confirmed_by = models.CharField(max_length=200, blank=True, default="")
     confirmed_at = models.DateTimeField(null=True, blank=True)
+    source = models.CharField(max_length=16, choices=Source.choices, default=Source.STAFF, db_default="staff")
+    instance = models.ForeignKey(AgreementInstance, on_delete=models.PROTECT, null=True, blank=True,
+                                 related_name="details_versions")  # the envelope the values were read from
     created_at = models.DateTimeField(db_default=Now())
 
     class Meta:
@@ -335,4 +346,46 @@ class AgreementDetailsVersion(models.Model):
             models.UniqueConstraint(fields=["application", "agreement_type", "version"], name="details_one_per_version"),
             models.CheckConstraint(condition=Q(status__in=["draft", "confirmed"]), name="details_status_valid"),
             models.CheckConstraint(condition=Q(status="draft") | ~Q(confirmed_by=""), name="details_confirmed_has_actor"),
+            models.CheckConstraint(condition=Q(source__in=["staff", "envelope"]), name="details_source_valid"),
+            models.CheckConstraint(condition=(Q(source="staff", instance__isnull=True) | Q(source="envelope", instance__isnull=False)),
+                                   name="details_envelope_names_its_instance"),
+            models.UniqueConstraint(fields=["instance"], condition=Q(source="envelope"), name="details_one_envelope_read_per_instance"),
+        ]
+
+
+class CountersignClaim(models.Model):
+    """bgl.9 (034 row 30; first-generation decision 12, owner YES 2026-10-31): the single-writer claim on one envelope
+    for the automated company countersignature (agreements.countersign). One row per envelope, unique, so two workers or
+    a second consumer cannot both sign it. The database refuses a claim on an envelope Catalyst v2 did not create: the
+    external key must carry v2's `ag_` prefix (the first generation's `onb_` envelopes are never v2's to sign).
+
+    `state`: `signing` (taken; the exchange may have started, so the next attempt reads first and never signs blindly), `signed` (a fresh read showed the company recipient signed), `failed` (the last attempt failed;
+    a retry is due), `handed_off` (retries ran for the hand-off window: the owner countersigns by hand). No token, link,
+    name or address is kept."""
+
+    class State(models.TextChoices):
+        SIGNING = "signing"
+        SIGNED = "signed"
+        FAILED = "failed"
+        HANDED_OFF = "handed_off"
+
+    instance = models.ForeignKey(AgreementInstance, on_delete=models.PROTECT, related_name="countersign_claims")
+    envelope_id = models.CharField(max_length=64, unique=True)
+    external_key = models.CharField(max_length=64)
+    holder = models.CharField(max_length=40)  # a code: the writer that holds the claim
+    action_id = models.BigIntegerField(null=True, blank=True)  # the pending action now working under the claim
+    state = models.CharField(max_length=16, choices=State.choices, default=State.SIGNING)
+    attempts = models.PositiveIntegerField(default=0)
+    last_code = models.CharField(max_length=64, blank=True, default="")  # a reason code, never a provider body
+    first_failure_at = models.DateTimeField(null=True, blank=True)
+    claimed_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(condition=Q(state__in=["signing", "signed", "failed", "handed_off"]),
+                                   name="countersign_claim_state_valid"),
+            models.CheckConstraint(condition=Q(external_key__startswith="ag_") & ~Q(envelope_id=""),
+                                   name="countersign_claim_v2_envelope_only"),
         ]

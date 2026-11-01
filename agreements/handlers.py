@@ -9,9 +9,10 @@ fenced result transaction, never under a lock (as P2 and P3).
   before any provider call. A refusal leaves the action held.
 - `CreateAgreement` (`create_agreement`, not redeliverable): step 2. An `EnvelopeAttempt` is written `sending` before
   the request leaves; `envelope/use` creates a draft only. An unknown outcome is reconciled, never retried blindly.
-- `DistributeAgreement` (`distribute_agreement`, not redeliverable): step 3. Documenso, not P2, emails the applicant,
-  so the P2 send checks run first (verified address, pause, hard bounce). A re-read decides whether the envelope was
-  already distributed; only a draft is distributed.
+- `DistributeAgreement` (`distribute_agreement`, not redeliverable): step 3. Under CATALYST_AGREEMENT_DISTRIBUTION
+  "provider" Documenso, not P2, emails the applicant, so the P2 send checks run first (verified address, pause, hard
+  bounce). A re-read decides whether the envelope was already distributed; only a draft is distributed. Under
+  "service" (bgl.8) the provider mails nobody and `agreements.signing_mail` sends the link once the envelope is issued.
 - `ReconcileAgreement` (`reconcile_agreement`, idempotent, reads only): looks for admissible evidence of an unknown
   create, distribute or cancel. It also watches a key a decision-maker set aside: a late match (an orphan) is never
   linked or verified; it opens a staff item and is cancelled (P4-D-19).
@@ -93,11 +94,23 @@ def _cancel_after_send(instance) -> None:
     event(instance.application, "agreement_cancel_after_send", {"instance": str(instance.public_id)})
 
 
+def _schedule_signing_reminder(instance) -> None:
+    from . import signing_reminder  # builds on this module
+
+    signing_reminder.schedule(instance)
+
+
 def _start_sweep(instance) -> None:
-    """The first read of a newly issued envelope, at the sweep interval (4B.2; webhooks may bring it forward)."""
+    """An envelope became issued: the first read, at the sweep interval (4B.2; webhooks may bring it forward), and,
+    under CATALYST_AGREEMENT_DISTRIBUTION "service" (bgl.8), the service-sent signing link, because the provider was
+    told to mail nobody (`distributionMethod: NONE`)."""
     from .completion import enqueue_read  # completion builds on this module
 
     enqueue_read(instance, due_in=timedelta(seconds=settings.CATALYST_AGREEMENT_READ_INTERVAL_SECONDS))
+    if settings.CATALYST_AGREEMENT_DISTRIBUTION == "service":
+        from .signing_mail import enqueue_signing_link
+
+        enqueue_signing_link(instance)
 
 
 def new_key() -> str:
@@ -169,11 +182,23 @@ def start_agreement(application, version: AgreementTemplateVersion, actor: str) 
         external_key=new_key(), issue_status="create_pending")
     AgreementRecipient.objects.create(instance=instance, role=AgreementRecipient.Role.SIGNER, signing_order=1,
                                       required=True, who="applicant", name=application.display_name, email=recipient)
+    _add_company_recipient(instance, version)
     enqueue_create(instance)
     event(application, "agreement_instance_created",
           {"instance": str(instance.public_id), "type": version.agreement_type.key, "template_version": version.version},
           actor_ref=actor)
     return instance
+
+
+def _add_company_recipient(instance, version: AgreementTemplateVersion) -> None:
+    """P4-D-3 (bgl.9): the company recipient, at order 2 after the applicant, once its identity is configured and the
+    template version has a slot for it (`<role>:2`). Required: the agreement is complete only with both signatures.
+    Nothing is added while CATALYST_AGREEMENT_COMPANY_EMAIL is empty (the default), so today's single-signer agreements
+    are unchanged. Who signs it is CATALYST_AGREEMENT_COUNTERSIGN: the owner by hand, or agreements.countersign."""
+    email, role = settings.CATALYST_AGREEMENT_COMPANY_EMAIL, settings.CATALYST_AGREEMENT_COMPANY_ROLE
+    if email and isinstance((version.recipient_slots or {}).get(f"{role}:2"), int):
+        AgreementRecipient.objects.create(instance=instance, role=role, signing_order=2, required=True, who="staff",
+                                          name=settings.CATALYST_AGREEMENT_COMPANY_NAME, email=email)
 
 
 @dataclass(frozen=True)
@@ -566,6 +591,7 @@ class DistributeAgreement(_ProviderStep):
                 if current.issue_status == "distribute_pending" and not current.cancel_requested_at:
                     AgreementInstance.objects.filter(pk=instance.pk).update(issue_status="issued", updated_at=Now())
                     _start_sweep(instance)
+                    _schedule_signing_reminder(instance)  # bgl.7: one reminder after five business days unsigned
                 elif current.issue_status in ("distribute_pending", "cancelled"):
                     # The envelope went out although a stop or cancel was requested meanwhile (D-42): it happened, so
                     # it is recorded as sent and then cancelled through the reconciled cancel.

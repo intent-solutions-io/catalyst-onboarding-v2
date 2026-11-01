@@ -15,10 +15,27 @@ delivery that never happened.
   `MailUncertain`, a subclass the senders log by name; they treat it as a failure like any other (a retried
   confirmation repeats the same link, D-20).
 - `RefusingEmailBackend` refuses every message: the explicit hold, when the owner wants none of the three to leave.
+- `from_header` and `reply_to` (bgl.6, 034 rows 10 and 22): the sender headers every applicant mail carries, the P2
+  sender's (correspondence.messages) and the three above alike. Unset, they are the bare CATALYST_FROM_EMAIL and no
+  Reply-To, as before; the SMTP envelope sender is always the bare address.
 """
 
+from email.utils import formataddr, parseaddr
+
+from django.conf import settings
 from django.core.mail.backends.base import BaseEmailBackend
 from django.core.mail.message import sanitize_address
+
+
+def from_header() -> str:
+    """The From header: `Display Name <address>` when CATALYST_FROM_DISPLAY_NAME is set, else the bare address."""
+    name = settings.CATALYST_FROM_DISPLAY_NAME
+    return formataddr((name, settings.DEFAULT_FROM_EMAIL)) if name else settings.DEFAULT_FROM_EMAIL
+
+
+def reply_to() -> list[str]:
+    """The Reply-To addresses: CATALYST_REPLY_TO when set (one address, checked at start-up), else none."""
+    return [settings.CATALYST_REPLY_TO] if settings.CATALYST_REPLY_TO else []
 
 
 class MailRefused(Exception):
@@ -53,7 +70,9 @@ class TransportEmailBackend(BaseEmailBackend):
             # header value with a line break (BadHeaderError) before anything is sent.
             data = message.message().as_bytes(linesep="\r\n")
             recipient = sanitize_address(recipients[0], message.encoding)
-            result = transport.send(data, sanitize_address(message.from_email, message.encoding), recipient)
+            # The envelope sender is the bare address even when the From header carries a display name (bgl.6).
+            sender = parseaddr(message.from_email)[1] or message.from_email
+            result = transport.send(data, sanitize_address(sender, message.encoding), recipient)
             if result.outcome == transport.UNKNOWN:
                 raise MailUncertain(f"{result.outcome}:{result.phase}")
             if result.outcome != transport.ACCEPTED:

@@ -3,9 +3,66 @@
 | Field | Value |
 |---|---|
 | Document | `006-LS-STAT-status` |
-| Last updated | 2026-10-26 |
-| Source revision | `main` `0211ce9` (PR #103 merged as `e9193db`; PRs #104 (`9kg.69`) as `0691e02`, #105 (`9kg.70`) as `4fc527a`, #106 (`9kg.60`) as `7aed4ac` and #107 (`9kg.72`) as `0211ce9`) |
+| Last updated | 2026-10-31 |
+| Source revision | `main` `61e48d1`; integration PR #161 (including production admission `5401078`); host, Beads and GitHub readbacks of 2026-10-31 |
 | Classification | Public |
+
+> **Current evidence snapshot (2026-10-31): wave one is deployed; the full first-generation replacement is not release-ready.**
+> D-53 authorized the bounded invitation/verification journey. Bead `bgl.19` records its move to the dedicated US
+> host on image `5e8eaf8`, independently confirmed by the subsequent readback. Public intake and form
+> parity are merged on `main`; the remaining combined workflow is published in draft PR #161.
+> The owner's nine parity decisions are already recorded in `bgl.1` and mirrored as D-54 in `011`; they are not nine new
+> approval requests. Live provider proofs, production admission, legacy-case continuation and the cutover remain
+> distinct from those decisions. Task state and subsequent verification belong in Beads.
+
+## Workflow evidence (2026-10-31)
+
+| Workflow boundary | Evidence and implementation state | Production limit |
+|---|---|---|
+| Invitation, form, verification mail, explicit confirmation, staff dossier | Existing: D-53; live browser proof in `9kg.87` on 2026-10-30; US move recorded in `bgl.19` on 2026-10-31 | The US stack is running and Tailscale reports online without a health warning. Staff login recovery and the off-host backup leg remain separately tracked in `bgl.19`. |
+| Public URLs, open-intake setting, bot checks and first-generation form fields | Merged: PR #148 (`77faf17`) and #151 (`61e48d1`) | Learn is not switched. Candidate `825353b` fixes trusted-proxy client identity; exact deployment proxy trust and a live check remain in `bgl.20`. |
+| CAT reference and receipt before confirmation | In development: `bgl.5`, local `feat/parity-reference-receipt` at `361e9b5` | Not in the integration candidate at this snapshot. |
+| Residence/phone screening and talent search | Open: `bgl.4`, `bgl.15`; no corresponding implementation found in the integration candidate | Do not describe them as delivered parity. GitHub research (`bgl.13`) is explicitly deferred by the owner's instruction, not a launch blocker. |
+| Model review, routine advance and clarification | In development: PR #149, included in draft integration PR #161 | Candidate production admission exists behind a pinned profile (`bgl.22`); deployed activation remains off. Production token usage is uncapped, with shared request-rate pacing. An approved production rubric, model-use records and provider proof remain required. |
+| NDA then User Agreement, service-sent links, details, company countersign and automatic release | In development: PRs #150 and #155, included in the integration candidate | Distribution remains `provider`, countersigning `manual`, release `owner`; live signing/custody prerequisites and canary `9kg.31.2` remain separate. |
+| Mailbox creation, first-name naming and one-time-password welcome | In development: PR #152, included in the integration candidate | The candidate admits the specified production adapter through the pinned profile; the deployed adapter/domain are empty and canary `9kg.31.3` remains open. |
+| Business-day reminders, lapse/reopen, sender/Reply-To, HTML wording and Twenty | In development: PRs #154, #156, #157 and #158, included in the integration candidate | Owner-approved wording must be loaded; mailbox polling has one owner; Twenty remains off in production; the candidate has an opt-in production boundary. |
+| Legacy records | In development: PR #153; import mapping document `035` exists on that branch and the integration branch | Import is synthetic-tested, not production-run. It pauses open cases, queues no jobs and does not turn open legacy envelopes into v2 agreement instances. Read-only legacy status found 19 open cases, including 12 signing paths. Continuation is tracked in `bgl.23`; those cases cannot be orphaned at retirement. |
+| Full cutover | Open: `bgl.17` rehearsal and `bgl.18` live cutover | No completed replacement-workflow canary or cutover receipt was found in the reviewed records. |
+
+## Verification and record reconciliation (2026-10-31)
+
+- P1 to P5 synthetic sign-offs remain D-26, D-33, D-36, D-45 and D-48; GATE-STAGING is D-50.
+  They are evidence for their recorded revisions and scope, not a pass for the new parity integration.
+- The integration's Markdown/index and Python lint checks pass. Its acceptance register has no structural errors.
+  A full synthetic run at `f47632d` collected 2,258 tests and exposed two erasure failures; it was stopped for repair.
+  A focused diagnostic confirmed `provisioning_credentialsetup.mode` was absent from the erasure catalog. The mode
+  migration also replaced the trigger without preserving its erasure branch. Repair `f908358` passed seven targeted schema, erasure, migration round-trip and credential-identity checks.
+  The subsequent full CI run `41246997416` failed: 26 failures, 2,233 passes and 375 errors. Its first failure
+  compared an obsolete migration baseline; failure cleanup left the schema reversed and caused cascading errors.
+  Two independent failures concerned fixture-name coverage and the notice-source import boundary. The repairs
+  passed 95 focused checks, including erasure reversal/reapply and legacy import. Full CI `41250209345` then
+  passed 2,270 tests with four failures in existing test registries and the provider import check. Those checks
+  are corrected in the current update; passing full CI on the final head is still required (`bgl.21`).
+- Production-configuration checks passed 38 tests. The earlier request/token pacing revision passed 42 focused
+  checks. The owner subsequently removed all local token limits. Request-rate pacing and provider Retry-After
+  remain. The request-rate-only update passed 233 focused checks, including the four prior CI failures.
+  The account RPM allocation and live canaries remain deployment prerequisites.
+  See `deploy/production/README.md` for the profile and shared-credential rate-allocation constraint.
+- GitHub readback confirms an active `main` ruleset: PRs, linear history and both required CI checks, with zero
+  required approving reviews. Older statements that `main` has no protection are historical (`032` section 1.8).
+- The erasure key was created on 2026-10-30 (`032` section 3.12). The canary record still leaves the first erasure
+  unfinished; key existence is not evidence of successful erasure.
+- D-53 accepted a bounded wave-one launch before counsel's answers. D-54 records the later product decisions;
+  it does not establish counsel clearance for every data class or live signing/model use. The reviewed Beads
+  records (`211.7.1`, `211.7.4`) still distinguish those unresolved items.
+- Read `034` as the parity inventory of its named baseline. Its absent features and policy refusals are not all
+  current: later merged code, local work and the D-54 decisions must be considered separately.
+
+## Historical snapshots
+
+The records below preserve their original dates and evidence. They do not describe current deployment state,
+current GitHub protections or the current parity work graph.
 
 > **Status (2026-10-26): the internal-launch candidate's launch-critical repository work is merged, apart from two open
 > beads (`9kg.31.11`, `9kg.75`); nothing is deployed,
@@ -42,7 +99,7 @@
 | E. GATE-PILOT and real internal intake (`9kg.31.6`) | **not ready** | POL-10 and POL-09 decided (with counsel where `031` section 6 says); `211.7.2`, `211.7.4` to `211.7.8`; the canaries; `dy7.2`, `dy7.3`; `9kg.60`'s host wiring (merged code, destination PENDING); `9kg.75`; the go/no-go package (`9kg.31.4`); the owner's acceptance of the manual retention procedure as "enforced" and ratification of D-51 and D-M |
 | F. Wider enrollment and the public cutover | **not in scope** | `9kg.31.10` and GATE-CUTOVER, separately authorized; `oc4.7`, `oc4.8`, `f1u.*`, `9kg.71`, `9kg.74` |
 
-## Current state
+## State recorded on 2026-10-26
 
 | Item | State | Evidence |
 |---|---|---|
@@ -85,7 +142,7 @@
 | TEST-S1-14 | **covered**: the assertion that CI references no secret and sets only synthetic credentials (S1-T8). Protection beyond Python sockets (native libraries such as libpq, child processes, collection-time code, UDP or DNS) is not provided by the test fixture and is not claimed |
 | pytest 9.1.1 and pytest-django 4.14.0 | **done**: verified at the start of 1B.1 (bead S1-T2 notes) |
 
-## Blockers
+## Blockers recorded on 2026-10-26
 
 | Blocker | Owner | Blocks |
 |---|---|---|
@@ -95,7 +152,7 @@
 | Confirmation link in the production proxy's access log: the staging proxy redacts the token; the production proxy filter is `dy7.3` | Jeremy Longshore | the cutover rehearsal |
 | (Resolved since 2026-10-23: the release workflow's push to `main`, `oyu`, closed 2026-10-18; production transport settings, built in 6B.2; POL-13 staff two-factor and the role command, built in 6B.9 and `9kg.30`) | | |
 
-## Next steps
+## Next steps recorded on 2026-10-26
 
 Current (2026-10-26): the owner decision package `031` (one set of recommended answers, all PROPOSALS) and the
 requests in `032`. In order of what unblocks most:

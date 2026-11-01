@@ -1,73 +1,105 @@
 # CLAUDE.md
 
-Entry point for Claude Code in **catalyst-onboarding-v2**, the documentation-first, Django-native
-Solution Catalyst onboarding platform for Intent Solutions. P1 to P5 are accepted for synthetic work (GATE-S1 D-26,
-GATE-P2 D-33, GATE-P3 D-36, GATE-P4 D-45, GATE-P5 D-48) and P6 staging is built, drilled on the dev box and signed
-off (GATE-STAGING, D-50). **Wave one is in production** since 2026-10-29 under the owner's go D-53 (`033`): the
-invitation-only journey for the internal cohort (invitation, form, verification mail, confirmation, staff dossier)
-on `catalyst-v2.intentsolutions.io`, proven live by `scripts/live_canary.py` on 2026-10-30. Signing, model use,
-evidence fetching, provisioning, the Learn cutover and wider enrolment stay disabled; the production erasure key and
-counsel's POL-10 answers are the open owner acts (`032` section 3.11, 211.7.1). The plan is `029`; the host and
-release record is `032`; the work graph is in Beads. Selection-quality governance (approved D-35) is in `011`
-section 11 and `019`. Repository:
-https://github.com/intent-solutions-io/catalyst-onboarding-v2 (public).
+Entry point for Claude Code. Codex and other coding agents use `AGENTS.md`.
+
+Catalyst v2 is the Django-native Solution Catalyst onboarding platform. This repository is public.
+`AGENTS.md` and `CLAUDE.md` are separate entry points; keep their shared guidance aligned and use the
+canonical documents below for detailed requirements and decisions.
 
 ## Read first
 
 | Need | Document |
 |---|---|
-| What we are building, who decides, open policies, phased plan | `000-docs/011-PP-PLAN-master-blueprint.md` (start here; links the PRD `002`, architecture `003`, journey `004`, first slice `005`) |
-| How work is authorized, published and checked | `000-docs/009-DR-STND-developer-workflow-and-quality-contract.md` |
-| What hooks run, what they cost, where memory lives | `000-docs/010-DR-REFF-hook-and-memory-responsibility-register.md` |
-| Rules for the eleven specialist subagents | `000-docs/007-DR-STND-agent-operating-charter.md`, roster in `008` |
-| Everything filed | `000-docs/000-INDEX.md` (all planning documents are proposed, not approved) |
+| Build contract, authority, policies and phases | `000-docs/011-PP-PLAN-master-blueprint.md` (links the PRD, architecture, journey and first-slice specification) |
+| Working agreement, publication policy and checks | `000-docs/009-DR-STND-developer-workflow-and-quality-contract.md` (section 2 is canonical) |
+| Hooks and memory responsibilities | `000-docs/010-DR-REFF-hook-and-memory-responsibility-register.md` |
+| Release and host evidence | `000-docs/032-OD-CHNG-release-control-and-host-requests.md` |
+| Launch decisions and their scope | `000-docs/033-AT-DECR-council-record-launch-decision-backlog-2026-10-28.md` |
+| First-generation parity work | `000-docs/034-RA-ANLY-first-generation-to-v2-drop-in-parity-inventory.md` |
+| Specialist rules and roster | `000-docs/007-DR-STND-agent-operating-charter.md`, `000-docs/008-RA-REPT-agent-registry-and-validation-report.md` |
+| Filed documents | `000-docs/000-INDEX.md` |
+
+Read dates and evidence status: older planning banners are snapshots, and later recorded owner
+decisions may supersede them. Do not infer current deployment state, enabled providers or permission
+from an entry-point summary. Task state lives in Beads; inspect the relevant bead and current code.
+A proposal is not an approval, and a synthetic gate pass is not authorization for live use.
 
 ## Boundaries
 
-- Django application; PostgreSQL authoritative; one PostgreSQL-backed job system (no Temporal);
-  MiniMax through PydanticAI; existing Documenso and MXroute; Django-based staff interface; Twenty
-  deferred. **Proposed, not configured:** `learn.intentsolutions.io` stays on the existing LMS and only
-  assigned onboarding paths route to Django; today's live routing was verified read-only on 2026-10-09
-  (`003`, "Learn and Django routing").
-- Public repository: no applicant data, agreement text, credentials, private paths, brain content or
-  transcripts.
-- Product jobs (inbox polling, reminders, signing checks) are application jobs, never Claude Code
-  hooks.
+- Django with PostgreSQL as the authoritative database; no SQLite substitute for database tests.
+  Background work uses one PostgreSQL-backed job system. Staff use Django admin and focused views.
+- MXroute, Documenso and MiniMax through PydanticAI are external integrations. Use local fakes or
+  test models for ordinary development; live provider actions need separate authorization.
+- The first-generation service remains live. Preserve one writer per case, mailbox, envelope,
+  callback and timer. Describe legacy behaviour from sanitized evidence; do not copy legacy code
+  or read the private implementation without its separately authorized task.
+- No applicant data, agreement text, credentials, private paths, brain content or transcripts in
+  this public repository, PRs or Beads history.
+- Product jobs (inbox polling, reminders, signing checks) are application jobs, never agent hooks.
+  Preserve guards, feature switches and human decision boundaries unless the task authorizes a change.
 
-## Working agreement (canonical text: `009` section 2)
+## Working agreement (canonical: `009` section 2)
 
 The current authorized task sets scope and what may be published. Preserve unrelated work. Commit
 and push only the authorized change set; pull requests are drafts unless told otherwise; subagents
-never publish. No force-push, no merge-guard bypass, no production, provider, DNS, proxy or secret
-change without separate authorization. Commit approval, architecture approval and deployment approval
-are separate acts. Report PASS, FAIL, SKIPPED, NOT RUN and BLOCKED separately.
+never publish. Apply an explicit active Git authority profile before the managed Beads default.
+No force-push, history rewrite, merge-guard bypass, production, provider, DNS, proxy or secret change
+without separate authorization. Commit approval, architecture approval and deployment approval are
+separate acts. Report PASS, FAIL, SKIPPED, NOT RUN and BLOCKED separately.
 
-Branches and worktrees (`009` section 8): one task, one branch, one PR; work in this checkout; an
-extra worktree only for a recorded concurrency need; check existing branches, worktrees and open PRs
-before branching; retire only verified-obsolete branches after merge; never delete unique work.
+Branches and worktrees (`009` section 8): one task, one branch, one PR; inspect existing branches,
+worktrees and open PRs before branching. Work in this checkout; an extra worktree needs a recorded
+concurrency need. Do not create a worktree per agent or delete unique work.
+
+## Repository map
+
+| Path | Purpose |
+|---|---|
+| `accounts/`, `applications/` | Users, intake, invitations, verification and application dossier |
+| `workflow/` | Pending-action ledger and background worker |
+| `correspondence/` | Inbound/outbound mail, replies and reminders |
+| `assessments/` | Evidence, bounded assessment and qualification decisions |
+| `agreements/` | Documenso integration, signing, custody and staff screens |
+| `provisioning/` | Mailbox provisioning, credential setup, activation and closure |
+| `config/` | Settings, guards, database roles, health and recovery |
+| `tests/` | Synthetic runtime suite; `acceptance.py` maps acceptance cases to tests |
+| `scripts/`, `deploy/` | Check scripts, release tooling and deployment definitions; live operations require authorization |
+| `requirements/`, `pyproject.toml`, `compose.yaml` | Hash-locked dependencies, Python tooling and isolated test containers |
+| `000-docs/` | Indexed specifications, decisions, evidence and after-action reports |
 
 ## Canonical commands
 
+Run from the repository root:
+
 ```bash
-bd ready                                   # open work (bd prime already ran at session start)
-scripts/check-docs.sh                      # Markdown lint (same version as CI) and doc index check
-scripts/test.sh                            # runtime tests in digest-pinned Python 3.14.10 + PostgreSQL 16.15 containers
-git diff --name-only origin/main... | xargs python3 scripts/select_tests.py   # targeted selection hint (009 5.3; never a gate)
-ruff check .                               # Python lint (ruff 0.17.3, rules in pyproject.toml); pip-audit command in 009 5.1
-claude plugin validate .claude/agents      # agent definitions (plus the IS validator, see 009)
+bd ready                              # available work; inspect the relevant bead before claiming
+scripts/check-docs.sh                 # Markdown lint and document index check
+scripts/test.sh                       # full suite in digest-pinned Python and PostgreSQL containers
+PYTEST_ARGS="-v tests/test_intake.py" scripts/test.sh  # targeted feedback, not a gate
+ruff check .                          # use the version locked in requirements/lint.txt
 ```
 
-Which checks apply: a docs-only change runs the Markdown and index checks (CI; the same job also
-runs the Python lint and dependency audit on every pull request) plus, if `.claude/agents/`
-changed, the agent validators (local only today). A change to code, tests,
-dependencies, migrations, CI, hooks or test selection is **not** docs-only; its lanes are in `009`
-section 5.3; the runtime lane runs `scripts/test.sh`'s suite in CI (job "Runtime checks", aggregated
-into the required check). Merges go through the estate merge guard (registration
-recorded in `009` section 5.5; not verifiable from this repository).
+Docker is required for runtime checks. `scripts/test.sh` creates an isolated Compose project and
+cleans up its own resources. Do not substitute a production database or real provider credentials.
+For branch-based test selection, use `scripts/select_tests.py` as described in `009` section 5.3;
+it is a selection hint, never a replacement for the full merge gate.
 
-The managed Beads block below says not to use `MEMORY.md` files: that means no `MEMORY.md` in this
-repository. Claude Code's own auto memory lives outside the repository and is a personal convenience
-only (`009` section 1).
+For documentation-only edits, run Markdown and index checks, verify referenced paths and review the
+diff for sensitive content. Code, tests, dependencies, migrations, CI, hooks and test-selection
+changes use the runtime lanes in `009` section 5.3. CI also runs Python lint and the dependency audit;
+the audit command is in `009` section 5.1. If `.claude/agents/` changes, run
+`claude plugin validate .claude/agents` and the Intent Solutions agent validator described there.
+
+## Task tracking and memory
+
+Use the Beads CLI (`bd`) and the project skill `.agents/skills/beads/SKILL.md`. Inspect existing
+work, create or claim a bounded bead before implementation, and record validation and handoff evidence.
+Run `bd prime` when context is missing or stale. Never hand-edit `.beads/issues.jsonl`.
+
+Use `bd remember` for persistent project knowledge; do not create Markdown task lists or repository
+`MEMORY.md` files. Personal auto memory outside the repository is a convenience, not project policy
+(`009` section 1). Managed Beads guidance below remains subordinate to active user and repository
+authority.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:970c3bf2 -->
 ## Beads Issue Tracker

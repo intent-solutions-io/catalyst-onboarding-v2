@@ -8,7 +8,9 @@
 !assessments/
 !config/
 !correspondence/
+!crm/
 !erasure/
+!firstgen/
 !provisioning/
 !workflow/
 !scripts/provision_db_roles.py

@@ -30,8 +30,9 @@ model provider client would use (`httpx2`, which PydanticAI's provider clients a
 installed) raise on every request, loopback included: both clients' `send` and both default transports are patched,
 so a client with the default transport or any transport class of these libraries cannot reach a model endpoint. It
 does not cover a client that brings a transport of its own outside these libraries, or another HTTP library;
-tests/test_live_safety.py fails if the dependencies gain one (openai, anthropic, requests, aiohttp, httpx) before this
-fixture covers it. Nothing in Catalyst uses these libraries for its own traffic."""
+tests/test_live_safety.py fails if the dependencies gain one (anthropic, requests, aiohttp, httpx) before this
+fixture covers it; `openai` (the live branch's client, bgl.12) uses httpx2 and is covered. Nothing in Catalyst uses
+these libraries for its own traffic."""
 
 import ipaddress
 import json
@@ -177,6 +178,9 @@ _skipped = []
 
 
 def pytest_runtest_logreport(report):
+    if _ci_shard is not None:
+        _ci_shard["reports"].setdefault(report.nodeid, []).append(
+            [report.when, report.outcome, hasattr(report, "wasxfail")])
     if report.skipped or hasattr(report, "wasxfail"):
         _skipped.append(report.nodeid)
     if report.failed or (report.when == "call" and report.passed):
@@ -194,6 +198,33 @@ def pytest_collectreport(report):
 # is GATE-S1's, GATE-P2's, GATE-P3's, GATE-P4's and GATE-P5's "every case PASS at one head", enforced wherever the whole suite runs (CI and
 # scripts/test.sh).
 _acceptance = {"outcomes": {}, "deselected": False, "statuses": {}, "full": False}
+_ci_shard = None
+
+
+def pytest_addoption(parser):
+    parser.addoption("--ci-shard", help="Zero-based index/count; collect the entire suite before partitioning")
+    parser.addoption("--ci-shard-output", help="JSON evidence consumed by the required aggregate job")
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_collection_modifyitems(session, config, items):
+    yield  # Capture collection after ordinary selection hooks; never bless a selected subset as complete.
+    if _ci_shard is None:
+        return
+    if _acceptance["deselected"]:
+        raise pytest.UsageError("CI sharding refuses prior deselection")
+    from scripts.ci_shards import partition
+
+    manifest = sorted(item.nodeid for item in items)
+    try:
+        selected = partition(manifest, _ci_shard["index"], _ci_shard["count"])
+    except ValueError as exc:
+        raise pytest.UsageError(str(exc)) from exc
+    _ci_shard.update(manifest=manifest, selected=selected)
+    chosen = set(selected)
+    omitted = [item for item in items if item.nodeid not in chosen]
+    items[:] = [item for item in items if item.nodeid in chosen]
+    config.hook.pytest_deselected(items=omitted)
 
 
 def pytest_deselected(items):
@@ -215,6 +246,29 @@ def _may_be_full(config) -> bool:
 
 
 def pytest_sessionstart(session):
+    global _ci_shard
+    config = session.config
+    shard = config.getoption("--ci-shard")
+    output = config.getoption("--ci-shard-output")
+    if bool(shard) != bool(output):
+        raise pytest.UsageError("--ci-shard and --ci-shard-output must be used together")
+    if shard:
+        if (not _may_be_full(config) or config.option.deselect or config.option.ignore
+                or config.option.ignore_glob or config.option.collectonly or os.environ.get("PYTEST_ADDOPTS")):
+            raise pytest.UsageError("CI sharding requires an unselected full collection")
+        if not re.fullmatch(r"[0-9]+/[1-9][0-9]*", shard):
+            raise pytest.UsageError("--ci-shard must be a zero-based index/count")
+        index, count = map(int, shard.split("/"))
+        if index >= count:
+            raise pytest.UsageError("CI shard index must be smaller than count")
+        _ci_shard = {"schema": 1, "index": index, "count": count, "commit": run_commit(),
+                     "run_id": os.environ.get("GITHUB_RUN_ID", "local"),
+                     "attempt": os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
+                     "manifest": [], "selected": [], "reports": {}}
+        try:
+            os.remove(output)
+        except FileNotFoundError:
+            pass
     # 9kg.64: a run that may be full removes the last register.json first, so a run that is refused, fails before the
     # end or turns out not to be full can never leave an earlier run's file behind as if it were its own.
     if _may_be_full(session.config):
@@ -224,7 +278,9 @@ def pytest_sessionstart(session):
             pass
 
 
+@pytest.hookimpl(wrapper=True, tryfirst=True)
 def pytest_sessionfinish(session, exitstatus):
+    # Compute the ordinary acceptance report before pytest's terminal reporter prints its summary.
     config = session.config
     outcomes = _acceptance["outcomes"]
     groups = acceptance.groups()
@@ -239,6 +295,13 @@ def pytest_sessionfinish(session, exitstatus):
         session.exitstatus = 1
     if _acceptance["full"] and not _acceptance["register_problems"]:
         write_register(_acceptance["statuses"], int(session.exitstatus))
+    yield  # Include failures set by other plugins before emitting shard evidence.
+    if _ci_shard is not None:
+        _ci_shard.update(exit_status=int(session.exitstatus), skipped=_skipped)
+        path = config.getoption("--ci-shard-output")
+        with open(path + ".tmp", "w", encoding="utf-8") as out:
+            json.dump(_ci_shard, out, sort_keys=True)
+        os.replace(path + ".tmp", path)
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -265,23 +328,8 @@ def write_register(statuses, exit_status: int) -> str:
     """register.json (CATALYST_EVIDENCE_REGISTER, or the repository root): the rows, this run's commit, exit status
     and image digest when known, each proof's record pointer, the summary, GATE-STAGING's supporting groups and every
     gate's counts, so the go/no-go package reads the run as it ended rather than a green row list alone (9kg.64)."""
-    rows = acceptance.register(statuses)
-    gates = {}
-    for _, gate, cases, supporting in acceptance.gates():
-        gates[gate] = {kind: {s: [statuses[g] for g in groups].count(s) for s in ("PASS", "FAIL", "INCOMPLETE", "NOT RUN")}
-                       for kind, groups in (("numbered", cases), ("supporting", supporting))}
-    path = register_path()
-    # Written beside the target and moved into place (PR #95 review), so a reader never sees a half-written file.
-    temporary = path + ".tmp"
-    with open(temporary, "w", encoding="utf-8") as out:
-        json.dump({"gate": "GATE-STAGING", "commit": run_commit(), "exit_status": exit_status,
-                   "image_digest": os.environ.get("CATALYST_IMAGE") or None,
-                   "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "rows": rows,
-                   "summary": acceptance.summarise(rows),
-                   "supporting": {group: statuses[group] for group in acceptance.P6_SUPPORTING},
-                   "gates": gates}, out, indent=1, sort_keys=True)
-    os.replace(temporary, path)
-    return path
+    return acceptance.write_register(statuses, register_path(), run_commit(), exit_status,
+                                     os.environ.get("CATALYST_IMAGE") or None)
 
 
 def pytest_terminal_summary(terminalreporter):
@@ -367,7 +415,7 @@ RUN_IDENTITY = {"marker": f"catalyst-test-run:{uuid.uuid4()}"}
 # Slice data plus staff accounts, their sessions and the admin log (S1-T7); the read-only group and its
 # permissions come from migrations and are kept.
 # The agreement types are the P4-D-1 inventory seeded by migration (like the groups), so the reset keeps them.
-SLICE_TABLES = re.compile(r"^((applications|workflow|correspondence|assessments|provisioning|erasure)_|agreements_(?!agreementtype$)|accounts_user"
+SLICE_TABLES = re.compile(r"^((applications|workflow|correspondence|assessments|provisioning|erasure|firstgen|crm)_|agreements_(?!agreementtype$)|accounts_user"
                           r"|django_session$|django_admin_log$|accounts_loginthrottle$|accounts_requestthrottle$|otp_"
                           r"|accounts_staffrolegrant$)")  # 6B.9: throttles and staff devices; 9kg.29; 9kg.30: the grant record
 RESET_TRIGGER = "catalyst_no_truncate"
@@ -497,6 +545,10 @@ EXPECTED_TRIGGERS = {
     ("applications_memberagreementonfile", "catalyst_no_truncate"),
     ("erasure_erasureaudit", "catalyst_append_only"), ("erasure_erasureaudit", "catalyst_no_truncate"),  # 9kg.32
     ("erasure_erasureaudit", "catalyst_erasure_audit_txid"),
+    # bgl.16: the first-generation import's provenance (append-only; the record table's data is erasable)
+    ("firstgen_importrun", "catalyst_append_only"), ("firstgen_importrun", "catalyst_no_truncate"),
+    ("firstgen_importedcase", "catalyst_append_only"), ("firstgen_importedcase", "catalyst_no_truncate"),
+    ("firstgen_importedrecord", "catalyst_append_only"), ("firstgen_importedrecord", "catalyst_no_truncate"),
 }
 
 

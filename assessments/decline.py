@@ -31,7 +31,7 @@ from applications import members, notices
 from applications.models import Application, ApplicationEvent, Stage
 from correspondence.models import ApprovedMessage, MessageTemplateVersion, StaffItem
 from correspondence.outbound import enqueue_send, verified_address
-from correspondence.rendering import canonical_digest
+from correspondence.rendering import canonical_digest, html_inputs
 from correspondence.staff_items import event, open_item, resolve_item
 from workflow import ledger
 from workflow.models import PendingAction
@@ -118,12 +118,14 @@ class SendDecline:
             return Status.QUEUED, str(refused)[:64], item, recheck
         version = MessageTemplateVersion.objects.get(template__key=TEMPLATE, version=wording.version)
         subject, body = wording.subject, wording.display  # a draft always carries its marker
+        # bgl.11: an approved version with an HTML part is sent multipart; a draft goes as marked text only.
+        inputs = html_inputs(version, {"display_name": application.display_name}) if wording.approved else {}
 
         def write():
             message = ApprovedMessage.objects.create(
                 kind=ApprovedMessage.Kind.DECLINE, application=application, recipient=recipient, template_version=version,
                 frozen_subject=subject, frozen_body=body, content_sha256=canonical_digest(subject, body),
-                authorized_by=actor, authority=ApprovedMessage.Authority.SYSTEM_POLICY)
+                authorized_by=actor, authority=ApprovedMessage.Authority.SYSTEM_POLICY, reproducible_inputs=inputs)
             enqueue_send(message, 0)  # the P2 sender sends it later, outside this transaction, with its own checks
             event(application, "decline_notice_queued",
                   {"decision": str(decision.public_id), "send_ref": str(message.send_ref), "template_version": version.version,

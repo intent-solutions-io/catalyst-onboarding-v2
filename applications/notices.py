@@ -50,6 +50,7 @@ class Rendered:
     subject: str
     text: str
     synthetic: bool = True
+    html: str = ""  # bgl.11: the HTML alternative, or "" for a text-only version
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,7 @@ class Wording:
     subject: str
     text: str
     approved: bool
+    html: str = ""  # bgl.11: the rendered HTML alternative of an approved version, or ""; a draft is sent as text only
 
     @property
     def draft(self) -> bool:
@@ -104,7 +106,7 @@ def verification_withheld() -> bool:
     decides (CodeRabbit on PR #132: a retired version or an invalid draft refuses the send in staging too). Where a draft
     may be shown and the template row is absent, the seeded draft is sent (correspondence.verification): not withheld."""
     try:
-        wording(VERIFICATION, {"link": "https://link.invalid/"})
+        wording(VERIFICATION, {"link": "https://link.invalid/", "display_name": "Applicant"})  # a greeting may use it
     except Unavailable as refused:
         return not (guards.draft_wording_allowed(settings.CATALYST_ENV) and str(refused) == f"{VERIFICATION}_missing")
     return False
@@ -117,12 +119,14 @@ def wording(key: str, values: dict | None = None) -> Wording:
     if rendered is not None:
         if rendered.synthetic and not drafts_allowed:
             raise Unavailable(f"{key}_synthetic")
-        return Wording(key, rendered.version, rendered.sha256, rendered.subject, rendered.text, approved=True)
+        return Wording(key, rendered.version, rendered.sha256, rendered.subject, rendered.text, approved=True,
+                       html=rendered.html)
     if not drafts_allowed:
         raise Unavailable(f"{key}_not_approved")
     draft = _source("draft")(key)
     if draft is None:
         raise Unavailable(f"{key}_missing")
+    values = _source("fit_greeting")(draft.variables, values)
     if set(values) != set(draft.variables):
         raise Unavailable(f"{key}_values_do_not_match_allow_list")
     try:

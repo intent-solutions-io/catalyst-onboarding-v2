@@ -17,7 +17,9 @@ COPY applications/ applications/
 COPY assessments/ assessments/
 COPY config/ config/
 COPY correspondence/ correspondence/
+COPY crm/ crm/
 COPY erasure/ erasure/
+COPY firstgen/ firstgen/
 COPY provisioning/ provisioning/
 COPY workflow/ workflow/
 COPY scripts/provision_db_roles.py scripts/provision_db_roles.py

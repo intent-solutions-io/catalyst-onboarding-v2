@@ -42,7 +42,7 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.conf import settings
-from django.core.mail import EmailMessage
+from django.core.mail import EmailMessage, EmailMultiAlternatives  # noqa: F401 (EmailMessage: its send is the one tests patch)
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Q
 from django.db.models.functions import Now
@@ -51,6 +51,7 @@ from applications import notices
 from applications.links import verification_link
 from applications.models import OPEN_STAGES, Application, ApplicationEvent, ContactChallenge
 from applications.services import SEND_VERIFICATION, send_verification_key
+from config.mail import from_header, reply_to
 from workflow import ledger
 from workflow.models import AutomationPause, PendingAction
 
@@ -77,10 +78,11 @@ SUBJECT = SEED.SUBJECT
 WORDING_RECHECK_SECONDS = 3600
 
 
-def wording(link: str) -> notices.Wording:
-    """The verification mail for this link, or `notices.Unavailable` with a reason code."""
+def wording(link: str, display_name: str = "") -> notices.Wording:
+    """The verification mail for this link, or `notices.Unavailable` with a reason code. The applicant's name is offered
+    for a greeting (the display name or its first word, whichever the version declares; parity integration)."""
     try:
-        return notices.wording(TEMPLATE_KEY, {"link": link})
+        return notices.wording(TEMPLATE_KEY, {"link": link, "display_name": display_name})
     except notices.Unavailable as refused:
         if str(refused) != f"{TEMPLATE_KEY}_missing":  # raised only where a draft may be shown
             raise
@@ -143,17 +145,24 @@ class SendVerification:
         if connection.in_atomic_block:
             raise RuntimeError("refusing to send inside a transaction")
         try:
-            mail = wording(verification_link(decision.challenge_public_id))
+            name = Application.objects.filter(pk=decision.application_id).values_list("display_name", flat=True).first()
+            mail = wording(verification_link(decision.challenge_public_id), name or "")
         except notices.Unavailable as refused:  # 9kg.80: no approvable wording here; wait for the owner's approval
             self._stop(claim, Stop(Status.QUEUED, str(refused), WORDING_RECHECK_SECONDS))
             return
         message_id = make_msgid(idstring=f"a{claim.attempt}", domain=urlsplit(settings.CATALYST_PUBLIC_BASE_URL).hostname)
-        message = EmailMessage(
+        # bgl.11: multipart/alternative (text, then HTML) when the approved version has an HTML part; with no
+        # alternative attached, EmailMultiAlternatives sends the same single text/plain part EmailMessage did.
+        message = EmailMultiAlternatives(
             subject=mail.subject,
             body=mail.display,
+            from_email=from_header(),  # bgl.6: the configured sender's name and Reply-To (config.mail)
             to=[decision.recipient],
+            reply_to=reply_to(),
             headers={"Message-ID": message_id},
         )
+        if mail.html:
+            message.attach_alternative(mail.html, "text/html")
         outbound = dict(
             application_id=decision.application_id, pending_action_id=claim.id, attempt_number=claim.attempt,
             template_key=TEMPLATE_KEY, template_version=f"{mail.version}:{mail.sha256[:24]}", recipient=decision.recipient,

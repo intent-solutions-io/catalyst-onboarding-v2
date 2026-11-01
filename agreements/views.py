@@ -21,9 +21,11 @@ from django.core.exceptions import RequestDataTooBig
 from django.db import transaction
 from django.db.models.functions import Now
 from django.http import HttpResponse
+from django.shortcuts import render
+from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.debug import sensitive_variables
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
 from applications.models import Application
 from config import throttle
@@ -117,3 +119,17 @@ def _orphan_check(attempt) -> None:
         if watches.filter(created_at__gt=Now() - floor).exists():
             return  # and a minimum interval
         handlers.enqueue_reconcile(attempt, watches.count() + 1, watch=True, grace=0)
+
+
+# --- the page after signing (bgl.8; 034 row 29) ------------------------------------------------------------------------
+
+@require_GET
+@never_cache
+def signing_return(request):
+    """`/signing/return/`: where the provider sends the signer once they have signed (`redirectUrl`, provider.return_url).
+    Static and public: it reads nothing from the request (no query, no cookie, no token), names no case and no person,
+    and says only that the signing service recorded the signature and that any next step arrives by email. The first
+    generation served the same page under the same path."""
+    response = render(request, "agreements/signing_return.html")
+    response["Referrer-Policy"] = "no-referrer"
+    return response

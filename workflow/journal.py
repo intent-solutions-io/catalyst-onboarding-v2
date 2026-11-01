@@ -107,6 +107,10 @@ KINDS = {
     # key) and its retirement, keyed `custody_rotation_retired:<old id>`, once no key file is under the old key. Key ids
     # only (16 hex of a hash), never a key.
     "custody_rotation": {"from_key", "to_key", "keys", "documents", "phase"},
+    # bgl.9 (agreements.countersign): the automated company countersignature of one agreement, keyed
+    # `countersign:<instance public reference>`: `begun` appended before the provider call, `done` once a fresh read
+    # showed the company recipient signed. Codes only.
+    "agreement_countersign": {"phase", "outcome"},
 }
 RESTRICTIVE = ("application_closed", "access_revocation", "automation_pause", "question_withdrawn", "staff_role_changed")
 

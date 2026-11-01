@@ -37,7 +37,9 @@ from workflow import ledger
 from workflow.keeper import LeaseKeeper
 from workflow.models import AutomationPause, PendingAction
 
-from . import agent, approval, clarification, pack as packs, snapshot
+from .quotas import exceeds
+from . import rate_limits
+from . import agent, approval, clarification, pack as packs, routine, snapshot
 from .models import AssessmentInvocation, AssessmentRun
 from .schema import SCHEMA_VERSION, flags
 
@@ -76,7 +78,7 @@ def enqueue_assessment(application, trigger: str, why: list | None = None, round
     if runs.filter(status__in=(Run.QUEUED, Run.RESERVED)).exists():
         why.append("run_in_flight")
         return None
-    if runs.count() >= settings.CATALYST_ASSESSMENT_RUNS_PER_APPLICATION:
+    if exceeds(runs.count() + 1, settings.CATALYST_ASSESSMENT_RUNS_PER_APPLICATION):
         open_item("assessment_capped", f"runs:{application.public_ref}", application=application)
         why.append("application_run_budget")
         return None
@@ -195,7 +197,8 @@ class RunAssessment:
                 def write():  # counted; the run waits out the backoff as queued, holding no concurrency slot
                     AssessmentInvocation.objects.filter(run=run, attempt=claim.attempt).update(status="completed", finished_at=Now())
                     AssessmentRun.objects.filter(pk=run.pk, status=Run.RESERVED).update(status=Run.QUEUED)
-                ledger.finish(claim, self, status=Status.QUEUED, error=f"provider_{exc}", write=write)
+                ledger.finish(claim, self, status=Status.QUEUED, error=f"provider_{exc}", write=write,
+                              due_in=max(ledger.retry_delay(claim.attempt), timedelta(seconds=exc.retry_after)))
         else:
             self._succeed(claim, run, request, outcome)
 
@@ -251,6 +254,10 @@ class RunAssessment:
             return (Status.DONE, "fields_not_approved", False, lambda: (
                 _finish_run(run, Run.REFUSED, error_code="fields_not_approved"),
                 _staff(application, "assessment_failed", run)), None), None, None
+        delay = rate_limits.reserve(REQUESTS_PER_ATTEMPT,
+                                    REQUESTS_PER_ATTEMPT * settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS, commit=False)
+        if delay:
+            return (Status.QUEUED, "provider_rate_limited", True, None, timedelta(seconds=delay)), None, None
         AssessmentInvocation.objects.create(
             run=run, application=application, snapshot_sha256=run.snapshot_sha256, attempt=claim.attempt,
             reserved_requests=REQUESTS_PER_ATTEMPT, reserved_tokens=agent.attempt_tokens())
@@ -268,17 +275,17 @@ class RunAssessment:
         invocations = AssessmentInvocation.objects
         spent = invocations.filter(application=application, snapshot_sha256=run.snapshot_sha256).aggregate(
             n=Sum("reserved_requests"))["n"] or 0
-        if spent + REQUESTS_PER_ATTEMPT > settings.CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT:
+        if exceeds(spent + REQUESTS_PER_ATTEMPT, settings.CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT):
             return "snapshot_request_budget"
         # A call whose usage is unknown (failed, invalid, abandoned) counts at its full reservation.
         used = invocations.filter(application=application).aggregate(
             t=Sum(Coalesce("used_tokens", "reserved_tokens")))["t"] or 0
-        if used + agent.attempt_tokens() > settings.CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION:
+        if agent.token_limits_enabled() and exceeds(used + agent.attempt_tokens(), settings.CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION):
             return "application_token_budget"
         from .interpret import daily_requests_used
 
         today = daily_requests_used()  # assessments and reply interpretations share the daily budget (3B.3)
-        if today + REQUESTS_PER_ATTEMPT > settings.CATALYST_ASSESSMENT_DAILY_REQUESTS:
+        if exceeds(today + REQUESTS_PER_ATTEMPT, settings.CATALYST_ASSESSMENT_DAILY_REQUESTS):
             return "daily_request_budget"  # defaults to 0: nothing runs until the owner sets a value
         if in_flight(exclude=run).count() >= settings.CATALYST_ASSESSMENT_CONCURRENT_RUNS:
             return "concurrency"
@@ -312,4 +319,5 @@ class RunAssessment:
             except StageConflict:
                 return  # the application left `assessing` meanwhile: the run is history only, and proposes nothing
             clarification.propose_from_run(run, outcome.output)  # stored proposed; nothing is sent (P3-D-5)
+            routine.enqueue(run)  # bgl.12: nothing below CATALYST_ROUTINE_ADVANCE_ACTIVATION 1; the policy reads the output there
         ledger.finish(claim, self, status=Status.DONE, write=write)

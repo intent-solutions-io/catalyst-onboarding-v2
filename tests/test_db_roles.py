@@ -34,7 +34,7 @@ SECRETS = [*PASSWORDS.values(), superuser_login()[1]]
 # Trigger inventory (003 ADR-14): append-only on versions and events (2), no-truncate on versions, events,
 # audit and adoptions (4), audit immutability (1), adoption immutability (1).
 TRIGGERS = ("catalyst_append_only", "catalyst_no_truncate", "catalyst_audit_immutable", "catalyst_adoption_immutable")
-TRIGGER_COUNT = 51  # 8 from S1, 2 on evidence captures (P3 3B.1), 2 on qualification decisions (P3 3B.4),
+TRIGGER_COUNT = 57  # 8 from S1, 2 on evidence captures (P3 3B.1), 2 on qualification decisions (P3 3B.4),
 # 2 on agreement recipients (P4 4B.1), 2 on provider observations (P4 4B.2), 5 on custody and details (4B.3),
 # 8 on correspondence evidence (9kg.1), 3 no-truncate on inbound messages, outbound attempts and reply links (9kg.5),
 # 5 on provisioning records (P5 5B.1), 1 on credential setups (5B.2),
@@ -45,7 +45,8 @@ TRIGGER_COUNT = 51  # 8 from S1, 2 on evidence captures (P3 3B.1), 2 on qualific
 # 1 no-truncate on member-on-file records (9kg.52; applications 0008),
 # 2 on the erasure audit (9kg.32; erasure 0002, which depends on every app's latest migration),
 # 2 on model-use approvals (oc4.9; assessments 0011),
-# 2 on the custody envelope (9kg.34; agreements 0010)
+# 2 on the custody envelope (9kg.34; agreements 0010),
+# 6 on the first-generation import's provenance tables (bgl.16; firstgen 0002, brought back by erasure 0005)
 SLICE_TABLES = [
     "applications_application", "applications_submissionversion", "applications_contactchallenge",
     "applications_versionadoption", "applications_applicationevent", "applications_retentionaudit",
@@ -404,6 +405,30 @@ def test_this_test_process_runs_as_the_application_role():
 
 # --- migration behaviour (the owner, in a child process) ------------------------------------------------------
 
+def test_credential_mode_migration_preserves_the_erasure_branch_in_both_directions(connect):
+    from erasure import catalog
+
+    owner = connect("owner", autocommit=True)
+
+    def guard():
+        return owner.execute(
+            "SELECT prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+            "WHERE n.nspname = 'public' AND p.proname = 'catalyst_credential_setup_fixed' "
+            "AND p.pronargs = 0").fetchone()[0]
+
+    branches = catalog.BRANCH_PATTERN.findall(guard())
+    assert len(branches) == 1
+    try:
+        manage_as_owner("migrate", "provisioning", "0007", "--verbosity", "0")
+        assert catalog.BRANCH_PATTERN.findall(guard()) == branches
+        assert "NEW.mode" not in guard()
+        manage_as_owner("migrate", "provisioning", "0008", "--verbosity", "0")
+        assert catalog.BRANCH_PATTERN.findall(guard()) == branches
+        assert "NEW.mode" in guard()
+    finally:
+        manage_as_owner("migrate", "--verbosity", "0")
+
+
 def test_history_protection_migrations_reverse_and_reapply_and_keep_data(connect):
     app = connect("app")
     app_id, version_id, _ = new_application(app)
@@ -422,20 +447,20 @@ def test_history_protection_migrations_reverse_and_reapply_and_keep_data(connect
     # assessments (P3: captures and decisions) and agreements (P4: recipients) depend on applications 0003, so they
     # stayed reversed, as did the invitation table (applications 0005, 9kg.43), the staff role grants (accounts 0007,
     # 9kg.30), the pause guard (workflow 0005, on applications 0006) and the member-on-file table (applications 0008)
-    assert count() == TRIGGER_COUNT - 43  # the model-use approvals (assessments 0011, oc4.9), the custody envelope (agreements 0010, 9kg.34), correspondence (9kg.1, 9kg.5), provisioning (5B.1), the invitation and member-on-file tables, the grant record, the pause guard and the erasure audit (9kg.32) stayed reversed
+    assert count() == TRIGGER_COUNT - 49  # the model-use approvals (assessments 0011, oc4.9), the custody envelope (agreements 0010, 9kg.34), correspondence (9kg.1, 9kg.5), provisioning (5B.1), the invitation and member-on-file tables, the grant record, the pause guard and the erasure audit (9kg.32) stayed reversed
     manage_as_owner("migrate", "assessments", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 37  # the model-use approvals came back with assessments; the custody envelope (agreements 0010) waits on agreements
+    assert count() == TRIGGER_COUNT - 43  # the model-use approvals came back with assessments; the custody envelope (agreements 0010) waits on agreements
     manage_as_owner("migrate", "agreements", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 26
+    assert count() == TRIGGER_COUNT - 32
     manage_as_owner("migrate", "correspondence", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 15
+    assert count() == TRIGGER_COUNT - 21
     manage_as_owner("migrate", "provisioning", "--verbosity", "0")  # provisioning 0007 brings the grant record (accounts 0007)
-    assert count() == TRIGGER_COUNT - 5  # the invitation, member-on-file and pause no-truncates (applications 0005, 0008, workflow 0005) and the erasure audit's two remain
+    assert count() == TRIGGER_COUNT - 11  # the invitation, member-on-file and pause no-truncates (applications 0005, 0008, workflow 0005) and the erasure audit's two remain
     manage_as_owner("migrate", "applications", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 3  # applications 0006 to 0009 are back; the pause guard waits on workflow
+    assert count() == TRIGGER_COUNT - 9  # applications 0006 to 0009 are back; the pause guard waits on workflow
     manage_as_owner("migrate", "workflow", "--verbosity", "0")  # the pause guard (9kg.6)
-    assert count() == TRIGGER_COUNT - 2
-    manage_as_owner("migrate", "erasure", "--verbosity", "0")  # the erasure audit and the trigger branches (9kg.32)
+    assert count() == TRIGGER_COUNT - 8  # and the import's six wait on erasure (firstgen 0002 depends on erasure 0002)
+    manage_as_owner("migrate", "erasure", "--verbosity", "0")  # the erasure audit and the trigger branches (9kg.32); erasure 0005 brings firstgen
     assert count() == TRIGGER_COUNT
     assert {state for _, _, state in trigger_states(owner)} == {"O"}
     assert owner.execute("SELECT count(*) FROM applications_submissionversion WHERE id = %s AND application_id = %s",

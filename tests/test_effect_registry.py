@@ -14,7 +14,7 @@ finds those functions in the source with `ast`, without importing the applicatio
 - a module outside a reviewed allow-list opens a network connection, starts a process or writes a file.
 
 What it finds: calls of the journal (`append`, `record`, `prepare`), SMTP (`transport.send`), a `django.core.mail`
-send, Documenso writes, MXroute writes on a mail host, IMAP writes on a mailbox client, and model runs on a PydanticAI
+send, Documenso writes, Twenty writes (bgl.14), MXroute writes on a mail host, IMAP writes on a mailbox client, and model runs on a PydanticAI
 agent, through module, alias, relative and by-name imports (at module level or inside a function), with receivers bound
 by assignment, a `with` target or a parameter named `host`.
 
@@ -32,14 +32,17 @@ import pytest
 from workflow import effects, journal
 
 ROOT = Path(__file__).resolve().parent.parent
-PACKAGES = ("accounts", "agreements", "applications", "assessments", "config", "correspondence", "erasure",
+PACKAGES = ("accounts", "agreements", "applications", "assessments", "config", "correspondence", "crm", "erasure",
             "provisioning", "workflow")
 # The primitives themselves: each is checked below for write methods the scanner does not know.
 IMPLEMENTATIONS = {"workflow/journal.py", "agreements/provider.py", "correspondence/transport.py",
-                   "correspondence/imap.py", "provisioning/adapter.py"}
+                   "correspondence/imap.py", "provisioning/adapter.py", "crm/twenty.py"}
 JOURNAL_CALLS = {"append", "record", "prepare"}
-DOCUMENSO_WRITES = {"create_from_template", "distribute", "cancel"}
+DOCUMENSO_WRITES = {"create_from_template", "distribute", "cancel", "countersign"}  # bgl.9: countersign
 DOCUMENSO_READS = {"read", "find"}
+TWENTY_WRITES = {"create_person", "update_person", "create_note", "update_note", "attach_note"}  # bgl.14
+TWENTY_READS = {"get_person", "find_people", "find_people_by_field", "find_people_by_email", "get_note", "find_notes",
+                "note_targets"}
 MAILHOST_WRITES = {"create", "set_password", "delete_forwarder"}
 MAILHOST_READS = {"read", "list_forwarders", "read_catch_all"}
 IMAP_WRITES = {"append"}
@@ -67,6 +70,9 @@ OUTWARD = {
     "config/release.py": "the deploy adapter's release bookkeeping files",
     "correspondence/imap.py": "the IMAP client (its writes are the imap family)",
     "correspondence/transport.py": "the SMTP client (the smtp family)",
+    "provisioning/mxroute.py": "the live MXroute client (its writes are the mailhost family) and the IMAP login check of a "
+                               "one-time password; reached only through a stub transport until the owner's canary",
+    "crm/twenty.py": "the Twenty client (its writes are the twenty family; bgl.14)",
     "workflow/heartbeat.py": "the worker's heartbeat file",
     "workflow/journal.py": "the effect journal",
     "workflow/shipping.py": "the effect journal's off-host copy",
@@ -217,6 +223,8 @@ class _Function(ast.NodeVisitor):
             self._add("django_mail", name, node)
         elif module == "agreements.provider" and name in DOCUMENSO_WRITES | DOCUMENSO_READS:
             self._add("documenso", name, node, read=name in DOCUMENSO_READS)
+        elif module == "crm.twenty" and name in TWENTY_WRITES | TWENTY_READS:
+            self._add("twenty", name, node, read=name in TWENTY_READS)
         elif receiver is not None:
             attr = func.attr
             if bound in self.hosts or inline == "provisioning.adapter.host":
@@ -386,6 +394,16 @@ def test_9kg62_the_scanner_knows_every_write_method_of_each_provider_client():
                 (reads if method.value == "GET" else writes).add(name)
     assert writes == DOCUMENSO_WRITES
     assert DOCUMENSO_READS <= reads
+    # Twenty (bgl.14): likewise, a public function whose exchange is not a GET is a write.
+    writes, reads = set(), set()
+    for name, function in _functions("crm/twenty.py"):
+        for call in _calls(function):
+            if isinstance(call.func, ast.Name) and call.func.id == "exchange":
+                method = call.args[0]
+                assert isinstance(method, ast.Constant), f"twenty.{name}: the exchange method is not a literal"
+                (reads if method.value == "GET" else writes).add(name)
+    assert writes == TWENTY_WRITES
+    assert TWENTY_READS - {"find_people_by_field", "find_people_by_email"} <= reads
     # MXroute: the interface's methods other than reads and lists are writes.
     interface = {name.split(".", 1)[1] for name, _ in _functions("provisioning/adapter.py") if name.startswith("MailHost.")}
     assert {name for name in interface if not name.startswith(("read", "list"))} == MAILHOST_WRITES
@@ -434,7 +452,7 @@ def outward(sources) -> dict:
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 imported = [alias.name for alias in node.names] if isinstance(node, ast.Import) else [node.module or ""]
                 hits |= {f"import {name}" for name in imported
-                         if name in NETWORK_MODULES or name.split(".")[0] in {"httpx", "requests", "aiohttp", "urllib3"}}
+                         if name in NETWORK_MODULES or name.split(".")[0] in {"httpx", "httpx2", "requests", "aiohttp", "urllib3"}}
             elif isinstance(node, ast.Call):
                 called = _dotted(node.func, names)
                 if called in FILE_CALLS:
@@ -469,6 +487,8 @@ def test_9kg62_only_reviewed_modules_reach_the_network_start_a_process_or_write_
     ("from django.core import mail\ndef f():\n    mail.EmailMessage(to=['a']).send()\n", "django_mail"),
     ("from django.core.mail import send_mail\ndef f():\n    send_mail('s', 'b', 'f', ['a'])\n", "django_mail"),
     ("def f():\n    from agreements import provider\n    provider.cancel('x')\n", "documenso"),
+    ("from crm import twenty\ndef f():\n    twenty.update_person('p', {})\n", "twenty"),  # bgl.14
+    ("from crm.twenty import create_note as note\ndef f():\n    note('t', 'b')\n", "twenty"),
     ("import agreements.provider as p\ndef f():\n    p.distribute('x')\n", "documenso"),
     ("from provisioning import adapter\ndef f():\n    adapter.host().delete_forwarder('d', 'a')\n", "mailhost"),
     ("from provisioning.adapter import host\ndef f():\n    h = host()\n    h.create('d', 'l', 'p', 1, 1)\n", "mailhost"),

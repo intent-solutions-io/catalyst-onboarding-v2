@@ -14,10 +14,13 @@ from django.db import models
 from django.db.models import Q
 from django.db.models.functions import Now
 
-# Journey stages (004 section 2). "Open" means any non-terminal stage, including `active`.
+# Journey stages (004 section 2). "Open" means any non-terminal stage, including `active` and `lapsed`: a lapsed
+# application (bgl.7; 034 row 21) is quiet, not closed. It still holds its email key, a repeat submission from that
+# address is a revision of it, and erasure and retention treat it as open. A reply or a signature reopens it to the
+# stage it lapsed from (correspondence.lapse).
 OPEN_STAGES = (
     "submitted", "contact_verified", "evidence", "assessing", "awaiting_answers", "awaiting_decision",
-    "on_hold", "admitted", "agreements", "agreements_complete", "provisioning", "active",
+    "on_hold", "admitted", "agreements", "agreements_complete", "provisioning", "active", "lapsed",
 )
 TERMINAL_STAGES = ("declined", "withdrawn", "closed")
 
@@ -35,6 +38,7 @@ class Stage(models.TextChoices):
     AGREEMENTS_COMPLETE = "agreements_complete"
     PROVISIONING = "provisioning"
     ACTIVE = "active"
+    LAPSED = "lapsed"  # bgl.7: quiet after the last reminder; open, reopened by a reply or a signature
     DECLINED = "declined"
     WITHDRAWN = "withdrawn"
     CLOSED = "closed"

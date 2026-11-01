@@ -1,9 +1,7 @@
 name: CI
 
-# One required check name ("Markdown lint and doc index check"), so the merge guard never waits on a
-# check that did not run. The runtime job runs the Python test suite; the required docs job waits for it
-# and fails unless it succeeded (an aggregating job, 009 section 5.5), so a failed, cancelled or skipped
-# runtime job can never count as a pass. Policy and measured timings: 000-docs/009 section 5.
+# Existing required check names remain stable. Four isolated shards execute the complete suite;
+# runtime verifies their combined evidence. Fast checks start alongside the shards (9kg.93).
 
 on:
   push:
@@ -20,8 +18,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  runtime:
-    name: Runtime checks (Python 3.14.8, PostgreSQL 16.15)
+  shards:
+    name: Test shard ${{ matrix.shard }}/4
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     runs-on: ubuntu-latest
     # The full suite took about 10 minutes on a hosted runner at 3B.2 (760 tests) and 18 to 20 minutes by 6B.12
     # (October 2026, about 1,300 tests, main's runs measured); 35 leaves headroom while a run that hangs still ends.
@@ -75,13 +77,44 @@ jobs:
         run: /tmp/venv/bin/python scripts/provision_db_roles.py
 
       - name: Test suite (PostgreSQL)
-        run: /tmp/venv/bin/python -m pytest -v
+        run: /tmp/venv/bin/python -m pytest -v --durations=25 --ci-shard=${{ matrix.shard }}/4 --ci-shard-output=shard.json
 
-      # 9kg.64: the evidence register a full run writes (026 section 11.1), kept for the go/no-go package whatever the
-      # result; a run whose register was refused writes none, so the warning, not a stale file, says so.
+      - name: Keep the shard evidence (required for aggregation)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-shard-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: shard.json
+          if-no-files-found: error
+          retention-days: 7
+
+  runtime:
+    name: Runtime checks (Python 3.14.8, PostgreSQL 16.15)
+    needs: shards
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every shard succeeded
+        env:
+          SHARDS_RESULT: ${{ needs.shards.result }}
+        run: test "$SHARDS_RESULT" = success
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: test-shard-*-${{ github.run_attempt }}
+          path: shard-results
+
+      - name: Verify complete coverage and every acceptance gate
+        run: python3 -m scripts.ci_shards shard-results --count 4 --commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT"
+
+      # The combined register has the same schema as a local full run. Its archival upload remains optional;
+      # shard transport above is mandatory because missing evidence must never produce a green runtime gate.
       - name: Keep the evidence register (register.json)
         if: ${{ always() }}
-        continue-on-error: true  # an artifact-service failure must never fail the required check (PR #95 review)
+        continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: evidence-register
@@ -91,16 +124,9 @@ jobs:
 
   docs:
     name: Markdown lint and doc index check
-    needs: runtime
-    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Runtime checks succeeded
-        run: |
-          echo "runtime job result: ${{ needs.runtime.result }}"
-          test "${{ needs.runtime.result }}" = "success"
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # full history for the secret scan
