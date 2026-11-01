@@ -641,7 +641,9 @@ def search(instance, key: str, since) -> tuple[list[provider.Envelope], bool]:
     while page <= min(pages, settings.CATALYST_AGREEMENT_LIST_PAGES):
         batch, pages = provider.find(instance.template_version.provider_template_number, page)
         found += [e for e in batch if matches(e, instance, key)]
-        if not batch or any((t := _created_at(e.created_at)) is not None and t < floor for e in batch):
+        if not batch:
+            return found, page >= pages  # an empty intermediate page is not the end of the provider listing
+        if any((t := _created_at(e.created_at)) is not None and t < floor for e in batch):
             return found, True
         page += 1
     return found, page > pages  # hitting the configured page cap is not an exhaustive negative result

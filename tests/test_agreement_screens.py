@@ -344,3 +344,15 @@ def test_9kg53_missing_pagination_metadata_is_unknown_not_empty(h, monkeypatch):
     assert not services.create_absence_checked(instance.attempts.get(step="create"))
     assert all(e.data["reached"] is True and e.data["complete"] is False and e.data["matches"] is None
                for e in app.events.filter(kind=handlers.RECONCILIATION_CHECKED))
+
+
+def test_9kg53_an_empty_intermediate_page_cannot_prove_absence(monkeypatch):
+    from types import SimpleNamespace
+
+    from django.utils import timezone
+
+    from agreements import provider
+
+    monkeypatch.setattr(provider, "find", lambda template, page: ([], 2))
+    instance = SimpleNamespace(template_version=SimpleNamespace(provider_template_number=1))
+    assert handlers.search(instance, "ag_synthetic", timezone.now()) == ([], False)

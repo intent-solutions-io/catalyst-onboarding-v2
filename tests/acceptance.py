@@ -1964,6 +1964,7 @@ P6_SUPPORTING = {
         "test_agreement_screens::test_9kg53_failed_checks_never_authorize_mark_not_sent_and_a_successful_empty_check_does",
         "test_agreement_screens::test_9kg53_a_truncated_listing_cannot_prove_absence_and_abandon_stays_available",
         "test_agreement_screens::test_9kg53_missing_pagination_metadata_is_unknown_not_empty",
+        "test_agreement_screens::test_9kg53_an_empty_intermediate_page_cannot_prove_absence",
     ],
     "9kg.54 completed envelopes after uncertain distribution reach normal verification and custody without resending": [
         "test_agreement_custody::test_9kg54_completed_after_uncertain_distribution_is_verified_and_stored_without_resending",
