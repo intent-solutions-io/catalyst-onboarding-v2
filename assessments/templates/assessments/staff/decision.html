@@ -29,6 +29,7 @@ Selection policy: {{ policy_ref }}.</p>
 <td><select name="str-{{ c.id }}" required><option value="">choose</option>{% for v in strength %}<option value="{{ v }}"{% if v == c.posted.str %} selected{% endif %}>{{ v }}</option>{% endfor %}</select></td>
 <td><input name="note-{{ c.id }}" maxlength="500" required value="{{ c.posted.note }}"></td></tr>{% endfor %}
 </table>
+{% if state.geographic_review %}<p><strong>Geographic review:</strong> the adopted residence or phone prefix matches a human-review trigger. This is not a legal finding and a phone prefix does not prove residence. No model advice or automatic decision is allowed. Record your review and decision below.</p>{% endif %}
 {% if not state.run %}<p>Model advice is unavailable or suspended for this snapshot. This is a human-only assessment (D-35), recorded with the structured reason <code>{{ state.human_only_code }}</code>{% if state.suspension_ref %} citing the suspension record {{ state.suspension_ref }}{% endif %}, the same criteria and the same snapshot.</p>
 <label>Why a human-only assessment <input name="human_only_reason" maxlength="300" required value="{{ form.human_only_reason }}"></label>{% endif %}
 {% if cohort_boundary %}<p class="cohort-boundary">Internal trial: no decline, and every criterion is recorded as capability unknown, evidence strength none (council record 033 Q5 and Q6). Hold, or withdraw through the withdrawal path, instead of a decline.</p>{% endif %}

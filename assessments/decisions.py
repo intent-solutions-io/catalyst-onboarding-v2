@@ -80,13 +80,14 @@ EVIDENCE_STRENGTH = ("strong", "moderate", "weak", "none")
 COHORT_BOUNDARY = True
 UNRATED = ("unknown", "none")  # (capability, evidence strength): nothing is rated
 FAILED = ("refused", "invalid_output", "failed", "capped", "abandoned")
-# oc4.12: why a human-only assessment applies, in order of precedence (the first that holds).
+# oc4.12: structured human-only reasons. Geographic review is checked before the advice states.
 HUMAN_ONLY_CODES = (
     "advice_suspended",
     "run_capped",
     "run_failed",
     "run_cap_reached",
     "returned_without_reassessment",
+    "sanctions_concern",
 )
 EVIDENCE_STATES = (
     "present",
@@ -198,9 +199,15 @@ def runs_summary(application) -> list:
 
 def human_only_code(application, run, current: str, succeeded, in_flight: bool) -> str:
     """The one source of the human-only rule (D-35, oc4.12): the structured reason a human-only assessment applies
-    now, or "" when none does. Never while a valid run exists for the current snapshot, a run is in flight or there
-    is no snapshot. A capped snapshot is an exit only while CATALYST_CAPPED_EXIT is "human_only" (oc4.8)."""
-    if succeeded is not None or in_flight or not current:
+    now, or "" when none does. Never while a run is in flight or there is no snapshot. Geographic review
+    forbids reliance on an earlier model result; otherwise a valid current result requires the model-assisted path. A capped snapshot is an exit only while CATALYST_CAPPED_EXIT is "human_only" (oc4.8)."""
+    if in_flight or not current:
+        return ""
+    from applications import geographic_review
+
+    if geographic_review.evidence(application):
+        return geographic_review.REASON
+    if succeeded is not None:
         return ""
     if settings.CATALYST_ASSESSMENT_MODEL == "none":
         return "advice_suspended"
@@ -256,6 +263,11 @@ def decision_state(application) -> dict:
         if current
         else None
     )
+    from applications import geographic_review
+
+    geography = geographic_review.evidence(application)
+    if geography:
+        succeeded = None  # an older model result cannot bypass the human review
     questions = sorted(
         [str(q), s, a]
         for q, s, a in Question.objects.filter(application=application)
@@ -287,6 +299,7 @@ def decision_state(application) -> dict:
         "rubric_version": pack.rubric_version if pack else 0,
         "evidence_manifest": evidence,
         "runs": runs,
+        "geographic_review": geography,
         "human_only_code": code,
         "suspension_ref": settings.CATALYST_MODEL_ADVICE_SUSPENSION_REF
         if code == "advice_suspended"
@@ -300,6 +313,7 @@ def decision_state(application) -> dict:
                 "pack_sha256": pack.sha256 if pack else "",
                 "evidence": evidence,
                 "runs": runs,
+                "geographic_review": geography,
             }
         ),
     }
@@ -472,6 +486,8 @@ def record_decision(
             "human_only_code": code,
             "suspension_ref": state["suspension_ref"] if human_only else "",
         }
+        if state["geographic_review"]:
+            inputs["geographic_review"] = state["geographic_review"]
         if notice is not None:
             inputs["decline_notice"] = (
                 notice  # oc4.11: the decision-maker's choice, recorded with the decision
@@ -523,7 +539,11 @@ def record_decision(
             for item in StaffItem.objects.filter(
                 application=application,
                 status=StaffItem.Status.OPEN,
-                reason_code__in=("assessment_suspended", "assessment_capped"),
+                reason_code__in=(
+                    "assessment_suspended",
+                    "assessment_capped",
+                    "sanctions_concern",
+                ),
             ):
                 resolve_item(
                     item,

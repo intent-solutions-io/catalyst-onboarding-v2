@@ -2318,6 +2318,14 @@ P6_SUPPORTING = {
         "test_intake_fields::test_parity_form_the_dossier_shows_the_answers_of_each_version",
         "test_intake_fields::test_parity_form_erasure_clears_the_answers_with_the_submission",
     ],
+    "bgl.4 geographic matches require human review before evidence or model use (034 row 8)": [
+        "test_geographic_review::test_geographic_match_preserves_contact_flow_and_requires_owner_decision",
+        "test_geographic_review::test_geographic_regions_are_residence_choices_only",
+        "test_geographic_review::test_geographic_residence_matches_are_review_signals",
+        "test_geographic_review::test_geographic_phone_prefix_matches_do_not_assert_residence",
+        "test_geographic_review::test_geographic_gate_rechecks_queued_assessments_and_reply_admission",
+        "test_geographic_review::test_geographic_rule_change_invalidates_model_reliance_and_shown_decision",
+    ],
     "bgl.16 the first-generation import converts every v1 record, reports every row and keeps the person erasable (035)": [
         "test_first_generation_import::test_bgl16_a_dry_run_reports_every_row_and_leaves_nothing",
         "test_first_generation_import::test_bgl16_every_v1_state_maps_to_its_stage_is_paused_and_nothing_is_queued_or_sent",

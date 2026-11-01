@@ -165,6 +165,9 @@ def confirm(challenge_uuid: UUID, version_public_id: UUID) -> Confirmed:
         VersionAdoption.objects.create(
             application=application, submission_version=version, via_challenge=challenge
         )
+        from . import geographic_review
+
+        geographic_review.ensure_hold(application)
         number = version.version_number
         event = dict(
             application=application, actor_type=ApplicationEvent.ActorType.APPLICANT
