@@ -29,7 +29,11 @@ from .models import TERMINAL_STAGES, Application, ApplicationEvent, ContactChall
 from .services import SEND_VERIFICATION, send_verification_key
 
 ATTENTION = "needs_staff_attention"
-OK_SEND = (PendingAction.Status.QUEUED, PendingAction.Status.RUNNING, PendingAction.Status.DONE)
+OK_SEND = (
+    PendingAction.Status.QUEUED,
+    PendingAction.Status.RUNNING,
+    PendingAction.Status.DONE,
+)
 REASONS = {
     "repeat_after_verification": "a submission arrived after the address was verified; it was not adopted",
     "repeat_after_decline": "a submission arrived after the application was declined; it was not adopted and nothing new was created",
@@ -58,10 +62,10 @@ REASONS = {
     "escalate_unanswered": "a question stayed unanswered after the last reminder",
     # bgl.7: the lapse after the last reminder and the signing reminder
     "lapse_note_refused": "the application should lapse but its closing note could not be prepared (no approved wording"
-                          " or no verified address); it looks again by itself",
+    " or no verified address); it looks again by itself",
     "lapse_failed": "the lapse could not be recorded; the application still waits",
     "signing_reminder_unavailable": "a signing reminder was due but the service has no way to send the signing link"
-                                    " again yet; the applicant was not reminded",
+    " again yet; the applicant was not reminded",
     "signing_reminder_refused": "a signing reminder could not be prepared (the recipient is not the verified address)",
     "signing_reminder_failed": "the signing reminder could not be recorded",
     "evidence_required_unavailable": "a required evidence item could not be read; re-fetch it or proceed without it",
@@ -77,22 +81,22 @@ REASONS = {
     "agreement_provider_unavailable": "the signing provider could not be reached",
     # bgl.8 (034 rows 27, 32, 33): the service-sent link, the read-back of typed details and their address quality
     "agreement_link_send_failed": "the signing-link mail could not be sent, or the applicant was not found on the envelope;"
-                                  " check the agreements screen and the provider",
+    " check the agreements screen and the provider",
     "agreement_details_readback_incomplete": "not every detail could be read back from the signed agreement; record the"
-                                             " details on the agreements screen from the signed copy",
+    " details on the agreements screen from the signed copy",
     "agreement_address_quality": "the address typed on the signed agreement looks incomplete or its postal code does not fit"
-                                 " its country; nothing is blocked, check it on the agreements screen",
+    " its country; nothing is blocked, check it on the agreements screen",
     "provisioning_activation_blocked": "activation is blocked; fix the cause, then retry activation",
     "decline_not_notified": "the decline notice bounced permanently; the applicant was not notified",  # oc4.11
     "decline_notice_refused": "the decline notice could not be prepared. If its wording is not approved for this"
-                              " environment or there is no verified address, it looks again by itself and this item"
-                              " reopens after an acknowledgement while that stays so; if its attempts ran out, it does"
-                              " not retry and the applicant must be told another way",  # oc4.11
+    " environment or there is no verified address, it looks again by itself and this item"
+    " reopens after an acknowledgement while that stays so; if its attempts ran out, it does"
+    " not retry and the applicant must be told another way",  # oc4.11
     "decline_notice_member_on_file": "no decline notice was sent: a first-generation agreement was recorded on file"
-                                     " after the decline; the decline needs the owner's review (030 Q8)",  # oc4.11
+    " after the decline; the decline needs the owner's review (030 Q8)",  # oc4.11
     "verification_expired": "the applicant's only verification link expired before they confirmed; no working link is out",
     "agreement_reference_needs_decision": "the NDA is on file from the first generation but the User Agreement is not;"
-                                          " nothing is issued until the owner decides",  # 9kg.52, D-15
+    " nothing is issued until the owner decides",  # 9kg.52, D-15
     # bgl.14: the Twenty projection's review cases (crm.projection.REVIEW_REASONS; the first generation's crm_review_item)
     "twenty_ambiguous_match": "several Twenty people match this application; link the right one (catalyst_twenty_link)",
     "twenty_person_linked_elsewhere": "the Twenty person that matches is linked to another open application",
@@ -138,51 +142,97 @@ class Step:
 def attention_q() -> Q:
     """The staff-attention rule (module docstring) as a filter on applications."""
     working_send = PendingAction.objects.filter(
-        kind=SEND_VERIFICATION, status__in=OK_SEND,
-        idempotency_key=Concat(Value(f"{SEND_VERIFICATION}:"), Cast(OuterRef("public_id"), CharField())),
+        kind=SEND_VERIFICATION,
+        status__in=OK_SEND,
+        idempotency_key=Concat(
+            Value(f"{SEND_VERIFICATION}:"), Cast(OuterRef("public_id"), CharField())
+        ),
     )
     stuck_link = ContactChallenge.objects.filter(
-        application=OuterRef("pk"), used_at__isnull=True, superseded_at__isnull=True, expires_at__gt=Now(),
+        application=OuterRef("pk"),
+        used_at__isnull=True,
+        superseded_at__isnull=True,
+        expires_at__gt=Now(),
     ).exclude(Exists(working_send))
     next_stage = PendingAction.objects.filter(
-        kind=START_EVIDENCE_COLLECTION, subject_type="application", subject_id=OuterRef("public_ref"))
+        kind=START_EVIDENCE_COLLECTION,
+        subject_type="application",
+        subject_id=OuterRef("public_ref"),
+    )
     return (
-        Q(Exists(_staff_item_model().objects.filter(application=OuterRef("pk"), status="open")))
-        | Q(Exists(AutomationPause.objects.filter(subject_type="application", subject_id=OuterRef("public_ref"))))
-        | (Q(contact_verified_at__isnull=True) & ~Q(stage__in=TERMINAL_STAGES) & Q(Exists(stuck_link)))
-        | (Q(contact_verified_at__isnull=False) & ~Q(stage__in=TERMINAL_STAGES) & ~Q(Exists(next_stage)))
-        | Q(stage__in=("awaiting_decision", "on_hold"))  # a decision is owed (9kg.50 review)
+        Q(
+            Exists(
+                _staff_item_model().objects.filter(
+                    application=OuterRef("pk"), status="open"
+                )
+            )
+        )
+        | Q(
+            Exists(
+                AutomationPause.objects.filter(
+                    subject_type="application", subject_id=OuterRef("public_ref")
+                )
+            )
+        )
+        | (
+            Q(contact_verified_at__isnull=True)
+            & ~Q(stage__in=TERMINAL_STAGES)
+            & Q(Exists(stuck_link))
+        )
+        | (
+            Q(contact_verified_at__isnull=False)
+            & ~Q(stage__in=TERMINAL_STAGES)
+            & ~Q(Exists(next_stage))
+        )
+        | Q(
+            stage__in=("awaiting_decision", "on_hold")
+        )  # a decision is owed (9kg.50 review)
     )
 
 
 def actions_for(application):
-    return PendingAction.objects.filter(subject_type="application", subject_id=application.public_ref).order_by("created_at", "id")
+    return PendingAction.objects.filter(
+        subject_type="application", subject_id=application.public_ref
+    ).order_by("created_at", "id")
 
 
 def attention_items(application):
-    return list(application.staff_items.filter(status="open").order_by("opened_at", "id"))
+    return list(
+        application.staff_items.filter(status="open").order_by("opened_at", "id")
+    )
 
 
 def _event_for(item):
     """S1 attention items name their event (`event:<id>`), which carries the version details."""
     if item.dedupe_key.startswith("event:"):
-        return ApplicationEvent.objects.filter(pk=item.dedupe_key.split(":", 1)[1], application=item.application).first()
+        return ApplicationEvent.objects.filter(
+            pk=item.dedupe_key.split(":", 1)[1], application=item.application
+        ).first()
     return None
 
 
 def describe_attention(item) -> str:
     event = _event_for(item)
     data = event.data if event is not None and isinstance(event.data, dict) else {}
-    text = REASONS.get(item.reason_code, REASONS.get(data.get("reason"), "staff review requested"))
-    numbers = data.get("unverified_version_numbers") or ([data["version_number"]] if "version_number" in data else [])
+    text = REASONS.get(
+        item.reason_code, REASONS.get(data.get("reason"), "staff review requested")
+    )
+    numbers = data.get("unverified_version_numbers") or (
+        [data["version_number"]] if "version_number" in data else []
+    )
     if numbers:
         text += f" (version {', '.join(str(n) for n in numbers)})"
     return text
 
 
 def active_challenge(application):
-    return (ContactChallenge.objects.filter(application=application, used_at__isnull=True, superseded_at__isnull=True)
-            .annotate(unexpired=Q(expires_at__gt=Now())).first())  # expiry by the database clock
+    return (
+        ContactChallenge.objects.filter(
+            application=application, used_at__isnull=True, superseded_at__isnull=True
+        )
+        .annotate(unexpired=Q(expires_at__gt=Now()))
+        .first()
+    )  # expiry by the database clock
 
 
 def contact_state(application) -> str:
@@ -202,53 +252,135 @@ def adopted_version(application):
 
 
 def next_steps(application) -> list[Step]:
-    steps = [Step("Staff", "Review: " + describe_attention(e), attention=True) for e in attention_items(application)]
-    paused = AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists()
+    steps = [
+        Step("Staff", "Review: " + describe_attention(e), attention=True)
+        for e in attention_items(application)
+    ]
+    paused = AutomationPause.objects.filter(
+        subject_type="application", subject_id=application.public_ref
+    ).exists()
     if paused:
-        steps.append(Step("Staff", "Automation is paused for this application; automated work waits until it is resumed",
-                          attention=True))
+        steps.append(
+            Step(
+                "Staff",
+                "Automation is paused for this application; automated work waits until it is resumed",
+                attention=True,
+            )
+        )
     if application.stage in TERMINAL_STAGES:
-        return steps + [Step("Blocked", f"The application is {application.stage}; nothing further runs")]
+        return steps + [
+            Step(
+                "Blocked",
+                f"The application is {application.stage}; nothing further runs",
+            )
+        ]
     if application.contact_verified_at is None:
         return steps + [_verification_step(application, paused)]
     action = actions_for(application).filter(kind=START_EVIDENCE_COLLECTION).first()
     if action is None:
-        return steps + [Step("Staff", "Contact is verified but no start-evidence-collection action exists", attention=True)]
+        return steps + [
+            Step(
+                "Staff",
+                "Contact is verified but no start-evidence-collection action exists",
+                attention=True,
+            )
+        ]
     if application.stage == "evidence":
-        return steps + [Step("System", "Evidence is being collected from approved sources (P3)")]
+        return steps + [
+            Step("System", "Evidence is being collected from approved sources (P3)")
+        ]
     if application.stage == "assessing":
-        if application.staff_items.filter(status="open", reason_code__in=("assessment_suspended", "assessment_capped")).exists():
-            return steps + [Step("Staff", "The assessment is refused by suspension or capped: record a human-only decision on the"
-                                 " decision screen", attention=True)]
-        return steps + [Step("System", "Assessing: a run is queued or waiting; a failed run opens a staff item")]
-    if application.stage == "awaiting_decision":  # 9kg.50 review: the decision-maker owes the next step
-        return steps + [Step("Staff", "Awaiting the qualification decision: record it on the decision screen", attention=True)]
+        if application.staff_items.filter(
+            status="open", reason_code__in=("assessment_suspended", "assessment_capped")
+        ).exists():
+            return steps + [
+                Step(
+                    "Staff",
+                    "The assessment is refused by suspension or capped: record a human-only decision on the"
+                    " decision screen",
+                    attention=True,
+                )
+            ]
+        return steps + [
+            Step(
+                "System",
+                "Assessing: a run is queued or waiting; a failed run opens a staff item",
+            )
+        ]
+    if (
+        application.stage == "awaiting_decision"
+    ):  # 9kg.50 review: the decision-maker owes the next step
+        return steps + [
+            Step(
+                "Staff",
+                "Awaiting the qualification decision: record it on the decision screen",
+                attention=True,
+            )
+        ]
     if application.stage == "on_hold":
-        return steps + [Step("Staff", "On hold: the way on is an admit or a decline on the decision screen", attention=True)]
+        return steps + [
+            Step(
+                "Staff",
+                "On hold: the way on is an admit or a decline on the decision screen",
+                attention=True,
+            )
+        ]
     if application.stage == "lapsed":  # bgl.7: quiet, not closed
-        return steps + [Step("Applicant", "Lapsed after the last reminder went unanswered; a reply or a signature reopens it")]
+        return steps + [
+            Step(
+                "Applicant",
+                "Lapsed after the last reminder went unanswered; a reply or a signature reopens it",
+            )
+        ]
     if action.status == PendingAction.Status.HELD:
-        return steps + [Step("Blocked", "Start evidence collection is held until the owner releases it (activation command, 018 4.1)")]
+        return steps + [
+            Step(
+                "Blocked",
+                "Start evidence collection is held until the owner releases it (activation command, 018 4.1)",
+            )
+        ]
     return steps + [Step("Blocked", f"Start evidence collection is {action.status}")]
 
 
 def _verification_step(application, paused: bool) -> Step:
     challenge = active_challenge(application)
     if challenge is None:
-        return Step("Applicant", "No active verification link; a new submission of the form issues one")
+        return Step(
+            "Applicant",
+            "No active verification link; a new submission of the form issues one",
+        )
     if not challenge.unexpired:
-        return Step("Applicant", "The verification link expired; a new submission of the form issues a new one"
-                    " (or staff resend it from the correspondence screen)")
-    send = PendingAction.objects.filter(idempotency_key=send_verification_key(challenge.public_id)).first()
+        return Step(
+            "Applicant",
+            "The verification link expired; a new submission of the form issues a new one"
+            " (or staff resend it from the correspondence screen)",
+        )
+    send = PendingAction.objects.filter(
+        idempotency_key=send_verification_key(challenge.public_id)
+    ).first()
     Status = PendingAction.Status
     if send is None:
-        return Step("Staff", "The active verification link has no send action", attention=True)
+        return Step(
+            "Staff", "The active verification link has no send action", attention=True
+        )
     if send.status in (Status.QUEUED, Status.RUNNING):
         if paused:
-            return Step("Blocked", "The verification message waits: automation is paused")
-        return Step("System", f"The verification message is waiting to be sent (attempt {send.attempts} of {send.max_attempts} so far)")
+            return Step(
+                "Blocked", "The verification message waits: automation is paused"
+            )
+        return Step(
+            "System",
+            f"The verification message is waiting to be sent (attempt {send.attempts} of {send.max_attempts} so far)",
+        )
     if send.status == Status.DONE:
-        return Step("Applicant", "Confirm the email address (the message was accepted by the configured mail backend, which is not proof of"
-                    " delivery)")
-    return Step("Staff", f"The verification send ended {send.status} and is not retried; the applicant has no working link"
-                " (staff can resend it from the correspondence screen)", attention=True)
+        return Step(
+            "Applicant",
+            "Confirm the email address (the message was accepted by the configured mail backend, which is not proof of"
+            " delivery)",
+        )
+    return Step(
+        "Staff",
+        f"The verification send ended {send.status} and is not retried; the applicant has no working link"
+        " (staff can resend it from the correspondence screen)",
+        attention=True,
+    )

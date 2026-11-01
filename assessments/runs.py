@@ -48,21 +48,34 @@ Status = PendingAction.Status
 Run = AssessmentRun.Status
 KIND = "run_assessment"
 REQUESTS_PER_ATTEMPT = approval.REQUESTS_PER_ATTEMPT  # the call and the one repair
-_GLOBAL_LOCK = 0x43415441  # pg advisory lock for the global counters (concurrency, daily budget)
+_GLOBAL_LOCK = (
+    0x43415441  # pg advisory lock for the global counters (concurrency, daily budget)
+)
 
 
 def event(application, kind, data, actor_ref=""):
-    ApplicationEvent.objects.create(application=application, kind=kind, actor_type=ApplicationEvent.ActorType.SYSTEM,
-                                    actor_ref=actor_ref, data=data)
+    ApplicationEvent.objects.create(
+        application=application,
+        kind=kind,
+        actor_type=ApplicationEvent.ActorType.SYSTEM,
+        actor_ref=actor_ref,
+        data=data,
+    )
 
 
-def enqueue_assessment(application, trigger: str, why: list | None = None, round: int | None = None):
+def enqueue_assessment(
+    application, trigger: str, why: list | None = None, round: int | None = None
+):
     """Returns the queued run, or None when nothing is needed or allowed; `why` receives the reason code."""
     why = why if why is not None else []
     try:
         pack = packs.load()
     except packs.PackRefused as exc:
-        open_item("assessment_pack_refused", f"pack:{application.public_ref}", application=application)
+        open_item(
+            "assessment_pack_refused",
+            f"pack:{application.public_ref}",
+            application=application,
+        )
         logger.warning("assessment not queued: %s", exc)
         why.append("prompt_pack_refused")
         return None
@@ -79,35 +92,66 @@ def enqueue_assessment(application, trigger: str, why: list | None = None, round
         why.append("run_in_flight")
         return None
     if exceeds(runs.count() + 1, settings.CATALYST_ASSESSMENT_RUNS_PER_APPLICATION):
-        open_item("assessment_capped", f"runs:{application.public_ref}", application=application)
+        open_item(
+            "assessment_capped",
+            f"runs:{application.public_ref}",
+            application=application,
+        )
         why.append("application_run_budget")
         return None
-    if round is None:  # a first run or a rerun stays in the round of the latest run, whatever its outcome (018 step 8)
+    if (
+        round is None
+    ):  # a first run or a rerun stays in the round of the latest run, whatever its outcome (018 step 8)
         latest = runs.order_by("-round", "-id").first()
         round = latest.round if latest is not None else 1
     run = AssessmentRun.objects.create(
-        application=application, adopted_version=application.versions.get(public_id=value["version"]),
-        trigger=trigger, round=round, snapshot=value, snapshot_sha256=digest, prompt_pack=pack.name, prompt_pack_sha256=pack.sha256,
-        rubric_version=pack.rubric_version, schema_version=SCHEMA_VERSION)
-    PendingAction.objects.create(kind=KIND, subject_type="application", subject_id=application.public_ref,
-                                 input_ref=str(run.public_id), idempotency_key=f"{KIND}:{run.public_id}",
-                                 max_attempts=settings.CATALYST_ASSESSMENT_ATTEMPTS)
-    event(application, "assessment_queued", {"run": str(run.public_id), "snapshot": digest[:16], "trigger": trigger})
+        application=application,
+        adopted_version=application.versions.get(public_id=value["version"]),
+        trigger=trigger,
+        round=round,
+        snapshot=value,
+        snapshot_sha256=digest,
+        prompt_pack=pack.name,
+        prompt_pack_sha256=pack.sha256,
+        rubric_version=pack.rubric_version,
+        schema_version=SCHEMA_VERSION,
+    )
+    PendingAction.objects.create(
+        kind=KIND,
+        subject_type="application",
+        subject_id=application.public_ref,
+        input_ref=str(run.public_id),
+        idempotency_key=f"{KIND}:{run.public_id}",
+        max_attempts=settings.CATALYST_ASSESSMENT_ATTEMPTS,
+    )
+    event(
+        application,
+        "assessment_queued",
+        {"run": str(run.public_id), "snapshot": digest[:16], "trigger": trigger},
+    )
     return run
 
 
 def _finish_run(run, status, **fields):
-    AssessmentRun.objects.filter(pk=run.pk, status__in=(Run.QUEUED, Run.RESERVED)).update(
-        status=status, finished_at=Now(), **fields)
+    AssessmentRun.objects.filter(
+        pk=run.pk, status__in=(Run.QUEUED, Run.RESERVED)
+    ).update(status=status, finished_at=Now(), **fields)
     # oc4.10 item 6: an invocation still `started` when its run ends (an early exit after a crashed attempt, or this
     # attempt's own on a refusal) is abandoned: still counted at its reservation, never left looking in flight.
-    AssessmentInvocation.objects.filter(run=run, status="started").update(status="abandoned", finished_at=Now())
+    AssessmentInvocation.objects.filter(run=run, status="started").update(
+        status="abandoned", finished_at=Now()
+    )
 
 
 # `assessment_suspended` (oc4.12): the run was refused because model advice is disabled (the launch-wide suspension,
 # 019 decision 4), which is not an assessment failure; the recorded human-only decision is the way on.
-ITEM_CODES = ("assessment_failed", "assessment_capped", "assessment_input_changed", "assessment_pack_refused",
-              "assessment_suspended")
+ITEM_CODES = (
+    "assessment_failed",
+    "assessment_capped",
+    "assessment_input_changed",
+    "assessment_pack_refused",
+    "assessment_suspended",
+)
 
 
 def _staff(application, reason, run):
@@ -116,9 +160,19 @@ def _staff(application, reason, run):
 
 def settle_items(application, code: str, actor_ref: str, actor_type=None) -> int:
     """Resolve the application's open assessment items once they are overtaken (a success or a staff rerun)."""
-    kwargs = {"actor_type": actor_type} if actor_type is not None else {"actor_type": ApplicationEvent.ActorType.SYSTEM}
-    return sum(resolve_item(item, code=code, actor_ref=actor_ref, effects={}, **kwargs) for item in
-               StaffItem.objects.filter(application=application, status=StaffItem.Status.OPEN, reason_code__in=ITEM_CODES))
+    kwargs = (
+        {"actor_type": actor_type}
+        if actor_type is not None
+        else {"actor_type": ApplicationEvent.ActorType.SYSTEM}
+    )
+    return sum(
+        resolve_item(item, code=code, actor_ref=actor_ref, effects={}, **kwargs)
+        for item in StaffItem.objects.filter(
+            application=application,
+            status=StaffItem.Status.OPEN,
+            reason_code__in=ITEM_CODES,
+        )
+    )
 
 
 def in_flight(exclude=None):
@@ -127,8 +181,12 @@ def in_flight(exclude=None):
     died; for example on a paused application, which the claim skips) holds no slot: its call is not in flight, and a
     later claim abandons its invocation (counted) before any further call. No staff item is opened for it: nothing is
     stuck but the paused application itself, which staff paused and resume."""
-    live = PendingAction.objects.filter(kind=KIND, status=Status.RUNNING, lease_expires_at__gt=Now(),
-                                        input_ref=Cast(OuterRef("public_id"), CharField()))
+    live = PendingAction.objects.filter(
+        kind=KIND,
+        status=Status.RUNNING,
+        lease_expires_at__gt=Now(),
+        input_ref=Cast(OuterRef("public_id"), CharField()),
+    )
     runs = AssessmentRun.objects.filter(status=Run.RESERVED).filter(Exists(live))
     return runs.exclude(pk=exclude.pk) if exclude is not None else runs
 
@@ -139,26 +197,38 @@ class RunAssessment:
     redeliverable = True
 
     def lock_subject(self, claim) -> None:
-        Application.objects.select_for_update(of=("self",)).filter(public_ref=claim.subject_id).first()
-        AssessmentRun.objects.select_for_update(of=("self",)).filter(public_id=claim.input_ref).first()
+        Application.objects.select_for_update(of=("self",)).filter(
+            public_ref=claim.subject_id
+        ).first()
+        AssessmentRun.objects.select_for_update(of=("self",)).filter(
+            public_id=claim.input_ref
+        ).first()
 
     def record(self, claim, kind, data) -> None:
         application = Application.objects.filter(public_ref=claim.subject_id).first()
         if application is None:
             return
         event(application, kind, data, actor_ref=f"pending_action:{claim.id}")
-        if kind == "action_attempts_exhausted" or (kind == "action_failed" and data.get("final")):
+        if kind == "action_attempts_exhausted" or (
+            kind == "action_failed" and data.get("final")
+        ):
             run = AssessmentRun.objects.filter(public_id=claim.input_ref).first()
             if run is not None:
-                _finish_run(run, Run.ABANDONED, error_code="handler_error")  # abandons its started invocations too
+                _finish_run(
+                    run, Run.ABANDONED, error_code="handler_error"
+                )  # abandons its started invocations too
                 _staff(application, "assessment_failed", run)
         elif kind == "action_failed":
             # oc4.10 item 5: a handler defect with attempts left. Like a provider error, the run waits out the backoff
             # as queued, holding no concurrency slot; the attempt's invocation is abandoned (counted, never refunded).
             run = AssessmentRun.objects.filter(public_id=claim.input_ref).first()
             if run is not None:
-                AssessmentInvocation.objects.filter(run=run, status="started").update(status="abandoned", finished_at=Now())
-                AssessmentRun.objects.filter(pk=run.pk, status=Run.RESERVED).update(status=Run.QUEUED)
+                AssessmentInvocation.objects.filter(run=run, status="started").update(
+                    status="abandoned", finished_at=Now()
+                )
+                AssessmentRun.objects.filter(pk=run.pk, status=Run.RESERVED).update(
+                    status=Run.QUEUED
+                )
 
     # --- the three phases ---------------------------------------------------------------------------------
 
@@ -170,35 +240,84 @@ class RunAssessment:
                 early, run, request = self.precall(claim)
                 if early is not None:
                     status, reason, refund, write, due = early
-                    ledger.finish(claim, self, status=status, error=reason, refund_attempt=refund, write=write, due_in=due)
+                    ledger.finish(
+                        claim,
+                        self,
+                        status=status,
+                        error=reason,
+                        refund_attempt=refund,
+                        write=write,
+                        due_in=due,
+                    )
                     return
         except ledger.LeaseLost:
-            logger.warning("action %s (%s): lease lost before the call; nothing called", claim.id, claim.kind)
+            logger.warning(
+                "action %s (%s): lease lost before the call; nothing called",
+                claim.id,
+                claim.kind,
+            )
             return
         try:
-            with LeaseKeeper(claim):  # oc4.9: a heartbeat, and a fence before each request and before the repair
-                outcome = agent.assess(request, approval.Use.for_run(run))  # outside any transaction
+            with LeaseKeeper(
+                claim
+            ):  # oc4.9: a heartbeat, and a fence before each request and before the repair
+                outcome = agent.assess(
+                    request, approval.Use.for_run(run)
+                )  # outside any transaction
         except ledger.LeaseLost:
             # Another claim owns the action now: nothing more is requested or recorded here. The invocation stays
             # counted; the next claim abandons it before any further call.
-            logger.warning("action %s (%s): lease lost during the attempt; no further request", claim.id, claim.kind)
+            logger.warning(
+                "action %s (%s): lease lost during the attempt; no further request",
+                claim.id,
+                claim.kind,
+            )
             return
         except agent.ModelUnavailable as exc:
             self._end(claim, run, Run.REFUSED, str(exc), staff="assessment_failed")
         except agent.InvalidOutput as exc:
-            self._end(claim, run, Run.INVALID_OUTPUT, exc.code, staff="assessment_failed", requests=REQUESTS_PER_ATTEMPT,
-                      validation_codes=exc.problems)
+            self._end(
+                claim,
+                run,
+                Run.INVALID_OUTPUT,
+                exc.code,
+                staff="assessment_failed",
+                requests=REQUESTS_PER_ATTEMPT,
+                validation_codes=exc.problems,
+            )
         except agent.BudgetStop as exc:
             self._end(claim, run, Run.CAPPED, str(exc), staff="assessment_capped")
         except agent.ProviderError as exc:
             if claim.final:
-                self._end(claim, run, Run.FAILED, f"provider_{exc}", staff="assessment_failed", ledger_status=Status.FAILED)
+                self._end(
+                    claim,
+                    run,
+                    Run.FAILED,
+                    f"provider_{exc}",
+                    staff="assessment_failed",
+                    ledger_status=Status.FAILED,
+                )
             else:
+
                 def write():  # counted; the run waits out the backoff as queued, holding no concurrency slot
-                    AssessmentInvocation.objects.filter(run=run, attempt=claim.attempt).update(status="completed", finished_at=Now())
-                    AssessmentRun.objects.filter(pk=run.pk, status=Run.RESERVED).update(status=Run.QUEUED)
-                ledger.finish(claim, self, status=Status.QUEUED, error=f"provider_{exc}", write=write,
-                              due_in=max(ledger.retry_delay(claim.attempt), timedelta(seconds=exc.retry_after)))
+                    AssessmentInvocation.objects.filter(
+                        run=run, attempt=claim.attempt
+                    ).update(status="completed", finished_at=Now())
+                    AssessmentRun.objects.filter(pk=run.pk, status=Run.RESERVED).update(
+                        status=Run.QUEUED
+                    )
+
+                ledger.finish(
+                    claim,
+                    self,
+                    status=Status.QUEUED,
+                    error=f"provider_{exc}",
+                    write=write,
+                    due_in=max(
+                        ledger.retry_delay(claim.attempt),
+                        timedelta(seconds=exc.retry_after),
+                    ),
+                )
         else:
             self._succeed(claim, run, request, outcome)
 
@@ -210,61 +329,190 @@ class RunAssessment:
         if run.status not in (Run.QUEUED, Run.RESERVED):
             return (Status.DONE, "run_already_finished", False, None, None), None, None
         if application.stage != Stage.ASSESSING:
-            return (Status.CANCELLED, "stage_changed", False,
-                    lambda: _finish_run(run, Run.REFUSED, error_code="stage_changed"), None), None, None
+            return (
+                (
+                    Status.CANCELLED,
+                    "stage_changed",
+                    False,
+                    lambda: _finish_run(run, Run.REFUSED, error_code="stage_changed"),
+                    None,
+                ),
+                None,
+                None,
+            )
         try:  # before the pause check (oc4.12): a paused application under the suspension ends refused at once, so the
             # human-only path is open to staff instead of a requeued run that blocks it; nothing is reserved either way
-            agent.build_model(approval.Use.for_run(run))  # oc4.9: a live value needs the approval of this run's versions
+            agent.build_model(
+                approval.Use.for_run(run)
+            )  # oc4.9: a live value needs the approval of this run's versions
         except agent.ModelUnavailable as exc:
             reason = str(exc)
-            item = "assessment_suspended" if settings.CATALYST_ASSESSMENT_MODEL == "none" else "assessment_failed"
-            return (Status.DONE, reason, False, lambda: (
-                _finish_run(run, Run.REFUSED, error_code=reason), _staff(application, item, run)), None), None, None
-        if AutomationPause.objects.filter(subject_type="application", subject_id=application.public_ref).exists():
+            item = (
+                "assessment_suspended"
+                if settings.CATALYST_ASSESSMENT_MODEL == "none"
+                else "assessment_failed"
+            )
+            return (
+                (
+                    Status.DONE,
+                    reason,
+                    False,
+                    lambda: (
+                        _finish_run(run, Run.REFUSED, error_code=reason),
+                        _staff(application, item, run),
+                    ),
+                    None,
+                ),
+                None,
+                None,
+            )
+        if AutomationPause.objects.filter(
+            subject_type="application", subject_id=application.public_ref
+        ).exists():
             # No invocation is recorded yet for this attempt, so the attempt may be returned.
-            return (Status.QUEUED, "automation_paused", True, None,
-                    timedelta(seconds=settings.CATALYST_WORKER_POLL_SECONDS)), None, None
+            return (
+                (
+                    Status.QUEUED,
+                    "automation_paused",
+                    True,
+                    None,
+                    timedelta(seconds=settings.CATALYST_WORKER_POLL_SECONDS),
+                ),
+                None,
+                None,
+            )
         try:
             pack = packs.load(run.prompt_pack)
         except packs.PackRefused:
-            return (Status.FAILED, "prompt_pack_digest_mismatch", False, lambda: (
-                _finish_run(run, Run.REFUSED, error_code="prompt_pack_digest_mismatch"),
-                _staff(application, "assessment_failed", run)), None), None, None
+            return (
+                (
+                    Status.FAILED,
+                    "prompt_pack_digest_mismatch",
+                    False,
+                    lambda: (
+                        _finish_run(
+                            run, Run.REFUSED, error_code="prompt_pack_digest_mismatch"
+                        ),
+                        _staff(application, "assessment_failed", run),
+                    ),
+                    None,
+                ),
+                None,
+                None,
+            )
         current = snapshot.manifest(application, pack)
         if current is None or snapshot.snapshot_sha256(current) != run.snapshot_sha256:
-            return (Status.DONE, "input_changed", False, lambda: (
-                _finish_run(run, Run.REFUSED, error_code="input_changed"),
-                _staff(application, "assessment_input_changed", run)), None), None, None
+            return (
+                (
+                    Status.DONE,
+                    "input_changed",
+                    False,
+                    lambda: (
+                        _finish_run(run, Run.REFUSED, error_code="input_changed"),
+                        _staff(application, "assessment_input_changed", run),
+                    ),
+                    None,
+                ),
+                None,
+                None,
+            )
         # Earlier invocations of this run whose attempt never finished were possibly billed: counted, abandoned.
-        AssessmentInvocation.objects.filter(run=run, status="started").update(status="abandoned", finished_at=Now())
+        AssessmentInvocation.objects.filter(run=run, status="started").update(
+            status="abandoned", finished_at=Now()
+        )
         stop = self._budget(application, run)
         if stop == "concurrency":
-            return (Status.QUEUED, "global_concurrency", True, None,
-                    timedelta(seconds=settings.CATALYST_WORKER_POLL_SECONDS)), None, None
+            return (
+                (
+                    Status.QUEUED,
+                    "global_concurrency",
+                    True,
+                    None,
+                    timedelta(seconds=settings.CATALYST_WORKER_POLL_SECONDS),
+                ),
+                None,
+                None,
+            )
         if stop:
-            return (Status.DONE, stop, False, lambda: (
-                _finish_run(run, Run.CAPPED, error_code=stop), _staff(application, "assessment_capped", run)), None), None, None
+            return (
+                (
+                    Status.DONE,
+                    stop,
+                    False,
+                    lambda: (
+                        _finish_run(run, Run.CAPPED, error_code=stop),
+                        _staff(application, "assessment_capped", run),
+                    ),
+                    None,
+                ),
+                None,
+                None,
+            )
         try:
             request = snapshot.build_request(application, current, pack)
         except ValueError:  # a confirmed answer no longer matches the snapshot: refuse cleanly, nothing reserved
-            return (Status.DONE, "answer_changed", False, lambda: (
-                _finish_run(run, Run.REFUSED, error_code="answer_changed"),
-                _staff(application, "assessment_input_changed", run)), None), None, None
-        if not request.fields <= set(approval.FIELDS["assessment"]):  # oc4.9: refused before anything is reserved
-            return (Status.DONE, "fields_not_approved", False, lambda: (
-                _finish_run(run, Run.REFUSED, error_code="fields_not_approved"),
-                _staff(application, "assessment_failed", run)), None), None, None
-        delay = rate_limits.reserve(REQUESTS_PER_ATTEMPT,
-                                    REQUESTS_PER_ATTEMPT * settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS, commit=False)
+            return (
+                (
+                    Status.DONE,
+                    "answer_changed",
+                    False,
+                    lambda: (
+                        _finish_run(run, Run.REFUSED, error_code="answer_changed"),
+                        _staff(application, "assessment_input_changed", run),
+                    ),
+                    None,
+                ),
+                None,
+                None,
+            )
+        if not request.fields <= set(
+            approval.FIELDS["assessment"]
+        ):  # oc4.9: refused before anything is reserved
+            return (
+                (
+                    Status.DONE,
+                    "fields_not_approved",
+                    False,
+                    lambda: (
+                        _finish_run(run, Run.REFUSED, error_code="fields_not_approved"),
+                        _staff(application, "assessment_failed", run),
+                    ),
+                    None,
+                ),
+                None,
+                None,
+            )
+        delay = rate_limits.reserve(
+            REQUESTS_PER_ATTEMPT,
+            REQUESTS_PER_ATTEMPT * settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS,
+            commit=False,
+        )
         if delay:
-            return (Status.QUEUED, "provider_rate_limited", True, None, timedelta(seconds=delay)), None, None
+            return (
+                (
+                    Status.QUEUED,
+                    "provider_rate_limited",
+                    True,
+                    None,
+                    timedelta(seconds=delay),
+                ),
+                None,
+                None,
+            )
         AssessmentInvocation.objects.create(
-            run=run, application=application, snapshot_sha256=run.snapshot_sha256, attempt=claim.attempt,
-            reserved_requests=REQUESTS_PER_ATTEMPT, reserved_tokens=agent.attempt_tokens())
+            run=run,
+            application=application,
+            snapshot_sha256=run.snapshot_sha256,
+            attempt=claim.attempt,
+            reserved_requests=REQUESTS_PER_ATTEMPT,
+            reserved_tokens=agent.attempt_tokens(),
+        )
         from .interpret import record_usage
 
         record_usage()  # 9kg.33: the day's total into the effect journal once this reservation commits
-        AssessmentRun.objects.filter(pk=run.pk).update(status=Run.RESERVED, request_sha256=request.sha256)
+        AssessmentRun.objects.filter(pk=run.pk).update(
+            status=Run.RESERVED, request_sha256=request.sha256
+        )
         return None, run, request
 
     def _budget(self, application, run) -> str:
@@ -273,30 +521,70 @@ class RunAssessment:
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(%s)", [_GLOBAL_LOCK])
         invocations = AssessmentInvocation.objects
-        spent = invocations.filter(application=application, snapshot_sha256=run.snapshot_sha256).aggregate(
-            n=Sum("reserved_requests"))["n"] or 0
-        if exceeds(spent + REQUESTS_PER_ATTEMPT, settings.CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT):
+        spent = (
+            invocations.filter(
+                application=application, snapshot_sha256=run.snapshot_sha256
+            ).aggregate(n=Sum("reserved_requests"))["n"]
+            or 0
+        )
+        if exceeds(
+            spent + REQUESTS_PER_ATTEMPT,
+            settings.CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT,
+        ):
             return "snapshot_request_budget"
         # A call whose usage is unknown (failed, invalid, abandoned) counts at its full reservation.
-        used = invocations.filter(application=application).aggregate(
-            t=Sum(Coalesce("used_tokens", "reserved_tokens")))["t"] or 0
-        if agent.token_limits_enabled() and exceeds(used + agent.attempt_tokens(), settings.CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION):
+        used = (
+            invocations.filter(application=application).aggregate(
+                t=Sum(Coalesce("used_tokens", "reserved_tokens"))
+            )["t"]
+            or 0
+        )
+        if agent.token_limits_enabled() and exceeds(
+            used + agent.attempt_tokens(),
+            settings.CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION,
+        ):
             return "application_token_budget"
         from .interpret import daily_requests_used
 
-        today = daily_requests_used()  # assessments and reply interpretations share the daily budget (3B.3)
-        if exceeds(today + REQUESTS_PER_ATTEMPT, settings.CATALYST_ASSESSMENT_DAILY_REQUESTS):
+        today = (
+            daily_requests_used()
+        )  # assessments and reply interpretations share the daily budget (3B.3)
+        if exceeds(
+            today + REQUESTS_PER_ATTEMPT, settings.CATALYST_ASSESSMENT_DAILY_REQUESTS
+        ):
             return "daily_request_budget"  # defaults to 0: nothing runs until the owner sets a value
-        if in_flight(exclude=run).count() >= settings.CATALYST_ASSESSMENT_CONCURRENT_RUNS:
+        if (
+            in_flight(exclude=run).count()
+            >= settings.CATALYST_ASSESSMENT_CONCURRENT_RUNS
+        ):
             return "concurrency"
         return ""
 
-    def _end(self, claim, run, status, code, staff=None, requests=0, ledger_status=Status.DONE, validation_codes=()):
+    def _end(
+        self,
+        claim,
+        run,
+        status,
+        code,
+        staff=None,
+        requests=0,
+        ledger_status=Status.DONE,
+        validation_codes=(),
+    ):
         def write():
-            AssessmentInvocation.objects.filter(run=run, attempt=claim.attempt).update(status="completed", finished_at=Now())
-            _finish_run(run, status, error_code=code, requests_used=requests, validation_codes=list(validation_codes))
+            AssessmentInvocation.objects.filter(run=run, attempt=claim.attempt).update(
+                status="completed", finished_at=Now()
+            )
+            _finish_run(
+                run,
+                status,
+                error_code=code,
+                requests_used=requests,
+                validation_codes=list(validation_codes),
+            )
             if staff:
                 _staff(Application.objects.get(pk=run.application_id), staff, run)
+
         ledger.finish(claim, self, status=ledger_status, error=code, write=write)
 
     def _succeed(self, claim, run, request, outcome):
@@ -306,18 +594,48 @@ class RunAssessment:
             application = Application.objects.get(pk=run.application_id)
             data = outcome.output.model_dump(mode="json")
             AssessmentInvocation.objects.filter(run=run, attempt=claim.attempt).update(
-                status="completed", finished_at=Now(), used_tokens=outcome.input_tokens + outcome.output_tokens)
-            _finish_run(run, Run.SUCCEEDED, output=data, output_sha256=snapshot.snapshot_sha256(data),
-                        flags=flags(outcome.output, request), requests_used=outcome.requests,
-                        input_tokens=outcome.input_tokens, output_tokens=outcome.output_tokens, provider=outcome.provider,
-                        model_id=outcome.model_id[:100], output_mode=outcome.output_mode, library_version=pydantic_ai.__version__)
-            event(application, "assessment_completed", {"run": str(run.public_id), "snapshot": run.snapshot_sha256[:16]})
-            settle_items(application, "assessment_succeeded", f"pending_action:{claim.id}")
+                status="completed",
+                finished_at=Now(),
+                used_tokens=outcome.input_tokens + outcome.output_tokens,
+            )
+            _finish_run(
+                run,
+                Run.SUCCEEDED,
+                output=data,
+                output_sha256=snapshot.snapshot_sha256(data),
+                flags=flags(outcome.output, request),
+                requests_used=outcome.requests,
+                input_tokens=outcome.input_tokens,
+                output_tokens=outcome.output_tokens,
+                provider=outcome.provider,
+                model_id=outcome.model_id[:100],
+                output_mode=outcome.output_mode,
+                library_version=pydantic_ai.__version__,
+            )
+            event(
+                application,
+                "assessment_completed",
+                {"run": str(run.public_id), "snapshot": run.snapshot_sha256[:16]},
+            )
+            settle_items(
+                application, "assessment_succeeded", f"pending_action:{claim.id}"
+            )
             try:  # unconditional on the content: no output field chooses a transition (018 4 step 4)
-                transition(application.pk, (Stage.ASSESSING,), Stage.AWAITING_DECISION, event_kind="assessment_ready_for_decision",
-                           data={"run": str(run.public_id)}, actor_ref=f"pending_action:{claim.id}")
+                transition(
+                    application.pk,
+                    (Stage.ASSESSING,),
+                    Stage.AWAITING_DECISION,
+                    event_kind="assessment_ready_for_decision",
+                    data={"run": str(run.public_id)},
+                    actor_ref=f"pending_action:{claim.id}",
+                )
             except StageConflict:
                 return  # the application left `assessing` meanwhile: the run is history only, and proposes nothing
-            clarification.propose_from_run(run, outcome.output)  # stored proposed; nothing is sent (P3-D-5)
-            routine.enqueue(run)  # bgl.12: nothing below CATALYST_ROUTINE_ADVANCE_ACTIVATION 1; the policy reads the output there
+            clarification.propose_from_run(
+                run, outcome.output
+            )  # stored proposed; nothing is sent (P3-D-5)
+            routine.enqueue(
+                run
+            )  # bgl.12: nothing below CATALYST_ROUTINE_ADVANCE_ACTIVATION 1; the policy reads the output there
+
         ledger.finish(claim, self, status=Status.DONE, write=write)
