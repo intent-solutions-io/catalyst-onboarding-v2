@@ -2173,6 +2173,7 @@ P6_SUPPORTING = {
         "test_legacy_history::test_legacy_history_escapes_source_text_and_does_not_display_unreviewed_fields",
         "test_legacy_history::test_legacy_history_paginates_all_records_with_case_and_table_scope",
         "test_legacy_history::test_legacy_import_pause_requires_decision_maker_review_and_a_recorded_reason",
+        "test_legacy_history::test_contact_confirmation_preserves_imported_progress_and_does_not_restart_onboarding",
     ],
     # bgl.3 (034 rows 3 and 12): the first-generation form fields, stored with the submission, shown on the dossier and
     # erased with it; every refusal a form error that records nothing.

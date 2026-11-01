@@ -68,6 +68,7 @@ RESOLUTIONS = {
     "repeat_after_verification": {"acknowledge": "resolve_identity_exception"},
     "repeat_after_decline": {"acknowledge": "resolve_identity_exception"},  # P3 3B.4, J-02 (P3-D-16)
     "newer_unverified_version": {"acknowledge": "resolve_identity_exception"},
+    "contact_verified_existing_workflow": {"acknowledge": "resolve_identity_exception"},
     # oc4.11: the decline notice bounced permanently, so the declined applicant was not told. The decision-maker
     # records, with a note, how it was settled (told another way, or deliberately not); nothing is resent from here.
     "decline_not_notified": {"acknowledge": "decide_uncertain_send"},

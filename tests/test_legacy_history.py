@@ -127,3 +127,63 @@ def test_legacy_import_pause_requires_decision_maker_review_and_a_recorded_reaso
     event = case.application.events.get(kind="automation_resumed")
     assert event.actor_ref == f"user:{decider.pk}" and event.data["system_pause"] is True
     assert PendingAction.objects.count() == 0  # resumption records review; it does not invent missing continuation jobs
+
+
+def test_contact_confirmation_preserves_imported_progress_and_does_not_restart_onboarding(v1, privileged_reset):
+    from django.core.exceptions import PermissionDenied
+    from psycopg import sql
+
+    from applications import confirmation
+    from applications.models import VersionAdoption
+    from correspondence import processing, staff_actions
+    from correspondence.models import StaffItem
+    from correspondence.roles import DECISION_MAKER, OPERATOR
+    from tests.test_confirmation import active_challenge, link_for, post_confirm, snapshot
+    from tests.test_outbound import staff
+
+    populate(v1)
+    # v1 could progress without email verification. Exercise the real importer with that source state.
+    v1.owner.execute(sql.SQL("UPDATE {}.intake_request SET email_verified_at = NULL, email_verified_via = NULL")
+                     .format(sql.Identifier(v1.schema)))
+    import_v1(v1)
+    operator = staff(SimpleNamespace(committed=privileged_reset), "legacy-verification", OPERATOR)
+    decider = staff(SimpleNamespace(committed=privileged_reset), "legacy-confirmation-review", DECISION_MAKER)
+    cases = ImportedCase.objects.select_related("application").filter(
+        application__stage__in=("assessing", "awaiting_answers", "awaiting_decision", "agreements",
+                               "agreements_complete", "provisioning", "active"))
+    tested = set()
+    for case in cases:
+        app = case.application
+        tested.add(app.stage)
+        before_stage = app.stage
+        before_pause = list(AutomationPause.objects.filter(subject_id=app.public_ref).values())
+        before_records = list(ImportedRecord.objects.filter(application=app).order_by("pk").values())
+        staff_actions.resend_verification(app.pk, operator, "Verify contact for handover review", expected_number=1)
+        challenge = active_challenge(app)
+        version = app.versions.order_by("-version_number").first()
+        link = link_for(app)
+        response = post_confirm(Client(), link, version.public_id)
+        assert response.status_code == 200 and "Email address confirmed" in response.content.decode()
+        app.refresh_from_db()
+        assert app.stage == before_stage and app.contact_verified_at is not None
+        assert list(AutomationPause.objects.filter(subject_id=app.public_ref).values()) == before_pause
+        assert list(ImportedRecord.objects.filter(application=app).order_by("pk").values()) == before_records
+        assert VersionAdoption.objects.get(application=app).submission_version_id == version.pk
+        assert StaffItem.objects.filter(application=app, reason_code="contact_verified_existing_workflow",
+                                        status="open").count() == 1
+        assert list(PendingAction.objects.filter(subject_id=app.public_ref).values_list("kind", flat=True)) == [
+            "send_verification"]
+        before_replay = snapshot()
+        with pytest.raises(confirmation.Refused, match="already confirmed"):
+            confirmation.confirm(challenge.public_id, version.public_id)
+        assert snapshot() == before_replay
+        item = StaffItem.objects.get(application=app, reason_code="contact_verified_existing_workflow")
+        with pytest.raises(PermissionDenied):
+            processing.resolve_exception(item.pk, "acknowledge", operator)
+        processing.resolve_exception(item.pk, "acknowledge", decider, "Reviewed the recorded contact confirmation")
+        item.refresh_from_db()
+        assert item.status == "resolved"
+        assert list(AutomationPause.objects.filter(subject_id=app.public_ref).values()) == before_pause
+        assert PendingAction.objects.filter(subject_id=app.public_ref).count() == 1
+    assert tested == {"assessing", "awaiting_answers", "awaiting_decision", "agreements",
+                      "agreements_complete", "provisioning", "active"}

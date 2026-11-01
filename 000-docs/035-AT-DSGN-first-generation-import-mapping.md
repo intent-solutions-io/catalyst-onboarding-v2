@@ -194,6 +194,13 @@ body is displayed; other outgoing bodies, arbitrary imported JSON, provider payl
 keys are not displayed. Reading the page
 creates no job, changes no pause and makes no provider request.
 
+If an imported case has already progressed beyond `submitted` without recorded contact verification,
+confirming a new v2 challenge adopts only the displayed submission and records address control. It
+preserves the existing stage and pause, queues no new assessment, and opens a staff review item for
+continuation. The ordinary `submitted` confirmation still starts the normal assessment path. Issuing
+a verification while paused does not bypass the pause on its send; delivery still requires the
+existing handover review and resume procedure.
+
 Open continuation work remains in `bgl.23`: an operator must reconcile the open signing envelopes,
 questions, contact-verification gaps and uncertain mailbox operations before resuming each case.
 Showing preserved history is not proof of continuation. In particular, imported `agreements` cases do
