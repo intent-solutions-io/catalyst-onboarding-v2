@@ -9,3 +9,6 @@ e2e0313ded390447316fd4d71f49e8486d652646:tests/test_personal_data_scan.py:generi
 # PR #152 (bgl.10): synthetic stub passwords (Synthetic-Pw-1, Synthetic-Pw-2) in the mail-host adapter test; the stub never reaches a real host.
 22c0bd3acae579c2c935ce1702e58d97a2320dcb:tests/test_parity_mxroute.py:generic-api-key:118
 22c0bd3acae579c2c935ce1702e58d97a2320dcb:tests/test_parity_mxroute.py:generic-api-key:122
+# PR #161 squash: the same two synthetic MXroute stub passwords already reviewed above, with new commit fingerprints.
+31bfd79db2ea13dbf8948c70f3c2535ffdeb0e83:tests/test_parity_mxroute.py:generic-api-key:118
+31bfd79db2ea13dbf8948c70f3c2535ffdeb0e83:tests/test_parity_mxroute.py:generic-api-key:122
