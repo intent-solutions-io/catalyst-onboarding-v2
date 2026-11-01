@@ -37,11 +37,27 @@ import re
 from dataclasses import dataclass
 
 TEXT, EMPTY, OBJECT, ARRAY, OBJECT_OR_NULL, KEY, LOCAL_PART, NOTES, DELETE = (
-    "text", "empty", "object", "array", "object_or_null", "key", "local_part", "notes", "delete")
+    "text",
+    "empty",
+    "object",
+    "array",
+    "object_or_null",
+    "key",
+    "local_part",
+    "notes",
+    "delete",
+)
 ERASED = "[erased]"
-CODE = re.compile(r"[a-z0-9_.:-]{3,64}")  # authority and reason: codes, never free text (the audit table checks it too)
+CODE = re.compile(
+    r"[a-z0-9_.:-]{3,64}"
+)  # authority and reason: codes, never free text (the audit table checks it too)
 TERMINAL_STAGES = ("declined", "withdrawn", "closed")
-FINAL_REVOCATION_STATES = ("verified", "applied_unverified", "not_applicable", "exception")  # provisioning.closure.FINAL
+FINAL_REVOCATION_STATES = (
+    "verified",
+    "applied_unverified",
+    "not_applicable",
+    "exception",
+)  # provisioning.closure.FINAL
 OPEN_ACTION_STATUSES = ("queued", "running", "held", "uncertain")
 
 
@@ -77,232 +93,449 @@ REQUEST = "request_id IN (SELECT q.id FROM public.provisioning_provisioningreque
 
 TABLES = {
     # --- accounts (staff; POL-13) and the public-endpoint throttle -------------------------------------------------
-    "accounts_loginthrottle": Table(staff="key", other="id failures locked_until updated_at"),
+    "accounts_loginthrottle": Table(
+        staff="key", other="id failures locked_until updated_at"
+    ),
     "accounts_requestthrottle": Table(
         selector="key = pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to('intake-address:' || v_key, 'UTF8')), 'hex')",
-        subject={"key": S("throttle_keys", DELETE)}, other="id count window_start updated_at"),
-    "accounts_staffrolegrant": Table(staff="actor_ref", other="id role kind target action approval_ref recorded_at user_id"),
-    "accounts_user": Table(staff="username first_name last_name email last_login date_joined", secret="password",
-                           other="id is_superuser is_staff is_active"),
+        subject={"key": S("throttle_keys", DELETE)},
+        other="id count window_start updated_at",
+    ),
+    "accounts_staffrolegrant": Table(
+        staff="actor_ref",
+        other="id role kind target action approval_ref recorded_at user_id",
+    ),
+    "accounts_user": Table(
+        staff="username first_name last_name email last_login date_joined",
+        secret="password",
+        other="id is_superuser is_staff is_active",
+    ),
     "accounts_user_groups": Table(other="id user_id group_id"),
     "accounts_user_user_permissions": Table(other="id user_id permission_id"),
     # --- agreements --------------------------------------------------------------------------------------------------
     "agreements_agreementdetailsversion": Table(
-        selector=APP, subject={"values": S("agreement_records", OBJECT), "values_sha256": S("agreement_records", EMPTY)},
+        selector=APP,
+        subject={
+            "values": S("agreement_records", OBJECT),
+            "values_sha256": S("agreement_records", EMPTY),
+        },
         staff="recorded_by confirmed_by",
-        other="id public_id version status confirmed_at created_at agreement_type_id application_id source instance_id"),
-    "agreements_agreementinstance": Table(other=(
-        "id public_id external_key envelope_id issue_status signing_status custody_status created_at updated_at"
-        " application_id template_version_id agreement_type_id cancel_requested_at replaced_at replacement_reason")),
+        other="id public_id version status confirmed_at created_at agreement_type_id application_id source instance_id",
+    ),
+    "agreements_agreementinstance": Table(
+        other=(
+            "id public_id external_key envelope_id issue_status signing_status custody_status created_at updated_at"
+            " application_id template_version_id agreement_type_id cancel_requested_at replaced_at replacement_reason"
+        )
+    ),
     "agreements_agreementrecipient": Table(
         # Staff recipients (the countersigner) are staff data: only the applicant's rows are the subject's.
         selector="who = 'applicant' AND instance_id IN (SELECT i.id FROM public.agreements_agreementinstance i"
-                 " WHERE i.application_id = ANY(v_apps))",
+        " WHERE i.application_id = ANY(v_apps))",
         subject={"name": S("agreement_records"), "email": S("agreement_records")},
-        other="id role signing_order required who instance_id"),
-    "agreements_agreementtemplateversion": Table(staff="approved_by", other=(
-        "id version provider_template_ref provider_template_number recipient_slots pdf_sha256 status approved_at"
-        " created_at agreement_type_id")),
+        other="id role signing_order required who instance_id",
+    ),
+    "agreements_agreementtemplateversion": Table(
+        staff="approved_by",
+        other=(
+            "id version provider_template_ref provider_template_number recipient_slots pdf_sha256 status approved_at"
+            " created_at agreement_type_id"
+        ),
+    ),
     "agreements_agreementtype": Table(other="id key order required gate"),
     "agreements_documentaccess": Table(
         selector="document_id IN (SELECT d.id FROM public.agreements_storeddocument d WHERE d.application_id = ANY(v_apps))",
-        subject={"reason": S("staff_notes")}, staff="actor_ref", other="id requested_ref outcome at document_id"),
-    "agreements_envelopeattempt": Table(other=(
-        "id public_id step external_key pending_action_id outcome outcome_code envelope_id created_at finished_at"
-        " instance_id")),
-    "agreements_providerobservation": Table(other=(  # recipients: role, order and signing state only
-        "id source event envelope_status recipients identity_match recipients_match all_required_signed content_sha256"
-        " observed_at created_txid application_id instance_id")),
-    "agreements_storeddocument": Table(other=(  # the PDF itself is in custody: registry row signed_documents (9kg.34)
-        "id public_id envelope_id item_id version storage_key sha256 size stored_at application_id instance_id"
-        " observation_id")),
-    "agreements_countersignclaim": Table(other=(  # bgl.9: the single-writer claim; references, codes and times only
-        "id envelope_id external_key holder action_id state attempts last_code first_failure_at claimed_at updated_at"
-        " finished_at instance_id")),
-    "agreements_custodyenvelope": Table(other=(  # 9kg.34: random references, digests and sizes; no key material
-        "id storage_key scheme key_ref wrapping_key_id cipher_sha256 cipher_size migrated sealed_at document_id")),
+        subject={"reason": S("staff_notes")},
+        staff="actor_ref",
+        other="id requested_ref outcome at document_id",
+    ),
+    "agreements_envelopeattempt": Table(
+        other=(
+            "id public_id step external_key pending_action_id outcome outcome_code envelope_id created_at finished_at"
+            " instance_id"
+        )
+    ),
+    "agreements_providerobservation": Table(
+        other=(  # recipients: role, order and signing state only
+            "id source event envelope_status recipients identity_match recipients_match all_required_signed content_sha256"
+            " observed_at created_txid application_id instance_id"
+        )
+    ),
+    "agreements_storeddocument": Table(
+        other=(  # the PDF itself is in custody: registry row signed_documents (9kg.34)
+            "id public_id envelope_id item_id version storage_key sha256 size stored_at application_id instance_id"
+            " observation_id"
+        )
+    ),
+    "agreements_countersignclaim": Table(
+        other=(  # bgl.9: the single-writer claim; references, codes and times only
+            "id envelope_id external_key holder action_id state attempts last_code first_failure_at claimed_at updated_at"
+            " finished_at instance_id"
+        )
+    ),
+    "agreements_custodyenvelope": Table(
+        other=(  # 9kg.34: random references, digests and sizes; no key material
+            "id storage_key scheme key_ref wrapping_key_id cipher_sha256 cipher_size migrated sealed_at document_id"
+        )
+    ),
     # --- applications --------------------------------------------------------------------------------------------
     "applications_application": Table(
         selector="id = ANY(v_apps)",
-        subject={"email": S("application_identity"), "email_key": S("application_identity", KEY, "public_ref"),
-                 "display_name": S("application_identity")},
-        other="id public_ref reference stage contact_verified_at next_version_number created_at updated_at"),  # bgl.5
+        subject={
+            "email": S("application_identity"),
+            "email_key": S("application_identity", KEY, "public_ref"),
+            "display_name": S("application_identity"),
+        },
+        other="id public_ref reference stage contact_verified_at next_version_number created_at updated_at",
+    ),  # bgl.5
     "applications_applicationevent": Table(
-        selector=APP, subject={"data": S("history_events", OBJECT)}, staff="actor_ref",
-        other="id kind actor_type occurred_at application_id created_txid"),  # created_txid: the guard's marker
+        selector=APP,
+        subject={"data": S("history_events", OBJECT)},
+        staff="actor_ref",
+        other="id kind actor_type occurred_at application_id created_txid",
+    ),  # created_txid: the guard's marker
     "applications_contactchallenge": Table(
-        selector=APP, subject={"email_at_issue": S("application_identity")},
-        other="id public_id created_at expires_at used_at superseded_at application_id"),
+        selector=APP,
+        subject={"email_at_issue": S("application_identity")},
+        other="id public_id created_at expires_at used_at superseded_at application_id",
+    ),
     "applications_invitation": Table(
         selector="email_key = v_key OR application_id = ANY(v_apps)",
-        subject={"email_key": S("invitations", KEY, "public_id"), "note": S("invitations")}, staff="issued_by",
-        other=("id public_id issued_at expires_at used_at superseded_at updated_at application_id"
-               " notice_template_version notice_sha256 mail_template_sha256")),
+        subject={
+            "email_key": S("invitations", KEY, "public_id"),
+            "note": S("invitations"),
+        },
+        staff="issued_by",
+        other=(
+            "id public_id issued_at expires_at used_at superseded_at updated_at application_id"
+            " notice_template_version notice_sha256 mail_template_sha256"
+        ),
+    ),
     "applications_memberagreementonfile": Table(
-        selector="email_key = v_key", subject={"email_key": S("member_on_file", KEY, "public_id")}, staff="recorded_by",
-        other="id public_id covers completion_verified recorded_at superseded_at"),  # covers: owner-typed labels
+        selector="email_key = v_key",
+        subject={"email_key": S("member_on_file", KEY, "public_id")},
+        staff="recorded_by",
+        other="id public_id covers completion_verified recorded_at superseded_at",
+    ),  # covers: owner-typed labels
     "applications_retentionaudit": Table(
-        selector=APP, subject={"reason": S("audit_residue"), "row_sha256": S("audit_residue", EMPTY)},
-        other="id at actor table_name row_id application_id"),  # actor: a database role name
+        selector=APP,
+        subject={"reason": S("audit_residue"), "row_sha256": S("audit_residue", EMPTY)},
+        other="id at actor table_name row_id application_id",
+    ),  # actor: a database role name
     "applications_submissionversion": Table(
-        selector=APP, subject={"submitted_fields": S("submissions", OBJECT)},
-        other="id public_id version_number origin received_at application_id"),
-    "applications_versionadoption": Table(other="id adopted_at application_id submission_version_id via_challenge_id"),
+        selector=APP,
+        subject={"submitted_fields": S("submissions", OBJECT)},
+        other="id public_id version_number origin received_at application_id",
+    ),
+    "applications_versionadoption": Table(
+        other="id adopted_at application_id submission_version_id via_challenge_id"
+    ),
     # --- assessments ---------------------------------------------------------------------------------------------
-    "assessments_assessmentinvocation": Table(other=(
-        "id snapshot_sha256 attempt reserved_requests reserved_tokens used_tokens status started_at finished_at"
-        " application_id run_id")),
+    "assessments_assessmentinvocation": Table(
+        other=(
+            "id snapshot_sha256 attempt reserved_requests reserved_tokens used_tokens status started_at finished_at"
+            " application_id run_id"
+        )
+    ),
     "assessments_assessmentrun": Table(
-        selector=APP, subject={"snapshot": S("evidence", OBJECT), "output": S("evidence", OBJECT_OR_NULL)},
-        other=("id public_id round trigger snapshot_sha256 prompt_pack prompt_pack_sha256 rubric_version schema_version"
-               " provider model_id output_mode library_version request_sha256 status error_code output_sha256"
-               " validation_codes flags requests_used input_tokens output_tokens created_at finished_at"
-               " adopted_version_id application_id")),
+        selector=APP,
+        subject={
+            "snapshot": S("evidence", OBJECT),
+            "output": S("evidence", OBJECT_OR_NULL),
+        },
+        other=(
+            "id public_id round trigger snapshot_sha256 prompt_pack prompt_pack_sha256 rubric_version schema_version"
+            " provider model_id output_mode library_version request_sha256 status error_code output_sha256"
+            " validation_codes flags requests_used input_tokens output_tokens created_at finished_at"
+            " adopted_version_id application_id"
+        ),
+    ),
     "assessments_evidencecapture": Table(
-        selector=APP, subject={"final_url": S("evidence"), "derived_text": S("evidence")},
-        other=("id attempt_number http_status content_type revision_marker byte_length truncated response_sha256"
-               " derived_sha256 derivation_version is_derivative outcome cannot_prove injection_markers peer_ip"
-               " fetched_at application_id item_id source_id")),  # cannot_prove: fixed text per source kind
+        selector=APP,
+        subject={"final_url": S("evidence"), "derived_text": S("evidence")},
+        other=(
+            "id attempt_number http_status content_type revision_marker byte_length truncated response_sha256"
+            " derived_sha256 derivation_version is_derivative outcome cannot_prove injection_markers peer_ip"
+            " fetched_at application_id item_id source_id"
+        ),
+    ),  # cannot_prove: fixed text per source kind
     "assessments_evidenceitem": Table(
-        selector=APP, subject={"request_url": S("evidence"), "request_url_sha256": S("evidence", EMPTY)},
-        other=("id public_id claim_ref round required status reason_code finished_at created_at updated_at"
-               " adopted_version_id application_id source_id")),
-    "assessments_evidencesource": Table(staff="approved_by", other=(
-        "id key version kind host port path_prefix redirect_hosts content_types max_bytes deadline_seconds required"
-        " on_unavailable fixture_only definition_sha256 status approved_at created_at")),
-    "assessments_modeluseapproval": Table(staff="actor_ref", other=(  # oc4.9: owner configuration, no applicant data
-        "id purpose action provider model_id terms terms_sha256 approval_ref recorded_at")),
+        selector=APP,
+        subject={
+            "request_url": S("evidence"),
+            "request_url_sha256": S("evidence", EMPTY),
+        },
+        other=(
+            "id public_id claim_ref round required status reason_code finished_at created_at updated_at"
+            " adopted_version_id application_id source_id"
+        ),
+    ),
+    "assessments_evidencesource": Table(
+        staff="approved_by",
+        other=(
+            "id key version kind host port path_prefix redirect_hosts content_types max_bytes deadline_seconds required"
+            " on_unavailable fixture_only definition_sha256 status approved_at created_at"
+        ),
+    ),
+    "assessments_modeluseapproval": Table(
+        staff="actor_ref",
+        other=(  # oc4.9: owner configuration, no applicant data
+            "id purpose action provider model_id terms terms_sha256 approval_ref recorded_at"
+        ),
+    ),
     "assessments_qualificationdecision": Table(
         selector=APP,
-        subject={"human_only_reason": S("decisions"), "reason_text": S("decisions"), "rationale": S("decisions", NOTES)},
+        subject={
+            "human_only_reason": S("decisions"),
+            "reason_text": S("decisions"),
+            "rationale": S("decisions", NOTES),
+        },
         staff="actor_ref second_actor_ref",
-        other=("id public_id outcome basis reason_code snapshot_sha256 decision_digest policy_ref created_at created_txid"
-               " adopted_version_id application_id run_id human_only_code prompt_pack prompt_pack_sha256"
-               " rubric_version decision_inputs")),  # decision_inputs: references, states, codes and digests
+        other=(
+            "id public_id outcome basis reason_code snapshot_sha256 decision_digest policy_ref created_at created_txid"
+            " adopted_version_id application_id run_id human_only_code prompt_pack prompt_pack_sha256"
+            " rubric_version decision_inputs"
+        ),
+    ),  # decision_inputs: references, states, codes and digests
     # --- Django's own tables -------------------------------------------------------------------------------------
     "auth_group": Table(other="id name"),
     "auth_group_permissions": Table(other="id group_id permission_id"),
     "auth_permission": Table(other="id name content_type_id codename"),
     "django_admin_log": Table(
-        selector=("content_type_id = (SELECT c.id FROM public.django_content_type c WHERE c.app_label = 'applications'"
-                  " AND c.model = 'application') AND object_id = ANY(v_apps::text[])"),
+        selector=(
+            "content_type_id = (SELECT c.id FROM public.django_content_type c WHERE c.app_label = 'applications'"
+            " AND c.model = 'application') AND object_id = ANY(v_apps::text[])"
+        ),
         subject={"object_repr": S("admin_log"), "change_message": S("admin_log")},
-        other="id action_time object_id action_flag content_type_id user_id"),
+        other="id action_time object_id action_flag content_type_id user_id",
+    ),
     "django_content_type": Table(other="id app_label model"),
     "django_migrations": Table(other="id app name applied"),
-    "django_session": Table(staff="session_data", secret="session_key", other="expire_date"),
+    "django_session": Table(
+        staff="session_data", secret="session_key", other="expire_date"
+    ),
     # --- crm (bgl.14): the Twenty link; the person and the note at Twenty are the `twenty` handoff -------------------
     "crm_twentylink": Table(
-        selector=APP, subject={"field_hashes": S("application_identity", OBJECT)},  # digests of low-entropy values
-        other=("id person_id link_method note_id note_sha256 projection_version projected_at created_at updated_at"
-               " application_id")),
+        selector=APP,
+        subject={
+            "field_hashes": S("application_identity", OBJECT)
+        },  # digests of low-entropy values
+        other=(
+            "id person_id link_method note_id note_sha256 projection_version projected_at created_at updated_at"
+            " application_id"
+        ),
+    ),
     # --- correspondence ------------------------------------------------------------------------------------------
     "correspondence_approvedmessage": Table(
         selector=APP,
-        subject={"recipient": S("mail_derivatives"), "frozen_subject": S("mail_derivatives"),
-                 "frozen_body": S("mail_derivatives"), "reproducible_inputs": S("mail_derivatives", OBJECT)},
+        subject={
+            "recipient": S("mail_derivatives"),
+            "frozen_subject": S("mail_derivatives"),
+            "frozen_body": S("mail_derivatives"),
+            "reproducible_inputs": S("mail_derivatives", OBJECT),
+        },
         staff="authorized_by disposition_by",
-        other=("id send_ref kind content_sha256 inputs_sha256 authority authorized_at disposition disposition_at"
-               " application_id supersedes_id template_version_id staff_draft_id")),
-    "correspondence_approvedmessagequestion": Table(other="id purpose approved_message_id question_id"),
+        other=(
+            "id send_ref kind content_sha256 inputs_sha256 authority authorized_at disposition disposition_at"
+            " application_id supersedes_id template_version_id staff_draft_id"
+        ),
+    ),
+    "correspondence_approvedmessagequestion": Table(
+        other="id purpose approved_message_id question_id"
+    ),
     "correspondence_inboundmessage": Table(
         # Mail from the subject's address that was never associated with an application is the subject's too.
         selector="application_id = ANY(v_apps) OR from_normalized = v_key",
-        subject={"message_id_header": S("mail_derivatives"), "in_reply_to": S("mail_derivatives"),
-                 "references": S("mail_derivatives"), "from_address": S("mail_derivatives"),
-                 "from_normalized": S("mail_derivatives"), "derived_text": S("mail_derivatives"),
-                 "attachments": S("mail_derivatives", ARRAY)},
-        other=("id public_id mailbox_ref auto_markers date_header internal_date received_at size original_sha256"
-               " derivation_version redaction_version truncated truncated_at_chars omitted_parts redactions"
-               " is_derivative auth_evidence trust_decision from_matches_verified_address classification status"
-               " exception_reason processed_at identity_state application_id approved_message_id"
-               " derived_text_sha256")),  # redactions: counts per code; omitted_parts: content types
-    "correspondence_inboundmessagelocation": Table(other="id mailbox_ref folder uidvalidity uid observed_at matched_by message_id"),
-    "correspondence_mailboxcursor": Table(other=(
-        "id public_id mailbox_ref folder uidvalidity last_uid complete_through_uid complete_through_at state"
-        " blocked_reason epoch pass_number start_mode last_batch_at last_error_code consecutive_failures"
-        " duplicates_seen created_at")),
-    "correspondence_messagetemplate": Table(other="id key purpose secret_bearing created_at"),
-    "correspondence_messagetemplateversion": Table(staff="approved_by", other=(
-        "id version subject body_text body_html variables secret_bearing status approved_at content_sha256 synthetic created_at"
-        " template_id subject_reference")),
+        subject={
+            "message_id_header": S("mail_derivatives"),
+            "in_reply_to": S("mail_derivatives"),
+            "references": S("mail_derivatives"),
+            "from_address": S("mail_derivatives"),
+            "from_normalized": S("mail_derivatives"),
+            "derived_text": S("mail_derivatives"),
+            "attachments": S("mail_derivatives", ARRAY),
+        },
+        other=(
+            "id public_id mailbox_ref auto_markers date_header internal_date received_at size original_sha256"
+            " derivation_version redaction_version truncated truncated_at_chars omitted_parts redactions"
+            " is_derivative auth_evidence trust_decision from_matches_verified_address classification status"
+            " exception_reason processed_at identity_state application_id approved_message_id"
+            " derived_text_sha256"
+        ),
+    ),  # redactions: counts per code; omitted_parts: content types
+    "correspondence_inboundmessagelocation": Table(
+        other="id mailbox_ref folder uidvalidity uid observed_at matched_by message_id"
+    ),
+    "correspondence_mailboxcursor": Table(
+        other=(
+            "id public_id mailbox_ref folder uidvalidity last_uid complete_through_uid complete_through_at state"
+            " blocked_reason epoch pass_number start_mode last_batch_at last_error_code consecutive_failures"
+            " duplicates_seen created_at"
+        )
+    ),
+    "correspondence_messagetemplate": Table(
+        other="id key purpose secret_bearing created_at"
+    ),
+    "correspondence_messagetemplateversion": Table(
+        staff="approved_by",
+        other=(
+            "id version subject body_text body_html variables secret_bearing status approved_at content_sha256 synthetic created_at"
+            " template_id subject_reference"
+        ),
+    ),
     "correspondence_outboundmessage": Table(
-        selector=APP, subject={"recipient": S("mail_derivatives")},
-        other=("id attempt_number template_key template_version message_id status sent_at application_id"
-               " pending_action_id attempt_series created_at protocol_phase_reached rendered_sha256 server_accepted_at"
-               " smtp_reply_code approved_message_id filed_copy_state")),
+        selector=APP,
+        subject={"recipient": S("mail_derivatives")},
+        other=(
+            "id attempt_number template_key template_version message_id status sent_at application_id"
+            " pending_action_id attempt_series created_at protocol_phase_reached rendered_sha256 server_accepted_at"
+            " smtp_reply_code approved_message_id filed_copy_state"
+        ),
+    ),
     "correspondence_question": Table(
         selector=APP,
-        subject={"text": S("mail_derivatives"), "text_key": S("mail_derivatives", EMPTY),
-                 "alternative_route": S("mail_derivatives"), "evidence_gap": S("mail_derivatives"),
-                 "withdrawn_reason": S("mail_derivatives")},
+        subject={
+            "text": S("mail_derivatives"),
+            "text_key": S("mail_derivatives", EMPTY),
+            "alternative_route": S("mail_derivatives"),
+            "evidence_gap": S("mail_derivatives"),
+            "withdrawn_reason": S("mail_derivatives"),
+        },
         staff="approved_by withdrawn_by raised_by",
-        other=("id public_id origin approval_state approved_at status withdrawn_at created_at updated_at application_id"
-               " criterion_id requires_evidence round")),
-    "correspondence_questionreplylink": Table(staff="actor_ref", other=(
-        "id state outcome created_at updated_at inbound_message_id question_id")),
+        other=(
+            "id public_id origin approval_state approved_at status withdrawn_at created_at updated_at application_id"
+            " criterion_id requires_evidence round"
+        ),
+    ),
+    "correspondence_questionreplylink": Table(
+        staff="actor_ref",
+        other=("id state outcome created_at updated_at inbound_message_id question_id"),
+    ),
     "correspondence_replyinterpretation": Table(
-        selector=APP, subject={"proposals": S("mail_derivatives", ARRAY)},
-        other=("id public_id attempt text_sha256 status code reserved_requests problems flags provenance started_at"
-               " finished_at application_id message_id")),
-    "correspondence_staffitem": Table(other=(  # dedupe_key: references such as inbound:<uuid>
-        "id public_id reason_code dedupe_key question_id pending_action_id status opened_at application_id"
-        " approved_message_id")),
+        selector=APP,
+        subject={"proposals": S("mail_derivatives", ARRAY)},
+        other=(
+            "id public_id attempt text_sha256 status code reserved_requests problems flags provenance started_at"
+            " finished_at application_id message_id"
+        ),
+    ),
+    "correspondence_staffitem": Table(
+        other=(  # dedupe_key: references such as inbound:<uuid>
+            "id public_id reason_code dedupe_key question_id pending_action_id status opened_at application_id"
+            " approved_message_id"
+        )
+    ),
     "correspondence_staffitemresolution": Table(
         selector="item_id IN (SELECT s.id FROM public.correspondence_staffitem s WHERE s.application_id = ANY(v_apps))",
-        subject={"note": S("staff_notes")}, staff="resolved_by", other="id resolution_code resolved_at effects item_id"),
+        subject={"note": S("staff_notes")},
+        staff="resolved_by",
+        other="id resolution_code resolved_at effects item_id",
+    ),
     "correspondence_staffmessagedraft": Table(
         selector=APP,
-        subject={"subject": S("mail_derivatives"), "body": S("mail_derivatives"), "recipient": S("mail_derivatives")},
-        staff="author", other="id public_id content_sha256 created_at application_id"),
+        subject={
+            "subject": S("mail_derivatives"),
+            "body": S("mail_derivatives"),
+            "recipient": S("mail_derivatives"),
+        },
+        staff="author",
+        other="id public_id content_sha256 created_at application_id",
+    ),
     # --- erasure (this app) ----------------------------------------------------------------------------------------
-    "erasure_erasureaudit": Table(other="id at actor subject_ref authority reason_code classes created_txid"),
+    "erasure_erasureaudit": Table(
+        other="id at actor subject_ref authority reason_code classes created_txid"
+    ),
     # --- two-factor devices (staff credentials) -------------------------------------------------------------------
-    "otp_static_staticdevice": Table(other=(
-        "id name confirmed user_id throttling_failure_count throttling_failure_timestamp created_at last_used_at")),
+    "otp_static_staticdevice": Table(
+        other=(
+            "id name confirmed user_id throttling_failure_count throttling_failure_timestamp created_at last_used_at"
+        )
+    ),
     "otp_static_statictoken": Table(secret="token", other="id device_id"),
-    "otp_totp_totpdevice": Table(secret="key", other=(
-        "id name confirmed step t0 digits tolerance drift last_t user_id throttling_failure_count"
-        " throttling_failure_timestamp created_at last_used_at")),
+    "otp_totp_totpdevice": Table(
+        secret="key",
+        other=(
+            "id name confirmed step t0 digits tolerance drift last_t user_id throttling_failure_count"
+            " throttling_failure_timestamp created_at last_used_at"
+        ),
+    ),
     # --- the first-generation import (bgl.16, 035): provenance; the record's data is the person's history ----------
-    "firstgen_importedcase": Table(other=(  # identifiers, verbatim states, CRM references, finding codes, times
-        "id v1_case_id reference v1_state v1_resume_state v1_cohort v1_created_at v1_state_changed_at mapped_stage"
-        " crm_person_id crm_note_id findings run_ref imported_at application_id")),
+    "firstgen_importedcase": Table(
+        other=(  # identifiers, verbatim states, CRM references, finding codes, times
+            "id v1_case_id reference v1_state v1_resume_state v1_cohort v1_created_at v1_state_changed_at mapped_stage"
+            " crm_person_id crm_note_id findings run_ref imported_at application_id"
+        )
+    ),
     "firstgen_importedrecord": Table(
-        selector=APP, subject={"data": S("history_events", OBJECT)},  # a row without an application holds nothing personal
-        other="id v1_table v1_id kind occurred_at message_id target run_ref imported_at application_id"),
-    "firstgen_importrun": Table(staff="actor_ref", other="id public_id source_ref report recorded_at"),  # counts and codes
+        selector=APP,
+        subject={
+            "data": S("history_events", OBJECT)
+        },  # a row without an application holds nothing personal
+        other="id v1_table v1_id kind occurred_at message_id target run_ref imported_at application_id",
+    ),
+    "firstgen_importrun": Table(
+        staff="actor_ref", other="id public_id source_ref report recorded_at"
+    ),  # counts and codes
     # --- provisioning --------------------------------------------------------------------------------------------
     "provisioning_accessrevocation": Table(
-        selector=REQUEST, subject={"note": S("staff_notes")}, staff="decided_by",
-        other="id public_id kind state created_at updated_at request_id"),
+        selector=REQUEST,
+        subject={"note": S("staff_notes")},
+        staff="decided_by",
+        other="id public_id kind state created_at updated_at request_id",
+    ),
     "provisioning_addressreservation": Table(
-        selector=APP, subject={"local_part": S("provisioning_records", LOCAL_PART, "public_id")},
-        staff="reviewed_by released_by", other="id public_id domain basis released_at created_at application_id"),
+        selector=APP,
+        subject={"local_part": S("provisioning_records", LOCAL_PART, "public_id")},
+        staff="reviewed_by released_by",
+        other="id public_id domain basis released_at created_at application_id",
+    ),
     "provisioning_credentialsetup": Table(
-        selector=REQUEST, subject={"recipient": S("provisioning_records")}, secret="token_sha256",
-        other="id public_id series mode state expires_at set_attempts set_started_at completed_at created_at updated_at request_id"),
-    "provisioning_provisioningattempt": Table(other=(
-        "id public_id step series outcome code absent_before started_at finished_at request_id")),
+        selector=REQUEST,
+        subject={"recipient": S("provisioning_records")},
+        secret="token_sha256",
+        other="id public_id series mode state expires_at set_attempts set_started_at completed_at created_at updated_at request_id",
+    ),
+    "provisioning_provisioningattempt": Table(
+        other=(
+            "id public_id step series outcome code absent_before started_at finished_at request_id"
+        )
+    ),
     "provisioning_provisioningevidence": Table(
-        selector=REQUEST, subject={"facts": S("provisioning_records", OBJECT), "note": S("staff_notes")},
-        staff="actor_ref", other="id kind created_at request_id"),
-    "provisioning_provisioningrequest": Table(staff="approved_by", other=(
-        "id public_id method quota_mb send_limit prerequisite_digest approval_digest status approved_at"
-        " stop_requested_at created_at updated_at application_id reservation_id superseded_by_id")),
+        selector=REQUEST,
+        subject={"facts": S("provisioning_records", OBJECT), "note": S("staff_notes")},
+        staff="actor_ref",
+        other="id kind created_at request_id",
+    ),
+    "provisioning_provisioningrequest": Table(
+        staff="approved_by",
+        other=(
+            "id public_id method quota_mb send_limit prerequisite_digest approval_digest status approved_at"
+            " stop_requested_at created_at updated_at application_id reservation_id superseded_by_id"
+        ),
+    ),
     "provisioning_withdrawalconfirmation": Table(
-        selector=APP, subject={"recipient": S("provisioning_records")}, secret="token_sha256", staff="requested_by",
-        other="id public_id state expires_at created_at updated_at application_id"),
+        selector=APP,
+        subject={"recipient": S("provisioning_records")},
+        secret="token_sha256",
+        staff="requested_by",
+        other="id public_id state expires_at created_at updated_at application_id",
+    ),
     # --- workflow ------------------------------------------------------------------------------------------------
     "workflow_automationpause": Table(
         # Erasure anonymizes a pause and never deletes it: a restriction kept is safe, one lifted is not.
         selector="subject_type = 'application' AND subject_id = ANY(v_refs)",
-        subject={"reason": S("pauses")}, staff="actor_ref", other="id subject_type subject_id created_at"),
+        subject={"reason": S("pauses")},
+        staff="actor_ref",
+        other="id subject_type subject_id created_at",
+    ),
     "workflow_pendingaction": Table(
         selector="subject_type = 'application' AND subject_id = ANY(v_refs)",
         subject={"last_error": S("jobs")},
-        other=("id kind subject_type subject_id input_ref idempotency_key status due_at attempts max_attempts lease_token"
-               " lease_expires_at created_at updated_at completed_at")),
+        other=(
+            "id kind subject_type subject_id input_ref idempotency_key status due_at attempts max_attempts lease_token"
+            " lease_expires_at created_at updated_at completed_at"
+        ),
+    ),
 }
 
 # The trigger functions that refuse an update of a subject column and so carry the erasure branch (injected after
@@ -310,15 +543,26 @@ TABLES = {
 # absent: it stays a plain refusal for the adoption record and every no-truncate trigger.
 GUARDED_FUNCTIONS = (
     "catalyst_history_append_only",  # versions, events, evidence captures, decisions, provider observations
-    "catalyst_approved_message_frozen", "catalyst_inbound_provenance_frozen", "catalyst_outbound_identity_frozen",
-    "catalyst_invitation_fixed", "catalyst_member_on_file_fixed", "catalyst_agreement_details_frozen",
-    "catalyst_credential_setup_fixed", "catalyst_withdrawal_confirmation_fixed", "catalyst_access_revocation_fixed",
-    "catalyst_provisioning_reservation_fixed", "catalyst_run_result_once", "catalyst_interpretation_result_once",
+    "catalyst_approved_message_frozen",
+    "catalyst_inbound_provenance_frozen",
+    "catalyst_outbound_identity_frozen",
+    "catalyst_invitation_fixed",
+    "catalyst_member_on_file_fixed",
+    "catalyst_agreement_details_frozen",
+    "catalyst_credential_setup_fixed",
+    "catalyst_withdrawal_confirmation_fixed",
+    "catalyst_access_revocation_fixed",
+    "catalyst_provisioning_reservation_fixed",
+    "catalyst_run_result_once",
+    "catalyst_interpretation_result_once",
     "catalyst_pause_fixed",
     # Every other UPDATE trigger on a table with subject columns carries the branch too (PR #99 review: the coverage
     # test is derived from pg_trigger, not this list), so no trigger added there can refuse the audited path unseen.
-    "catalyst_fetcher_applications_application_update", "catalyst_fetcher_assessments_evidenceitem_update",
-    "catalyst_fetcher_workflow_pendingaction_update", "catalyst_decided_stage_needs_decision", "catalyst_restore_hold_fixed",
+    "catalyst_fetcher_applications_application_update",
+    "catalyst_fetcher_assessments_evidenceitem_update",
+    "catalyst_fetcher_workflow_pendingaction_update",
+    "catalyst_decided_stage_needs_decision",
+    "catalyst_restore_hold_fixed",
 )
 # Row triggers that used the strict refusal on a table with subject columns: they move to
 # catalyst_erasable_append_only (the same refusal, with the branch). The adoption record keeps the strict function.
@@ -337,19 +581,28 @@ def branch(retention_literal: str) -> str:
     """The one branch each guarded trigger function gains, right after its first BEGIN. The membership test comes
     first, in its own IF, so a session of any other role (the application role updating a disposition, a status or a
     use) never calls the checker, which only the owner may execute."""
-    return (f"\n          {BRANCH_BEGIN}\n"
-            f"          IF TG_OP = 'UPDATE' AND pg_catalog.pg_has_role(session_user, {retention_literal}, 'MEMBER') THEN\n"
-            "            IF public.catalyst_erasure_admits(TG_TABLE_NAME, pg_catalog.to_jsonb(OLD), pg_catalog.to_jsonb(NEW)) THEN\n"
-            "              RETURN NEW;\n"
-            "            END IF;\n"
-            "          END IF;\n"
-            f"          {BRANCH_END}")
+    return (
+        f"\n          {BRANCH_BEGIN}\n"
+        f"          IF TG_OP = 'UPDATE' AND pg_catalog.pg_has_role(session_user, {retention_literal}, 'MEMBER') THEN\n"
+        "            IF public.catalyst_erasure_admits(TG_TABLE_NAME, pg_catalog.to_jsonb(OLD), pg_catalog.to_jsonb(NEW)) THEN\n"
+        "              RETURN NEW;\n"
+        "            END IF;\n"
+        "          END IF;\n"
+        f"          {BRANCH_END}"
+    )
 
 
 # Refusals the erase function raises, by SQLSTATE (class CE, Catalyst erasure), mapped to codes by erasure.service.
-REFUSALS = {"CE001": "nothing_to_erase", "CE002": "unknown_subject", "CE003": "subject_open",
-            "CE004": "subject_has_open_work", "CE005": "revocation_not_final", "CE006": "malformed_request",
-            "CE007": "not_the_retention_role", "CE008": "no_restore_hold"}
+REFUSALS = {
+    "CE001": "nothing_to_erase",
+    "CE002": "unknown_subject",
+    "CE003": "subject_open",
+    "CE004": "subject_has_open_work",
+    "CE005": "revocation_not_final",
+    "CE006": "malformed_request",
+    "CE007": "not_the_retention_role",
+    "CE008": "no_restore_hold",
+}
 # config.backup.RESTORE_HOLD, the row a restore writes (tests pin that the two agree): the replay variant of the erase
 # function (9kg.25) runs only while it is present, so it can never skip the refusals on a database in service.
 RESTORE_HOLD_ROW = ("system", "00000000-0000-0000-0000-00000000aaaa")
@@ -357,7 +610,10 @@ RESTORE_HOLD_ROW = ("system", "00000000-0000-0000-0000-00000000aaaa")
 
 def subject_columns(table=None):
     """{table: {column: Subject}} for every table with subject columns (or one table's)."""
-    out = {t: {c: s for c, s in spec.columns().items() if isinstance(s, Subject)} for t, spec in TABLES.items()}
+    out = {
+        t: {c: s for c, s in spec.columns().items() if isinstance(s, Subject)}
+        for t, spec in TABLES.items()
+    }
     out = {t: cols for t, cols in out.items() if cols}
     return out if table is None else out.get(table, {})
 
@@ -367,6 +623,7 @@ def classes_in_map() -> set:
 
 
 # --- SQL generation ------------------------------------------------------------------------------------------------
+
 
 def _q(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
@@ -378,10 +635,12 @@ def _lit(value: str) -> str:
 
 def _notes(expr: str) -> str:
     """The `notes` tombstone over a jsonb expression."""
-    return (f"(CASE WHEN pg_catalog.jsonb_typeof({expr}) = 'object' THEN (SELECT coalesce(pg_catalog.jsonb_object_agg("
-            f"e.key, CASE WHEN pg_catalog.jsonb_typeof(e.value) = 'object' AND e.value ? 'note'"
-            f" THEN e.value || '{{\"note\": \"{ERASED}\"}}'::jsonb ELSE e.value END), '{{}}'::jsonb)"
-            f" FROM pg_catalog.jsonb_each({expr}) e) ELSE '{{}}'::jsonb END)")
+    return (
+        f"(CASE WHEN pg_catalog.jsonb_typeof({expr}) = 'object' THEN (SELECT coalesce(pg_catalog.jsonb_object_agg("
+        f"e.key, CASE WHEN pg_catalog.jsonb_typeof(e.value) = 'object' AND e.value ? 'note'"
+        f" THEN e.value || '{{\"note\": \"{ERASED}\"}}'::jsonb ELSE e.value END), '{{}}'::jsonb)"
+        f" FROM pg_catalog.jsonb_each({expr}) e) ELSE '{{}}'::jsonb END)"
+    )
 
 
 def set_expression(column: str, subject: Subject) -> str:
@@ -428,15 +687,25 @@ def checker_body(existing: dict) -> str:
     every changed column set to its tombstone."""
     whens = []
     for table, columns in subject_columns().items():
-        columns = {c: s for c, s in _present(existing, table, columns).items() if s.tombstone != DELETE}
+        columns = {
+            c: s
+            for c, s in _present(existing, table, columns).items()
+            if s.tombstone != DELETE
+        }
         if not columns:
             continue
         names = "ARRAY[" + ", ".join(_lit(c) for c in sorted(columns)) + "]::text[]"
         parts = [f"(p_old - {names}) = (p_new - {names})"]
         for column, subject in sorted(columns.items()):
-            parts.append(f"(p_new -> {_lit(column)} = p_old -> {_lit(column)}"
-                         f" OR p_new -> {_lit(column)} = {check_expression(column, subject)})")
-        whens.append(f"    WHEN {_lit(table)} THEN\n      RETURN " + "\n         AND ".join(parts) + ";")
+            parts.append(
+                f"(p_new -> {_lit(column)} = p_old -> {_lit(column)}"
+                f" OR p_new -> {_lit(column)} = {check_expression(column, subject)})"
+            )
+        whens.append(
+            f"    WHEN {_lit(table)} THEN\n      RETURN "
+            + "\n         AND ".join(parts)
+            + ";"
+        )
     return "\n".join(whens)
 
 
@@ -452,18 +721,31 @@ def update_statements(existing: dict) -> list[tuple[str, str, str]]:
             by_class.setdefault(subject.cls, {})[column] = subject
         for cls, cols in by_class.items():
             if any(s.tombstone == DELETE for s in cols.values()):
-                out.append((cls, table, f"DELETE FROM public.{_q(table)} WHERE {spec.selector}"))
+                out.append(
+                    (
+                        cls,
+                        table,
+                        f"DELETE FROM public.{_q(table)} WHERE {spec.selector}",
+                    )
+                )
                 continue
             names = sorted(cols)
             targets = ", ".join(_q(c) for c in names)
             values = ", ".join(set_expression(c, cols[c]) for c in names)
             sets = ", ".join(f"{_q(c)} = {set_expression(c, cols[c])}" for c in names)
-            out.append((cls, table, f"UPDATE public.{_q(table)} SET {sets} WHERE ({spec.selector})"
-                                    f" AND ROW({targets}) IS DISTINCT FROM ROW({values})"))
+            out.append(
+                (
+                    cls,
+                    table,
+                    f"UPDATE public.{_q(table)} SET {sets} WHERE ({spec.selector})"
+                    f" AND ROW({targets}) IS DISTINCT FROM ROW({values})",
+                )
+            )
     return out
 
 
 # --- the functions migration erasure.0002 installs -------------------------------------------------------------------
+
 
 def checker_sql(retention_literal: str, existing: dict) -> str:
     return f"""CREATE OR REPLACE FUNCTION public.catalyst_erasure_admits(p_table text, p_old jsonb, p_new jsonb)
@@ -492,12 +774,25 @@ LANGUAGE plpgsql SET search_path = public, pg_temp AS $fn$
 
 
 def _tally(table: str) -> str:
-    return (f"      GET DIAGNOSTICS v_n = ROW_COUNT;\n"
-            f"      IF v_n > 0 THEN\n"
-            f"        v_total := v_total + v_n;\n"
-            f"        v_tables := v_tables || pg_catalog.jsonb_build_object({_lit(table)},"
-            f" coalesce((v_tables ->> {_lit(table)})::bigint, 0) + v_n);\n"
-            f"      END IF;")
+    return (
+        f"      GET DIAGNOSTICS v_n = ROW_COUNT;\n"
+        f"      IF v_n > 0 THEN\n"
+        f"        v_total := v_total + v_n;\n"
+        f"        v_tables := v_tables || pg_catalog.jsonb_build_object({_lit(table)},"
+        f" coalesce((v_tables ->> {_lit(table)})::bigint, 0) + v_n);\n"
+        f"      END IF;"
+    )
+
+
+REPLAY_ORPHAN_KEY = """  -- 9kg.71: a verified address may find restored orphan mail beside an already erased identity.
+  IF v_tombstoned AND p_key IS NOT NULL THEN
+    IF pg_catalog.strpos(p_key, '@') = 0 THEN
+      RAISE EXCEPTION 'erasure: malformed request' USING ERRCODE = 'CE006';
+    END IF;
+    v_key := p_key;
+    v_tombstoned := false;
+  END IF;
+"""
 
 
 def erase_sql(retention_literal: str, existing: dict, replay: bool = False) -> str:
@@ -525,14 +820,19 @@ def erase_sql(retention_literal: str, existing: dict, replay: bool = False) -> s
     known = ", ".join(_lit(c) for c in sorted(classes_in_map()))
     blocks = []
     for cls, table, statement in update_statements(existing):
-        blocks.append(f"    IF {_lit(cls)} = ANY(p_classes) THEN\n      {statement};\n{_tally(table)}\n    END IF;")
+        blocks.append(
+            f"    IF {_lit(cls)} = ANY(p_classes) THEN\n      {statement};\n{_tally(table)}\n    END IF;"
+        )
     updates = "\n".join(blocks)
     held = f"""  IF NOT EXISTS (SELECT 1 FROM public.workflow_automationpause h WHERE h.subject_type = {_lit(RESTORE_HOLD_ROW[0])}
                  AND h.subject_id = {_lit(RESTORE_HOLD_ROW[1])}::uuid) THEN
     RAISE EXCEPTION 'erasure: replay runs only on a database under the restore hold' USING ERRCODE = 'CE008';
   END IF;
 """
-    gates = "" if replay else f"""  IF EXISTS (SELECT 1 FROM public.applications_application a WHERE a.id = ANY(v_apps) AND a.stage NOT IN ({terminal})) THEN
+    gates = (
+        ""
+        if replay
+        else f"""  IF EXISTS (SELECT 1 FROM public.applications_application a WHERE a.id = ANY(v_apps) AND a.stage NOT IN ({terminal})) THEN
     RAISE EXCEPTION 'erasure: the subject has an open application' USING ERRCODE = 'CE003';
   END IF;
   IF EXISTS (SELECT 1 FROM public.workflow_pendingaction p WHERE p.subject_type = 'application'
@@ -545,26 +845,40 @@ def erase_sql(retention_literal: str, existing: dict, replay: bool = False) -> s
     RAISE EXCEPTION 'erasure: an access revocation is not final' USING ERRCODE = 'CE005';
   END IF;
 """
+    )
     # bgl.14: the person and the applicant file note at Twenty, once the schema has the link table (erasure 0006). The
     # parity integration adds the person and note the first generation wrote for an imported case (bgl.16): they are at
     # Twenty whether or not v2 ever projected the case, so the owner deletes them too.
     owed = []
     if "crm_twentylink" in existing:
-        owed.append("EXISTS (SELECT 1 FROM public.crm_twentylink t WHERE t.application_id = ANY(v_apps)"
-                    " AND (t.person_id <> '' OR t.note_id <> ''))")
+        owed.append(
+            "EXISTS (SELECT 1 FROM public.crm_twentylink t WHERE t.application_id = ANY(v_apps)"
+            " AND (t.person_id <> '' OR t.note_id <> ''))"
+        )
     if "crm_twentylink" in existing and "firstgen_importedcase" in existing:
-        owed.append("EXISTS (SELECT 1 FROM public.firstgen_importedcase f WHERE f.application_id = ANY(v_apps)"
-                    " AND (f.crm_person_id <> '' OR f.crm_note_id <> ''))")
-    twenty = ("" if not owed else
-              f"  IF {' OR '.join(owed)} THEN\n"
-              "    v_handoffs := v_handoffs || 'twenty'::text;\n  END IF;\n")
-    unknown = "      RAISE EXCEPTION 'erasure: unknown subject' USING ERRCODE = 'CE002';\n"
+        owed.append(
+            "EXISTS (SELECT 1 FROM public.firstgen_importedcase f WHERE f.application_id = ANY(v_apps)"
+            " AND (f.crm_person_id <> '' OR f.crm_note_id <> ''))"
+        )
+    twenty = (
+        ""
+        if not owed
+        else f"  IF {' OR '.join(owed)} THEN\n"
+        "    v_handoffs := v_handoffs || 'twenty'::text;\n  END IF;\n"
+    )
+    unknown = (
+        "      RAISE EXCEPTION 'erasure: unknown subject' USING ERRCODE = 'CE002';\n"
+    )
     if replay:  # data review of PR #103, finding 1: a key the backup holds only on rows outside an application or invitation
-        unknown = ("      IF p_key IS NULL OR pg_catalog.strpos(p_key, '@') = 0 THEN\n"
-                   "        RAISE EXCEPTION 'erasure: unknown subject' USING ERRCODE = 'CE002';\n"
-                   "      END IF;\n"
-                   "      v_key := p_key;\n")
-    signature = "p_classes text[], p_key text DEFAULT NULL)" if replay else "p_classes text[])"
+        unknown = (
+            "      IF p_key IS NULL OR pg_catalog.strpos(p_key, '@') = 0 THEN\n"
+            "        RAISE EXCEPTION 'erasure: unknown subject' USING ERRCODE = 'CE002';\n"
+            "      END IF;\n"
+            "      v_key := p_key;\n"
+        )
+    signature = (
+        "p_classes text[], p_key text DEFAULT NULL)" if replay else "p_classes text[])"
+    )
     return f"""CREATE OR REPLACE FUNCTION public.{"catalyst_erase_replay" if replay else "catalyst_erase"}(p_subject uuid, p_authority text, p_reason text,
                                                  {signature}
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
@@ -599,7 +913,7 @@ BEGIN
   -- subject is scoped by its own references and the key-selected rows are skipped (v_key NULL matches nothing); the
   -- other classes still run, so a class or a step added later (9kg.34) reaches an already-erased subject.
   v_tombstoned := v_key LIKE 'erased:%' AND pg_catalog.strpos(v_key, '@') = 0;
-  IF v_tombstoned THEN
+{REPLAY_ORPHAN_KEY if replay else ""}  IF v_tombstoned THEN
     v_key := NULL;
     SELECT coalesce(pg_catalog.array_agg(s.id ORDER BY s.id), ARRAY[]::bigint[]),
            coalesce(pg_catalog.array_agg(s.public_ref ORDER BY s.id), ARRAY[]::uuid[])
@@ -678,7 +992,9 @@ CUSTODY_BEGIN, CUSTODY_END = "/*catalyst-custody{*/", "/*}catalyst-custody*/"
 # Data review of PR #102, K4: a class the command adds to the call (never anonymized, no column) so the erasure audit row
 # written on a first erasure under `destroy_key` says the subject's custody keys are destroyed outside the database.
 CUSTODY_AUDIT_CLASS = "custody_keys_destroyed"
-CUSTODY_PATTERN = re.compile(re.escape(CUSTODY_BEGIN) + r".*?" + re.escape(CUSTODY_END), re.DOTALL)
+CUSTODY_PATTERN = re.compile(
+    re.escape(CUSTODY_BEGIN) + r".*?" + re.escape(CUSTODY_END), re.DOTALL
+)
 
 
 def without_custody(definition: str) -> str:
@@ -704,10 +1020,16 @@ def with_branch(definition: str, retention_literal: str) -> str:
     found = re.compile(r"\bBEGIN\b", re.IGNORECASE).search(definition, start)
     if found is None or BRANCH_BEGIN in definition:
         raise ValueError("the function cannot take the erasure branch")
-    return definition[:found.end()] + branch(retention_literal) + definition[found.end():]
+    return (
+        definition[: found.end()]
+        + branch(retention_literal)
+        + definition[found.end() :]
+    )
 
 
-BRANCH_PATTERN = re.compile(r"\n[ \t]*" + re.escape(BRANCH_BEGIN) + r".*?" + re.escape(BRANCH_END), re.DOTALL)
+BRANCH_PATTERN = re.compile(
+    r"\n[ \t]*" + re.escape(BRANCH_BEGIN) + r".*?" + re.escape(BRANCH_END), re.DOTALL
+)
 
 
 def without_branch(definition: str) -> str:

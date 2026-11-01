@@ -1738,6 +1738,13 @@ P6_SUPPORTING = {
         "test_erasure_lookup::test_9kg_72_an_invited_person_who_never_applied_is_named_by_reference_and_erased",
         "test_erasure_lookup::test_9kg_72_the_lookup_runs_only_as_the_retention_login_lists_applications_and_refuses_bad_input",
     ],
+    "9kg.71 replay recovers unmatched mail and refuses unresolved digest-only counters": [
+        "test_erasure_replay_orphans::test_9kg_71_real_restore_replays_unmatched_mail_and_its_counter",
+        "test_erasure_replay_orphans::test_9kg_71_retention_reads_only_sender_and_counter_key_and_cannot_write",
+        "test_erasure_replay_orphans::test_9kg_71_counter_only_restore_requires_a_matching_private_hint_before_any_write",
+        "test_erasure_replay_orphans::test_9kg_71_tombstoned_identity_does_not_hide_restored_orphan_mail",
+        "test_erasure_replay_orphans::test_9kg_71_command_reads_private_hints_from_stdin_without_echoing_them",
+    ],
     "9kg.25 the erasure record replayed after a restore before the review and the lift (029 section 6.2.1)": [
         "test_erasure::test_9kg_25_a_restore_hold_cannot_lift_while_the_journal_holds_an_unreplayed_erasure",
         "test_erasure_replay::test_9kg_25_only_the_retention_role_runs_the_replay_function_and_only_under_the_restore_hold",

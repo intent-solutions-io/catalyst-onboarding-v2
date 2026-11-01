@@ -14,6 +14,7 @@ one or whose erasure is still open, and the journal head. Never an address, a na
 replay finished, 1 when refused (the restore stays held)."""
 
 import json
+import sys
 
 import psycopg
 from django.conf import settings
@@ -24,27 +25,63 @@ from erasure import replay, service
 
 
 class Command(BaseCommand):
-    help = "Re-apply every recorded erasure to a restored database (retention role only)."
+    help = (
+        "Re-apply every recorded erasure to a restored database (retention role only)."
+    )
 
     def add_arguments(self, parser):
-        parser.add_argument("--expect-head", required=True, help="the head printed by the last erasure or handoff, or 'none'")
+        parser.add_argument(
+            "--expect-head",
+            required=True,
+            help="the head printed by the last erasure or handoff, or 'none'",
+        )
+        parser.add_argument(
+            "--recovery-addresses-stdin",
+            action="store_true",
+            help="read a private JSON object mapping public references to addresses from stdin",
+        )
 
     def refuse(self, code, detail=()):
-        self.stderr.write(f"erasure replay refused: {code}" + (f" ({', '.join(detail)})" if detail else ""))
+        self.stderr.write(
+            f"erasure replay refused: {code}"
+            + (f" ({', '.join(detail)})" if detail else "")
+        )
         raise SystemExit(1)
 
     def handle(self, *args, expect_head, **options):
         if runtime.process_kind() in runtime.ENFORCED_KINDS:
             self.refuse("not_a_management_process")
         if getattr(settings, "CATALYST_CUSTODY_WRAPPING_KEY", ""):
-            self.refuse("custody_wrapping_key_present")  # as for catalyst_erase: this process holds no custody key
+            self.refuse(
+                "custody_wrapping_key_present"
+            )  # as for catalyst_erase: this process holds no custody key
+        addresses = None
+        if options.get("recovery_addresses_stdin"):
+            try:
+                raw = sys.stdin.read(262145)
+                if len(raw) > 262144:
+                    self.refuse("replay_addresses_malformed")
+                addresses = json.loads(raw)
+                if not isinstance(addresses, dict):
+                    self.refuse("replay_addresses_malformed")
+            except ValueError, OSError:
+                self.refuse("replay_addresses_malformed")
         db = settings.DATABASES["default"]
         try:
-            with psycopg.connect(host=db["HOST"], port=db.get("PORT") or "5432", dbname=db["NAME"], user=db["USER"],
-                                 password=db["PASSWORD"]) as conn:
-                report = replay.replay(conn, expect_head)
+            with psycopg.connect(
+                host=db["HOST"],
+                port=db.get("PORT") or "5432",
+                dbname=db["NAME"],
+                user=db["USER"],
+                password=db["PASSWORD"],
+            ) as conn:
+                report = replay.replay(conn, expect_head, recovery_addresses=addresses)
         except service.Refused as exc:
             self.refuse(exc.code, exc.detail)
-        except psycopg.Error as exc:  # its detail can quote a row: only the class and the code
-            self.refuse(f"database_error {type(exc).__name__} {exc.sqlstate or ''}".rstrip())
+        except (
+            psycopg.Error
+        ) as exc:  # its detail can quote a row: only the class and the code
+            self.refuse(
+                f"database_error {type(exc).__name__} {exc.sqlstate or ''}".rstrip()
+            )
         self.stdout.write(json.dumps(report, sort_keys=True))
