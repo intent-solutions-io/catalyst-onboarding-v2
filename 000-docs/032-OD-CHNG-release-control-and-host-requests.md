@@ -254,6 +254,42 @@ path in section 1.3). What it does not change: the agent's login is still an adm
 guard against mistakes, not a boundary against the agent. Steps 3 to 8 are still open, and no deploy credential may
 exist until they are done.
 
+**2026-11-01: image scan added to the GitHub required checks (`9kg.36`).** A minimal update to ruleset
+`26135726` appended "Build and scan the image", bound to the GitHub Actions app (`15368`). Exact readback of
+all writable fields and the effective rules on `main` passed: the other two check names, strict up-to-date policy,
+all other rule parameters, active enforcement and empty bypass list are unchanged. No environment, deployment,
+runner or scan-threshold setting changed. Fixable high and critical findings retain the existing failure policy;
+docs-only changes retain the unfiltered image workflow.
+
+The matching explicit merge-guard floor merged in [Intent OS PR #889](https://github.com/intent-solutions-io/intent-os/pull/889),
+commit `311a2397`. Local `pnpm check` passed, including 40 hermetic guard tests and four planted guard faults;
+the required hosted gates, Docker drills and secret scan also passed. The real guard with that policy refuses
+missing, pending and failed scans and accepts a successful scan with the other checks green. The dev-box installer
+ran from the clean merged commit; both installed files match it byte-for-byte. The executable is unchanged and
+only Catalyst's required-check entry differs from the previous dev-box policy.
+
+The watchdog on `intentsolutions` was installed from the same reviewed main archive at 13:07 UTC; the official
+installer's 37-repository credential probe passed and the timer is enabled/active. Installed policy SHA-256 is
+`f412f0029720602e39d2675e532a4c71b6b62fccae46d410cc56911e633bbf06`, identical to the dev-box policy.
+The executable files are unchanged. The canonical policy also includes seven previously merged repository
+registrations (37 total); a prior no-dispatch scan of 35 recent merges found no violations or repository-read
+errors. Neither preflight dispatched a message. The previous files and units are retained for rollback. An initial
+wrapper preflight refused a truncated expected checksum before creating the operation directory or changing the
+timer/files; after correcting the checksum from source, installation and final byte/timer readback passed.
+The archive's reviewed commit and digest are recorded in the installed provenance file; `git archive` itself has
+no Git metadata. This is policy installation evidence, not a claim that the next scheduled watchdog run occurred.
+
+Real refusal and reporting evidence, [draft PR #185](https://github.com/intent-solutions-io/catalyst-onboarding-v2/pull/185),
+**closed unmerged**:
+
+| Probe | Exact candidate and result |
+|---|---|
+| P7: known fixable finding | Head `6ddd900`; [Image run 41308293216](https://github.com/intent-solutions-io/catalyst-onboarding-v2/actions/runs/41308293216) failed on the actual scan. It identified hash-pinned PyJWT 2.3.0, fixed 2.4.0, `GHSA-ffqj-6fqr-9h24`, High. At 12:52:19 UTC, `safe-merge --dry-run` returned 1 with an explicit failed-image reason. Draft status and pending runtime checks were additional reasons. No actual merge was attempted. |
+| P8: docs-only reports every check | Head `24d3f03`; Dockerfile restored byte-for-byte to main `a913212`; net PR diff was only document 032. Image run `41308581064` passed, and [CI run 41308581057](https://github.com/intent-solutions-io/catalyst-onboarding-v2/actions/runs/41308581057) passed docs and runtime (2,505 tests exactly once, 319 acceptance groups). All three required checks reported success. |
+
+The planted package was absent from P8 and never reached main, an attested image or a deployment. These probes
+do not complete the separate disposable-repository equivalence and refusal work in `9kg.35`.
+
 2026-10-27, read-only with `gh api` by the main session (nothing applied, nothing probed):
 
 | Read | Result |
