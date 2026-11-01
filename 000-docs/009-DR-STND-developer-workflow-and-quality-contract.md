@@ -366,6 +366,16 @@ that state per module, or building it directly instead of through the journey, i
 reach; it changes test set-up across many modules and is a separate bead for the owner to schedule. The 5-minute
 target stays unmet; only sharding (P12) brings the required check near it without dropping a test.
 
+**Focused fixture change, 2026-11-01 (9kg.65).** The provisioning-screen module's eight next-action label cases
+replayed intake, assessment, both agreements and release merely to inspect a stage and request fields. They now
+construct that application state directly and retain the real database pause lookup. All parameter cases and
+assertions remain; rendered-screen, permission and consequential-action tests still use the full journey.
+An AST comparison confirmed that only this test's setup/signature changed semantically; other edits in the test
+file are the changed-file Ruff formatting required by the owner's acceleration instruction.
+Two focused local runs of the same 40 cases passed: **100.75 s before, 72.72 s after** (28.03 s, about 28% less).
+This is pytest time, excluding container/dependency preparation, and is not a hosted-CI saving claim. Full-suite
+CI and further fixture work remain necessary; no test was removed or made conditional.
+
 **Lanes in CI today:**
 
 - on every pull request, four isolated full-collection test shards feed the required runtime aggregate; the required
