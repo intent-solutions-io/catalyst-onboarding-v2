@@ -2179,6 +2179,18 @@ P6_SUPPORTING = {
         "test_reference_receipt::test_bgl_5_the_receipt_handler_is_registered_redeliverable_and_reviewed_after_a_restore",
         "test_reference_receipt::test_bgl_5_the_request_page_answers_the_same_with_the_receipt_on",
     ],
+    "bgl.23 release-pending imports enter native provisioning once after reviewed handover": [
+        "test_legacy_release::test_missing_source_agreements_cannot_be_replaced_by_a_member_reference",
+        "test_legacy_release::test_legacy_release_refuses_uncertain_source_delivery",
+        "test_legacy_release::test_legacy_release_handoff_is_held_once_and_keeps_native_owner_approval",
+        "test_legacy_release::test_legacy_release_automatic_mode_waits_for_resume_then_creates_once",
+        "test_legacy_release::test_legacy_release_requires_authority_attestations_and_current_member_reference",
+        "test_legacy_release::test_legacy_release_refuses_a_later_source_agreement_state",
+        "test_legacy_release::test_legacy_release_refuses_source_release_or_mailbox_effects",
+        "test_legacy_release::test_legacy_release_rechecks_source_after_the_fresh_read",
+        "test_legacy_release::test_legacy_release_refuses_native_work_and_a_reused_handoff_key",
+        "test_legacy_release::test_legacy_release_form_requires_post_csrf_and_case_scope",
+    ],
     "bgl.23 imported mailbox ownership precedes native access revocation": [
         "test_legacy_mailboxes::test_imported_mailbox_closure_cannot_claim_access_removal_before_ownership_review",
         "test_legacy_mailboxes::test_reviewed_existing_mailbox_closes_through_native_revocation_without_recreation",

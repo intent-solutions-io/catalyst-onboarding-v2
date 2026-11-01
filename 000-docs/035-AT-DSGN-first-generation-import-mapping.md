@@ -246,8 +246,8 @@ history: the person with decision authority must make the qualification decision
 After the separate reviewed resume, a human-only decision can use the existing rationale, snapshot, authority and
 transaction guards and create the normal held NDA handoff. This is a functioning path for the reviewed pre-signing
 case, not evidence that every imported state is ready. Section 10 handles existing signing envelopes. Completed
-references and provisioning still need their own continuation and reconciliation. Section 12 covers explicit
-ownership of already-created mailboxes and native access revocation; live ownership transfer remains unverified.
+Section 12 covers explicit ownership of already-created mailboxes and native access revocation; section 13
+covers release-pending cases. Uncertain provisioning effects and live ownership transfer remain unverified.
 
 ## 10. Existing signing envelopes: explicit adoption (bgl.23)
 
@@ -340,3 +340,33 @@ the native unsupported/pending obligations and require their documented owner de
 this handover does not claim those obligations are complete. Duplicate confirmation records
 no second ownership receipt. Source freeze, live account reconciliation and rollback remain
 cutover requirements; synthetic tests do not establish that v1 has been retired.
+
+## 13. Release-pending handover (bgl.23)
+
+A source `release_pending` case imports as `agreements_complete` without replaying its release
+job. The legacy-history screen can now prepare exactly one native held `provision` handoff.
+The operator needs the section 9 review authority and `approve_provisioning`, must attest that
+the source writer and release jobs have stopped, verify the agreement completion evidence and
+historical references, and confirm that no release or mailbox creation already occurred.
+
+The form digest binds current imported history, contact, adopted submission, pause and native
+agreement prerequisites, including the exact live member-on-file record. The case must retain
+its reviewed import pause. Latest agreement snapshots must still show a release-pending case
+and completed agreements; missing history, uncertain signing delivery, later source states,
+existing release/mailbox records, unresolved identity or safety items and native work refuse
+handover. A correction of the member reference invalidates the form. The service rechecks all
+of this under the application lock after the normal fresh-read gate for any native instances.
+
+Completed historical references remain references under the existing member-on-file policy;
+they are not new signatures or provider-verified native instances. The handover creates no
+mailbox or new agreement, sends nothing and leaves the stage and pause intact. It records the
+reviewer and evidence and creates one held action with the native prerequisite digest. In
+owner mode the existing release command and exact-mailbox approval remain necessary. If the
+already-configured mode is automatic, the existing automatic release is queued and refuses
+the pause until a separate reviewed resume. Its normal release, approval, create and verify
+steps then apply. Repeated handover cannot create another action, and an old native action
+key cannot be silently reused.
+
+A v1 release or mailbox record makes this a reconciliation case instead. Approved-but-uncertain
+mailbox creation, welcome-delivery reconciliation, live provider checks and the cutover/rollback
+rehearsal remain separate requirements. This path does not authorize a production source stop.
