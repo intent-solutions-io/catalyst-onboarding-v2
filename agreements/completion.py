@@ -1089,7 +1089,7 @@ class AdvanceAgreements:
                     actor_ref=actor,
                 )
                 return
-        version = approved_version(next_type.key)
+        version = approved_version(next_type.key, for_update=True)
         if version is None:
             open_item(
                 TEMPLATE_MISSING,

@@ -263,7 +263,7 @@ def history_response(request, public_ref, *, error="", note="", status=200):
                 kind=mailboxes.CONFIRMED
             ).order_by("-pk"),
             "historical_templates": AgreementTemplateVersion.objects.filter(
-                status="approved"
+                status__in=("approved", "retired")
             ).select_related("agreement_type"),
             "review_error": error,
             "review_note": note,

@@ -1,7 +1,7 @@
 {% extends "correspondence/staff/base.html" %}
 {% block content %}
 <h1>Agreement template versions</h1>
-<p>Approving a version attests the registered placeholder PDF digest and the version's frozen provider references (POL-07; P4-D-1); the digest posted is recomputed on the server over the whole registered tuple. Nothing here reads or compares the live provider template. An approved version is final and never edited. No agreement text is shown or stored here.</p>
+<p>Approving a version attests the registered placeholder PDF digest and the version's frozen provider references (POL-07; P4-D-1); the digest posted is recomputed on the server over the whole registered tuple. Nothing here reads or compares the live provider template. Approved content and its approval record are final and never edited. Replacing a version marks it retired. No agreement text is shown or stored here.</p>
 <table><tr><th>Type</th><th>Version</th><th>Status</th><th>Current for new agreements</th><th>Provider template</th><th>PDF SHA-256 (registered placeholder)</th><th>Approved</th><th></th></tr>
 {% for r in rows %}<tr><td>{{ r.version.agreement_type.key }}</td><td>{{ r.version.version }}</td><td>{{ r.version.status }}</td>
 <td>{% if r.current %}yes: new agreements of this type use it{% else %}no{% endif %}</td>
@@ -10,5 +10,5 @@
 <input type="hidden" name="digest" value="{{ r.digest }}"><button>Approve exactly this version</button></form>{% endif %}</td></tr>
 {% empty %}<tr><td colspan="8">No template versions.</td></tr>{% endfor %}
 </table>
-<p>Consequence: approving a newer version makes it current; agreements already created keep the version they were created with.</p>
+<p>Consequence: approving a newer version makes it the only current version and retires the previous version in the same transaction. Older drafts and retired versions cannot replace it. Existing agreements and verified legacy-envelope handovers keep their original template and approval.</p>
 {% endblock %}

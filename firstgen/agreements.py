@@ -122,7 +122,7 @@ def _state(application, record_id, version_id, expected_digest):
     ).first()
     version = (
         AgreementTemplateVersion.objects.select_related("agreement_type")
-        .filter(pk=version_id, status="approved")
+        .filter(pk=version_id, status__in=("approved", "retired"))
         .first()
     )
     if (
