@@ -128,22 +128,41 @@ or an off-site copy): after the old wrapping key is destroyed, no key opens the 
 restore lift; its source in the operator's encrypted secret store). It keys the subject hashes and the macs of the
 durable erasure record and of every custody-key destruction in the effect journal.
 
-- **Routine:** none. Do not rotate it on a schedule.
-- **Leak:** NOT SUPPORTED YET. Every entry is verified under the one current key, so after a rotation every older
-  entry reads as forged, and the erasure, the replay after a restore and key recovery all refuse. Bead `9kg.74` adds
-  verification under earlier keys and must land before this procedure exists. Until then, a suspected leak means: stop
-  the erase and restore services, keep the current key (rotating it would lock the record), and treat any journal
-  entry written after the suspected time as untrusted until reviewed.
-- **What users notice:** nothing.
+- **Routine:** no scheduled rotation. When an owner-authorized rotation is needed, use the procedure below
+  (tested with synthetic keys and an actual restore in `tests/test_erasure_key_history.py`, `9kg.74`).
+  1. Stop owner-run erasure, replay and custody commands. Verify the journal against the last independently kept
+     head with `catalyst_erasure_record --expect-head <head>` and retain that result privately.
+  2. Keep the current key and all earlier keys in the encrypted operator store. Put the retiring key, followed by
+     any earlier keys, in the owner-only secret file `erasure_previous_keys`, one key per line, without blank lines.
+     Put the new random key (at least 32 characters, distinct from other secret classes) in `erasure_key`.
+     Mount both files read-only in the command's `CATALYST_SECRETS_DIR`; never place them in web, worker or fetcher
+     secrets, backups, command arguments, receipts or logs. Historical keys alone also make web and workers refuse.
+  3. Run `catalyst_erasure_record --expect-head <head>` with the new files. It must verify the same history.
+     Do not resume if an old key is missing or any record fails verification. Do not edit, re-sign or truncate history
+     to make it pass. Resume an open intent through the ordinary authorized erasure command; its subject hash stays
+     bound to the original key, while the new completion is signed with the current key.
+  4. Use the same two files for replay, restore lift and custody-key recovery. Repeat the bounded recovery smoke and
+     retain its head and result. New intents, handoffs, custody destructions and replay markers use the current key.
+     A resumed intent or completion names its historical subject key in `key_id` and its current signer in
+     `mac_key_id`; new records otherwise use `key_id` for both. Legacy handoffs and custody destructions that omitted
+     an identifier are checked against the retained keys; a declared unknown identifier never falls back.
+  5. Retain every historical key while any retained journal entry or restorable backup needs it. The current journal
+     is not segmented or pruned, so expiry of one backup alone does not permit removing a key. After rotation, keep
+     recovery and rollback images that understand historical keys; an older single-key image cannot verify mixed
+     history. Deploying this capability does not itself rotate a production key or change command mounts.
+- **Leak:** first stop these commands and preserve the journal and independently recorded head for incident review.
+  A valid MAC under a compromised key cannot establish the authenticity of entries written after exposure. Resolve
+  that evidence boundary before following the procedure above; rotation does not make those entries trustworthy.
+  Retained keys are for historical verification, never the selected signer for new work.
+- **What users notice:** no applicant-facing key change; owner recovery operations stay held until verification passes.
 
 ## 3. Rules
 
-- **A leaked key is never a fallback.** `catalyst_close_links` refuses while the leaked key is the link key or any
+- **A leaked link-signing key is never a fallback.** `catalyst_close_links` refuses while the leaked key is the link key or any
   fallback key, so the leak procedure cannot be finished half-way or in the wrong order.
 - **One class at a time,** each with its own smoke and record, so a failure is attributable.
 - **Intervals:** the owner sets them (P6-D-15). Until then, rotate on a leak, on any staff departure, and before
-  the pilot's first real applicant. The erasure key is the exception: it is not rotated until `9kg.74` lets the record
-  be verified under earlier keys (its row above).
+  the pilot's first real applicant. The erasure key follows its separate, owner-authorized procedure above; it has no routine schedule.
 - **Not covered here:** the TLS certificates (the proxy's own, internal in staging), the host's SOPS key, two-factor
   devices (the owner's break-glass reset, 026 section 16, 6B.9), and a leak of the database itself. A database leak
   exposes the password-setup and withdrawal link hashes, and is an incident, not a rotation.

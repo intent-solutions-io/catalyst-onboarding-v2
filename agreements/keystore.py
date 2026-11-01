@@ -568,19 +568,14 @@ def destroyed_refs(
     With the erasure key, an entry whose `mac` does not verify is left out and its reference added to `forged`, as
     `erasure.record.fold` does (review of PR #102, F6); without it (the web and worker processes, which never hold that
     key) entries count unverified, which can only make a key refuse, never make one readable."""
-    import hmac
-
-    from erasure.record import entry_mac
+    from erasure.record import verifies
 
     out = set()
     for entry in entries:
         if entry.kind != DESTROYED:
             continue
         ref = entry.key.partition(":")[2]
-        if secret is not None and not hmac.compare_digest(
-            str(entry.data.get("mac", "")),
-            entry_mac(entry.kind, entry.key, entry.data, secret),
-        ):
+        if secret is not None and not verifies(entry, secret):
             if forged is not None:
                 forged.append(ref)
             continue
@@ -622,7 +617,7 @@ def destroy(subject_ref: str, refs) -> int:
     provisioned) and the journal, not the wrapping key."""
     from workflow import journal
 
-    from erasure.record import entry_mac
+    from erasure.record import entry_mac, key_id
 
     primary, mirror = directories()
     if not journal.configured():
@@ -640,7 +635,11 @@ def destroy(subject_ref: str, refs) -> int:
             _name(ref)
             key, data = (
                 f"custody_key:{ref}",
-                {"subject": str(subject_ref), "phase": "prepare"},
+                {
+                    "subject": str(subject_ref),
+                    "phase": "prepare",
+                    "key_id": key_id(secret),
+                },
             )
             if (
                 journal.append(

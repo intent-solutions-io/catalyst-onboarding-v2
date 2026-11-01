@@ -152,12 +152,14 @@ def erase(conn, subject_ref: str, authority: str, reason: str, rows=None) -> Out
     )
     if resumed:
         subject = state.intent.data["subject"]
+        kid = state.intent.data["key_id"]
         if real_key and not hmac.compare_digest(
-            subject, record.subject_hash(email_key, secret)
+            subject,
+            record.subject_hash(
+                email_key, record.subject_key(state.intent.data, secret)
+            ),
         ):
             raise Refused("record_subject_mismatch")
-        if state.intent.data.get("key_id") != kid:
-            raise Refused("record_key_mismatch")
         if destroy:
             _refuse_lingering_plaintext(conn, None, subject_ref=subject_ref)
             if _custody_keys_exist(
@@ -191,6 +193,7 @@ def erase(conn, subject_ref: str, authority: str, reason: str, rows=None) -> Out
         if real_key:
             subject = record.subject_hash(email_key, secret)
         elif state is not None and state.intent is not None:
+            kid = state.intent.data["key_id"]
             subject = state.intent.data[
                 "subject"
             ]  # the key is already a tombstone: the earlier record names the person

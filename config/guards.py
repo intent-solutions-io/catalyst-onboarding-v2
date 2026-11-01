@@ -24,6 +24,7 @@ SECRET_ENV_NAMES = (
     "CATALYST_DB_PASSWORD",
     "CATALYST_MAIL_PASSWORD",
     "CATALYST_ERASURE_KEY",
+    "CATALYST_ERASURE_PREVIOUS_KEYS",
     "CATALYST_CUSTODY_WRAPPING_KEY",
     "CATALYST_CUSTODY_NEXT_WRAPPING_KEY",
     "CATALYST_ASSESSMENT_API_KEY",  # bgl.12: the live model key, a file outside test and development
@@ -1414,9 +1415,12 @@ def erasure_key_problems(settings, kind: str) -> list[str]:
     only; a web or worker process (the kinds declared in code) that holds it refuses to start."""
     from config.runtime import ENFORCED_KINDS
 
-    if kind in ENFORCED_KINDS and getattr(settings, "CATALYST_ERASURE_KEY", ""):
+    if kind in ENFORCED_KINDS and (
+        getattr(settings, "CATALYST_ERASURE_KEY", "")
+        or getattr(settings, "CATALYST_ERASURE_PREVIOUS_KEYS", [])
+    ):
         return [
-            f"CATALYST_ERASURE_KEY may not be given to a {kind} process (the erasure command and replay only)"
+            f"CATALYST_ERASURE_KEY and CATALYST_ERASURE_PREVIOUS_KEYS may not be given to a {kind} process (the erasure command and replay only)"
         ]
     return []
 
@@ -1452,6 +1456,7 @@ def custody_key_problems(settings, kind: str) -> list[str]:
         getattr(settings, "CATALYST_VERIFICATION_KEY", "") or "",
         *(getattr(settings, "CATALYST_VERIFICATION_FALLBACK_KEYS", []) or []),
         getattr(settings, "CATALYST_ERASURE_KEY", "") or "",
+        *(getattr(settings, "CATALYST_ERASURE_PREVIOUS_KEYS", []) or []),
         # review of PR #102: the passwords and webhook secrets this process holds, where it holds them
         *(str((db or {}).get("PASSWORD", "") or "") for db in databases.values()),
         getattr(settings, "CATALYST_MAIL_PASSWORD", "") or "",

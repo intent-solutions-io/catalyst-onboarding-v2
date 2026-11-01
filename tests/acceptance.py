@@ -2326,6 +2326,14 @@ P6_SUPPORTING = {
         "test_geographic_review::test_geographic_gate_rechecks_queued_assessments_and_reply_admission",
         "test_geographic_review::test_geographic_rule_change_invalidates_model_reliance_and_shown_decision",
     ],
+    "9kg.74 historical erasure keys preserve recovery across rotation": [
+        "test_erasure_key_history::test_key_history_verifies_old_records_and_signs_new_work_with_current_key",
+        "test_erasure_key_history::test_key_history_resumes_old_intents_without_changing_subject_hash",
+        "test_erasure_key_history::test_key_history_unknown_or_tampered_key_ids_never_fall_back",
+        "test_erasure_key_history::test_key_history_recovery_finishes_legacy_custody_destructions",
+        "test_erasure_key_history::test_key_history_real_restore_replays_old_orphan_and_current_subject",
+        "test_erasure_key_history::test_key_history_secret_file_loading_and_process_boundary",
+    ],
     "bgl.15 staff talent search uses confirmed self-reported profiles (034 row 12)": [
         "test_talent::test_talent_search_matches_confirmed_values_across_fields_and_not_private_data",
         "test_talent::test_talent_unverified_submissions_cannot_create_or_replace_a_profile",

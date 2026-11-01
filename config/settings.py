@@ -346,6 +346,10 @@ CATALYST_JOURNAL_SHIP_LAG_SECONDS = number(
 # Optional here: only the owner-run erasure command (and the post-restore replay, 9kg.25) needs it, and refuses
 # without it. A file in CATALYST_SECRETS_DIR outside test and development, never in the database or a backup set.
 CATALYST_ERASURE_KEY = secret("CATALYST_ERASURE_KEY", "")
+# One historical key per line, mounted only for the same owner-run operations as the current key.
+CATALYST_ERASURE_PREVIOUS_KEYS = secret(
+    "CATALYST_ERASURE_PREVIOUS_KEYS", ""
+).splitlines()
 # The only action kinds the worker may execute: a fixed mapping in code, never read from the database.
 CATALYST_ACTION_HANDLERS = {
     "send_verification": "correspondence.verification.SendVerification",

@@ -100,6 +100,7 @@ KINDS = {
     "erasure_intent": {
         "subject",
         "key_id",
+        "mac_key_id",
         "authority",
         "reason",
         "classes",
@@ -111,6 +112,7 @@ KINDS = {
     "erasure_complete": {
         "subject",
         "key_id",
+        "mac_key_id",
         "status",
         "changed",
         "custody",
@@ -119,7 +121,7 @@ KINDS = {
         "phase",
         "mac",
     },
-    "erasure_handoff": {"provider", "completed_on", "phase", "mac"},
+    "erasure_handoff": {"provider", "completed_on", "phase", "mac", "key_id"},
     # 9kg.25 (erasure.replay): the erasures re-applied to a restored database, keyed `erasure_replay:<restore seq>` (the
     # seq of the `restore` entry it answers, 0 for a hold placed by hand): `through` is the seq of the last erasure
     # entry it covered, the rest are counts. The post-restore review and lift re-read it, verified by its `mac`.
@@ -140,6 +142,7 @@ KINDS = {
     # interrupted is finished by the next erasure run or by recovery.
     "custody_key_destroyed": {
         "subject",
+        "key_id",
         "phase",
         "mac",
     },  # mac: HMAC under the erasure key, as for erasure_*

@@ -36,6 +36,13 @@ of the key) so a rotated key can be told apart; a rotation keeps the old key for
 be matched (the oldest restorable backup). Losing the key does not lose an erasure: replay finds the subject by its
 public reference; the hash is the cross-check that the restored row is the same person.
 
+**Rotation (9kg.74).** `erasure_previous_keys` holds one historical key per line, only in owner-run processes.
+An entry selects its signing key by `mac_key_id` when present, otherwise `key_id`. The latter always identifies
+an intent/completion's subject hash. A resumed operation keeps that hash and signs its new entry with the current
+key, without rewriting history. Only legacy handoffs and custody destructions omitted ids and try the held keys.
+Unknown declared ids refuse. Keep historical keys while retained journal entries still need them; 027 governs the
+procedure and the additional evidence review after a suspected compromise.
+
 **Integrity, freshness and an emptied store.** The journal's hash chain and genesis identity make a broken or
 replaced file an error. After each erasure the command prints the journal head (`<identity>:<seq>:<hash>`); the
 owner keeps it out of band (the private operations record), and `catalyst_erasure_record --expect-head` refuses a
@@ -101,11 +108,69 @@ def key() -> bytes:
     ]
     if value in [o for o in others if o]:
         raise RecordError("key_reused")
-    return value.encode()
+    secret = value.encode()
+    verification_keys(secret)
+    return secret
 
 
 def key_id(secret: bytes) -> str:
     return hashlib.sha256(KEY_ID_PREFIX + secret).hexdigest()[:16]
+
+
+def verification_keys(secret: bytes) -> dict[str, bytes]:
+    """Current signing key plus owner-held historical verification keys, never process-global cached."""
+    previous = getattr(settings, "CATALYST_ERASURE_PREVIOUS_KEYS", [])
+    if not isinstance(previous, (list, tuple)):
+        raise RecordError("keys_malformed")
+    forbidden = [
+        settings.SECRET_KEY,
+        getattr(settings, "CATALYST_VERIFICATION_KEY", ""),
+        *getattr(settings, "CATALYST_VERIFICATION_FALLBACK_KEYS", []),
+    ]
+    found = {key_id(secret): secret}
+    for value in previous:
+        if not isinstance(value, str) or len(value) < 32:
+            raise RecordError("key_weak")
+        if value in forbidden:
+            raise RecordError("key_reused")
+        held = value.encode()
+        kid = key_id(held)
+        if kid in found and found[kid] != held:
+            raise RecordError("key_id_collision")
+        found[kid] = held
+    return found
+
+
+def subject_key(data: dict, secret: bytes) -> bytes:
+    """The subject HMAC keeps its original key even when a resumed completion uses a new signing key."""
+    kid = data.get("key_id")
+    held = verification_keys(secret).get(kid) if isinstance(kid, str) else None
+    if held is None:
+        raise RecordError("key_unknown")
+    return held
+
+
+def verifies(entry, secret: bytes) -> bool:
+    held = verification_keys(secret)
+    kid = entry.data.get("mac_key_id", entry.data.get("key_id"))
+    if entry.kind in ("erasure_intent", "erasure_complete"):
+        subject_id = entry.data.get("key_id")
+        if not isinstance(subject_id, str) or subject_id not in held:
+            return False
+    if "mac_key_id" in entry.data or "key_id" in entry.data:
+        candidates = [held[kid]] if isinstance(kid, str) and kid in held else []
+    elif entry.kind in ("erasure_handoff", "custody_key_destroyed"):
+        # Only these historical shapes omitted a key id. A declared but unknown id never falls back.
+        candidates = held.values()
+    else:
+        candidates = []
+    return any(
+        hmac.compare_digest(
+            str(entry.data.get("mac", "")),
+            entry_mac(entry.kind, entry.key, entry.data, candidate),
+        )
+        for candidate in candidates
+    )
 
 
 def subject_hash(email_key: str, secret: bytes) -> str:
@@ -131,7 +196,11 @@ def entry_key(subject_ref) -> str:
 def _append(kind: str, subject_ref, data: dict, secret: bytes):
     if not journal.configured():
         raise RecordError("not_configured")
-    data = {**data, "mac": entry_mac(kind, entry_key(subject_ref), data, secret)}
+    data = dict(data)
+    data.setdefault("key_id", key_id(secret))
+    if data["key_id"] != key_id(secret):
+        data["mac_key_id"] = key_id(secret)
+    data["mac"] = entry_mac(kind, entry_key(subject_ref), data, secret)
     entry = journal.append(
         kind, entry_key(subject_ref), data
     )  # fsynced before it returns
@@ -264,10 +333,7 @@ def fold(entries, secret: bytes | None, forged: list | None = None) -> dict:
         if not entry.kind.startswith("erasure_"):
             continue
         ref = entry.key.partition(":")[2]
-        if secret is not None and not hmac.compare_digest(
-            str(entry.data.get("mac", "")),
-            entry_mac(entry.kind, entry.key, entry.data, secret),
-        ):
+        if secret is not None and not verifies(entry, secret):
             if forged is not None:
                 forged.append(ref)
             continue
