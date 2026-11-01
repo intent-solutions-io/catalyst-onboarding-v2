@@ -18,7 +18,7 @@ from correspondence.mime import redact
 from workflow.models import AutomationPause
 
 from .models import ImportedCase, ImportedRecord
-from . import review, mailboxes
+from . import review, mailboxes, release
 from . import agreements as legacy_agreements
 from agreements.models import AgreementTemplateVersion
 
@@ -183,6 +183,16 @@ def history_response(request, public_ref, *, error="", note="", status=200):
                 kind="legacy_signing_timers_prepared"
             ).order_by("-pk"),
             "can_confirm_mailbox": mailboxes.can_confirm(request.user),
+            "can_prepare_release": release.can_prepare(request.user)
+            and case.application.stage == "agreements_complete"
+            and case.v1_state == "release_pending",
+            "release_digest": release.state(case.application)["digest"]
+            if case.application.stage == "agreements_complete"
+            and case.v1_state == "release_pending"
+            else "",
+            "release_receipts": case.application.events.filter(
+                kind=release.PREPARED
+            ).order_by("-pk"),
             "mailbox_requests": case.application.provisioning_requests.select_related(
                 "reservation"
             ),
@@ -324,4 +334,30 @@ def confirm_mailbox(request, public_ref):
     except (ValueError, Refused, AdapterError) as exc:
         code = "imported_mailbox_required" if isinstance(exc, ValueError) else str(exc)
         return history_response(request, public_ref, error=code, note=note, status=409)
+    return redirect("firstgen_staff:history", public_ref=public_ref)
+
+
+@admin.site.admin_view
+@require_POST
+def prepare_release(request, public_ref):
+    from correspondence.common import Refused
+
+    if not release.can_prepare(request.user):
+        raise PermissionDenied
+    case = get_object_or_404(ImportedCase, application__public_ref=public_ref)
+    note = request.POST.get("note", "")
+    try:
+        release.prepare(
+            case.application_id,
+            request.user,
+            expected_digest=request.POST.get("digest", ""),
+            source_stopped=request.POST.get("source_stopped") == "yes",
+            completion_reviewed=request.POST.get("completion_reviewed") == "yes",
+            effects_reviewed=request.POST.get("effects_reviewed") == "yes",
+            note=note,
+        )
+    except Refused as exc:
+        return history_response(
+            request, public_ref, error=str(exc), note=note, status=409
+        )
     return redirect("firstgen_staff:history", public_ref=public_ref)

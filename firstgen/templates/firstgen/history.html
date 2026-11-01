@@ -54,6 +54,19 @@
 {% endif %}
 {% endif %}
 {% if case.findings %}<ul>{% for finding in case.findings %}<li><bdi>{{ finding|visible }}</bdi></li>{% endfor %}</ul>{% endif %}
+{% if can_prepare_release %}
+<h3>Continue a release-pending case</h3>
+<p>Record the reviewed handoff to native provisioning. Completed agreements on file remain historical references; this does not issue or sign them again. The case stays paused. After separate resume, the configured owner or automatic release and mailbox approval checks apply.</p>
+{% for receipt in release_receipts %}<p>Release handoff recorded {{ receipt.occurred_at|date:"Y-m-d H:i" }} UTC. Review its status on the <a href="{% url 'provisioning_staff:provisioning' application.public_ref %}">provisioning screen</a>.</p>{% endfor %}
+<form method="post" action="{% url 'firstgen_staff:prepare_release' application.public_ref %}">
+  {% csrf_token %}<input type="hidden" name="digest" value="{{ release_digest }}">
+  <p><label><input type="checkbox" name="source_stopped" value="yes" required> The source writer and release jobs for this case have stopped.</label></p>
+  <p><label><input type="checkbox" name="completion_reviewed" value="yes" required> I verified the completed agreement evidence and the historical references that cover this applicant.</label></p>
+  <p><label><input type="checkbox" name="effects_reviewed" value="yes" required> I reviewed outstanding operations and confirmed no release or mailbox creation has already occurred.</label></p>
+  <p><label>Handover evidence <textarea name="note" minlength="10" maxlength="500" required>{{ review_note }}</textarea></label></p>
+  <button type="submit">Record and prepare provisioning handoff</button>
+</form>
+{% endif %}
 {% if can_confirm_mailbox and mailbox_requests %}
 <h3>Transfer existing mailbox ownership</h3>
 <p>Review the frozen source and confirm that this mailbox belongs to this applicant. The provider is read again before recording ownership. No mailbox is created, password changed, welcome sent or suspension lifted by this form. For a closed or withdrawn case, this records the obligation and queues native access revocation, which can run while automation is paused.</p>
