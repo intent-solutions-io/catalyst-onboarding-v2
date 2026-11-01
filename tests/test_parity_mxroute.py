@@ -598,7 +598,8 @@ def test_bgl10_live_host_settings_are_refused_outside_test_and_staging_and_bound
     assert not any(getattr(settings, name) for name in guards.PROVISIONING_TEST_ONLY[2:])
 
 
-def test_bgl11_the_one_time_password_welcome_is_sent_multipart_and_greets_by_first_name(otp, monkeypatch):
+@pytest.mark.parametrize("subject_reference", [False, True])
+def test_bgl11_the_one_time_password_welcome_is_sent_multipart_and_greets_by_first_name(otp, monkeypatch, subject_reference):
     """bgl.11 x bgl.10 (parity integration): an approved welcome version with an HTML part sends text plus HTML, the
     password in both and in neither record; the greeting is the first word of the name."""
     from correspondence.rendering import version_digest
@@ -610,12 +611,13 @@ def test_bgl11_the_one_time_password_welcome_is_sent_multipart_and_greets_by_fir
     version = MessageTemplateVersion.objects.create(
         template=template, version=template.versions.count() + 1, subject=subject, body_text=body, body_html=page,
         variables=["first_name", "mailbox_username", "password"], secret_bearing=True,
-        content_sha256=version_digest(subject, body, page))
+        subject_reference=subject_reference, content_sha256=version_digest(subject, body, page, subject_reference=subject_reference))
     outbound.approve_template_version(version.pk, staff(otp, "welcome-html-owner", TEMPLATE_OWNER))
     app, request = approved(otp, monkeypatch)
     run_worker()
     password = otp.stub.passwords_seen[-1]
     welcome = mail.outbox[-1]
+    assert welcome.subject == subject + (f" [{app.reference}]" if subject_reference else "")
     first = app.display_name.split()[0]
     assert welcome.body == f"Hi {first},\nUser ada.example\nPass {password}\n"
     assert [tuple(a) for a in welcome.alternatives] == [(f"<p>Hi {first},</p><p><code>{password}</code></p>\n", "text/html")]

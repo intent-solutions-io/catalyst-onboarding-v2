@@ -7,6 +7,13 @@ placeholder outside the allow-list, or any missing or extra value, fails closed:
 The canonical digest (016 3.2) is SHA-256 over the decoded subject, a line feed, and the decoded text
 body with line endings normalized to line feeds. A5 compares provider evidence with the same digest.
 
+A version's own digest (`version_digest`) is the canonical digest of what it approves. bgl.5: a version whose subject
+carries the application's reference (`subject_reference`) is digested with the subject written as `<subject>
+[$reference]`, so the flag is covered by the digest and approval; a version without it keeps exactly the digest it
+always had. Subjects hold no placeholder (016 A1, checked here), so the two forms can never be confused. The reference
+itself is appended by the sender for one application (applications.reference.with_reference), never by this renderer;
+a frozen message's digest is then over the subject as sent.
+
 The HTML alternative (bgl.11): a version may carry `body_html`, rendered by `render_html` from the same values under
 the same allow-list, every value HTML-escaped. A link variable (models.LINK_VARIABLES) may stand only as the whole
 value of an `href="..."` the author wrote, and its value must be an http(s) URL; any other variable may stand only in
@@ -35,9 +42,14 @@ def canonical_digest(subject: str, body: str) -> str:
     return hashlib.sha256(f"{subject}\n{normalized}".encode()).hexdigest()
 
 
-def version_digest(subject: str, body: str, body_html: str = "") -> str:
+REFERENCE_MARK = " [$reference]"
+
+
+def version_digest(subject: str, body: str, body_html: str = "", *, subject_reference: bool = False) -> str:
     """A template version's content digest: the canonical digest for a text-only version; with an HTML part, SHA-256
     over the canonical form, a NUL separator line and the HTML with line endings normalized."""
+    if subject_reference:
+        subject += REFERENCE_MARK
     if not body_html:
         return canonical_digest(subject, body)
     text = body.replace("\r\n", "\n").replace("\r", "\n")
@@ -113,6 +125,8 @@ def check_version(version) -> None:
         raise TemplateRefused("placeholder_outside_allow_list")
     if not Template(version.body_text).is_valid():
         raise TemplateRefused("invalid_placeholder")
+    if "$" in version.subject:  # 016 A1: static subjects; bgl.5's reference is appended by the sender, not a variable
+        raise TemplateRefused("placeholder_in_subject")
     if version.secret_bearing != version.template.secret_bearing:
         raise TemplateRefused("secret_bearing_mismatch")
     page = getattr(version, "body_html", "") or ""
@@ -124,7 +138,7 @@ def check_version(version) -> None:
         problem = html_placement_problem(page)
         if problem:
             raise TemplateRefused(problem)
-    if version_digest(version.subject, version.body_text, page) != version.content_sha256:
+    if version_digest(version.subject, version.body_text, page, subject_reference=getattr(version, "subject_reference", False)) != version.content_sha256:
         raise TemplateRefused("content_digest_mismatch")
 
 

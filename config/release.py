@@ -69,6 +69,12 @@ BASELINE: dict[str, str] = {
 }
 # Later migrations that contracting() flags but a reviewer found safe for the previous image, with the reason.
 EXPAND_SAFE: dict[str, str] = {
+    "applications.0011_application_reference": (
+        "adds the reference nullable, preserves imported labels and backfills other existing rows before adding "
+        "uniqueness and format constraints; an empty database default plus a non-elevating BEFORE INSERT trigger "
+        "fills the label for an older image without granting direct function EXECUTE to the application role. "
+        "New writers supply a reference; old writers omit it; both satisfy the constraints. No existing column "
+        "is removed or renamed. Receipt/template activation is separately gated and needs a wording rollback plan"),
     "assessments.0010_decision_inputs_and_human_only_code": (
         "adds columns with database defaults and a CHECK constraint created NOT VALID: a previous image inserts decisions "
         "without the new columns (defaults fill them) and never a human-only row without a code it does not know, because "

@@ -137,7 +137,11 @@ Message content is personal data and stays in POL-10's scope.
 
 - Only an `approved` version renders.
 - Variables are substituted from the allow-list. The Django template engine is not used for message
-  text, and subjects are static.
+  text, and subjects are static. The owner-directed parity amendment (`bgl.5`, `034` row 9) permits one
+  fixed suffix: `[CAT-XXXX-XXXX]`, appended by the sender when the approved version's
+  `subject_reference` flag requests it. The flag and any HTML alternative are included in the version
+  digest and frozen after approval. No arbitrary subject variable is permitted; a threaded reminder
+  retains the already-frozen subject and its single reference suffix.
 - An unknown or missing variable fails closed.
 
 **Content:** synthetic placeholder versions are seeded by migration. Real wording needs POL-06 and

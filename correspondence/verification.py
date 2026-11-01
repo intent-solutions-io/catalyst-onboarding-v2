@@ -25,6 +25,10 @@ independently rejects any challenge that is no longer valid. Delivery to the sin
 an interrupted attempt may be followed by the identical invitation. Sink acceptance is not inbox delivery,
 and nothing here claims exactly-once external effects.
 
+bgl.5: in "verification" receipt mode (applications.notices.receipt_mode) the mail is the receipt with the link
+(`intake_receipt_confirm`, correspondence.receipt), recorded under that template key; every template version may ask
+for the application's reference on its subject (`subject_reference`), appended here.
+
 The expiry of the only link (9kg.66, 029 appendix B GAP 1): `verification_expiry_sweep`, a recurring action like the
 session clean-up, opens one `verification_expired` staff item for each open, unverified application whose active
 challenge has expired by the database clock, once per challenge; the staff resend resolves it. It changes nothing on
@@ -94,11 +98,23 @@ class SendCountMismatch(Exception):
     pass
 
 
+def mail_for(application_id: int, link: str) -> notices.Wording:
+    """bgl.5: the verification mail for this application and link: the receipt with the link (`intake_receipt_confirm`,
+    correspondence.receipt) in "verification" receipt mode, else the `verification_invitation` mail."""
+    if notices.verification_template() == notices.RECEIPT_CONFIRM:
+        from . import receipt
+
+        return receipt.wording(notices.RECEIPT_CONFIRM, {**receipt.values_for(application_id), "link": link})
+    name = Application.objects.filter(pk=application_id).values_list("display_name", flat=True).first()
+    return wording(link, name or "")
+
+
 @dataclass(frozen=True)
 class Proceed:
     application_id: int
     recipient: str
     challenge_public_id: UUID
+    reference: str = ""  # bgl.5: appended to the subject when the version asks for it
 
 
 @dataclass(frozen=True)
@@ -145,8 +161,7 @@ class SendVerification:
         if connection.in_atomic_block:
             raise RuntimeError("refusing to send inside a transaction")
         try:
-            name = Application.objects.filter(pk=decision.application_id).values_list("display_name", flat=True).first()
-            mail = wording(verification_link(decision.challenge_public_id), name or "")
+            mail = mail_for(decision.application_id, verification_link(decision.challenge_public_id))
         except notices.Unavailable as refused:  # 9kg.80: no approvable wording here; wait for the owner's approval
             self._stop(claim, Stop(Status.QUEUED, str(refused), WORDING_RECHECK_SECONDS))
             return
@@ -154,7 +169,7 @@ class SendVerification:
         # bgl.11: multipart/alternative (text, then HTML) when the approved version has an HTML part; with no
         # alternative attached, EmailMultiAlternatives sends the same single text/plain part EmailMessage did.
         message = EmailMultiAlternatives(
-            subject=mail.subject,
+            subject=mail.subject_for(decision.reference),
             body=mail.display,
             from_email=from_header(),  # bgl.6: the configured sender's name and Reply-To (config.mail)
             to=[decision.recipient],
@@ -165,7 +180,7 @@ class SendVerification:
             message.attach_alternative(mail.html, "text/html")
         outbound = dict(
             application_id=decision.application_id, pending_action_id=claim.id, attempt_number=claim.attempt,
-            template_key=TEMPLATE_KEY, template_version=f"{mail.version}:{mail.sha256[:24]}", recipient=decision.recipient,
+            template_key=mail.key, template_version=f"{mail.version}:{mail.sha256[:24]}", recipient=decision.recipient,
             message_id=message_id,
         )
         try:
@@ -186,8 +201,11 @@ class SendVerification:
 
         def write_success():
             OutboundMessage.objects.create(status=OutboundMessage.Status.ACCEPTED, sent_at=Now(), **outbound)
-            self.record(claim, "verification_sent", {"attempt": claim.attempt, "template_version": mail.version,
-                                                     "template_sha256": mail.sha256, "draft": mail.draft})
+            sent_data = {"attempt": claim.attempt, "template_version": mail.version, "template_sha256": mail.sha256,
+                         "draft": mail.draft}
+            if mail.key != TEMPLATE_KEY:  # bgl.5: the receipt was the verification mail
+                sent_data["template_key"] = mail.key
+            self.record(claim, "verification_sent", sent_data)
 
         try:
             recorded = ledger.finish(claim, self, status=Status.DONE, write=write_success)
@@ -242,7 +260,7 @@ class SendVerification:
 
             if hard_bounce_open(application):  # every send path, S1 verification included (9kg.3)
                 return Stop(Status.QUEUED, "hard bounce open", settings.CATALYST_HARD_BOUNCE_RECHECK_SECONDS)
-            return Proceed(application.pk, challenge.email_at_issue, challenge.public_id)
+            return Proceed(application.pk, challenge.email_at_issue, challenge.public_id, application.reference)
 
     def _stop(self, claim, decision: Stop) -> None:
         if decision.status == Status.QUEUED:

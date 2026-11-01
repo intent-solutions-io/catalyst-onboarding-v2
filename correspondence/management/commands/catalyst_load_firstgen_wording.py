@@ -155,11 +155,15 @@ class Command(BaseCommand):
         # name): every sender offers both and fits them to the version (correspondence.rendering.fit_greeting).
         if latest is not None and set(latest.variables) - set(GREETING) != set(mapping.variables) - set(GREETING):
             return {"report": {**report, "action": "refuse", "reason": "allow_list_differs_from_the_current_version"}}
-        digest = version_digest(converted.subject, converted.body_text, converted.body_html)
+        subject_reference = any(d in {"subject_variable_dropped:reference", "subject_variable_dropped:intake.reference"}
+                                for d in converted.subject_differences)
+        report["subject_reference"] = subject_reference
+        digest = version_digest(converted.subject, converted.body_text, converted.body_html,
+                                subject_reference=subject_reference)
         version = MessageTemplateVersion(
             template=template, subject=converted.subject, body_text=converted.body_text, body_html=converted.body_html,
             variables=list(mapping.variables), secret_bearing=template.secret_bearing, content_sha256=digest,
-            synthetic=False)
+            synthetic=False, subject_reference=subject_reference)
         try:
             check_version(version)
         except TemplateRefused as exc:

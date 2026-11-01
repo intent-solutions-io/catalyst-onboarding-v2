@@ -249,6 +249,7 @@ CATALYST_ERASURE_KEY = secret("CATALYST_ERASURE_KEY", "")
 # The only action kinds the worker may execute: a fixed mapping in code, never read from the database.
 CATALYST_ACTION_HANDLERS = {
     "send_verification": "correspondence.verification.SendVerification",
+    "send_receipt": "correspondence.receipt.SendReceipt",  # bgl.5: the receipt at the first submission
     "verification_expiry_sweep": "correspondence.verification.SweepExpiredVerification",  # 9kg.66: expired only links
     "send_message": "correspondence.outbound.SendMessage",  # 016 A3 (P2 2B.1)
     "reconcile_send": "correspondence.outbound.ReconcileSend",  # 016 A5
@@ -774,6 +775,23 @@ CATALYST_INTAKE_FORM_MAX_AGE_SECONDS = number("CATALYST_INTAKE_FORM_MAX_AGE_SECO
 CATALYST_INTAKE_GLOBAL_PER_HOUR = number("CATALYST_INTAKE_GLOBAL_PER_HOUR", "30")
 CATALYST_INTAKE_GLOBAL_PER_DAY = number("CATALYST_INTAKE_GLOBAL_PER_DAY", "100")
 CATALYST_INVITATION_LIFETIME_SECONDS = number("CATALYST_INVITATION_LIFETIME_SECONDS", str(14 * 86400))
+
+
+def switch(name: str, default: str = "off") -> bool:
+    value = os.environ.get(name, default).strip()
+    if value not in ("on", "off"):
+        raise ImproperlyConfigured(f"{name} must be 'on' or 'off'")
+    return value == "on"
+
+
+# bgl.5 (034 rows 7 and 9): the receipt at the first submission, carrying the application's `CAT-` reference. Off by
+# default, so a deployment changes no mail until the owner turns it on with approved wording (the `intake_receipt`
+# templates, correspondence migration 0026). With CATALYST_RECEIPT_IS_VERIFICATION on as well, the receipt IS the
+# verification mail (one mail, the first generation's shape, with the confirm link); off, the receipt is its own mail,
+# queued before the verification mail. Both are read from the environment ("on" or "off"); the web process and the
+# worker must see the same values.
+CATALYST_INTAKE_RECEIPT = switch("CATALYST_INTAKE_RECEIPT")
+CATALYST_RECEIPT_IS_VERIFICATION = switch("CATALYST_RECEIPT_IS_VERIFICATION")
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},

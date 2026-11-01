@@ -30,9 +30,17 @@ from django.utils.module_loading import import_string
 
 from config import guards
 
+from .reference import with_reference
+
 DATA_NOTICE = "data_notice"
 INVITATION = "invitation"
 VERIFICATION = "verification_invitation"  # 9kg.80: the verification mail (correspondence migration 0020)
+# bgl.5: the receipt at the first submission (correspondence migration 0026): alone, or as the verification mail.
+RECEIPT = "intake_receipt"
+RECEIPT_CONFIRM = "intake_receipt_confirm"
+RECEIPT_VARIABLES = ("greeting", "reference", "submitted_on", "interest")
+_TRIAL_RECEIPT = {"greeting": "Hello", "reference": "CAT-0000-0000", "submitted_on": "1 January 2026", "interest": ""}
+_TRIAL_LINK = "https://link.invalid/"
 DRAFT_MARKER = "DRAFT: placeholder wording the owner has not approved; shown only outside a live environment."
 
 
@@ -51,6 +59,7 @@ class Rendered:
     text: str
     synthetic: bool = True
     html: str = ""  # bgl.11: the HTML alternative, or "" for a text-only version
+    subject_reference: bool = False  # bgl.5: the sender appends the application's reference to the subject
 
 
 @dataclass(frozen=True)
@@ -61,6 +70,7 @@ class Draft:
     subject: str
     body_text: str
     variables: tuple
+    subject_reference: bool = False
 
 
 @dataclass(frozen=True)
@@ -72,6 +82,7 @@ class Wording:
     text: str
     approved: bool
     html: str = ""  # bgl.11: the rendered HTML alternative of an approved version, or ""; a draft is sent as text only
+    subject_reference: bool = False
 
     @property
     def draft(self) -> bool:
@@ -81,6 +92,11 @@ class Wording:
     def display(self) -> str:
         """The text as a person may see it: a draft always carries its marker."""
         return self.text if self.approved else f"{DRAFT_MARKER}\n{self.text}"
+
+    def subject_for(self, reference: str) -> str:
+        """bgl.5: the subject as sent to the applicant this reference belongs to: the static subject, with the reference
+        appended when the version asks for it (amending 016 A1 for the reference alone)."""
+        return with_reference(self.subject, reference) if self.subject_reference else self.subject
 
 
 def _source(name: str):
@@ -100,16 +116,44 @@ def servable(state: dict, environment: str) -> bool:
     return state["status"] == "approved" and not state["synthetic"]
 
 
+def receipt_mode() -> str:
+    """bgl.5: "off" (no receipt), "separate" (the receipt is its own mail, before the verification mail) or
+    "verification" (the receipt is the verification mail, with the link)."""
+    if not settings.CATALYST_INTAKE_RECEIPT:
+        return "off"
+    return "verification" if settings.CATALYST_RECEIPT_IS_VERIFICATION else "separate"
+
+
+def verification_template() -> str:
+    """The template the verification mail is rendered from: the receipt with the link in "verification" mode."""
+    return RECEIPT_CONFIRM if receipt_mode() == "verification" else VERIFICATION
+
+
+def _withheld(key: str, values: dict) -> bool:
+    """Whether a trial render of `key` is refused here. Where a draft may be shown and the template row is absent, the
+    seeded draft is sent (correspondence.verification, correspondence.receipt): not withheld."""
+    try:
+        wording(key, values)
+    except Unavailable as refused:
+        return not (guards.draft_wording_allowed(settings.CATALYST_ENV) and str(refused) == f"{key}_missing")
+    return False
+
+
 def verification_withheld() -> bool:
     """9kg.80: whether the verification mail could not be rendered here, so an accepted applicant could not be sent one:
     intake is withheld and health reports `verification_template_unapproved`. A trial render with a placeholder link
-    decides (CodeRabbit on PR #132: a retired version or an invalid draft refuses the send in staging too). Where a draft
-    may be shown and the template row is absent, the seeded draft is sent (correspondence.verification): not withheld."""
-    try:
-        wording(VERIFICATION, {"link": "https://link.invalid/", "display_name": "Applicant"})  # a greeting may use it
-    except Unavailable as refused:
-        return not (guards.draft_wording_allowed(settings.CATALYST_ENV) and str(refused) == f"{VERIFICATION}_missing")
-    return False
+    decides (CodeRabbit on PR #132: a retired version or an invalid draft refuses the send in staging too). bgl.5: in
+    "verification" receipt mode the verification mail is the receipt with the link, so that template decides."""
+    if verification_template() == RECEIPT_CONFIRM:
+        return _withheld(RECEIPT_CONFIRM, {**_TRIAL_RECEIPT, "link": _TRIAL_LINK})
+    return _withheld(VERIFICATION, {"link": _TRIAL_LINK, "display_name": "Applicant"})
+
+
+def receipt_withheld() -> bool:
+    """bgl.5: in "separate" receipt mode, whether the receipt could not be rendered here, so an accepted applicant would
+    get no receipt: intake is withheld like 9kg.80 and health reports `receipt_template_unapproved`. In the other modes
+    there is no separate receipt to withhold for."""
+    return receipt_mode() == "separate" and _withheld(RECEIPT, dict(_TRIAL_RECEIPT))
 
 
 def wording(key: str, values: dict | None = None) -> Wording:
@@ -120,7 +164,7 @@ def wording(key: str, values: dict | None = None) -> Wording:
         if rendered.synthetic and not drafts_allowed:
             raise Unavailable(f"{key}_synthetic")
         return Wording(key, rendered.version, rendered.sha256, rendered.subject, rendered.text, approved=True,
-                       html=rendered.html)
+                       html=rendered.html, subject_reference=rendered.subject_reference)
     if not drafts_allowed:
         raise Unavailable(f"{key}_not_approved")
     draft = _source("draft")(key)
@@ -133,7 +177,8 @@ def wording(key: str, values: dict | None = None) -> Wording:
         text = Template(draft.body_text).substitute(values)  # the standard library; values are not re-expanded
     except (KeyError, ValueError):  # a stray or unknown `$`: a refusal, never an error page
         raise Unavailable(f"{key}_invalid_placeholder") from None
-    return Wording(key, draft.version, draft.sha256, draft.subject, text, approved=False)
+    return Wording(key, draft.version, draft.sha256, draft.subject, text, approved=False,
+                   subject_reference=draft.subject_reference)
 
 
 def data_notice() -> Wording:

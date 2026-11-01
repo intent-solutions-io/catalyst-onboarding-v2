@@ -211,6 +211,7 @@ def test_bgl16_every_v1_state_maps_to_its_stage_is_paused_and_nothing_is_queued_
     for reference, (state, stage) in STAGES.items():
         imported = ImportedCase.objects.select_related("application").get(reference=reference)
         assert (imported.v1_state, imported.mapped_stage, imported.application.stage) == (state, stage, stage), reference
+        assert imported.application.reference == reference
         open_stage = stage not in ("withdrawn", "declined", "closed")
         assert AutomationPause.objects.filter(subject_id=imported.application.public_ref).exists() == open_stage, reference
         assert ApplicationEvent.objects.filter(application=imported.application, kind="imported_first_generation").count() == 1

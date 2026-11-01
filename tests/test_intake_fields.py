@@ -206,3 +206,20 @@ def test_parity_form_erasure_clears_the_answers_with_the_submission(privileged_r
     assert owner_scan(owner, *markers) == {}
     erased = Application.objects.get(pk=app.pk)
     assert (erased.email, erased.display_name) == ("[erased]", "[erased]")
+
+
+@pytest.mark.django_db
+def test_parity_form_confirmation_shows_the_answers_being_adopted_and_escapes_them(client):
+    from applications.links import verification_link
+    from applications.models import ContactChallenge
+
+    assert post(client, marketing_opt_in="on", **{**ROWS, "edu_institution_1": "<script>Institute</script>"}).status_code == 302
+    page = client.get(verification_link(ContactChallenge.objects.get().public_id))
+    assert page.status_code == 200
+    shown = page.content.decode()
+    for answer in ("+442079460958", "GB", "Certification support only", "BSc Computing", "SP-0001",
+                   "&lt;script&gt;Institute&lt;/script&gt;", "Age 18 or older</dt><dd>Yes",
+                   "Optional email updates</dt><dd>Yes", "Permission to verify education and certifications</dt><dd>Yes",
+                   "No post-secondary education to list</dt><dd>No", "No certifications to list</dt><dd>No"):
+        assert answer in shown
+    assert "<script>Institute</script>" not in shown

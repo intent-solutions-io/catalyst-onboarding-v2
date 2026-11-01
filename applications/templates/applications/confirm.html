@@ -7,6 +7,17 @@
   <dt>Name</dt><dd>{{ preview.fields.name }}</dd>
   <dt>Email</dt><dd>{{ preview.fields.email }}</dd>
   <dt>Reason</dt><dd>{{ preview.fields.reason }}</dd>
+  {% if "age_attested" in preview.fields %}
+  <dt>Country of residence</dt><dd>{{ preview.fields.residence_country }}</dd>
+  <dt>Phone</dt><dd>{{ preview.fields.phone_e164 }} ({{ preview.fields.phone_country }})</dd>
+  <dt>Interest</dt><dd>{% if preview.fields.interest_track == "cert_only" %}Certification support only{% elif preview.fields.interest_track == "cert_and_work" %}Certification support, and consider me for project work{% elif preview.fields.interest_track == "undecided" %}Not sure yet{% else %}{{ preview.fields.interest_track }}{% endif %}</dd>
+  <dt>Age 18 or older</dt><dd>{{ preview.fields.age_attested|yesno:"Yes,No" }}</dd>
+  {% for entry in preview.fields.education %}<dt>Education</dt><dd>{{ entry.institution }} — {{ entry.credential }}</dd>{% endfor %}
+  <dt>No post-secondary education to list</dt><dd>{{ preview.fields.no_degree|yesno:"Yes,No" }}</dd>
+  <dt>No certifications to list</dt><dd>{{ preview.fields.no_certifications|yesno:"Yes,No" }}</dd>
+  <dt>Permission to verify education and certifications</dt><dd>{{ preview.fields.verification_consent|yesno:"Yes,No" }}</dd>
+  <dt>Optional email updates</dt><dd>{{ preview.fields.marketing_opt_in|yesno:"Yes,No" }}</dd>
+  {% endif %}
 </dl>
 {% with claims=preview.fields.claims %}{% if claims %}
 <h2>Your work and credentials</h2>

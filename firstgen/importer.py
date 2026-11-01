@@ -209,7 +209,7 @@ class Importer:
         email = request["personal_email"]
         revisions = sorted(rows["intake_revision"], key=lambda r: r["created_at"])
         app = Application.objects.create(
-            email=email, email_key=key, display_name=(request.get("full_name") or "")[:200], stage=stage,
+            reference=request["reference"], email=email, email_key=key, display_name=(request.get("full_name") or "")[:200], stage=stage,
             contact_verified_at=verified_at, next_version_number=2 + len(revisions), created_at=case["created_at"],
             updated_at=timezone.now())
         self.created["applications.Application"] += 1

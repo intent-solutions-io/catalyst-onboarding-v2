@@ -481,6 +481,7 @@ EXPECTED_TRIGGERS = {
     ("assessments_assessmentrun", "catalyst_run_result_once"),  # P3 3B.2
     ("correspondence_replyinterpretation", "catalyst_interpretation_result_once"),  # P3 3B.3
     ("assessments_qualificationdecision", "catalyst_append_only"), ("assessments_qualificationdecision", "catalyst_no_truncate"),
+    ("applications_application", "catalyst_application_reference"),  # bgl.5: supports older writers after migration
     ("applications_application", "catalyst_decided_stage_needs_decision"),  # P3 3B.4
     ("workflow_automationpause", "catalyst_restore_hold"),  # 6B.7a
     ("workflow_automationpause", "catalyst_restore_hold_insert"),  # 9kg.25: the app role never places the hold

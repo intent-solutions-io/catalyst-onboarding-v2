@@ -2144,6 +2144,29 @@ P6_SUPPORTING = {
         "test_db_roles::test_6hl10_the_probe_login_is_read_by_the_test_support_module_only",
         "test_db_roles::test_child_processes_do_not_receive_the_administrator_login",
     ],
+    # 034 rows 6, 7 and 9 (the owner's parity direction of 2026-10-31; 016 A1 amended for the reference alone).
+    "bgl.5 every application carries a unique CAT- reference that is never an authenticator; a version may ask for it on its subject; the receipt goes once at the first submission, alone or as the verification mail": [
+        "test_reference_receipt::test_bgl_5_a_generated_reference_has_the_first_generation_format_and_unambiguous_letters",
+        "test_reference_receipt::test_bgl_5_every_application_gets_its_own_reference_at_the_first_submission_and_keeps_it",
+        "test_reference_receipt::test_bgl_5_the_database_holds_the_reference_unique_and_well_formed_and_an_import_keeps_its_own",
+        "test_reference_receipt::test_bgl_5_a_row_inserted_outside_the_orm_gets_a_reference_and_the_application_cannot_change_one",
+        "test_reference_receipt::test_bgl_5_the_backfill_gives_each_existing_application_a_distinct_reference_and_keeps_any_already_set",
+        "test_reference_receipt::test_bgl_5_the_reference_is_never_an_authenticator",
+        "test_reference_receipt::test_bgl_5_the_staff_dossier_shows_the_reference",
+        "test_reference_receipt::test_bgl_5_the_version_digest_covers_the_subject_reference_flag_and_subjects_stay_static",
+        "test_reference_receipt::test_bgl_5_the_sender_appends_the_reference_only_when_the_version_asks",
+        "test_reference_receipt::test_bgl_5_an_approved_versions_reference_flag_is_final_for_every_role",
+        "test_reference_receipt::test_bgl_5_the_verification_mail_carries_the_reference_when_its_version_asks",
+        "test_reference_receipt::test_bgl_5_a_frozen_message_carries_the_reference_when_its_version_asks",
+        "test_reference_receipt::test_bgl_5_with_the_receipt_off_intake_is_unchanged",
+        "test_reference_receipt::test_bgl_5_the_separate_receipt_goes_first_once_and_never_again_for_a_repeat",
+        "test_reference_receipt::test_bgl_5_the_receipt_is_the_verification_mail_when_so_configured",
+        "test_reference_receipt::test_bgl_5_the_receipt_values_follow_the_first_generation",
+        "test_reference_receipt::test_bgl_5_a_live_environment_withholds_intake_until_the_receipt_wording_is_approved_and_real",
+        "test_reference_receipt::test_bgl_5_a_closed_or_paused_application_gets_no_receipt",
+        "test_reference_receipt::test_bgl_5_the_receipt_handler_is_registered_redeliverable_and_reviewed_after_a_restore",
+        "test_reference_receipt::test_bgl_5_the_request_page_answers_the_same_with_the_receipt_on",
+    ],
     # bgl.3 (034 rows 3 and 12): the first-generation form fields, stored with the submission, shown on the dossier and
     # erased with it; every refusal a form error that records nothing.
     "bgl.3 the request form collects the first-generation fields with their limits (parity track 034 row 3)": [

@@ -40,7 +40,7 @@ def approved(key: str, values: dict) -> Rendered | None:
         page = render_html(version, values)
     except TemplateRefused as refused:
         raise Unavailable(f"{key}_{refused}") from None
-    return Rendered(version.version, version.content_sha256, subject, text, synthetic=version.synthetic, html=page)
+    return Rendered(version.version, version.content_sha256, subject, text, synthetic=version.synthetic, html=page, subject_reference=version.subject_reference)
 
 
 def draft(key: str) -> Draft | None:
@@ -48,7 +48,8 @@ def draft(key: str) -> Draft | None:
     version = _versions(key).filter(status=Status.DRAFT).order_by("-version").first()
     if version is None:
         return None
-    return Draft(version.version, version.content_sha256, version.subject, version.body_text, tuple(version.variables))
+    return Draft(version.version, version.content_sha256, version.subject, version.body_text, tuple(version.variables),
+                 subject_reference=version.subject_reference)
 
 
 def status(key: str) -> dict:

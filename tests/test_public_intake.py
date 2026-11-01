@@ -175,7 +175,10 @@ def test_bgl_2_the_render_time_bounds_are_the_first_generations(settings):
 # --- the global caps: deferred, never refused ------------------------------------------------------------------------
 
 @pytest.mark.django_db
-def test_bgl_2_over_the_hourly_cap_the_applicant_is_accepted_and_the_verification_waits(settings):
+@pytest.mark.parametrize("receipt_enabled", [False, True])
+def test_bgl_2_over_the_hourly_cap_the_applicant_is_accepted_and_the_verification_waits(settings, receipt_enabled):
+    settings.CATALYST_INTAKE_RECEIPT = receipt_enabled
+    settings.CATALYST_RECEIPT_IS_VERIFICATION = False
     settings.CATALYST_INTAKE_MODE = "open"
     settings.CATALYST_INTAKE_GLOBAL_PER_HOUR = 2
     client = Client()
@@ -193,6 +196,9 @@ def test_bgl_2_over_the_hourly_cap_the_applicant_is_accepted_and_the_verificatio
         return
     next_hour = received.occurred_at.astimezone(UTC).replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
     assert send.status == "queued" and send.due_at == next_hour
+    if receipt_enabled:
+        receipt = PendingAction.objects.get(subject_id=third.public_ref, kind="send_receipt")
+        assert receipt.due_at == send.due_at
     assert received.data == {"version_number": 1, "deferred_until": next_hour.isoformat()}
     assert challenge.expires_at == next_hour + timedelta(seconds=settings.CATALYST_CHALLENGE_LIFETIME_SECONDS)
     assert not PendingAction.objects.filter(pk=send.pk, due_at__lte=timezone.now()).exists()  # not claimable yet

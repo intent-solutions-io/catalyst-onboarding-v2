@@ -233,7 +233,9 @@ def test_bgl11_loads_new_drafts_with_both_parts_and_a_rerun_skips_identical_cont
     version = MessageTemplateVersion.objects.get(template__key="verification_invitation", version=report["version"])
     assert (report["action"], version.version, version.status, version.synthetic) == ("create", 2, "draft", False)
     assert version.secret_bearing and version.variables == ["first_name", "link"] and '<a href="$link">' in version.body_html
-    assert version.content_sha256 == version_digest(version.subject, version.body_text, version.body_html) == report["sha256"]
+    assert version.content_sha256 == version_digest(version.subject, version.body_text, version.body_html,
+                                                   subject_reference=True) == report["sha256"]
+    assert version.subject_reference and report["subject_reference"]
     assert summary["create"] == 1 and summary["approved_by"] == ""
     again, _, _ = load("--source", str(source), "--only", "verification_invitation")
     assert (again[0]["action"], again[0]["reason"]) == ("skip", "identical_draft")

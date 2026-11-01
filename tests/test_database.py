@@ -76,6 +76,9 @@ APPROVED_MIGRATIONS = {
     ("correspondence", "0024_template_html_part"),  # bgl.11: the optional HTML alternative, frozen once approved
     ("agreements", "0010_custody_envelope"), ("erasure", "0003_custody_keys"),  # 9kg.34: custody sealed at rest
     ("workflow", "0006_restore_hold_insert_guard"), ("erasure", "0004_erase_replay"),  # 9kg.25: the replay variant of the erase function, under the restore hold only
+    # bgl.5: the CAT- reference on every application, the subject-reference flag on a template version, the receipt templates
+    ("applications", "0011_application_reference"), ("correspondence", "0025_subject_reference"),
+    ("correspondence", "0026_intake_receipt_templates"),
     # bgl.16 (035): the first-generation import's provenance tables, their protection and the reinstalled erasure functions
     ("firstgen", "0001_initial"), ("firstgen", "0002_protection"), ("erasure", "0005_first_generation_import"),
     # bgl.8: a details version read back from the signed envelope, and the service-sent signing-link templates

@@ -113,7 +113,7 @@ MAPPINGS: tuple[Mapping, ...] = (
         variables=("first_name", "link"), required=("link",), bind={"confirm_url": "link", "greeting_name": "first_name"},
         flags={"ask_to_confirm": True}, sourced=BADGE, constants=SIGNATURE, calls=LOCALE,
         notes=("first_generation_offers_confirmation_by_reply",
-               "first_generation_states_its_own_link_lifetime", "subject_reference_dropped")),
+               "first_generation_states_its_own_link_lifetime", "subject_reference_appended_by_sender")),
     Mapping(
         key="question_request", moment="staff approve a clarifying question",
         text=Part(f"{EMAIL}/review_clarification.txt", "jinja"), html=Part(f"{EMAIL}/review_clarification.html", "jinja"),
@@ -121,7 +121,7 @@ MAPPINGS: tuple[Mapping, ...] = (
         variables=("first_name", "question_text"), required=("question_text",),
         bind={"greeting_name": "first_name", "body_text": "question_text"}, lists={"paragraphs": "question_text"},
         sourced=BADGE, constants=SIGNATURE, calls=LOCALE,
-        notes=("subject_reference_dropped",)),
+        notes=("subject_reference_appended_by_sender",)),
     Mapping(
         key="question_reminder", moment="an approved question stays unanswered",
         text=Part(f"{EMAIL}/review_clarification_reminder.txt", "jinja"),
@@ -131,14 +131,14 @@ MAPPINGS: tuple[Mapping, ...] = (
         bind={"greeting_name": "first_name"}, lists={"asked": "question_text"}, flags={"final": _single_reminder},
         sourced=BADGE, constants=SIGNATURE, calls=LOCALE,
         notes=("lists_the_question_text_not_plain_words",
-               "final_sentence_kept_only_while_one_reminder_is_configured", "subject_reference_dropped")),
+               "final_sentence_kept_only_while_one_reminder_is_configured", "subject_reference_appended_by_sender")),
     Mapping(
         key="lapse_note", moment="an application lapses after the last follow-up",
         text=Part(f"{EMAIL}/case_lapse_note.txt", "jinja"), html=Part(f"{EMAIL}/case_lapse_note.html", "jinja"),
         subject=SubjectSource("assign", f"{SRC}/lapse.py", "build_message"),
         variables=("first_name",), bind={"greeting_name": "first_name"}, flags={"questions": True},
         sourced=BADGE, constants=SIGNATURE, calls=LOCALE,
-        notes=("one_v2_template_for_both_lapses_the_question_variant_is_used", "subject_reference_dropped")),
+        notes=("one_v2_template_for_both_lapses_the_question_variant_is_used", "subject_reference_appended_by_sender")),
     Mapping(
         key="agreement_link_nda", moment="the NDA signing link, sent by the service",
         text=Part(f"{EMAIL}/signing_link.txt", "jinja"), html=Part(f"{EMAIL}/signing_link.html", "jinja"),

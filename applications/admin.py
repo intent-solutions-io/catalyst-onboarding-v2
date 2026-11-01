@@ -150,16 +150,16 @@ PROVISIONING_SCREEN_PERMISSIONS = ("view_provisioningrequest", "approve_provisio
 
 @admin.register(Application)
 class ApplicationAdmin(ReadOnlyModelAdmin):
-    list_display = ("display_name", "email", "stage", "contact_verified", "attention", "created_at")
+    list_display = ("display_name", "email", "reference", "stage", "contact_verified", "attention", "created_at")
     list_filter = (NeedsAttentionFilter, "stage")
-    search_fields = ("email_key", "display_name")
+    search_fields = ("email_key", "display_name", "reference")  # bgl.5: staff find a case by the reference it quotes
     ordering = ("-created_at", "-id")
     fieldsets = [
-        ("Applicant", {"fields": ("display_name", "email", "stage", "created_at", "updated_at")}),
+        ("Applicant", {"fields": ("reference", "display_name", "email", "stage", "created_at", "updated_at")}),
         ("Status", {"fields": ("intake", "member_agreement", "contact_state", "adopted_version", "staff_attention", "next_step",
                                "outstanding_work")}),
     ]
-    readonly_fields = ("display_name", "email", "stage", "created_at", "updated_at",
+    readonly_fields = ("reference", "display_name", "email", "stage", "created_at", "updated_at",
                        "intake", "member_agreement", "contact_state", "adopted_version", "staff_attention", "next_step",
                        "outstanding_work")
     inlines = [VersionInline, ChallengeInline, EventInline, OutboundInline]

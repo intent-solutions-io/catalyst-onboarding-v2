@@ -37,6 +37,7 @@ from django.db import transaction
 from django.db.models.functions import Now
 from django.views.decorators.debug import sensitive_variables
 
+from applications.reference import with_reference
 from config.mail import from_header, reply_to
 from correspondence.outbound import current_template_version
 from correspondence.rendering import TemplateRefused, first_name, render, render_html
@@ -167,6 +168,8 @@ class SendPasswordWelcome(_Action):
         values = {name: available[name] for name in version.variables}
         try:
             subject, body = render(version, values)
+            if version.subject_reference:
+                subject = with_reference(subject, setup.request.application.reference)
             page = render_html(version, values)  # bgl.11 (parity integration): the HTML part, or "" for text only
         except TemplateRefused as refused:
             return f"welcome_{refused}"

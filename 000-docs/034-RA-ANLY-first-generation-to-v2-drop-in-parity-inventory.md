@@ -487,3 +487,26 @@ from v2 too.
 ### 5.3 Branch `origin/feat/discord-container-activity`
 
 The head branch of #179 and nothing else (identical 4-file diff, +298/−1; `gh pr list --head` returns only #179).
+
+## Receipt and reference integration contract (bgl.5)
+
+Every application receives a unique `CAT-XXXX-XXXX` label. It is never an authentication credential.
+Application migration `0011_application_reference` preserves references from already-imported cases
+before assigning labels to other existing applications. Subsequent first-generation imports set the
+original reference at creation; duplicate references fail instead of silently renaming a case.
+
+Correspondence migrations `0025_subject_reference` and `0026_intake_receipt_templates` add the
+approved-version subject flag and two synthetic draft templates. The subject flag and HTML are both
+covered by the content digest and database freeze. Verification, questions, reminders, decline,
+signing and password-welcome senders honor the flag. Existing approved templates remain unchanged;
+new wording needs an explicit template approval.
+
+`CATALYST_INTAKE_RECEIPT=on` enables a separate receipt queued once for a new application. It shares
+any intake-cap deferral with verification. Also setting `CATALYST_RECEIPT_IS_VERIFICATION=on` combines
+the receipt and verification link into one mail instead. Both switches default off and must match on
+web and worker. Enabling a mode in production requires approved, non-synthetic wording; intake is
+withheld when that wording cannot be rendered. A repeat submission never queues another separate
+receipt. Ambiguous deliveries after a restore require review under the existing restore policy.
+
+These are repository behaviors, not evidence of production activation or approved real wording.
+The confirmation page also displays the new form answers before the applicant adopts that version.

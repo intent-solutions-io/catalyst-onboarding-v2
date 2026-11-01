@@ -439,7 +439,7 @@ def test_bgl8_the_distribution_and_layout_settings_are_guarded():
 
 # --- bgl.11 x bgl.8 (parity integration): the HTML part and the first name -----------------------------------------
 
-def link_version(env, key, body, page):
+def link_version(env, key, body, page, subject_reference=False):
     from correspondence import outbound
     from correspondence.rendering import version_digest
     from correspondence.roles import TEMPLATE_OWNER
@@ -448,22 +448,25 @@ def link_version(env, key, body, page):
     subject = f"Synthetic {key}"
     version = MessageTemplateVersion.objects.create(
         template=template, version=template.versions.count() + 1, subject=subject, body_text=body, body_html=page,
-        variables=["first_name", "link"], secret_bearing=True, content_sha256=version_digest(subject, body, page))
+        variables=["first_name", "link"], secret_bearing=True, subject_reference=subject_reference,
+        content_sha256=version_digest(subject, body, page, subject_reference=subject_reference))
     outbound.approve_template_version(version.pk, staff(env, f"link-owner-{key}", TEMPLATE_OWNER))
     return version
 
 
-def test_bgl11_the_signing_link_and_the_cover_are_sent_multipart_and_greet_by_first_name(s, monkeypatch):
+@pytest.mark.parametrize("subject_reference", [False, True])
+def test_bgl11_the_signing_link_and_the_cover_are_sent_multipart_and_greet_by_first_name(s, monkeypatch, subject_reference):
     import html
 
     body, page = "Hello $first_name,\nSign here: $link\n", '<p>Hello $first_name,</p><p><a href="$link">Sign</a></p>\n'
     for key in ("agreement_link_nda", "agreement_link_user_agreement"):
-        link_version(s, key, body, page)
+        link_version(s, key, body, page, subject_reference)
     try:
         app, ua = issue_user_agreement(s, monkeypatch)
         first = app.display_name.split()[0]
         sent = [m for m in mail.outbox if "/sign/" in m.body]
-        assert [m.subject for m in sent] == ["Synthetic agreement_link_nda", "Synthetic agreement_link_user_agreement"]
+        suffix = f" [{app.reference}]" if subject_reference else ""
+        assert [m.subject for m in sent] == ["Synthetic agreement_link_nda" + suffix, "Synthetic agreement_link_user_agreement" + suffix]
         for message, envelope_id in zip(sent, (nda(app).envelope_id, ua.envelope_id)):
             link = f"{SIGNING_HOST}/sign/{token_of(s, envelope_id)}"
             assert message.body == f"Hello {first},\nSign here: {link}\n"

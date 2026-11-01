@@ -33,6 +33,7 @@ from django.db.models.functions import Now
 from django.utils.module_loading import import_string
 
 from applications import members
+from applications.reference import with_reference
 from applications.models import TERMINAL_STAGES, Application, ApplicationEvent, Stage
 from applications.stages import transition
 from workflow import journal, ledger
@@ -133,7 +134,8 @@ def _freeze(application, kind, recipient, version, values, authorized_by, author
     """`subject` replaces the template's static subject for a threaded reply (bgl.7: a reminder's `Re: <the question's
     subject>`); the digest covers what is frozen, so the send check still proves the wire message is the frozen one."""
     rendered_subject, body = render(version, values)
-    subject = rendered_subject if subject is None else subject
+    if subject is None:
+        subject = with_reference(rendered_subject, application.reference) if version.subject_reference else rendered_subject
     if version.secret_bearing:
         raise Refused("secret_bearing_kind_not_in_this_task")  # reproducible-inputs kinds arrive with their task
     return ApprovedMessage.objects.create(

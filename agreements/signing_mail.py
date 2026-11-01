@@ -135,6 +135,7 @@ class Proceed:
     display_name: str
     type_key: str
     series: int
+    reference: str = ""
 
 
 @dataclass(frozen=True)
@@ -206,7 +207,7 @@ class SendSigningLink:
         message_id = make_msgid(idstring=f"l{claim.attempt}", domain=urlsplit(settings.CATALYST_PUBLIC_BASE_URL).hostname)
         # bgl.11 (parity integration): multipart/alternative (text, then HTML) when the approved version has an HTML
         # part, rendered by correspondence.rendering.render_html through applications.notices; text only otherwise.
-        message = EmailMultiAlternatives(subject=mail.subject, body=mail.display, to=[decision.recipient],
+        message = EmailMultiAlternatives(subject=mail.subject_for(decision.reference), body=mail.display, to=[decision.recipient],
                                          from_email=from_header(), reply_to=reply_to(),  # bgl.6: config.mail
                                          headers={"Message-ID": message_id, "Auto-Submitted": "auto-generated"})
         if mail.html:
@@ -276,7 +277,7 @@ class SendSigningLink:
             if hard_bounce_open(application):
                 return Stop(Status.QUEUED, "hard_bounce_open", settings.CATALYST_HARD_BOUNCE_RECHECK_SECONDS)
             return Proceed(application.pk, instance.pk, instance.envelope_id, applicant.email, application.display_name,
-                           instance.agreement_type.key, series)
+                           instance.agreement_type.key, series, application.reference)
 
     def _stop(self, claim, decision: Stop, *, refund: bool = True) -> None:
         """A deferral (QUEUED) refunds the attempt when nothing was tried (a pause, a bounce, unapproved wording), and
