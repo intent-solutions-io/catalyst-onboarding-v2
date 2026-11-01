@@ -80,14 +80,14 @@ EVIDENCE_STRENGTH = ("strong", "moderate", "weak", "none")
 COHORT_BOUNDARY = True
 UNRATED = ("unknown", "none")  # (capability, evidence strength): nothing is rated
 FAILED = ("refused", "invalid_output", "failed", "capped", "abandoned")
-# oc4.12: why a human-only assessment applies, in order of precedence (the first that holds).
+# oc4.12: structured human-only reasons. Geographic review is checked before the advice states.
 HUMAN_ONLY_CODES = (
-    "sanctions_concern",
     "advice_suspended",
     "run_capped",
     "run_failed",
     "run_cap_reached",
     "returned_without_reassessment",
+    "sanctions_concern",
 )
 EVIDENCE_STATES = (
     "present",

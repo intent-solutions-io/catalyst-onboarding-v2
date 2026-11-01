@@ -41,6 +41,9 @@ def signals(fields):
 
 
 def evidence(application):
+    # Admission probes without an applicant still check provider approval.
+    if application is None:
+        return {}
     adoption = application.adoptions.select_related("submission_version").first()
     if adoption is None:
         return {}
@@ -55,14 +58,22 @@ def evidence(application):
 
 def ensure_hold(application):
     """Called with the application locked. A reviewed item stays resolved; the model gate remains."""
-    from correspondence.models import StaffItem
-    from correspondence.staff_items import open_item
+    from .models import ApplicationEvent
+    from .services import open_staff_item
 
     value = evidence(application)
     if value:
-        key = f"geographic:{value['version']}:{value['policy']}"
-        if not StaffItem.objects.filter(
-            application=application, reason_code=REASON, dedupe_key=key
+        if not application.events.filter(
+            kind="needs_staff_attention",
+            data__reason=REASON,
+            data__version=value["version"],
+            data__policy=value["policy"],
         ).exists():
-            open_item(REASON, key, application=application)
+            attention = ApplicationEvent.objects.create(
+                application=application,
+                kind="needs_staff_attention",
+                actor_type="system",
+                data={"reason": REASON, **value},
+            )
+            open_staff_item(application, REASON, attention)
     return value
