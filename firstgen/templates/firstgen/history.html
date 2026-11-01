@@ -67,6 +67,35 @@
   <button type="submit">Record and prepare provisioning handoff</button>
 </form>
 {% endif %}
+{% if recovery_options %}
+<h3>Resolve an uncertain mailbox or welcome</h3>
+<p>Review the <a href="?table=mailbox_history">current source mailbox history</a> and provider account. This form reads the provider and records a disposition. It sends nothing and leaves automation paused. Recovering credentials explicitly authorizes a replacement credential flow after separate resume; any earlier password may then stop working.</p>
+{% for receipt in recovery_receipts %}<p>Reconciliation recorded {{ receipt.occurred_at|date:"Y-m-d H:i" }} UTC: {{ receipt.data.decision|visible }}. Review the resulting request on the <a href="{% url 'provisioning_staff:provisioning' application.public_ref %}">provisioning screen</a>.</p>{% endfor %}
+{% for option in recovery_options %}
+<form method="post" action="{% url 'firstgen_staff:reconcile_mailbox' application.public_ref %}">
+  {% csrf_token %}<input type="hidden" name="digest" value="{{ option.digest }}"><input type="hidden" name="request" value="{{ option.request.pk }}">
+  <p>Mailbox: {{ option.request.reservation.address|visible }}</p>
+  <p><label>Reviewed outcome <select name="decision" required>
+    <option value="">Choose the outcome you verified</option>
+    <option value="absent" {% if recovery_values.decision == "absent" %}selected{% endif %}>Absent: prepare a new approval, or settle access removal for a closed case</option>
+    <option value="recover_credentials" {% if recovery_values.decision == "recover_credentials" %}selected{% endif %}>Owned account: prepare replacement credentials after resume</option>
+    <option value="received" {% if recovery_values.decision == "received" %}selected{% endif %}>Existing welcome and access verified: preserve access and send nothing</option>
+    <option value="foreign" {% if recovery_values.decision == "foreign" %}selected{% endif %}>Account belongs to someone else: preserve it and return this case for a new address</option>
+    <option value="protect_owned" {% if recovery_values.decision == "protect_owned" %}selected{% endif %}>Closed case: confirm ownership and queue protective access removal</option>
+  </select></label></p>
+  <p>For an existing account's credential recovery or retained access, these must match the limits you verified at the provider. The form never changes provider limits.</p>
+  <p><label>Quota (MB) <input name="quota_mb" type="number" min="1" value="{{ recovery_values.quota_mb|default:option.request.quota_mb }}" required></label>
+  <label>Send limit <input name="send_limit" type="number" min="1" max="9600" value="{{ recovery_values.send_limit|default:option.request.send_limit }}" required></label></p>
+  <p><label><input type="checkbox" name="source_stopped" value="yes" required> The source writers for this case, mailbox and welcome have stopped.</label></p>
+  <p><label><input type="checkbox" name="inflight_settled" value="yes" required> I verified that source operations cannot complete later or retry; no source operation is still in flight.</label></p>
+  <p><label><input type="checkbox" name="ownership_reviewed" value="yes" required> I verified the address, ownership decision and the limits shown above.</label></p>
+  <p><label><input type="checkbox" name="delivery_reviewed" value="yes" required> I checked the current welcome round and recipient evidence. The selected outcome preserves verified delivery or explicitly requests replacement credentials.</label></p>
+  <p><label>Evidence and reason (no credentials)<br><textarea name="note" minlength="10" maxlength="500" required>{{ review_note|visible }}</textarea></label></p>
+  <button type="submit">Record mailbox reconciliation</button>
+</form>
+{% endfor %}
+{% endif %}
+
 {% if can_confirm_mailbox and mailbox_requests %}
 <h3>Transfer existing mailbox ownership</h3>
 <p>Review the frozen source and confirm that this mailbox belongs to this applicant. The provider is read again before recording ownership. No mailbox is created, password changed, welcome sent or suspension lifted by this form. For a closed or withdrawn case, this records the obligation and queues native access revocation, which can run while automation is paused.</p>

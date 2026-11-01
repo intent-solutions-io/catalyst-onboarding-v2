@@ -18,7 +18,7 @@ from correspondence.mime import redact
 from workflow.models import AutomationPause
 
 from .models import ImportedCase, ImportedRecord
-from . import review, mailboxes, release
+from . import review, mailboxes, release, mailbox_recovery
 from . import agreements as legacy_agreements
 from agreements.models import AgreementTemplateVersion
 
@@ -70,6 +70,50 @@ GUIDANCE = {
 
 def displayed_fields(record):
     data = record.data if isinstance(record.data, dict) else {}
+    if record.v1_table == "mailbox_history":
+        shown = [
+            (key.replace("_", " "), data[key])
+            for key in ("case_state", "jobs_complete", "tables_complete")
+            if key in data
+        ]
+        for section, keys in (
+            (
+                "accounts",
+                (
+                    "id",
+                    "status",
+                    "create_requested_at",
+                    "created_at_provider",
+                    "welcome_round",
+                    "welcome_send_started_at",
+                    "welcome_sent_at",
+                ),
+            ),
+            ("releases", ("id", "verified_at")),
+            (
+                "jobs",
+                (
+                    "id",
+                    "kind",
+                    "status",
+                    "key_valid",
+                    "case_id",
+                    "key_case_id",
+                    "mailbox_id",
+                    "welcome_round",
+                    "attempts",
+                    "completed_at",
+                    "outcome_unknown",
+                ),
+            ),
+        ):
+            for row in data.get(section, []):
+                shown.extend(
+                    (section + " " + key.replace("_", " "), row[key])
+                    for key in keys
+                    if isinstance(row.get(key), (str, int, bool))
+                )
+        return shown
     if record.v1_table == "signing_history":
         shown = [
             (key.replace("_", " "), data[key])
@@ -183,6 +227,25 @@ def history_response(request, public_ref, *, error="", note="", status=200):
                 kind="legacy_signing_timers_prepared"
             ).order_by("-pk"),
             "can_confirm_mailbox": mailboxes.can_confirm(request.user),
+            "recovery_options": [
+                {
+                    "request": item,
+                    "digest": mailbox_recovery.state(case.application, item)["digest"],
+                }
+                for item in case.application.provisioning_requests.select_related(
+                    "reservation"
+                ).filter(
+                    method="checklist", approved_by__startswith="first-generation:"
+                )
+            ]
+            if mailbox_recovery.can_reconcile(request.user)
+            else [],
+            "recovery_values": request.POST
+            if request.resolver_match.url_name == "reconcile_mailbox"
+            else {},
+            "recovery_receipts": case.application.events.filter(
+                kind=mailbox_recovery.RECONCILED
+            ).order_by("-pk"),
             "can_prepare_release": release.can_prepare(request.user)
             and case.application.stage == "agreements_complete"
             and case.v1_state == "release_pending",
@@ -333,6 +396,41 @@ def confirm_mailbox(request, public_ref):
         )
     except (ValueError, Refused, AdapterError) as exc:
         code = "imported_mailbox_required" if isinstance(exc, ValueError) else str(exc)
+        return history_response(request, public_ref, error=code, note=note, status=409)
+    return redirect("firstgen_staff:history", public_ref=public_ref)
+
+
+@admin.site.admin_view
+@require_POST
+def reconcile_mailbox(request, public_ref):
+    from correspondence.common import Refused
+    from provisioning.adapter import AdapterError
+
+    if not mailbox_recovery.can_reconcile(request.user):
+        raise PermissionDenied
+    case = get_object_or_404(ImportedCase, application__public_ref=public_ref)
+    note = request.POST.get("note", "")
+    try:
+        mailbox_recovery.reconcile(
+            case.application_id,
+            int(request.POST.get("request", "")),
+            request.user,
+            expected_digest=request.POST.get("digest", ""),
+            decision=request.POST.get("decision", ""),
+            quota_mb=int(request.POST.get("quota_mb", "")),
+            send_limit=int(request.POST.get("send_limit", "")),
+            source_stopped=request.POST.get("source_stopped") == "yes",
+            inflight_settled=request.POST.get("inflight_settled") == "yes",
+            ownership_reviewed=request.POST.get("ownership_reviewed") == "yes",
+            delivery_reviewed=request.POST.get("delivery_reviewed") == "yes",
+            note=note,
+        )
+    except (ValueError, Refused, AdapterError) as exc:
+        code = (
+            "invalid_mailbox_reconciliation"
+            if isinstance(exc, ValueError)
+            else str(exc)
+        )
         return history_response(request, public_ref, error=code, note=note, status=409)
     return redirect("firstgen_staff:history", public_ref=public_ref)
 

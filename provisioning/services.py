@@ -649,6 +649,8 @@ def release_address(request_id: int, user, reason: str) -> None:
     request = ProvisioningRequest.objects.get(pk=request_id)
     with transaction.atomic():
         application, request = core.lock(request.application_id, request.pk)
+        if request.superseded_by_id is not None:
+            raise Refused("address_transferred_to_successor")
         from firstgen.mailboxes import ownership_unreviewed
 
         if ownership_unreviewed(request):

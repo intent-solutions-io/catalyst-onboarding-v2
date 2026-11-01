@@ -5,6 +5,11 @@ from . import staff_views
 app_name = "firstgen_staff"
 urlpatterns = [
     path(
+        "<uuid:public_ref>/mailbox-reconciliation/",
+        staff_views.reconcile_mailbox,
+        name="reconcile_mailbox",
+    ),
+    path(
         "<uuid:public_ref>/release/",
         staff_views.prepare_release,
         name="prepare_release",
