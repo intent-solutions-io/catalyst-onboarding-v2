@@ -51,7 +51,9 @@ class Outcome:
     journal_head: str
     resumed: bool = False
     retained: list = None
-    keys_destroyed: int = 0  # references verified gone from both key directories (9kg.34)
+    keys_destroyed: int = (
+        0  # references verified gone from both key directories (9kg.34)
+    )
     key_files_removed: int = 0
 
 
@@ -64,7 +66,8 @@ def _role_check(conn) -> None:
     row = conn.execute(
         "SELECT r.rolsuper, pg_has_role(current_user, %s, 'MEMBER'), pg_has_role(current_user, %s, 'MEMBER'),"
         " pg_has_role(current_user, %s, 'MEMBER') FROM pg_catalog.pg_roles r WHERE r.rolname = current_user",
-        [roles["retention"], roles["owner"], roles["app"]]).fetchone()
+        [roles["retention"], roles["owner"], roles["app"]],
+    ).fetchone()
     conn.rollback()
     superuser, retention, owner, app = row
     if superuser or not retention or owner or app:
@@ -72,9 +75,15 @@ def _role_check(conn) -> None:
 
 
 def _email_key(conn, subject_ref):
-    row = conn.execute("SELECT email_key FROM applications_application WHERE public_ref = %s", [subject_ref]).fetchone()
+    row = conn.execute(
+        "SELECT email_key FROM applications_application WHERE public_ref = %s",
+        [subject_ref],
+    ).fetchone()
     if row is None:
-        row = conn.execute("SELECT email_key FROM applications_invitation WHERE public_id = %s", [subject_ref]).fetchone()
+        row = conn.execute(
+            "SELECT email_key FROM applications_invitation WHERE public_id = %s",
+            [subject_ref],
+        ).fetchone()
     conn.rollback()
     return None if row is None else row[0]
 
@@ -82,8 +91,10 @@ def _email_key(conn, subject_ref):
 def _call(conn, subject_ref, authority, reason, classes, *, commit: bool) -> dict:
     """One transaction around the function: committed for the erasure, rolled back for the dry run."""
     try:
-        result = conn.execute("SELECT public.catalyst_erase(%s, %s, %s, %s)",
-                              [subject_ref, authority, reason, list(classes)]).fetchone()[0]
+        result = conn.execute(
+            "SELECT public.catalyst_erase(%s, %s, %s, %s)",
+            [subject_ref, authority, reason, list(classes)],
+        ).fetchone()[0]
     except errors.Error as exc:
         conn.rollback()
         raise Refused(_code(exc)) from None
@@ -103,7 +114,9 @@ def erase(conn, subject_ref: str, authority: str, reason: str, rows=None) -> Out
     in force, the authority and reason from this command, and while the row still holds a real key the intent's hash
     must be that key's hash under the erasure key (an intent is also verified by its mac when folded)."""
     rows = registry.current() if rows is None else rows
-    if not catalog.CODE.fullmatch(authority or "") or not catalog.CODE.fullmatch(reason or ""):
+    if not catalog.CODE.fullmatch(authority or "") or not catalog.CODE.fullmatch(
+        reason or ""
+    ):
         raise Refused("malformed_request")
     try:
         secret = record.key()
@@ -122,50 +135,89 @@ def erase(conn, subject_ref: str, authority: str, reason: str, rows=None) -> Out
         problems = registry.problems(rows)
         if problems:
             raise Refused("registry_undecided", problems)
-    classes = [c for c in registry.SUBJECT_CLASSES if (rows.get(c) or {}).get("treatment") == registry.ANONYMIZE]
-    destroy = (rows.get("signed_documents") or {}).get("treatment") == registry.DESTROY_KEY
+    classes = [
+        c
+        for c in registry.SUBJECT_CLASSES
+        if (rows.get(c) or {}).get("treatment") == registry.ANONYMIZE
+    ]
+    destroy = (rows.get("signed_documents") or {}).get(
+        "treatment"
+    ) == registry.DESTROY_KEY
     if not classes:
         raise Refused("registry_undecided", ["no_class_anonymized"])
     kid = record.key_id(secret)
     email_key = _email_key(conn, subject_ref)
-    real_key = email_key is not None and not (email_key.startswith("erased:") and "@" not in email_key)
+    real_key = email_key is not None and not (
+        email_key.startswith("erased:") and "@" not in email_key
+    )
     if resumed:
         subject = state.intent.data["subject"]
-        if real_key and not hmac.compare_digest(subject, record.subject_hash(email_key, secret)):
+        if real_key and not hmac.compare_digest(
+            subject, record.subject_hash(email_key, secret)
+        ):
             raise Refused("record_subject_mismatch")
         if state.intent.data.get("key_id") != kid:
             raise Refused("record_key_mismatch")
         if destroy:
             _refuse_lingering_plaintext(conn, None, subject_ref=subject_ref)
-            if _custody_keys_exist(conn):  # 9kg.84 (CodeRabbit on PR #129): with no custody key anywhere, as in
+            if _custody_keys_exist(
+                conn
+            ):  # 9kg.84 (CodeRabbit on PR #129): with no custody key anywhere, as in
                 _refuse_unavailable_key_store()  # wave 1, an unconfigured store must not block finishing the erasure
     elif email_key is None:
         raise Refused("unknown_subject")
     else:
-        dry = _call(conn, subject_ref, authority, reason, classes, commit=False)  # refusals surface before the intent
+        dry = _call(
+            conn, subject_ref, authority, reason, classes, commit=False
+        )  # refusals surface before the intent
         if destroy and int(dry.get("custody_plaintext") or 0):
-            raise Refused("custody_plaintext_unmigrated")  # a plaintext copy is beyond any key: seal it first
+            raise Refused(
+                "custody_plaintext_unmigrated"
+            )  # a plaintext copy is beyond any key: seal it first
         if destroy:
             _refuse_lingering_plaintext(conn, dry.get("custody_keys") or [])
         keys_left = destroy and bool(_pending(dry.get("custody_keys") or []))
         if dry["status"] == "nothing_to_erase" and not keys_left:
-            return Outcome("nothing_to_erase", str(subject_ref), 0, [], record.head_string(),
-                           retained=_retained(dry, destroy and _all_destroyed(dry.get("custody_keys") or [])))
+            return Outcome(
+                "nothing_to_erase",
+                str(subject_ref),
+                0,
+                [],
+                record.head_string(),
+                retained=_retained(
+                    dry, destroy and _all_destroyed(dry.get("custody_keys") or [])
+                ),
+            )
         if real_key:
             subject = record.subject_hash(email_key, secret)
         elif state is not None and state.intent is not None:
-            subject = state.intent.data["subject"]  # the key is already a tombstone: the earlier record names the person
+            subject = state.intent.data[
+                "subject"
+            ]  # the key is already a tombstone: the earlier record names the person
         else:
             raise Refused("record_subject_unknown")
         try:
-            record.append_intent(subject_ref, subject, kid, authority, reason, classes, dry.get("handoffs") or [],
-                                 _retained(dry, False), secret)
+            record.append_intent(
+                subject_ref,
+                subject,
+                kid,
+                authority,
+                reason,
+                classes,
+                dry.get("handoffs") or [],
+                _retained(dry, False),
+                secret,
+            )
         except record.RecordError as exc:
             raise Refused(f"record_{exc.code}") from None
     try:
         # K4: on a first erasure under destroy_key, the audit row also names the key destruction (a call class with no
         # column; the journal's intent keeps the registry's classes, which the replay uses).
-        call_classes = classes + ([catalog.CUSTODY_AUDIT_CLASS] if destroy and (resumed or dry.get("custody_keys")) else [])
+        call_classes = classes + (
+            [catalog.CUSTODY_AUDIT_CLASS]
+            if destroy and (resumed or dry.get("custody_keys"))
+            else []
+        )
         result = _call(conn, subject_ref, authority, reason, call_classes, commit=True)
     except Refused as refusal:
         _complete(subject_ref, subject, kid, f"refused_{refusal.code}", 0, secret)
@@ -180,7 +232,9 @@ def erase(conn, subject_ref: str, authority: str, reason: str, rows=None) -> Out
     files = 0
     if destroy and refs:
         try:  # after the commit: an interruption leaves the intent open, and the next run destroys what is left
-            files = keystore.destroy(str(subject_ref), refs)  # verifies every reference is gone, or raises
+            files = keystore.destroy(
+                str(subject_ref), refs
+            )  # verifies every reference is gone, or raises
         except keystore.KeyStoreError as exc:
             raise Refused(f"custody_{exc.code}_after_commit") from None
     status = result["status"]
@@ -189,11 +243,29 @@ def erase(conn, subject_ref: str, authority: str, reason: str, rows=None) -> Out
     elif status == "nothing_to_erase" and performed:
         status = "erased"  # the tables were already tombstoned; the custody keys were not (9kg.34)
     keys = len(refs) if destroy else 0
-    _complete(subject_ref, subject, kid, status, result.get("changed", 0), secret, keys, files,
-              custody_destroyed=destroy and bool(refs))
+    _complete(
+        subject_ref,
+        subject,
+        kid,
+        status,
+        result.get("changed", 0),
+        secret,
+        keys,
+        files,
+        custody_destroyed=destroy and bool(refs),
+    )
     folded = record.fold(journal.read(), secret).get(str(subject_ref))
-    return Outcome(status, str(subject_ref), int(result.get("changed", 0)), sorted(folded.handoffs_owed),
-                   record.head_string(), resumed, sorted(folded.retained), keys, files)
+    return Outcome(
+        status,
+        str(subject_ref),
+        int(result.get("changed", 0)),
+        sorted(folded.handoffs_owed),
+        record.head_string(),
+        resumed,
+        sorted(folded.retained),
+        keys,
+        files,
+    )
 
 
 def _retained(result: dict, destroyed: bool) -> list:
@@ -213,8 +285,12 @@ def _pending(refs) -> list:
     if not refs:
         return []
     try:
-        destroyed = keystore.journaled_destroyed(verify=True)  # the erase process holds the erasure key
-        return [ref for ref in refs if ref not in destroyed or any(keystore.present(ref))]
+        destroyed = keystore.journaled_destroyed(
+            verify=True
+        )  # the erase process holds the erasure key
+        return [
+            ref for ref in refs if ref not in destroyed or any(keystore.present(ref))
+        ]
     except keystore.KeyStoreError as exc:
         raise Refused(f"custody_{exc.code}") from None
 
@@ -222,7 +298,9 @@ def _pending(refs) -> list:
 def _custody_keys_exist(conn) -> bool:
     """Whether anything is in custody at all: a resumed run has no dry run naming the subject's keys, so it requires the
     key store unless provably nothing is in custody (9kg.84)."""
-    found = conn.execute("SELECT EXISTS (SELECT 1 FROM agreements_custodyenvelope)").fetchone()[0]
+    found = conn.execute(
+        "SELECT EXISTS (SELECT 1 FROM agreements_custodyenvelope)"
+    ).fetchone()[0]
     conn.rollback()
     return bool(found)
 
@@ -243,12 +321,18 @@ def _refuse_lingering_plaintext(conn, refs, subject_ref=None) -> None:
     from agreements import storage
 
     if refs is None:
-        rows = conn.execute("SELECT d.storage_key FROM agreements_storeddocument d JOIN agreements_custodyenvelope e"
-                            " ON e.document_id = d.id JOIN applications_application a ON a.id = d.application_id"
-                            " WHERE e.migrated AND a.public_ref = %s", [subject_ref]).fetchall()
+        rows = conn.execute(
+            "SELECT d.storage_key FROM agreements_storeddocument d JOIN agreements_custodyenvelope e"
+            " ON e.document_id = d.id JOIN applications_application a ON a.id = d.application_id"
+            " WHERE e.migrated AND a.public_ref = %s",
+            [subject_ref],
+        ).fetchall()
     elif refs:
-        rows = conn.execute("SELECT d.storage_key FROM agreements_storeddocument d JOIN agreements_custodyenvelope e"
-                            " ON e.document_id = d.id WHERE e.migrated AND e.key_ref = ANY(%s)", [list(refs)]).fetchall()
+        rows = conn.execute(
+            "SELECT d.storage_key FROM agreements_storeddocument d JOIN agreements_custodyenvelope e"
+            " ON e.document_id = d.id WHERE e.migrated AND e.key_ref = ANY(%s)",
+            [list(refs)],
+        ).fetchall()
     else:
         rows = []
     conn.rollback()
@@ -264,11 +348,29 @@ def _all_destroyed(refs) -> bool:
     return bool(refs) and not _pending(refs)
 
 
-def _complete(subject_ref, subject, kid, status, changed, secret, keys_destroyed=0, key_files_removed=0,
-              custody_destroyed=False):
+def _complete(
+    subject_ref,
+    subject,
+    kid,
+    status,
+    changed,
+    secret,
+    keys_destroyed=0,
+    key_files_removed=0,
+    custody_destroyed=False,
+):
     try:
-        record.append_complete(subject_ref, subject, kid, status, changed, secret, keys_destroyed, key_files_removed,
-                               custody_destroyed)
+        record.append_complete(
+            subject_ref,
+            subject,
+            kid,
+            status,
+            changed,
+            secret,
+            keys_destroyed,
+            key_files_removed,
+            custody_destroyed,
+        )
     except record.RecordError as exc:
         # The database transaction has committed; the intent stays open and the next run completes it.
         raise Refused(f"record_{exc.code}_after_commit") from None
