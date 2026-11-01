@@ -48,6 +48,8 @@ PUBLIC_EXACT = (
     "/request-access/received",
     "/signing/return/",
     "/signing/return",
+    "/request-access/assets/select-services-partner-e4897387bbdb.svg",
+    "/request-access/assets/select-services-partner-c96bbd4b0d98.png",
 )
 # bgl.2: what a public host alias (the learning host) is served: the public request pages, nothing else.
 ALIAS_PATHS = PUBLIC_EXACT

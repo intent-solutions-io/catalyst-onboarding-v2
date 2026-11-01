@@ -66,7 +66,7 @@
 	request_body {
 		max_size 128KB
 	}
-	@applicant path /request-access/ /request-access/received/ /request-access /request-access/received /signing/return/ /signing/return /confirm/* /setup/* /withdraw/*
+	@applicant path /request-access/ /request-access/received/ /request-access /request-access/received /signing/return/ /signing/return /request-access/assets/select-services-partner-e4897387bbdb.svg /request-access/assets/select-services-partner-c96bbd4b0d98.png /confirm/* /setup/* /withdraw/*
 	handle @applicant {
 		import catalyst_web
 	}
@@ -84,7 +84,7 @@
 	request_body {
 		max_size 128KB
 	}
-	@alias path /request-access/ /request-access/received/ /request-access /request-access/received /signing/return/ /signing/return
+	@alias path /request-access/ /request-access/received/ /request-access /request-access/received /signing/return/ /signing/return /request-access/assets/select-services-partner-e4897387bbdb.svg /request-access/assets/select-services-partner-c96bbd4b0d98.png
 	handle @alias {
 		import catalyst_web
 	}

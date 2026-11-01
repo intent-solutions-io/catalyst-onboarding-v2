@@ -74,6 +74,14 @@ paths from the deployed stack. Reconcile every imported open case before retirin
 old writer. Record deployment, provider and case-continuation evidence in Beads; a
 passing synthetic test is not a live canary or a completed migration.
 
+The two exact `/request-access/assets/select-services-partner-` URLs ending in
+`e4897387bbdb.svg` and `c96bbd4b0d98.png` are served from packaged, unchanged official
+artwork. Their filename digests and response ETags are pinned in
+`applications/brand_assets.py`. The public and alias proxy sites admit those two paths
+only. Verify their full SHA-256 values, MIME types and immutable cache headers through
+the real Learn route before retiring its old upstream. Preserve these URLs and bytes
+on rollback; revised artwork requires a new content-addressed URL.
+
 ## Receiver-initiated journal transfer
 
 The existing `catalyst_journal_ship --to` is for a verified off-host filesystem mount.
