@@ -9,8 +9,8 @@ psycopg[binary]==3.3.6
 # extra also pulls tiktoken (token counting Catalyst never does) and through it `requests`, an HTTP library the
 # test-time raising transport does not cover. `openai` itself uses httpx2, which that transport already refuses.
 # 3.35.0 was released 2026-10-17 (the newest at least two weeks old on 2026-10-31); SDK retries are set to 0 in code.
-pydantic-ai-slim==2.62.0
-openai==3.35.0
+pydantic-ai-slim==2.63.0
+openai==3.41.0
 # 6B.5 (026 section 4): the WSGI server for the web process, bound to the proxy's unix socket, with no access log.
 gunicorn==26.2.0
 # 6B.9 (026 section 8, P6-D-3): staff two-factor. django-otp alone (TOTP and recovery codes, depending only on Django)

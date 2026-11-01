@@ -349,9 +349,9 @@ logfire-api==5.2.0 \
     --hash=sha256:06553f4a4b1b54d094dd01708f51cde69ccd5e8a06fc2664bece3491b593390d \
     --hash=sha256:f4bd56df590ba7e7a32adb0302c82af38dc4edb9eecd03b1bfa03ffa581eecf8
     # via pydantic-graph
-openai==3.35.0 \
-    --hash=sha256:c93c5dfd1f677241b8bac333b1d9dcad86527cd016d797320d0a74b7ddaf7eaa \
-    --hash=sha256:ca2250e8e213d4a4c5e48059bf159448519433d655a575f6dc0059aa0cf3e513
+openai==3.41.0 \
+    --hash=sha256:7060a74b239609b21f2919eb98807a8aad463b4f510b8b3b388b15559360b0a8 \
+    --hash=sha256:d065fc59d3d7d8537a77b3ceb527732952c6ff610158e8a2a95b246be637e86f
     # via -r requirements/base.in
 opentelemetry-api==1.45.1 \
     --hash=sha256:aa38ed19bcc084ba42782a73255b3582283eced7ad6dddbd6695189e69adfb75 \
@@ -451,9 +451,9 @@ pydantic==2.14.1 \
     #   openai
     #   pydantic-ai-slim
     #   pydantic-graph
-pydantic-ai-slim==2.62.0 \
-    --hash=sha256:83ff09244f6405c2b8705d022b899eca7379a5b837416b926dba383fa285262d \
-    --hash=sha256:91194f1cb8c51e66268f46b3203376f504648b3b9e59efe4e8fcda0f8d33d9b0
+pydantic-ai-slim==2.63.0 \
+    --hash=sha256:0694051caa2357ddac4e98ec69e1ae509e20cffc2f4a658217fbd35e83b96339 \
+    --hash=sha256:dd8bde21754001a9d9be4ae79bada4dcbea5142e3d9fce4c13efaf972674a764
     # via -r requirements/base.in
 pydantic-core==2.50.1 \
     --hash=sha256:0036473f5583e6a60e50b8b21651511564277a3f05cc5dab8cf579f552cd5f6c \
@@ -594,17 +594,17 @@ pydantic-core==2.50.1 \
     --hash=sha256:f77ac30b19221cd9bd3fcfa3d4614eff93140d0572ab730cded17b64adca05f3 \
     --hash=sha256:fe90228920fd8ff2be62622b6bb8a2b11acd65046d50c6b130614b5879605a20
     # via pydantic
-pydantic-graph==2.62.0 \
-    --hash=sha256:a7b4493cbe04bbb15a13aab0dc1d8115eeff82ebd39fd9c5f51c3fe3abc0b1d6 \
-    --hash=sha256:c7479adbd8901dca8315daa0eddfd2a8b32dcd5a23ebc386bb553cb9a02f8703
+pydantic-graph==2.63.0 \
+    --hash=sha256:803eef2c9b24798d0d13372f7e9d1600920abb96e114368c7add7a57436cb7b2 \
+    --hash=sha256:ffd687a20b7c6b2914c95e19f4b1501c9768763289b482eea82dd72b2488366e
     # via pydantic-ai-slim
 pygments==2.21.0 \
     --hash=sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9 \
     --hash=sha256:610ca751c9bc2492b38eb9a38a7fbc93edbbb2d7182edaf34e66ae493dee5c8c
     # via pytest
-pytest==9.1.1 \
-    --hash=sha256:1088fbde8f2b49d95a549a195707afa7a76a3ce9bcadc26b6d71f0ffda5fe313 \
-    --hash=sha256:37a86b45efb9a47a61a36449063e8e18d0cab3161329fc099eb21783169c4f0c
+pytest==9.2.0 \
+    --hash=sha256:07acdcf88ec174f907dc01af70bf52d49b014bbab03faeeade31c96b18c2e588 \
+    --hash=sha256:97c4f3b1f3c7414aa36465e09b8220f1d03627993bd51b1282e193753c80557b
     # via
     #   -r requirements/dev.in
     #   pytest-django
