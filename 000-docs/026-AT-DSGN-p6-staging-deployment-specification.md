@@ -2197,9 +2197,18 @@ hardened after the PR #102 security, release-operations and data reviews).**
     `catalyst_erase`, the rule is that it is called only through the command, on the erase service. The hold itself
     can be placed only by the restore's load or the owner: workflow migration 0006 refuses an application-role INSERT
     of a `system` pause row, as 0004 already refused its UPDATE and DELETE (security review of PR #103).
-  - Rows found only through the address and readable only by the erase function stay as restored when no
-    application, invitation or member record at T carries that address: inbound mail from it and its intake throttle
-    bucket. The retention role cannot read inbound mail (follow-up bead `9kg.71`).
+  - `9kg.71` extends recovery lookup to unmatched inbound senders. The retention login can read only
+    `correspondence_inboundmessage.from_normalized` and `accounts_requestthrottle.key`; it gains no mail-body,
+    attachment or direct mutation privilege. Replay verifies the sender against the signed subject hash before
+    invoking the existing audited erasure function, including when an identity row is already tombstoned.
+  - A counter that is the only remaining record contains an irreversible address digest. If a subject cannot be
+    matched and unexplained counters remain, replay refuses with `replay_address_required` before any erasure or
+    completion marker. This conservative check can also encounter client counters: their digest does not encode a
+    readable scope. Supply a private JSON object mapping the listed public references to their original addresses
+    through `catalyst_erasure_replay --expect-head <head> --recovery-addresses-stdin`. Keep the input in protected
+    operator custody and pipe it on stdin, never in command arguments, Git, logs or the journal. Every supplied
+    address must match its reference's signed subject hash; unknown references, malformed input and mismatches
+    refuse. Losing the address does not authorize a bypass: the restore stays held until the evidence is recovered.
   - An erasure still open at T (its completion never written) is replayed too, without the refusals: the owner
     authorized it and its intent names the person, so re-applying it is the restrictive direction.
   - The mailbox read leaves erased subjects out: their reserved name is a tombstone, so a read by it says nothing (the

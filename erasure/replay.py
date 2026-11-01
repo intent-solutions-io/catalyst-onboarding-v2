@@ -36,6 +36,8 @@ import hmac
 
 from psycopg import errors
 
+from applications.identity import email_key as normalize_email
+from config.throttle import key as throttle_key
 from erasure import record, registry
 from erasure.service import Refused, _code, _email_key, _role_check
 from workflow import journal
@@ -62,14 +64,30 @@ def state(entries, secret: bytes | None, since=None) -> str:
     `forged_marker` (none verifies) or `stale` (an erasure after the marker). With `secret` the marker's mac is
     verified (the lift); without it (the review, which holds no key: finding 4) only its presence and coverage are."""
     seq = restore_seq(entries)
-    markers = [e for e in entries if e.kind == MARKER and e.key == marker_key(seq) and e.seq > seq
-               and (since is None or e.when >= since)]
-    verified = [e for e in markers if secret is None
-                or hmac.compare_digest(str(e.data.get("mac", "")), record.entry_mac(MARKER, e.key, e.data, secret))]
+    markers = [
+        e
+        for e in entries
+        if e.kind == MARKER
+        and e.key == marker_key(seq)
+        and e.seq > seq
+        and (since is None or e.when >= since)
+    ]
+    verified = [
+        e
+        for e in markers
+        if secret is None
+        or hmac.compare_digest(
+            str(e.data.get("mac", "")), record.entry_mac(MARKER, e.key, e.data, secret)
+        )
+    ]
     if not verified:
         return "forged_marker" if markers else "unreplayed"
     through = verified[-1].data.get("through")
-    if not isinstance(through, int) or isinstance(through, bool) or through < last_erasure_seq(entries):
+    if (
+        not isinstance(through, int)
+        or isinstance(through, bool)
+        or through < last_erasure_seq(entries)
+    ):
         return "stale"
     return "replayed"
 
@@ -77,11 +95,21 @@ def state(entries, secret: bytes | None, since=None) -> str:
 def mark(entries, secret: bytes, subjects=0, erased=0, already=0, absent=0) -> int:
     """Append the `erasures_replayed` marker for the journal `entries` were read from; returns the restore's seq."""
     seq = restore_seq(entries)
-    data = {"restore": seq, "through": last_erasure_seq(entries), "subjects": subjects, "erased": erased,
-            "already": already, "absent": absent, "key_id": record.key_id(secret), "phase": "done"}
+    data = {
+        "restore": seq,
+        "through": last_erasure_seq(entries),
+        "subjects": subjects,
+        "erased": erased,
+        "already": already,
+        "absent": absent,
+        "key_id": record.key_id(secret),
+        "phase": "done",
+    }
     data["mac"] = record.entry_mac(MARKER, marker_key(seq), data, secret)
     if journal.append(MARKER, marker_key(seq), data) is None:
-        raise Refused("record_unwritable")  # the failure is logged and counted by the journal; run the replay again
+        raise Refused(
+            "record_unwritable"
+        )  # the failure is logged and counted by the journal; run the replay again
     return seq
 
 
@@ -96,17 +124,21 @@ def current_state(since=None, verify: bool = True) -> str:
 
 
 def _real(key) -> bool:
-    return bool(key) and not (key.startswith("erased:") and "@" not in key)
+    return bool(key) and "@" in key
 
 
 def _keys_by_subject(conn, secret: bytes) -> dict:
     """{subject hash: {real email key: an application's or invitation's public reference, or None}} over the restored
     rows the retention role reads: applications, invitations and first-generation member records (data review of
-    PR #103, finding 1: a person invited before the backup and erased under an application made after it)."""
+    PR #103, finding 1). Also read only the normalized sender column of unmatched mail (9kg.71),
+    never its body, attachments or other message columns."""
     found = {}
-    for query in ("SELECT email_key, public_ref FROM applications_application",
-                  "SELECT email_key, public_id FROM applications_invitation",
-                  "SELECT email_key, NULL::uuid FROM applications_memberagreementonfile"):
+    for query in (
+        "SELECT email_key, public_ref FROM applications_application",
+        "SELECT email_key, public_id FROM applications_invitation",
+        "SELECT email_key, NULL::uuid FROM applications_memberagreementonfile",
+        "SELECT DISTINCT from_normalized, NULL::uuid FROM correspondence_inboundmessage",
+    ):
         for key, ref in conn.execute(query).fetchall():
             if _real(key):
                 entry = found.setdefault(record.subject_hash(key, secret), {})
@@ -116,14 +148,68 @@ def _keys_by_subject(conn, secret: bytes) -> dict:
     return found
 
 
+def _recovery_addresses(subjects, secret, supplied, found):
+    """Owner-supplied recovery hints are transient and must match the signed subject hash."""
+    from applications.forms import EMAIL_MAX
+
+    if supplied is None:
+        return
+    if not isinstance(supplied, dict):
+        raise Refused("replay_addresses_malformed")
+    for ref, address in supplied.items():
+        if (
+            ref not in subjects
+            or not isinstance(address, str)
+            or len(address) > EMAIL_MAX
+        ):
+            raise Refused("replay_addresses_malformed")
+        if any(c.isspace() or c in "<>" for c in address):
+            raise Refused("replay_addresses_malformed")
+        try:
+            key = normalize_email(address)
+        except ValueError:
+            raise Refused("replay_addresses_malformed") from None
+        if len(key) > EMAIL_MAX:
+            raise Refused("replay_addresses_malformed")
+        digest = record.subject_hash(key, secret)
+        if not hmac.compare_digest(subjects[ref].intent.data["subject"], digest):
+            raise Refused("replay_address_mismatch", [ref])
+        found.setdefault(digest, {}).setdefault(key, None)
+
+
+def _refuse_unresolved_counters(conn, subjects, found, own):
+    """A digest-only counter cannot reveal its address. Never report an unmatched subject absent
+    while an unexplained counter could belong to it; require a verified recovery hint instead."""
+    unresolved = sorted(
+        ref
+        for ref, subject in subjects.items()
+        if not _real(own[ref]) and not found.get(subject.intent.data["subject"])
+    )
+    if not unresolved:
+        return
+    known = {
+        throttle_key("intake-address", key)
+        for matches in found.values()
+        for key in matches
+    }
+    counters = {
+        key for (key,) in conn.execute("SELECT key FROM accounts_requestthrottle")
+    }
+    conn.rollback()
+    if counters - known:
+        raise Refused("replay_address_required", unresolved)
+
+
 def _plaintext_restored(conn) -> list:
     """Storage keys of erased subjects' documents restored with no envelope (stored in the clear before 9kg.34) whose
     file is back on disk: a copy no key destruction reaches (data review of PR #103, finding 2)."""
     from agreements import storage
 
-    rows = conn.execute("SELECT d.storage_key FROM agreements_storeddocument d JOIN applications_application a"
-                        " ON a.id = d.application_id LEFT JOIN agreements_custodyenvelope e ON e.document_id = d.id"
-                        " WHERE e.id IS NULL AND a.email_key LIKE 'erased:%%' AND strpos(a.email_key, '@') = 0").fetchall()
+    rows = conn.execute(
+        "SELECT d.storage_key FROM agreements_storeddocument d JOIN applications_application a"
+        " ON a.id = d.application_id LEFT JOIN agreements_custodyenvelope e ON e.document_id = d.id"
+        " WHERE e.id IS NULL AND a.email_key LIKE 'erased:%%' AND strpos(a.email_key, '@') = 0"
+    ).fetchall()
     conn.rollback()
     if not rows:
         return []
@@ -133,12 +219,14 @@ def _plaintext_restored(conn) -> list:
         raise Refused("custody_storage_unavailable") from None
 
 
-def replay(conn, expected_head: str, rows=None) -> dict:
+def replay(conn, expected_head: str, rows=None, *, recovery_addresses=None) -> dict:
     """Re-apply every recorded erasure to the restored database. `conn` is a psycopg connection as the retention role,
     not in a transaction; `expected_head` is the head printed by the last erasure or handoff (`none` before the first
     erasure); `rows` replaces the registry (tests). Raises Refused; returns counts and public references only."""
     try:
-        record.verify(expected_head)  # the key, the chain, every mac, and the out-of-band head
+        record.verify(
+            expected_head
+        )  # the key, the chain, every mac, and the out-of-band head
         secret = record.key()
         entries = journal.read()
     except record.RecordError as exc:
@@ -146,7 +234,9 @@ def replay(conn, expected_head: str, rows=None) -> dict:
     except journal.JournalError as exc:
         raise Refused(f"record_{exc.code}") from None
     _role_check(conn)
-    subjects = {ref: s for ref, s in record.fold(entries, secret).items() if s.erased or s.open}
+    subjects = {
+        ref: s for ref, s in record.fold(entries, secret).items() if s.erased or s.open
+    }
     current, destroy = [], False
     if subjects:
         rows = registry.current() if rows is None else rows
@@ -154,35 +244,57 @@ def replay(conn, expected_head: str, rows=None) -> dict:
         if problems:
             raise Refused("registry_undecided", problems)
         current = registry.anonymized_classes(rows)
-        destroy = (rows.get("signed_documents") or {}).get("treatment") == registry.DESTROY_KEY
+        destroy = (rows.get("signed_documents") or {}).get(
+            "treatment"
+        ) == registry.DESTROY_KEY
     own = {ref: _email_key(conn, ref) for ref in subjects}
     # Data review of PR #103, finding 3: nothing changes an application's key, so a restored key that does not hash to
     # the recorded subject is not a moved address but an altered row or record. Refuse before anything is erased.
-    mismatched = sorted(ref for ref, key in own.items() if _real(key) and not hmac.compare_digest(
-        subjects[ref].intent.data["subject"], record.subject_hash(key, secret)))
+    mismatched = sorted(
+        ref
+        for ref, key in own.items()
+        if _real(key)
+        and not hmac.compare_digest(
+            subjects[ref].intent.data["subject"], record.subject_hash(key, secret)
+        )
+    )
     if mismatched:
         raise Refused("replay_subject_mismatch", mismatched)
     by_subject = _keys_by_subject(conn, secret) if subjects else {}
+    _recovery_addresses(subjects, secret, recovery_addresses, by_subject)
+    if "throttle_keys" in current or any(
+        "throttle_keys" in (s.intent.data.get("classes") or [])
+        for s in subjects.values()
+    ):
+        _refuse_unresolved_counters(conn, subjects, by_subject, own)
     counts = {"erased": 0, "already": 0, "absent": 0}
     matched = 0
     for ref, subject in sorted(subjects.items(), key=lambda item: item[1].intent.seq):
         intent = subject.intent.data
         # Finding 6: the classes the erasure anonymized when it ran, with those the registry anonymizes now.
-        classes = [c for c in registry.SUBJECT_CLASSES if c in current or c in (intent.get("classes") or [])]
+        classes = [
+            c
+            for c in registry.SUBJECT_CLASSES
+            if c in current or c in (intent.get("classes") or [])
+        ]
         targets, covered = [], set()
         if own[ref] is not None:
             targets.append((ref, None))
             covered.add(own[ref])
         for key, entry in by_subject.get(intent["subject"], {}).items():
             if key not in covered:
-                targets.append((entry, None) if entry else (ref, key))  # an entry point, or the key itself
+                targets.append(
+                    (entry, None) if entry else (ref, key)
+                )  # an entry point, or the key itself
                 covered.add(key)
         matched += max(0, len(targets) - (own[ref] is not None))
         statuses = []
         for target, key in targets:
             try:
-                result = conn.execute("SELECT public.catalyst_erase_replay(%s, %s, %s, %s, %s)",
-                                      [target, intent["authority"], intent["reason"], classes, key]).fetchone()[0]
+                result = conn.execute(
+                    "SELECT public.catalyst_erase_replay(%s, %s, %s, %s, %s)",
+                    [target, intent["authority"], intent["reason"], classes, key],
+                ).fetchone()[0]
             except errors.Error as exc:
                 conn.rollback()
                 code = _code(exc)
@@ -200,5 +312,12 @@ def replay(conn, expected_head: str, rows=None) -> dict:
         # the owner removes those files (catalyst_custody_keys --status lists lingering plaintext) and replays again.
         raise Refused("replay_custody_plaintext_restored")
     seq = mark(entries, secret, subjects=len(subjects), **counts)
-    return {"status": "replayed", "restore": seq, "subjects": len(subjects), **counts, "matched_by_key": matched,
-            "open": sorted(ref for ref, s in subjects.items() if s.open), "journal_head": record.head_string()}
+    return {
+        "status": "replayed",
+        "restore": seq,
+        "subjects": len(subjects),
+        **counts,
+        "matched_by_key": matched,
+        "open": sorted(ref for ref, s in subjects.items() if s.open),
+        "journal_head": record.head_string(),
+    }

@@ -15,80 +15,173 @@ pytestmark = pytest.mark.django_db
 # adoption protection (D-22).
 # Anything else appearing here means unapproved schema was pulled in.
 APPROVED_MIGRATIONS = {
-    ("contenttypes", "0001_initial"), ("contenttypes", "0002_remove_content_type_name"),
-    ("auth", "0001_initial"), ("auth", "0002_alter_permission_name_max_length"),
-    ("auth", "0003_alter_user_email_max_length"), ("auth", "0004_alter_user_username_opts"),
-    ("auth", "0005_alter_user_last_login_null"), ("auth", "0006_require_contenttypes_0002"),
-    ("auth", "0007_alter_validators_add_error_messages"), ("auth", "0008_alter_user_username_max_length"),
-    ("auth", "0009_alter_user_last_name_max_length"), ("auth", "0010_alter_group_name_max_length"),
-    ("auth", "0011_update_proxy_permissions"), ("auth", "0012_alter_user_first_name_max_length"),
-    ("accounts", "0001_initial"), ("accounts", "0002_role_grants"),
-    ("workflow", "0001_initial"), ("workflow", "0002_role_grants"), ("workflow", "0003_backup_role_reads"),  # 6B.6
+    ("contenttypes", "0001_initial"),
+    ("contenttypes", "0002_remove_content_type_name"),
+    ("auth", "0001_initial"),
+    ("auth", "0002_alter_permission_name_max_length"),
+    ("auth", "0003_alter_user_email_max_length"),
+    ("auth", "0004_alter_user_username_opts"),
+    ("auth", "0005_alter_user_last_login_null"),
+    ("auth", "0006_require_contenttypes_0002"),
+    ("auth", "0007_alter_validators_add_error_messages"),
+    ("auth", "0008_alter_user_username_max_length"),
+    ("auth", "0009_alter_user_last_name_max_length"),
+    ("auth", "0010_alter_group_name_max_length"),
+    ("auth", "0011_update_proxy_permissions"),
+    ("auth", "0012_alter_user_first_name_max_length"),
+    ("accounts", "0001_initial"),
+    ("accounts", "0002_role_grants"),
+    ("workflow", "0001_initial"),
+    ("workflow", "0002_role_grants"),
+    ("workflow", "0003_backup_role_reads"),  # 6B.6
     ("workflow", "0004_restore_hold_protection"),  # 6B.7a
-    ("applications", "0001_initial"), ("applications", "0002_history_protection"),
+    ("applications", "0001_initial"),
+    ("applications", "0002_history_protection"),
     ("applications", "0003_protect_version_adoption"),
-    ("correspondence", "0001_initial"), ("correspondence", "0002_role_grants"),
+    ("correspondence", "0001_initial"),
+    ("correspondence", "0002_role_grants"),
     # S1-T7: Django Admin's log, database sessions, and the staff grants and read-only group.
-    ("admin", "0001_initial"), ("admin", "0002_logentry_remove_auto_add"), ("admin", "0003_logentry_add_action_flag_choices"),
-    ("sessions", "0001_initial"), ("accounts", "0003_staff_view"),
+    ("admin", "0001_initial"),
+    ("admin", "0002_logentry_remove_auto_add"),
+    ("admin", "0003_logentry_add_action_flag_choices"),
+    ("sessions", "0001_initial"),
+    ("accounts", "0003_staff_view"),
     # P2 2B.1 (owner decisions D-27 to D-30): outbound foundations, their grants, the P2 role groups.
-    ("correspondence", "0003_outbound_foundations"), ("correspondence", "0004_role_grants_and_groups"),
+    ("correspondence", "0003_outbound_foundations"),
+    ("correspondence", "0004_role_grants_and_groups"),
     # P2 2B.2: inbound collection, its grants and the decision-maker's restart_collector permission.
-    ("correspondence", "0005_inbound_collection"), ("correspondence", "0006_inbound_grants"),
+    ("correspondence", "0005_inbound_collection"),
+    ("correspondence", "0006_inbound_grants"),
     # P2 2B.3: reply-processing permissions, and open staff items for earlier S1 attention events.
-    ("correspondence", "0007_reply_processing_permissions"), ("correspondence", "0008_reply_processing_groups_and_s1_items"),
-    ("correspondence", "0009_reply_processing_indexes_and_pin"), ("correspondence", "0010_pin_grant"),
-    ("correspondence", "0011_reminders_and_staff_messages"), ("correspondence", "0012_reminder_and_staff_message_grants"),
-    ("assessments", "0001_initial"), ("assessments", "0002_grants_protection_and_groups"),
-    ("assessments", "0003_same_application_keys"), ("assessments", "0004_assessment_runs"),
+    ("correspondence", "0007_reply_processing_permissions"),
+    ("correspondence", "0008_reply_processing_groups_and_s1_items"),
+    ("correspondence", "0009_reply_processing_indexes_and_pin"),
+    ("correspondence", "0010_pin_grant"),
+    ("correspondence", "0011_reminders_and_staff_messages"),
+    ("correspondence", "0012_reminder_and_staff_message_grants"),
+    ("assessments", "0001_initial"),
+    ("assessments", "0002_grants_protection_and_groups"),
+    ("assessments", "0003_same_application_keys"),
+    ("assessments", "0004_assessment_runs"),
     ("assessments", "0005_assessment_grants_and_protection"),
-    ("correspondence", "0013_clarification_and_interpretation"), ("correspondence", "0014_interpretation_grants"),
-    ("assessments", "0006_author_question_permission"), ("assessments", "0007_qualification_decision"),
+    ("correspondence", "0013_clarification_and_interpretation"),
+    ("correspondence", "0014_interpretation_grants"),
+    ("assessments", "0006_author_question_permission"),
+    ("assessments", "0007_qualification_decision"),
     ("assessments", "0008_decision_protection"),
-    ("agreements", "0001_initial"), ("agreements", "0002_protection_and_types"),  # P4 4B.1
-    ("agreements", "0003_provider_observations"), ("agreements", "0004_observation_protection_and_verification"),  # 4B.2
-    ("agreements", "0005_stop_intent_and_replacement"), ("agreements", "0006_stop_intent_and_replacement_protection"),  # D-42, D-43
-    ("agreements", "0007_custody_and_details"), ("agreements", "0008_custody_and_details_protection"),  # 4B.3
+    ("agreements", "0001_initial"),
+    ("agreements", "0002_protection_and_types"),  # P4 4B.1
+    ("agreements", "0003_provider_observations"),
+    ("agreements", "0004_observation_protection_and_verification"),  # 4B.2
+    ("agreements", "0005_stop_intent_and_replacement"),
+    ("agreements", "0006_stop_intent_and_replacement_protection"),  # D-42, D-43
+    ("agreements", "0007_custody_and_details"),
+    ("agreements", "0008_custody_and_details_protection"),  # 4B.3
     ("correspondence", "0015_evidence_protection"),  # 9kg.1
-    ("provisioning", "0001_provisioning_records"), ("provisioning", "0002_provisioning_protection"),  # P5 5B.1
+    ("provisioning", "0001_provisioning_records"),
+    ("provisioning", "0002_provisioning_protection"),  # P5 5B.1
     ("correspondence", "0016_welcome_kind"),  # 5B.2
-    ("correspondence", "0017_provenance_freezes"),  # 9kg.5 (internal-launch batch item 6)
-    ("provisioning", "0003_credential_setup"), ("provisioning", "0004_credential_setup_protection"),
-    ("provisioning", "0005_revocation_and_withdrawal"), ("provisioning", "0006_revocation_and_withdrawal_protection"),  # 5B.3
+    (
+        "correspondence",
+        "0017_provenance_freezes",
+    ),  # 9kg.5 (internal-launch batch item 6)
+    ("provisioning", "0003_credential_setup"),
+    ("provisioning", "0004_credential_setup_protection"),
+    ("provisioning", "0005_revocation_and_withdrawal"),
+    ("provisioning", "0006_revocation_and_withdrawal_protection"),  # 5B.3
     # 6B.9: django-otp's TOTP and recovery-code tables, the login throttle, their grants and device protection.
-    ("otp_totp", "0001_initial"), ("otp_totp", "0002_auto_20190420_0723"), ("otp_totp", "0003_add_timestamps"),
-    ("otp_static", "0001_initial"), ("otp_static", "0002_throttling"), ("otp_static", "0003_add_timestamps"),
-    ("accounts", "0004_login_throttle"), ("accounts", "0005_two_factor_grants"),
-    ("assessments", "0009_fetcher_role_grants"),  # 9kg.24: the evidence fetcher's own narrower role
-    ("accounts", "0006_request_throttle"),  # 9kg.29: the public-endpoint throttle buckets
-    ("applications", "0004_invitation"), ("applications", "0005_invitation_protection"),  # 9kg.43: invitation-only intake
-    ("applications", "0006_event_txid"), ("workflow", "0005_pause_resume_guard"),  # 9kg.6: the pause-row guard
+    ("otp_totp", "0001_initial"),
+    ("otp_totp", "0002_auto_20190420_0723"),
+    ("otp_totp", "0003_add_timestamps"),
+    ("otp_static", "0001_initial"),
+    ("otp_static", "0002_throttling"),
+    ("otp_static", "0003_add_timestamps"),
+    ("accounts", "0004_login_throttle"),
+    ("accounts", "0005_two_factor_grants"),
+    (
+        "assessments",
+        "0009_fetcher_role_grants",
+    ),  # 9kg.24: the evidence fetcher's own narrower role
+    (
+        "accounts",
+        "0006_request_throttle",
+    ),  # 9kg.29: the public-endpoint throttle buckets
+    ("applications", "0004_invitation"),
+    ("applications", "0005_invitation_protection"),  # 9kg.43: invitation-only intake
+    ("applications", "0006_event_txid"),
+    ("workflow", "0005_pause_resume_guard"),  # 9kg.6: the pause-row guard
     # 9kg.30: the append-only staff role grant record and the P4 and P5 role groups (accounts.roles)
-    ("accounts", "0007_staff_role_grants"), ("agreements", "0009_staff_groups"), ("provisioning", "0007_staff_groups"),
-    ("assessments", "0010_decision_inputs_and_human_only_code"),  # oc4.12: what a decision records, completed
-    ("assessments", "0011_model_use_approval"),  # oc4.9: the owner's recorded approval of live model use
-    ("applications", "0007_notice_record_and_member_on_file"), ("applications", "0008_member_on_file_protection"),  # 9kg.52
-    ("correspondence", "0018_intake_notice_templates"),  # 9kg.52: the data notice and invitation templates
+    ("accounts", "0007_staff_role_grants"),
+    ("agreements", "0009_staff_groups"),
+    ("provisioning", "0007_staff_groups"),
+    (
+        "assessments",
+        "0010_decision_inputs_and_human_only_code",
+    ),  # oc4.12: what a decision records, completed
+    (
+        "assessments",
+        "0011_model_use_approval",
+    ),  # oc4.9: the owner's recorded approval of live model use
+    ("applications", "0007_notice_record_and_member_on_file"),
+    ("applications", "0008_member_on_file_protection"),  # 9kg.52
+    (
+        "correspondence",
+        "0018_intake_notice_templates",
+    ),  # 9kg.52: the data notice and invitation templates
     # 9kg.32: the tombstone keys held unique, the erasure audit, and the erasure functions and trigger branches
-    ("applications", "0009_tombstone_keys_unique"), ("erasure", "0001_initial"), ("erasure", "0002_erasure_path"),
-    ("correspondence", "0019_decline_notice"),  # oc4.11: the decline kind and template; held send_decline cancelled
-    ("correspondence", "0020_verification_template"),  # 9kg.80: the verification mail as an approvable template
-    ("correspondence", "0024_template_html_part"),  # bgl.11: the optional HTML alternative, frozen once approved
-    ("agreements", "0010_custody_envelope"), ("erasure", "0003_custody_keys"),  # 9kg.34: custody sealed at rest
-    ("workflow", "0006_restore_hold_insert_guard"), ("erasure", "0004_erase_replay"),  # 9kg.25: the replay variant of the erase function, under the restore hold only
+    ("applications", "0009_tombstone_keys_unique"),
+    ("erasure", "0001_initial"),
+    ("erasure", "0002_erasure_path"),
+    (
+        "correspondence",
+        "0019_decline_notice",
+    ),  # oc4.11: the decline kind and template; held send_decline cancelled
+    (
+        "correspondence",
+        "0020_verification_template",
+    ),  # 9kg.80: the verification mail as an approvable template
+    (
+        "correspondence",
+        "0024_template_html_part",
+    ),  # bgl.11: the optional HTML alternative, frozen once approved
+    ("agreements", "0010_custody_envelope"),
+    ("erasure", "0003_custody_keys"),  # 9kg.34: custody sealed at rest
+    ("workflow", "0006_restore_hold_insert_guard"),
+    (
+        "erasure",
+        "0004_erase_replay",
+    ),  # 9kg.25: the replay variant of the erase function, under the restore hold only
     # bgl.5: the CAT- reference on every application, the subject-reference flag on a template version, the receipt templates
-    ("applications", "0011_application_reference"), ("correspondence", "0025_subject_reference"),
+    ("applications", "0011_application_reference"),
+    ("correspondence", "0025_subject_reference"),
     ("correspondence", "0026_intake_receipt_templates"),
     # bgl.16 (035): the first-generation import's provenance tables, their protection and the reinstalled erasure functions
-    ("firstgen", "0001_initial"), ("firstgen", "0002_protection"), ("erasure", "0005_first_generation_import"),
+    ("firstgen", "0001_initial"),
+    ("firstgen", "0002_protection"),
+    ("erasure", "0005_first_generation_import"),
     # bgl.8: a details version read back from the signed envelope, and the service-sent signing-link templates
-    ("agreements", "0011_details_from_envelope"), ("correspondence", "0021_agreement_link_templates"),
-    ("agreements", "0012_countersign_claim"),  # bgl.9: the single-writer countersign claim
+    ("agreements", "0011_details_from_envelope"),
+    ("correspondence", "0021_agreement_link_templates"),
+    (
+        "agreements",
+        "0012_countersign_claim",
+    ),  # bgl.9: the single-writer countersign claim
     # bgl.10: a credential series' mode, and the key of the secret-bearing one-time-password welcome (no version seeded)
-    ("provisioning", "0008_credential_setup_mode"), ("correspondence", "0022_password_welcome_template"),
-    ("applications", "0010_lapsed_stage"), ("correspondence", "0023_lapse_note"),  # bgl.7: the lapsed stage and the closing note
+    ("provisioning", "0008_credential_setup_mode"),
+    ("correspondence", "0022_password_welcome_template"),
+    ("applications", "0010_lapsed_stage"),
+    (
+        "correspondence",
+        "0023_lapse_note",
+    ),  # bgl.7: the lapsed stage and the closing note
     # bgl.14 (034 rows 42 and 43): the Twenty link, its grants and the reinstalled erasure functions (the twenty handoff)
-    ("crm", "0001_initial"), ("crm", "0002_grants"), ("erasure", "0006_twenty_projection"),
+    ("crm", "0001_initial"),
+    ("crm", "0002_grants"),
+    ("erasure", "0006_twenty_projection"),
+    (
+        "erasure",
+        "0007_orphan_replay_lookup",
+    ),  # 9kg.71: narrow orphan recovery reads and replay
 }
 
 
@@ -136,4 +229,6 @@ def test_models_and_migrations_are_in_sync():
 
 
 def test_no_sqlite_database_is_configured_anywhere():
-    assert {c["ENGINE"] for c in settings.DATABASES.values()} == {"django.db.backends.postgresql"}
+    assert {c["ENGINE"] for c in settings.DATABASES.values()} == {
+        "django.db.backends.postgresql"
+    }
