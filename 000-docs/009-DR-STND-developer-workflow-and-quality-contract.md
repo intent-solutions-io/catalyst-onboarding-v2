@@ -611,3 +611,32 @@ host and cost, fixture replay profiling, duration-aware shard allocation, and fa
 scheduled full suite. No additional paid runner, provider secret or service is required by this cache/hook pass.
 The existing selection helper explicitly permits under-selection and must not be promoted unchanged to a required
 gate. The owner's low-single-digit-minute target and complete acceleration instruction are not yet achieved.
+
+### 11.2 Temporary PostgreSQL storage (2026-11-01, 9kg.95)
+
+The existing runtime shards and manually dispatched targeted job mount PostgreSQL data on a temporary in-memory
+filesystem, matching the local Compose approach. The CI mount is limited to 1 GiB; space is consumed as data is
+written, not reserved in advance. PostgreSQL `fsync`, `synchronous_commit` and `full_page_writes` remain enabled.
+Every job still owns a fresh database and executes its existing tests. Production storage is unchanged.
+
+A sequential local comparison used the same revision, pinned images, warmed download cache and 41 unchanged tests:
+all 40 provisioning-screen cases plus the real backup/restore rehearsal. Both runs passed and cleaned up their
+owned resources. The only database configuration difference was data storage; all three durability settings were
+read back as enabled in each run.
+
+| Measurement | Docker data volume | In-memory data filesystem |
+|---|---|---|
+| Pytest execution | 158.07 s | 127.26 s |
+| Sampled database-container memory high | 164.5 MiB | 204.0 MiB |
+| Data directory after tests | 79 MiB reported | 79 MiB reported |
+| Result | 41 passed | 41 passed |
+
+This local sample saved 30.81 s (19.5%); it is not a guarantee of hosted-runner savings. The memory samples are not
+a full-suite peak measurement. A separate Docker probe verified the candidate mount's filesystem type and exact
+1 GiB size. The change adds no runner, service account, secret, job or paid capacity; it trades temporary runner
+memory for disk writes. Exceeding the filesystem limit fails the job rather than silently omitting tests.
+
+Hosted comparisons belong to `9kg.95`. Earlier identical-runtime runs already showed substantial variability:
+PR #188's four test steps took 466/572/753/586 s, while documentation-only PR #189 took 650/477/487/691 s.
+Their per-shard queues were 2 s throughout. Neither a single faster run nor ideal shard balancing proves a
+repeatable saving; complete test and acceptance coverage remains the required result.
