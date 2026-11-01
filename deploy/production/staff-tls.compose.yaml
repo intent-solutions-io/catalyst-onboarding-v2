@@ -1,0 +1,18 @@
+{
+  "services": {
+    "proxy": {
+      "environment": {
+        "CATALYST_STAFF_TLS": "/etc/caddy/ts/cert.pem /etc/caddy/ts/key.pem"
+      },
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "${CATALYST_STAFF_TLS_DIR:?the existing private staff certificate directory}",
+          "target": "/etc/caddy/ts",
+          "read_only": true,
+          "bind": {"create_host_path": false}
+        }
+      ]
+    }
+  }
+}

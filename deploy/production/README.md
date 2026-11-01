@@ -18,6 +18,28 @@ The overlay requires the separate custody directories and per-process secret fil
 named in the YAML. An absent profile retains the base configuration; a wrong digest,
 unknown setting or invalid provider target refuses startup.
 
+## Staff certificates
+
+For a staff host with an existing certificate, include `staff-tls.compose.yaml` after
+the base Compose definition. Set `CATALYST_STAFF_TLS_DIR` to the absolute private
+directory containing `cert.pem` and `key.pem`, readable by the proxy's UID 10001.
+The directory must already exist. The overlay mounts it read-only into the proxy
+alone and selects file-backed TLS only for the named staff site. Public and alias
+sites retain their internal upstream certificates. Without the overlay, staff TLS
+also uses the existing internal-certificate default.
+
+Render the combined Compose configuration into the host's reviewed stack file before
+using the deployment adapters, which accept one `CATALYST_COMPOSE_FILE`. Preserve the
+host's existing volume names, addresses, ports and other settings. Use the repository
+Caddyfile directly: remove the old host-local positional certificate rewrite before
+regenerating the stack. Selecting the second site is unsafe now that a public alias
+site precedes the staff site.
+
+Validate Caddy with the actual mounted certificate, then verify the staff hostname
+and certificate from an authorized device after deployment. Certificate renewal must
+reload the proxy to load renewed files. This setting does not widen staff access or
+replace the host's certificate-renewal and device restrictions.
+
 ## MiniMax usage and pacing
 
 Production has no application-imposed input, output, cumulative or per-minute token
