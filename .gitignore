@@ -35,6 +35,10 @@ coverage/
 *.db
 .beads-credential-key
 .beads/proxieddb/
+# Per-clone hook chain contains absolute tool paths and may preserve a private user hook.
+.beads/hooks/pre-commit.old
+.beads/hooks/pre-commit.before-catalyst
+.beads/hooks/pre-commit.installing
 
 # ===== Python =====
 __pycache__/
@@ -44,3 +48,6 @@ __pycache__/
 
 # ===== Evidence register written by a full test run (9kg.44) =====
 register.json
+
+# Local package downloads for direct Compose invocation
+.cache/

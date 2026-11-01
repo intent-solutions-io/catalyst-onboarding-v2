@@ -14,8 +14,9 @@ addopts = "-p no:cacheprovider --strict-markers"
 markers = ["worker_setup: the set-up runs the worker, so the human-only tripwire is armed after it (tests/test_human_only.py)"]
 
 # Python lint (bead catalyst-v2-9kg.46; 009 section 5.1). Ruff's default rule set only (E4, E7, E9, F: syntax,
-# undefined and unused names, import and comparison mistakes): no formatting, no import ordering, no type checking,
-# until the owner asks. Scope: every tracked Python file (the Django packages, config, scripts, tests, manage.py).
+# undefined and unused names, import and comparison mistakes). The owner's CI acceleration request adds staged-file
+# Ruff formatting in the local hook (009 section 11); no whole-repository reformat or dedicated typechecker.
+# Scope for CI lint: every tracked Python file (Django packages, config, scripts, tests, manage.py).
 [tool.ruff]
 target-version = "py314"
 extend-exclude = [".beads", "000-docs"]

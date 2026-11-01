@@ -36,6 +36,7 @@ jobs:
           --health-cmd "pg_isready -U catalyst_admin -d catalyst"
           --health-interval 2s --health-timeout 5s --health-retries 30
     env:
+      PIP_CACHE_DIR: /tmp/catalyst-pip-cache
       PYTHONDONTWRITEBYTECODE: "1"
       CATALYST_ENV: test
       CATALYST_SECRET_KEY: synthetic-ci-only
@@ -68,6 +69,13 @@ jobs:
             || { echo "::error::selection may contain only paths, node ids, pytest options and quoted expressions"; exit 1; }
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Restore Python download cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/catalyst-pip-cache
+          key: ${{ runner.os }}-${{ runner.arch }}-pip-dev-py314-${{ hashFiles('requirements/base.txt', 'requirements/dev.txt') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-pip-dev-py314-
 
       - name: Install hash-locked dependencies
         run: |

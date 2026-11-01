@@ -30,8 +30,10 @@ services:
     working_dir: /src
     volumes:
       - .:/src
+      - ${CATALYST_TEST_PIP_CACHE:-./.cache/pip}:/var/cache/pip
     environment:
       HOME: /tmp
+      PIP_CACHE_DIR: /var/cache/pip
       PYTHONDONTWRITEBYTECODE: "1"
       CATALYST_ENV: test
       CATALYST_SECRET_KEY: synthetic-test-only
