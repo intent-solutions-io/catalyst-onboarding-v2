@@ -465,10 +465,10 @@ def test_the_gate_fails_a_full_run_with_a_case_not_pass_and_spares_a_selected_su
 
 
 def test_ci_runs_the_whole_suite_with_no_selection():
-    """The gate only binds a full run, so CI's runtime step must not select: no path, -k, -m or deselect."""
+    """Every shard collects the full suite; only the verified union may satisfy the runtime gate."""
     ci = (ROOT / ".github/workflows/ci.yml").read_text()
     commands = re.findall(r"run: (.*-m pytest.*)$", ci, flags=re.M)
-    assert commands == ["/tmp/venv/bin/python -m pytest -v"]
+    assert commands == ["/tmp/venv/bin/python -m pytest -v --durations=25 --ci-shard=${{ matrix.shard }}/4 --ci-shard-output=shard.json"]
     assert "PYTEST_ADDOPTS" not in ci  # options injected through the environment could select too
     import tomllib
     addopts = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["pytest"]["ini_options"].get("addopts", "")
@@ -730,7 +730,7 @@ def test_the_report_prints_the_register_and_counts_partial_live_only_and_support
 def test_the_run_commit_is_stamped_by_test_sh_and_ci_keeps_the_register_as_a_pinned_artifact():
     """9kg.64: local runs record the commit too (the test image has no git): scripts/test.sh exports it from the
     host's git and compose.yaml passes it to the test service; CI uploads register.json whatever the result, through
-    an action pinned by commit like every other, without touching the test command or the job names."""
+    an action pinned by commit like every other; the aggregate retains the required check name."""
     test_sh = (ROOT / "scripts/test.sh").read_text()
     assert 'CATALYST_RUN_COMMIT="$(git rev-parse HEAD 2>/dev/null)"' in test_sh and "export CATALYST_RUN_COMMIT" in test_sh
     assert test_sh.index("export CATALYST_RUN_COMMIT") < test_sh.index('"${COMPOSE[@]}" run --rm test')
@@ -740,7 +740,7 @@ def test_the_run_commit_is_stamped_by_test_sh_and_ci_keeps_the_register_as_a_pin
     for uses in re.findall(r"uses: (\S+)", ci):
         assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", uses), uses
     runtime = ci[ci.index("\n  runtime:\n"):ci.index("\n  docs:\n")]
-    tests_step = runtime.index("- name: Test suite (PostgreSQL)")
+    tests_step = runtime.index("- name: Verify complete coverage and every acceptance gate")
     upload = runtime[runtime.index("- name: Keep the evidence register (register.json)"):]
     assert tests_step < runtime.index("- name: Keep the evidence register (register.json)")
     assert "if: ${{ always() }}" in upload and "uses: actions/upload-artifact@" in upload and "path: register.json" in upload

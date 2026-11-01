@@ -148,8 +148,8 @@ file, with `F811` ignored under `tests/` because test modules import fixtures fr
 test parameters; `pip-audit` over the hash-locked requirement files (four then; five since `browser.txt`, bead `catalyst-v2-9kg.68`), reading them without installing anything and
 failing on any known vulnerability, fixed or not (a waiver is an explicit `--ignore-vuln` with its reason in the
 workflow). Both tools are hash-locked in `requirements/lint.txt`, compiled like `docs.txt`. Measured on the development
-host: ruff 0.45 s, pip-audit 4.8 s warm and 10.3 s with a fresh cache, the tool install 21 s; the step runs after the
-runtime job, so it adds its own seconds to a pipeline the runtime job's 18 minutes already bound. The CI figure is on its
+host: ruff 0.45 s, pip-audit 4.8 s warm and 10.3 s with a fresh cache, the tool install 21 s; at that measurement the step ran after the
+runtime job. It now starts in parallel under the owner-approved 9kg.93 change below. The CI figure is on its
 pull request. At `main` `c26e1c0` the default rules found 240 items: 214 `F811` (scoped out as above), 16 unused imports
 (removed), one placeholder-less f-string in a migration (the `f` removed; the SQL is byte-identical), two ambiguous
 names (`l` to `link`), five lambda assignments and one unused variable in tests, and one undefined name: a provisioning
@@ -185,6 +185,29 @@ names); a targeted run is reported, never gated (`tests/acceptance.py` marks a s
   listed. It adds no required check, no path filter and no change to an existing job; `tests/test_release_gate.py`
   checks that it stays dispatch-only, outside the gate's names and on the same pinned images. A dispatch needs the
   workflow on `main`, so its hosted-runner time is read off the first dispatch after merge.
+
+**Parallel full-suite CI (owner-approved 2026-10-31, bead `catalyst-v2-9kg.93`).** The CI latency audit covered
+150 Actions runs (73 CI, 73 Image, four Dependabot). Successful runtime jobs had median test time 1,617 s,
+setup 27 s and machine queue 2 s. The owner approved caching scans, parallel fast checks and complete-suite
+sharding; paid runners and reduced PR test selection were not adopted.
+
+- Four standard hosted runners each have their own pinned PostgreSQL service and the existing synthetic role
+  provisioning. Each collects the full test manifest, then runs every fourth sorted node, including parametrized
+  instances. There is no changed-file selection, shared database, new test dependency or maintained partition map.
+- The existing required runtime check aggregates the four records with `scripts/ci_shards.py`. It refuses missing
+  or duplicate shards, different collections, commit/run/attempt mismatches, nonzero exits, skips, xfail/xpass,
+  missing phases, duplicate executions and any acceptance case without all its evidence. Every collected test,
+  including tests outside the acceptance map, must have successful setup, call and teardown exactly once.
+- Only the verified union writes `register.json`, using the same serializer as a local full run. Local full runs
+  and dispatch-only targeted runs keep their existing semantics. Shard artifact transport is mandatory;
+  archival upload of the final register remains optional. Use **Re-run all jobs**, not failed jobs only: records
+  from an earlier attempt cannot be mixed into a new proof. Artifacts include the attempt in their name.
+- The existing required documentation check starts in parallel and retains Markdown, index, agent-definition,
+  Ruff, dependency-audit and full-history secret checks. Both existing required check names remain unchanged;
+  neither branch protection nor the release gate needs a name change. No new deployment automation is added.
+- The image scan restores Grype's database cache and still checks for updates. The audit measured median database
+  preparation of 83.34 s versus 1.25 s vulnerability matching; warm-cache savings must be measured after a hit.
+  Shards print the slowest 25 tests so balance can be assessed from the first hosted run.
 
 **Phone-width browser check (added 2026-10-24, bead `catalyst-v2-9kg.68`).** One real browser check of the public
 applicant pages, which the screen walkthrough (`029` appendix B, GAP 6) could only read as HTML. Decision: **a
@@ -345,9 +368,9 @@ target stays unmet; only sharding (P12) brings the required check near it withou
 
 **Lanes in CI today:**
 
-- on every pull request, the runtime job (the full suite in the pinned containers) and the documentation job
-  (Markdown, index, agent definitions, Python lint and dependency audit, secret scan), which waits for the runtime job
-  and is the aggregating required check; the image workflow builds and scans the image;
+- on every pull request, four isolated full-collection test shards feed the required runtime aggregate; the required
+  documentation job (Markdown, index, agent definitions, Python lint and dependency audit, secret scan) starts in
+  parallel; the image workflow builds and scans the image;
 - on dispatch only, "Targeted runtime checks" (`targeted.yml`, section 5.3), never a required check.
 
 Selection by change type exists only as the targeted lane's hint; nothing is skipped on a pull request.
@@ -430,7 +453,7 @@ applicant-assessment agents.
 | P9 | Add an automated secret scan to CI | **done**: gitleaks over full history; personal-data and private-path review stays manual |
 | P10 | Decide whether bead history should stay public through `refs/dolt/data` | **decided**: public for sanitized engineering work only (section 3) |
 | P11 | Widen the Python lint beyond ruff's default rules: `ruff format`, import sorting, the `B` and `UP` groups, a type checker, CodeQL | proposed 2026-10-23 (section 5.3); the default rules and `pip-audit` are in CI |
-| P12 | Shard the full run across three runners by measured module time, each shard a job, the aggregating docs job needing all of them, so the required check nears the 5-minute target without dropping a test | proposed 2026-10-23 (section 5.4); changes the runtime job's shape, the release gate's names and test, and the merge-guard registration outside this repository |
+| P12 | Shard the complete suite with isolated runners and aggregate every test and acceptance case | owner-approved 2026-10-31, 9kg.93 (section 5.3): four runners, deterministic full-collection partition, existing required names retained; no merge-guard change |
 | P13 | Skip the runtime job on documentation-only pull requests through a job-level condition, the aggregating docs job then accepting "skipped" for that case only | proposed 2026-10-23; changes what the required check means and what `scripts/require_green_ci.py` accepts (today it refuses `completed/skipped`) |
 | P14 | Promote the targeted lane: run it automatically on pull requests (as an extra, non-required signal first, or as a required check with the full run moved to merge or release), and switch its "more than half" threshold from module count to measured time | proposed 2026-10-23 (section 5.3); the full run stays the release-candidate gate in every variant; changing the full run's trigger is the owner's |
 
