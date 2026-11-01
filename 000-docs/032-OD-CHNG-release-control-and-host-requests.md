@@ -576,3 +576,9 @@ created on the host so the live canary's subjects could be erased (`9kg.87`, the
 - **Still open.** The `027` rotation row for the key (P6-D-15); the first erasure itself, which waits on the two
   canary cases being closed by staff (an application in a non-terminal stage is refused, CE003) and on the closure
   fix of PR #141 (a held `start_evidence_collection` would be refused next, CE004).
+
+## Draft-only reporting probe (P8, 2026-11-01)
+
+This unmerged probe head changes documentation only. The planted P7 image package has been removed;
+the Dockerfile is byte-identical to main `a913212`. Every required check, including the image scan,
+must report on this head. This probe is never deployed and the pull request is closed unmerged.

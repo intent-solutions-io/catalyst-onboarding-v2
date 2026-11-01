@@ -52,10 +52,3 @@ RUN chmod -R a-w /app/tests
 USER catalyst
 
 FROM base AS production
-# RELEASE-CONTROL PROBE ONLY (9kg.36 / P7): NEVER MERGE OR DEPLOY.
-# Known fixable high finding GHSA-ffqj-6fqr-9h24; restored before the docs-only P8 probe.
-USER root
-RUN printf '%s\n' 'PyJWT==2.3.0 --hash=sha256:e0c4bb8d9f0af0c7f5b1ec4c5036309617d03d56932877f2f7a0beeb5318322f ' > /tmp/scan-probe.txt \
-    && pip install --require-hashes --no-deps --only-binary=:all: -r /tmp/scan-probe.txt \
-    && rm /tmp/scan-probe.txt
-USER catalyst
