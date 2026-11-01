@@ -1960,6 +1960,16 @@ P6_SUPPORTING = {
         "test_agreement_screens::test_a_second_template_version_becomes_current_and_a_repeat_approval_is_a_no_op",
         "test_agreement_screens::test_a_withdrawal_stops_an_agreement_the_provider_reports_complete_but_unverified",
     ],
+    "9kg.53 uncertain agreement reconciliation records provider-read evidence and refuses unsupported not-sent decisions": [
+        "test_agreement_screens::test_9kg53_failed_checks_never_authorize_mark_not_sent_and_a_successful_empty_check_does",
+        "test_agreement_screens::test_9kg53_a_truncated_listing_cannot_prove_absence_and_abandon_stays_available",
+        "test_agreement_screens::test_9kg53_missing_pagination_metadata_is_unknown_not_empty",
+        "test_agreement_screens::test_9kg53_an_empty_intermediate_page_cannot_prove_absence",
+    ],
+    "9kg.54 completed envelopes after uncertain distribution reach normal verification and custody without resending": [
+        "test_agreement_custody::test_9kg54_completed_after_uncertain_distribution_is_verified_and_stored_without_resending",
+        "test_agreement_custody::test_9kg54_a_staff_retry_after_late_completion_reads_and_stores_without_distributing_again",
+    ],
     "9kg.6 the pause row is cleared only by an audited resume (database guard)": [
         "test_pause_guard::test_9kg6_a_bare_delete_or_update_by_the_application_role_is_refused",
         "test_pause_guard::test_9kg6_the_migration_owner_is_refused_the_same_way_and_truncate_is_refused_for_every_role",

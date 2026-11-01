@@ -504,3 +504,77 @@ def test_review_no_consequential_choice_is_preselected_for_a_decision_maker(k, m
         assert form in html
     assert " checked" not in html
 
+
+
+@pytest.mark.parametrize("identity", ["matching", "wrong_template", "wrong_recipient"])
+def test_9kg54_completed_after_uncertain_distribution_is_verified_and_stored_without_resending(k, monkeypatch, settings, identity):
+    import json
+
+    from agreements import handlers, signing_mail
+    from agreements.models import EnvelopeAttempt
+
+    settings.CATALYST_AGREEMENT_DISTRIBUTION = "service"
+    app = admitted(k, monkeypatch)
+    approve(k)
+    activate()
+    k.fake.fault("POST /envelope/distribute", ("drop_after",))
+
+    def signed_after_send(self, claim, result):
+        instance = AgreementInstance.objects.get(public_id=claim.input_ref)
+        if instance.agreement_type.key != "nda":
+            return
+        k.fake.sign(instance.envelope_id)
+        if identity == "wrong_template":
+            k.fake.envelopes[instance.envelope_id]["templateId"] += 100
+        elif identity == "wrong_recipient":
+            k.fake.envelopes[instance.envelope_id]["recipients"][0]["email"] = "other.synthetic@example.test"
+
+    monkeypatch.setattr(handlers.DistributeAgreement, "after_call", signed_after_send)
+    run_worker()
+    instance = nda(Application.objects.get(pk=app.pk))
+    if identity != "matching":
+        assert instance.issue_status == "distribute_uncertain"
+        assert not StoredDocument.objects.filter(instance=instance).exists()
+        assert instance.attempts.get(step="distribute").outcome == "unknown"
+        checks = app.events.filter(kind=handlers.RECONCILIATION_CHECKED)
+        assert checks.count() == 2 and all(e.data["matches"] == 0 for e in checks)
+        return
+    assert instance.issue_status == "issued"
+    assert instance.signing_status == "signing_complete_verified" and instance.custody_status == "stored_verified"
+    attempt = EnvelopeAttempt.objects.get(instance=instance, step="distribute")
+    assert attempt.outcome == "found_by_evidence"
+    assert sum(json.loads(call["body"])["envelopeId"] == instance.envelope_id
+               for call in k.fake.calls("POST", "/envelope/distribute")) == 1
+    assert StoredDocument.objects.filter(instance=instance).count() == 1
+    assert not PendingAction.objects.filter(kind=signing_mail.KIND, input_ref=str(instance.public_id)).exists()
+    checks = app.events.filter(kind=handlers.RECONCILIATION_CHECKED, data__attempt=str(attempt.public_id))
+    assert checks.count() == 1 and checks.get().data["status"] == "COMPLETED"
+    assert checks.get().data["matches"] == 1
+
+
+def test_9kg54_a_staff_retry_after_late_completion_reads_and_stores_without_distributing_again(k, monkeypatch, settings):
+    import json
+
+    from agreements import signing_mail, signing_reminder
+
+    settings.CATALYST_AGREEMENT_DISTRIBUTION = "service"
+    app = admitted(k, monkeypatch)
+    approve(k)
+    activate()
+    k.fake.fault("POST /envelope/distribute", ("drop_before",))
+    run_worker()
+    instance = nda(Application.objects.get(pk=app.pk))
+    assert instance.issue_status == "distribute_uncertain"
+    # A delayed provider operation succeeds and the applicant signs after the bounded checks ended.
+    k.fake.sign(instance.envelope_id)
+    services.decide_uncertain_distribute(instance.pk, k.agreement_decider, "redistribute")
+    run_worker()
+    instance.refresh_from_db()
+    assert instance.issue_status == "issued" and instance.signing_status == "signing_complete_verified"
+    assert instance.custody_status == "stored_verified"
+    assert sum(json.loads(call["body"])["envelopeId"] == instance.envelope_id
+               for call in k.fake.calls("POST", "/envelope/distribute")) == 1
+    assert instance.attempts.filter(step="distribute", outcome_code="already_completed").count() == 1
+    assert not PendingAction.objects.filter(kind=signing_mail.KIND, input_ref=str(instance.public_id)).exists()
+    assert not PendingAction.objects.filter(kind=signing_reminder.REMIND_SIGNING,
+                                             input_ref__startswith=f"{instance.public_id}:").exists()

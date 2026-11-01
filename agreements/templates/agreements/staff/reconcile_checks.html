@@ -1,0 +1,8 @@
+<p>{{ row.unknown.recorded_checks }} completed provider checks recorded; latest ten shown.</p>
+{% if row.unknown.results %}<table>
+<thead><tr><th>Checked at (UTC)</th><th>Check</th><th>Provider reached</th><th>Matching envelopes</th><th>Complete listing/read</th><th>Provider state</th></tr></thead>
+<tbody>{% for result in row.unknown.results %}<tr>
+<td>{{ result.occurred_at|date:"c" }}</td><td>{{ result.data.source }}</td>
+<td>{{ result.data.reached|yesno:"Yes,No" }}</td><td>{{ result.data.matches|default_if_none:"Unknown" }}</td>
+<td>{{ result.data.complete|yesno:"Yes,No" }}</td><td>{{ result.data.status|default:"Not recorded" }}</td>
+</tr>{% endfor %}</tbody></table>{% else %}<p>No provider check result is recorded for this attempt.</p>{% endif %}

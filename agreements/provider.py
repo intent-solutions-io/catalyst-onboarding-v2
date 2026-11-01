@@ -434,7 +434,10 @@ def find(template_number: int, page: int) -> tuple[list[Envelope], int]:
     if not isinstance(data, dict) or not isinstance(data.get("data"), list):
         raise ProviderError("response_unreadable", sent=True, status=200)
     pages = data.get("totalPages")
-    return [envelope(e) for e in data["data"]], pages if isinstance(pages, int) and not isinstance(pages, bool) else 1
+    if (not isinstance(pages, int) or isinstance(pages, bool) or pages < 0
+            or (data["data"] and pages < page)):
+        raise ProviderError("response_unreadable", sent=True, status=200)
+    return [envelope(e) for e in data["data"]], pages
 
 
 def find_recent(page: int) -> list[Envelope]:

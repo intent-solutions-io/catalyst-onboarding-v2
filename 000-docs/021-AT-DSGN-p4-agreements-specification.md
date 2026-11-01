@@ -827,3 +827,26 @@ from tests or a shell. Built, under the existing permissions and the section 9 s
 Tests: `tests/test_agreement_screens.py` (one test per action, a refusal without the permission, the recorded event
 or approval). The on-hold exit, the verification resend and the aged-waits bounds are `9kg.50` and `9kg.51` (`018`
 section 19, `016` section 10.14, `026` section 17).
+
+### 20.1 Recorded reconciliation evidence (9kg.53, 9kg.54)
+
+Every completed create/distribute/cancel reconciliation read and orphan-watch check records an
+`agreement_reconciliation_checked` application event in the same fenced transaction as its effects.
+The database supplies its time; its data contains only the attempt/action identifiers, check number,
+mode, source, provider-reach result, matching-envelope count, completeness and normalized provider
+status. A failed check has an unknown match count, never zero. The staff screen shows the attempt
+time, queued and completed check counts, the latest ten results and the duplicate-risk explanation.
+
+Marking an unknown create **not sent** requires a successful, complete listing with zero matching
+envelopes for that exact attempt. A failed read, missing pagination metadata, a page-limit truncation,
+or an old attempt with no recorded check cannot satisfy it. The service refuses with
+`successful_empty_listing_required`; the screen disables that choice while abandonment remains
+available. Neither an empty listing nor an operator decision claims the original request definitely
+failed: the old key remains watched for a late orphan.
+
+A matching `COMPLETED` read after uncertain distribution proves that distribution occurred. It moves
+the instance to `issued` and queues the normal fresh completion read; it does not itself verify any
+signature or custody. No new signing-link email is queued. The existing all-required-signers,
+identity, document storage and integrity checks still decide completion. A nonmatching completed
+envelope leaves the outcome uncertain. The same rule applies when staff choose to send again after
+the bounded checks end but a pre-send read discovers that signing has since completed.
