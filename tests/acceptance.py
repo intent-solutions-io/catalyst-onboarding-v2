@@ -2167,6 +2167,14 @@ P6_SUPPORTING = {
         "test_reference_receipt::test_bgl_5_the_receipt_handler_is_registered_redeliverable_and_reviewed_after_a_restore",
         "test_reference_receipt::test_bgl_5_the_request_page_answers_the_same_with_the_receipt_on",
     ],
+    "bgl.23 staff can inspect preserved legacy case history with dossier permissions, safe rendering and no operation replay": [
+        "test_legacy_history::test_legacy_history_is_available_for_every_imported_state_without_changing_cases",
+        "test_legacy_history::test_legacy_history_requires_the_dossier_permission_and_refuses_writes",
+        "test_legacy_history::test_legacy_history_escapes_source_text_and_does_not_display_unreviewed_fields",
+        "test_legacy_history::test_legacy_history_paginates_all_records_with_case_and_table_scope",
+        "test_legacy_history::test_legacy_import_pause_requires_decision_maker_review_and_a_recorded_reason",
+        "test_legacy_history::test_contact_confirmation_preserves_imported_progress_and_does_not_restart_onboarding",
+    ],
     # bgl.3 (034 rows 3 and 12): the first-generation form fields, stored with the submission, shown on the dossier and
     # erased with it; every refusal a form error that records nothing.
     "bgl.3 the request form collects the first-generation fields with their limits (parity track 034 row 3)": [

@@ -34,6 +34,7 @@ REASONS = {
     "repeat_after_verification": "a submission arrived after the address was verified; it was not adopted",
     "repeat_after_decline": "a submission arrived after the application was declined; it was not adopted and nothing new was created",
     "newer_unverified_version": "a newer submission exists than the one the applicant confirmed",
+    "contact_verified_existing_workflow": "contact is now verified; review the existing workflow before continuing it",
     "reply_needs_review": "a reply awaits staff confirmation of its question outcomes",
     "reply_unverified": "a reply could not be authenticated",
     "reply_auth_failed": "a reply failed authentication",

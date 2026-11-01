@@ -40,8 +40,9 @@ synthetic first-generation database in `tests/firstgen_v1.py`.
   application, retention and backup roles; erasure 0005 reinstalls the generated erasure functions with the record
   table's `data` column. Expand-only: the previous image never reads these tables.
 - **Nothing automatic.** The import queues no pending action and sends nothing. Every imported application in an open
-  stage gets an automation pause (`workflow.AutomationPause`, reason: imported, awaiting staff review), so no v2
-  automation reaches an imported person until staff resume it. `--schedule-followups` is refused: no v2 action can
+  stage gets a system safety pause (`workflow.AutomationPause`, reason: imported, awaiting staff review), so no v2
+  automation reaches an imported person until a decision-maker resumes it with a recorded reason. Older
+  `import:first-generation` pauses require the same review through the staff service. `--schedule-followups` is refused: no v2 action can
   continue a first-generation case without a staff decision first (section 5).
 
 ## 2. Mapping per first-generation table
@@ -136,7 +137,7 @@ The report lists, per open case, what it needs (`followups`). The import queues 
 |---|---|---|
 | `submitted` | Staff re-send the verification: the first generation's confirm link is not honoured by v2 | No (sends mail) |
 | `contact_verified`, `assessing`, `awaiting_decision` | A staff decision on the decision screen | No |
-| `awaiting_answers` | Staff read replies to the first-generation questions and decide; replies associate once `firstgen.threads` is wired into the reply path (section 8) | No |
+| `awaiting_answers` | Staff read replies to the first-generation questions and decide; replies associate through `firstgen.threads` in the reply path (section 8) | No |
 | `agreements` | The owner checks the open first-generation envelope at Documenso and records completion with `catalyst_member_on_file`, or cancels it and issues v2's | No |
 | `agreements_complete` | Staff approve the mailbox on the provisioning screen | No |
 | `provisioning` | Check MXroute for the mailbox the first generation was creating | No |
@@ -178,7 +179,29 @@ after fixing; it resumes). Exit 2: a personal-data row is unaccounted for. The D
 a temporary restore of the first generation's nightly dump on another host or a tunnel to the stopped container: the
 direction says no copy of its database lives on the US host, so do not restore it there.
 
-Not done here (follow-up beads): wire `firstgen.threads` into `correspondence.inbound` so a reply to a
-first-generation thread associates with its application; show `ImportedCase` and `ImportedRecord` on the staff dossier
-(today they are read by the owner and the application role, not shown on a screen); decide whether imported
-`agreements` cases should get an admit decision so v2's agreement path can continue them.
+The foreign-thread resolver is wired through `CATALYST_FOREIGN_THREAD_RESOLVER=firstgen.threads` and
+`correspondence.association`. A source Message-ID or CAT reference associates a reply; it never bypasses
+sender matching or authentication checks.
+
+The application dossier links to `/staff/legacy/<application-public-ref>/`. This read-only history needs
+active staff access and the existing `applications.view_application` permission. It shows the recorded
+legacy state, current v2 stage, contact-verification and pause state, import findings and state-specific
+handover guidance. Records are paginated and can be filtered by source table. Only explicitly selected
+fields are displayed: case events, question drafts and statuses, applicant messages, agreement state,
+mailbox state and release metadata. Source text is escaped and control characters are made visible;
+confirmation, setup, withdrawal and signing links are redacted. Only the known outgoing clarification
+body is displayed; other outgoing bodies, arbitrary imported JSON, provider payloads and hidden source
+keys are not displayed. Reading the page
+creates no job, changes no pause and makes no provider request.
+
+If an imported case has already progressed beyond `submitted` without recorded contact verification,
+confirming a new v2 challenge adopts only the displayed submission and records address control. It
+preserves the existing stage and pause, queues no new assessment, and opens a staff review item for
+continuation. The ordinary `submitted` confirmation still starts the normal assessment path. Issuing
+a verification while paused does not bypass the pause on its send; delivery still requires the
+existing handover review and resume procedure.
+
+Open continuation work remains in `bgl.23`: an operator must reconcile the open signing envelopes,
+questions, contact-verification gaps and uncertain mailbox operations before resuming each case.
+Showing preserved history is not proof of continuation. In particular, imported `agreements` cases do
+not yet have the admission and provider-read evidence needed by the normal v2 agreement path.

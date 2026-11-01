@@ -18,6 +18,10 @@ It then records, all once:
   handler exists for it in S1, so nothing runs it.
 Confirmation proves control of the address, not authorship of other versions.
 
+For a case already beyond `submitted` (including an unverified legacy import), confirmation preserves
+the workflow stage and any pause, creates no new assessment action, and requests staff continuation
+review. Address control is not authority to replay existing questions, signing or provisioning.
+
 A second confirmation of the same link finds the challenge used and changes nothing ("already confirmed").
 Refusals carry a reason code only: never the token, the link, an address or an answer.
 
@@ -128,8 +132,13 @@ def confirm(challenge_uuid: UUID, version_public_id: UUID) -> Confirmed:
             # confirmation that then lost on the challenge, or intake opened and closed meanwhile) is one refusal.
             raise Refused(Refused.NO_LONGER_VALID, "invitation not live")
         ContactChallenge.objects.filter(pk=challenge.pk).update(used_at=Now())
+        # Imported cases may already have questions, signing envelopes or a mailbox despite lacking
+        # recorded contact verification. Proving address control must not rewind that workflow or
+        # enqueue a second assessment. Staff reconcile its existing work after verification.
+        starting = application.stage == Stage.SUBMITTED
         Application.objects.filter(pk=application.pk).update(
-            contact_verified_at=Now(), stage=Stage.CONTACT_VERIFIED, updated_at=Now()
+            contact_verified_at=Now(), stage=Stage.CONTACT_VERIFIED if starting else application.stage,
+            updated_at=Now(),
         )
         _after_verification_write()
         VersionAdoption.objects.create(application=application, submission_version=version, via_challenge=challenge)
@@ -144,12 +153,19 @@ def confirm(challenge_uuid: UUID, version_public_id: UUID) -> Confirmed:
                 "reason": "newer_unverified_version", "adopted_version_number": number, "unverified_version_numbers": newer,
             }, **event)
             open_staff_item(application, "newer_unverified_version", attention)
-        PendingAction.objects.create(
-            kind=START_EVIDENCE_COLLECTION,
-            subject_type="application",
-            subject_id=application.public_ref,
-            input_ref=str(version.public_id),
-            idempotency_key=start_evidence_collection_key(application.public_ref),
-            status=PendingAction.Status.HELD,
-        )
-    return Confirmed(number, bool(newer))
+        if starting:
+            PendingAction.objects.create(
+                kind=START_EVIDENCE_COLLECTION,
+                subject_type="application",
+                subject_id=application.public_ref,
+                input_ref=str(version.public_id),
+                idempotency_key=start_evidence_collection_key(application.public_ref),
+                status=PendingAction.Status.HELD,
+            )
+        else:
+            attention = ApplicationEvent.objects.create(kind="needs_staff_attention", data={
+                "reason": "contact_verified_existing_workflow", "preserved_stage": application.stage,
+                "adopted_version_number": number,
+            }, **event)
+            open_staff_item(application, "contact_verified_existing_workflow", attention)
+    return Confirmed(number, bool(newer) or not starting)
