@@ -154,3 +154,24 @@ production credentials must not gain authority over them. A lineage mismatch or 
 tail requires recovery from the receiver, or the existing explicit accepted-loss and
 rebaseline procedure; no automatic rebaseline is provided here. Full off-host loss,
 restore and alert drills remain deployment evidence, not claims made by unit tests.
+
+## Local alert rehearsal
+
+Run `CATALYST_STACK_ENV=production bash scripts/alert_drill.sh` on the development
+host to exercise the existing health and stale-check adapters against the production
+image and Compose definition. Omitting the variable retains the staging drill.
+Both modes refuse remote Docker contexts, a nonlocal daemon, and an existing production
+stack or retained production journal before creating resources.
+
+The production run uses synthetic credentials, loopback listeners and a separately
+named, ownership-labelled external journal volume. It renders all required Compose
+profiles, trusts only its local proxy's CA for the production probe, and verifies that
+the unapproved intake answers 503 over valid TLS. Existing policy and unshipped-journal
+warnings remain visible; worker recovery must return to that exact baseline. Unknown
+baseline faults fail the run. Worker loss, overdue work, unresolved bounces, stopped
+monitoring and content-free alert output are exercised using the recording stub.
+
+This is local rehearsal evidence. No notification is delivered, no production timer is
+installed, and no off-host recovery is demonstrated. Those checks remain open in
+`catalyst-v2-9kg.28` and `catalyst-v2-9kg.78.4`; production restore and deploy drills also
+remain unfinished. A passing local drill must not close these live acceptance gates.
