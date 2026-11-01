@@ -3,11 +3,70 @@
 | Field | Value |
 |---|---|
 | Document | `006-LS-STAT-status` |
-| Last updated | 2026-10-31 |
-| Source revision | `main` `61e48d1`; integration PR #161 (including production admission `5401078`); host, Beads and GitHub readbacks of 2026-10-31 |
+| Last updated | 2026-11-01 |
+| Source revision | Repository `fdf5b5d` (PR #188); deployed `3fbbd34`; deployment receipt and current Beads/GitHub/host readbacks of 2026-11-01 |
 | Classification | Public |
 
-> **Current evidence snapshot (2026-10-31): wave one is deployed; the full first-generation replacement is not release-ready.**
+> **Current evidence snapshot (2026-11-01): the combined implementation is deployed; the full replacement is not activated or cut over.**
+> The US stack serves revision `3fbbd34` with a matching deployment receipt, passing smoke checks and no pending
+> migrations. Learn still routes to healthy v1 services. The owner's D-54 parity decisions remain recorded;
+> provider approval/activation, independent recovery custody, staff-device proof and final case handover remain
+> separate prerequisites. Repository completion is not proof of live applicant continuation.
+
+## Current workflow evidence (2026-11-01)
+
+| Workflow boundary | Verified implementation/deployment | Remaining production work |
+|---|---|---|
+| Invitation, verification and staff dossier | Existing bounded D-53 journey; the deployed staff certificate configuration now comes directly from the repository (`9kg.88`) | An unapproved workstation verifies TLS and receives 403. Approved-device authenticated access remains NOT RUN (`9kg.28`); the synthetic browser canary's final closure/erasure remains open (`9kg.87`). |
+| Public URLs, form parity, client identity and CAT receipt | Merged and included in deployed `3fbbd34`; trusted-client and spoof controls passed, with distinct application rate buckets; prepared Learn aliases serve the exact assets | Public Learn still belongs to v1. The serving intake mode remains invitation; form/receipt activation and final route handover remain in `bgl.3`, `bgl.5`, `bgl.18`. |
+| Geographic review and talent search | PRs #180 and #181 merged; their code is on the serving image | Geographic matches require human review before research/model use. This implementation does not supply the remaining production provider or staff-access evidence. |
+| MiniMax research, correspondence and routine advance | Integration PR #161 merged. Deployed code has no application-imposed token caps or `max_tokens`; shared request pacing, Retry-After, bounded retries/timeouts and duplicate protection remain | The production profile/approval is not activated. Actual account RPM allocation, approved rubric/prompt and model-use/provider proofs remain required (`bgl.12`, `bgl.22`). |
+| Agreements, countersignature and release | Parity implementation and current-template correction PR #183 are merged and deployed | Live signing/custody canary, approved templates and activation remain open. Agreement migration `0014` makes the previous image incompatible as an image-only rollback target. |
+| Mailbox and welcome | Production adapter, first-name naming, credential mode and welcome implementation are merged and deployed | Approved welcome content, controlled provisioning/revocation proof and production activation remain open (`bgl.11`, `9kg.31.3`, `bgl.22`). |
+| Reminders, lapse/reopen, sender/Reply-To and Twenty | Integration code and imported-mailbox/timer continuation repairs are merged and deployed | One poller/writer per mailbox; approved wording and live handover remain required. Twenty remains off. |
+| Legacy records and open-case continuation | Import mapping `035`, native successor paths, mailbox ownership/recovery, envelope adoption and timer reconciliation are implemented and synthetic-tested | No final frozen import or all-case live continuation receipt exists. Preserve every record and ownership boundary before retiring v1 (`bgl.16`, `bgl.17`, `bgl.23`). |
+| Community access | PR #184 is merged and deployed; design `036` records the contract | Adapter is unconfigured/default-off. Provider verification and admission remain `9kg.82`; deployment alone is not community activation. |
+| Recovery and journal | Restored erasure/transaction protections and key-history recovery are deployed. PR #188 adds chained segments and constant-size steady request-count reads on `main` | PR #188 is not deployed; no journal rotation or archival has occurred. Independent backup/journal custody, shipping and live restore/alert drills remain open. |
+| Full cutover | The prepared route and compatible recovery image have bounded verification | No public Learn switch or v1 retirement has occurred. Final import, provider continuation and recovery/observation evidence remain mandatory (`bgl.17`, `bgl.18`). |
+
+## Current verification and launch limits (2026-11-01)
+
+- Integration PR #161 merged after 2,308 tests and 300 acceptance groups passed; the older failed integration
+  runs below are historical. Its superseded component PRs were closed with branches retained.
+- Deployed `3fbbd34` passed [exact-main CI](https://github.com/intent-solutions-io/catalyst-onboarding-v2/actions/runs/41309238789)
+  with 2,556 tests exactly once and 320 acceptance groups, plus the
+  [image scan and attestation](https://github.com/intent-solutions-io/catalyst-onboarding-v2/actions/runs/41309238927).
+  Promotion completed at 13:31:06 UTC with a fresh bound backup, exact approved/label/runtime commit match,
+  passing deploy/smoke checks and zero pending migrations. Subsequent readback found stable services and no HOLD.
+- Repository PR #188 merged as `fdf5b5d` after
+  [CI](https://github.com/intent-solutions-io/catalyst-onboarding-v2/actions/runs/41314038119)
+  verified all 2,568 tests exactly once and 321 acceptance groups. Its image scan passed.
+  This is repository evidence, not a deployment receipt.
+- An isolated rehearsal used the actual attested `3fbbd34` and compatible `a913212` images on one migrated
+  PostgreSQL database, preserving template history and approval metadata through a forward/recovery/forward
+  sequence. Readiness and intake passed. The compatible recovery image is staged; no production fallback or
+  restore was performed. The old `3a5d7c2` image cannot alone reverse forward-only agreement migration `0014`.
+- Production health still reports the unapproved decline notice and a never-shipped effect journal. Worker-context
+  verification found a fresh heartbeat and no worker anomalies. Only backup and staff-certificate timers are
+  installed; health/sweep timers and independent alert delivery remain outstanding.
+- The proposed recovery receiver's source-reachable administrative access prevents an independent-custody claim.
+  Local backup/staging does not establish off-host protection. Destination isolation, transfer scheduling and loss/
+  lag drills remain open; no local staged export has been acknowledged as an independent received copy.
+- Main protection now requires the existing documentation, runtime and image build/scan checks. Both installed
+  merge-guard copies enforce the same floor; a real failed-scan probe was refused and closed unmerged, and the
+  scheduled watchdog passed. `032` section 1.8 retains the remaining broader release-control work.
+- D-53 and D-54 retain their bounded authority. Counsel-dependent retention, model-use and signing items are
+  not inferred from successful code checks. Existing owner decisions are not new approval requests.
+- `009` section 11 records the installed fast commit hook and measured CI improvements. Four shards, download
+  caches and parallel static checks are in place; the complete required suite remains intact. The low-single-digit
+  CI target, broader fixture optimization, paid runner choice and reduced-test selection are not complete.
+
+## Historical snapshots
+
+The following snapshots preserve their original dates and failure evidence. Their draft-PR, absent-feature,
+protection and deployment statements are superseded by the current evidence above.
+
+> **Historical evidence snapshot (2026-10-31): wave one is deployed; the full first-generation replacement is not release-ready.**
 > D-53 authorized the bounded invitation/verification journey. Bead `bgl.19` records its move to the dedicated US
 > host on image `5e8eaf8`, independently confirmed by the subsequent readback. Public intake and form
 > parity are merged on `main`; the remaining combined workflow is published in draft PR #161.
@@ -59,7 +118,7 @@
 - Read `034` as the parity inventory of its named baseline. Its absent features and policy refusals are not all
   current: later merged code, local work and the D-54 decisions must be considered separately.
 
-## Historical snapshots
+## Earlier historical snapshots
 
 The records below preserve their original dates and evidence. They do not describe current deployment state,
 current GitHub protections or the current parity work graph.
