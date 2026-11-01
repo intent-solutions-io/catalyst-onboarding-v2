@@ -302,7 +302,8 @@ SYSTEM_RESUME_REASON_MIN = 10
 
 
 def is_system_pause(row) -> bool:
-    return row.actor_ref == "system" or row.actor_ref.startswith("system:")
+    # The old importer used a non-system spelling. Its pause has the same handover-review requirement.
+    return row.actor_ref == "import:first-generation" or row.actor_ref == "system" or row.actor_ref.startswith("system:")
 
 
 def resume(application_id: int, user, note: str = "") -> int:

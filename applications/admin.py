@@ -11,6 +11,7 @@ from django.apps import apps
 from django.contrib import admin
 from django.db.models import Exists, OuterRef, Q
 from django.db.models.functions import Now
+from django.urls import reverse
 from django.utils.html import format_html, format_html_join
 
 from config.staff_admin import ReadOnlyModelAdmin, ReadOnlyTabularInline
@@ -157,12 +158,20 @@ class ApplicationAdmin(ReadOnlyModelAdmin):
     fieldsets = [
         ("Applicant", {"fields": ("reference", "display_name", "email", "stage", "created_at", "updated_at")}),
         ("Status", {"fields": ("intake", "member_agreement", "contact_state", "adopted_version", "staff_attention", "next_step",
-                               "outstanding_work")}),
+                               "outstanding_work", "legacy_history")}),
     ]
     readonly_fields = ("reference", "display_name", "email", "stage", "created_at", "updated_at",
                        "intake", "member_agreement", "contact_state", "adopted_version", "staff_attention", "next_step",
-                       "outstanding_work")
+                       "outstanding_work", "legacy_history")
     inlines = [VersionInline, ChallengeInline, EventInline, OutboundInline]
+
+    @admin.display(description="Legacy case history")
+    def legacy_history(self, obj):
+        case = apps.get_model("firstgen", "ImportedCase").objects.filter(application=obj).first()
+        if case is None:
+            return "Not imported from v1"
+        return format_html('<a href="{}">Review legacy questions, replies and agreement state ({})</a>',
+                           reverse("firstgen_staff:history", args=[obj.public_ref]), case.reference)
 
     def get_queryset(self, request):
         return super().get_queryset(request).annotate(needs_attention=staff.attention_q())

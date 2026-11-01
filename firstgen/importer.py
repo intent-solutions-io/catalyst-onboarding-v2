@@ -38,7 +38,7 @@ from workflow.models import AutomationPause
 from . import mapping, source
 from .models import ImportedCase, ImportedRecord, ImportRun
 
-ACTOR = "import:first-generation"
+ACTOR = "system:import:first-generation"  # a handover pause needs the existing decision-maker review and reason
 RECORDER = "first-generation import"  # a plain label (applications.members.check_recorder)
 PAUSE_REASON = ("Imported from the first-generation service (bgl.16): automation stays off until staff have reviewed"
                 " the case")
@@ -421,7 +421,7 @@ class Importer:
             needs.append("decide: a staff decision on the decision screen (the first-generation review is history)")
         elif stage == "awaiting_answers":
             needs.append("answers: staff read replies to the first-generation questions (threads associate through"
-                         " firstgen.threads once wired) and decide")
+                         " firstgen.threads) and decide")
         elif stage == "agreements":
             needs.append("agreements: an open first-generation envelope cannot be watched by v2; the owner checks"
                          " Documenso and records completion (catalyst_member_on_file) or cancels and reissues")

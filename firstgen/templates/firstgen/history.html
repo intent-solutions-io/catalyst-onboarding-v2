@@ -1,0 +1,30 @@
+{% extends "correspondence/staff/base.html" %}{% load correspondence_display %}
+{% block nav %}<nav><a href="{% url 'admin:applications_application_change' application.pk %}">Application dossier</a></nav>{% endblock %}
+{% block content %}
+<h1>Legacy history: <bdi>{{ case.reference|visible }}</bdi></h1>
+<p><bdi>{{ application.display_name|visible }}</bdi></p>
+<dl>
+  <dt>State recorded by v1</dt><dd>{{ case.v1_state|visible }}{% if case.v1_resume_state %} (previously {{ case.v1_resume_state|visible }}){% endif %}</dd>
+  <dt>Current v2 stage</dt><dd>{{ application.stage }}</dd>
+  <dt>Imported</dt><dd>{{ case.imported_at|date:"Y-m-d H:i" }} UTC</dd>
+  <dt>Contact verification recorded</dt><dd>{{ application.contact_verified_at|yesno:"Yes,No" }}</dd>
+  <dt>Automation paused</dt><dd>{{ paused|yesno:"Yes,No" }}</dd>
+</dl>
+<h2>Handover review</h2>
+<p>{{ guidance }}</p>
+{% if open_case %}<p>Resuming automation alone does not continue an old question, transfer an open signing envelope or recreate a pending job. Reconcile each outstanding operation before sending again.</p>{% endif %}
+<p>This history records what v1 knew at import. It does not prove the current provider state or completion of the handover.</p>
+{% if case.findings %}<ul>{% for finding in case.findings %}<li><bdi>{{ finding|visible }}</bdi></li>{% endfor %}</ul>{% endif %}
+<h2>Preserved records</h2>
+<p>Confirmation, setup, withdrawal and signing links are removed from displayed text. Outgoing message bodies are shown only for the recorded clarification template.</p>
+<p><a href="{% url 'firstgen_staff:history' application.public_ref %}">All records</a>{% for count in counts %} · <a href="?table={{ count.v1_table|urlencode }}">{{ count.v1_table|visible }} ({{ count.total }})</a>{% endfor %}</p>
+<p>Page {{ page.number }} of {{ page.paginator.num_pages }}; {{ page.paginator.count }} records{% if table %} in {{ table|visible }}{% endif %}.</p>
+{% for record, fields in rows %}
+<section>
+<h3>{{ record.v1_table|visible }} — {{ record.occurred_at|date:"Y-m-d H:i" }} UTC</h3>
+<p>Source record <bdi>{{ record.v1_id|visible }}</bdi></p>
+{% if fields %}<dl>{% for label, value in fields %}<dt>{{ label }}</dt><dd><pre class="untrusted">{{ value|visible }}</pre></dd>{% endfor %}</dl>{% else %}<p>Record preserved. Its contents are not displayed on this screen.</p>{% endif %}
+</section>
+{% empty %}<p>No preserved records.</p>{% endfor %}
+<nav>{% if page.has_previous %}<a href="?table={{ table|urlencode }}&amp;page={{ page.previous_page_number }}">Previous page</a>{% endif %} {% if page.has_next %}<a href="?table={{ table|urlencode }}&amp;page={{ page.next_page_number }}">Next page</a>{% endif %}</nav>
+{% endblock %}

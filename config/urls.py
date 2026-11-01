@@ -17,6 +17,7 @@ urlpatterns = [
     path("staff/p3/", include("assessments.staff_urls")),
     path("staff/p4/", include("agreements.staff_urls")),
     path("staff/p5/", include("provisioning.staff_urls")),
+    path("staff/legacy/", include("firstgen.staff_urls")),
     path("staff/", admin.site.urls),
     path("setup/", include("provisioning.urls")),  # applications.links.SETUP_PATH (P5 5B.2)
     path("withdraw/", include("provisioning.withdraw_urls")),  # applications.links.WITHDRAW_PATH (P5 5B.3)
