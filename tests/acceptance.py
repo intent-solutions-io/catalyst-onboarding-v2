@@ -2179,6 +2179,18 @@ P6_SUPPORTING = {
         "test_reference_receipt::test_bgl_5_the_receipt_handler_is_registered_redeliverable_and_reviewed_after_a_restore",
         "test_reference_receipt::test_bgl_5_the_request_page_answers_the_same_with_the_receipt_on",
     ],
+    "bgl.23 uncertain legacy mailboxes have explicit dispositions and one native successor": [
+        "test_legacy_mailbox_recovery::test_absent_legacy_create_requires_new_approval_then_creates_once",
+        "test_legacy_mailbox_recovery::test_found_legacy_create_recovers_through_native_password_welcome_without_recreating",
+        "test_legacy_mailbox_recovery::test_verified_legacy_welcome_preserves_access_without_a_new_password_or_mail",
+        "test_legacy_mailbox_recovery::test_foreign_legacy_address_returns_a_held_handoff_and_never_touches_that_account",
+        "test_legacy_mailbox_recovery::test_closed_uncertain_legacy_create_is_resolved_only_for_protection",
+        "test_legacy_mailbox_recovery::test_reconciliation_requires_authority_current_source_and_all_attestations",
+        "test_legacy_mailbox_recovery::test_reconciliation_refuses_provider_errors_wrong_identity_limits_and_missing_create_marker",
+        "test_legacy_mailbox_recovery::test_reconciliation_revalidates_closure_during_provider_read",
+        "test_legacy_mailbox_recovery::test_reconciliation_refuses_changed_source_completion",
+        "test_legacy_mailbox_recovery::test_reconciliation_form_is_scoped_post_only_and_shows_current_delivery_evidence",
+    ],
     "bgl.23 current source mailbox and delivery facts govern handover": [
         "test_legacy_mailbox_history::test_mailbox_top_up_preserves_current_round_and_original_evidence",
         "test_legacy_mailbox_history::test_missing_job_or_mailbox_table_never_proves_absent_effects",

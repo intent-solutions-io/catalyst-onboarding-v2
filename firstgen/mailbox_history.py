@@ -137,7 +137,7 @@ def latest(application):
     )
 
 
-def settled(application, case_id):
+def current(application, case_id):
     snapshot = latest(application)
     if (
         not snapshot
@@ -156,9 +156,18 @@ def settled(application, case_id):
             or job["case_id"] != case_id
             or job["key_case_id"] not in (None, case_id)
             or (job["mailbox_id"] is not None and job["mailbox_id"] not in ids)
-            or job["outcome_unknown"]
-            or job["status"] not in ("queued", "succeeded", "failed", "cancelled")
-            or (job["status"] == "queued" and job["attempts"] != 0)
         ):
             raise Refused("legacy_mailbox_delivery_requires_reconciliation")
+    return snapshot
+
+
+def settled(application, case_id):
+    snapshot = current(application, case_id)
+    if any(
+        job["outcome_unknown"]
+        or job["status"] not in ("queued", "succeeded", "failed", "cancelled")
+        or (job["status"] == "queued" and job["attempts"] != 0)
+        for job in snapshot.data["jobs"]
+    ):
+        raise Refused("legacy_mailbox_delivery_requires_reconciliation")
     return snapshot

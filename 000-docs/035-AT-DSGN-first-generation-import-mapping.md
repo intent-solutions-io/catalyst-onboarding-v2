@@ -322,7 +322,7 @@ The legacy-history screen offers a separate POST action to staff with dossier ac
 `operate_provisioning`. It requires source-stop and ownership-review attestations, a note,
 current imported history and either an automation pause or a terminal case. Only a preserved
 `created` mailbox with its provider creation time and exact reservation target qualifies.
-An approved mailbox whose create outcome is unknown requires separate reconciliation.
+An approved mailbox whose create outcome is unknown uses the separate reconciliation in section 15.
 
 A fresh mail-host read must return the same address. The transaction locks the application
 and request and rechecks history, stage, reservation and outstanding work before writing
@@ -367,9 +367,8 @@ the pause until a separate reviewed resume. Its normal release, approval, create
 steps then apply. Repeated handover cannot create another action, and an old native action
 key cannot be silently reused.
 
-A v1 release or mailbox record makes this a reconciliation case instead. Approved-but-uncertain
-mailbox creation, welcome-delivery reconciliation, live provider checks and the cutover/rollback
-rehearsal remain separate requirements. This path does not authorize a production source stop.
+A v1 release or mailbox record makes this a reconciliation case instead. Section 15 handles approved-but-uncertain mailbox creation and welcome-delivery reconciliation.
+Live provider checks and the cutover/rollback rehearsal remain separate requirements. This path does not authorize a production source stop.
 
 ## 14. Current release and mailbox history (bgl.23)
 
@@ -398,3 +397,46 @@ A release-pending handover refuses a changed case state or any existing release/
 These snapshots supply reconciliation evidence, not a claim that uncertain creates or welcome
 sends are resolved. No source job is cancelled by import, no provider operation is replayed,
 and source freeze, explicit dispositions and live rollback verification remain required.
+
+## 15. Recorded mailbox reconciliation and native continuation (bgl.23)
+
+The legacy-history screen offers a separate POST action to staff with dossier access,
+`operate_provisioning` and `approve_provisioning`. Current mailbox-history fields are shown
+through an explicit allowlist, including creation markers, welcome round and source job
+uncertainty; arbitrary JSON, credentials and raw job payloads remain hidden.
+
+The reviewer must record the evidence and attest that source writers have stopped, in-flight
+operations cannot complete later or retry, account ownership and limits were checked, and the
+current welcome round and recipient evidence were reviewed. Running or reconciling source
+jobs still refuse the action. An unknown create or welcome recorded as needing reconciliation
+can receive an explicit disposition; it is never silently treated as failed or absent.
+
+The service requires a complete current source snapshot with consistent case, mailbox and job
+identities. Open cases also need verified contact, current native agreement prerequisites and
+fresh reads for native envelopes, a verified source release referring to completed source
+agreements, and no unresolved identity/safety item or unprocessed correspondence. It refuses
+conflicting native operations, an address changed since import, or a released reservation.
+The host read occurs outside the transaction; the application/request lock and a fresh digest
+check follow it. Provider errors do not mean absence. A foreign address or a changed provider
+identity cannot be adopted. No provider write or applicant message occurs in this transaction.
+
+| Reviewed outcome | Result |
+|---|---|
+| Absent, open case | Only an originally uncreated mailbox qualifies. Keep its address reserved; supersede the imported request with a native API request bound to current prerequisites. Separate resume and exact-mailbox approval are required before native creation, whose own absent-before-create check still runs. |
+| Owned, recover credentials | Require source evidence that creation was requested or recorded, plus an exact host identity and matching reviewed limits. Preserve the immutable source approval, create a separately approved native successor and queue native verification. Automation stays paused. After separate resume, the configured credential flow sets/replaces credentials and delivers its message through the existing guarded worker. This is an explicit recovery decision, not a replay of the v1 send. |
+| Existing welcome/access received | Require a completed source account, an active source case and a source welcome marker, with the reviewer's confirmation of existing delivery/access. Record ownership and inherited completion without manufacturing a v2 credential setup or SMTP receipt. Keep the existing password and send nothing. |
+| Foreign account | Record the ownership conflict and preserve the other account. An open case returns to a held native provisioning handoff for a new address. A closed case remains closed and settles its access-removal obligations without touching the foreign account. |
+| Closed case, owned account | Record ownership and queue the existing protective access-removal worker, which may run while paused. It cannot reopen onboarding or send credentials. Unsupported access-removal obligations remain visible. |
+| Closed case, absent account | Record the authoritative absence and settle through the native protective worker; create no successor, mailbox or credential flow. |
+
+A successor keeps the same reservation and receives its own prerequisite and approval digests;
+the original request's identity and approval never change. Once transferred, the original
+request cannot release that reservation or independently revoke the successor's mailbox.
+Native successors use the normal unknown-create, verification, credential and closure guards.
+A repeated identical reconciliation returns its receipt; a changed decision, source snapshot
+or supplied limits cannot silently replace that decision. Later source changes require review.
+
+The receipt distinguishes staff-attested existing delivery from a new native send and records
+the selected outcome, source snapshot, prerequisite references, reviewed limits and successor.
+This operation does not stop v1, remove a pause, approve legal wording or establish live canary
+or rollback evidence. Those remain prerequisites for the production handover.

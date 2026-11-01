@@ -276,6 +276,10 @@ def unproven_present(request) -> bool:
 
 
 def _may_hold_ours(request) -> bool:
+    from firstgen.mailboxes import settled_absent, transferred
+
+    if transferred(request) or settled_absent(request):
+        return False
     return (
         proven_ours(request)
         or unproven_present(request)
@@ -482,7 +486,10 @@ class RevokeAccess(_Action):
                     ),
                 )
             return
-        ours = proven_ours(request) and not refused_as_foreign(request)
+        from firstgen.mailboxes import settled_absent, transferred
+
+        retired = transferred(request) or settled_absent(request)
+        ours = not retired and proven_ours(request) and not refused_as_foreign(request)
         if not ours and unproven_present(request):
             # A mailbox may exist but is not proven ours: staff confirm or refuse it first (never act on a foreign one).
             ledger.finish(
