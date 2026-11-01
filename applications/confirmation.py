@@ -20,7 +20,9 @@ Confirmation proves control of the address, not authorship of other versions.
 
 For a case already beyond `submitted` (including an unverified legacy import), confirmation preserves
 the workflow stage and any pause, creates no new assessment action, and requests staff continuation
-review. Address control is not authority to replay existing questions, signing or provisioning.
+review. A submitted legacy import reaches contact_verified and the same staff review without
+queuing an assessment until its history is reviewed. Address control is not authority to replay
+existing questions, signing or provisioning.
 
 A second confirmation of the same link finds the challenge used and changes nothing ("already confirmed").
 Refusals carry a reason code only: never the token, the link, an address or an answer.
@@ -42,7 +44,15 @@ from workflow.models import PendingAction
 
 from . import invitations
 from .links import signer
-from .models import OPEN_STAGES, Application, ApplicationEvent, ContactChallenge, Stage, SubmissionVersion, VersionAdoption
+from .models import (
+    OPEN_STAGES,
+    Application,
+    ApplicationEvent,
+    ContactChallenge,
+    Stage,
+    SubmissionVersion,
+    VersionAdoption,
+)
 from .services import open_staff_item
 
 START_EVIDENCE_COLLECTION = "start_evidence_collection"
@@ -87,13 +97,17 @@ def _after_verification_write() -> None:
 def challenge_id(token: str) -> UUID:
     try:
         return UUID(signer().unsign(token))
-    except (BadSignature, ValueError):
+    except BadSignature, ValueError:
         raise Refused(Refused.INVALID, "bad signature") from None
 
 
 def _usable(challenge_uuid: UUID, *, lock: bool):
     """The application and challenge if the challenge may confirm now; otherwise Refused."""
-    application_id = ContactChallenge.objects.filter(public_id=challenge_uuid).values_list("application_id", flat=True).first()
+    application_id = (
+        ContactChallenge.objects.filter(public_id=challenge_uuid)
+        .values_list("application_id", flat=True)
+        .first()
+    )
     if application_id is None:
         raise Refused(Refused.INVALID, "unknown challenge")
     applications, challenges = Application.objects, ContactChallenge.objects
@@ -101,7 +115,9 @@ def _usable(challenge_uuid: UUID, *, lock: bool):
         applications = applications.select_for_update(of=("self",))
         challenges = challenges.select_for_update(of=("self",))
     application = applications.get(pk=application_id)
-    challenge = challenges.annotate(unexpired=Q(expires_at__gt=Now())).get(public_id=challenge_uuid)
+    challenge = challenges.annotate(unexpired=Q(expires_at__gt=Now())).get(
+        public_id=challenge_uuid
+    )
     if challenge.used_at is not None or application.contact_verified_at is not None:
         raise Refused(Refused.ALREADY, "already confirmed")
     if challenge.superseded_at is not None:
@@ -124,9 +140,13 @@ def preview(challenge_uuid: UUID) -> Preview:
 def confirm(challenge_uuid: UUID, version_public_id: UUID) -> Confirmed:
     with transaction.atomic():
         application, challenge = _usable(challenge_uuid, lock=True)
-        version = SubmissionVersion.objects.filter(public_id=version_public_id, application=application).first()
+        version = SubmissionVersion.objects.filter(
+            public_id=version_public_id, application=application
+        ).first()
         if version is None:
-            raise Refused(Refused.BAD_VERSION, "version does not belong to the application")
+            raise Refused(
+                Refused.BAD_VERSION, "version does not belong to the application"
+            )
         if invitations.required() and not invitations.consume(application):
             # 9kg.43: the invitation is spent here, once; none live (expired, superseded, already spent by a concurrent
             # confirmation that then lost on the challenge, or intake opened and closed meanwhile) is one refusal.
@@ -137,23 +157,42 @@ def confirm(challenge_uuid: UUID, version_public_id: UUID) -> Confirmed:
         # enqueue a second assessment. Staff reconcile its existing work after verification.
         starting = application.stage == Stage.SUBMITTED
         Application.objects.filter(pk=application.pk).update(
-            contact_verified_at=Now(), stage=Stage.CONTACT_VERIFIED if starting else application.stage,
+            contact_verified_at=Now(),
+            stage=Stage.CONTACT_VERIFIED if starting else application.stage,
             updated_at=Now(),
         )
         _after_verification_write()
-        VersionAdoption.objects.create(application=application, submission_version=version, via_challenge=challenge)
+        VersionAdoption.objects.create(
+            application=application, submission_version=version, via_challenge=challenge
+        )
         number = version.version_number
-        event = dict(application=application, actor_type=ApplicationEvent.ActorType.APPLICANT)
-        ApplicationEvent.objects.create(kind="contact_verified", data={"version_number": number}, **event)
+        event = dict(
+            application=application, actor_type=ApplicationEvent.ActorType.APPLICANT
+        )
+        ApplicationEvent.objects.create(
+            kind="contact_verified", data={"version_number": number}, **event
+        )
         # Newer versions cannot appear meanwhile: intake needs the application lock held here.
-        newer = list(application.versions.filter(version_number__gt=number).order_by("version_number")
-                     .values_list("version_number", flat=True))
+        newer = list(
+            application.versions.filter(version_number__gt=number)
+            .order_by("version_number")
+            .values_list("version_number", flat=True)
+        )
         if newer:
-            attention = ApplicationEvent.objects.create(kind="needs_staff_attention", data={
-                "reason": "newer_unverified_version", "adopted_version_number": number, "unverified_version_numbers": newer,
-            }, **event)
+            attention = ApplicationEvent.objects.create(
+                kind="needs_staff_attention",
+                data={
+                    "reason": "newer_unverified_version",
+                    "adopted_version_number": number,
+                    "unverified_version_numbers": newer,
+                },
+                **event,
+            )
             open_staff_item(application, "newer_unverified_version", attention)
-        if starting:
+        # Imported submissions require the recorded legacy-history review before new work.
+        # Even a still-submitted import must not queue an unreviewed assessment.
+        start_assessment = starting and not hasattr(application, "first_generation")
+        if start_assessment:
             PendingAction.objects.create(
                 kind=START_EVIDENCE_COLLECTION,
                 subject_type="application",
@@ -163,9 +202,18 @@ def confirm(challenge_uuid: UUID, version_public_id: UUID) -> Confirmed:
                 status=PendingAction.Status.HELD,
             )
         else:
-            attention = ApplicationEvent.objects.create(kind="needs_staff_attention", data={
-                "reason": "contact_verified_existing_workflow", "preserved_stage": application.stage,
-                "adopted_version_number": number,
-            }, **event)
-            open_staff_item(application, "contact_verified_existing_workflow", attention)
-    return Confirmed(number, bool(newer) or not starting)
+            attention = ApplicationEvent.objects.create(
+                kind="needs_staff_attention",
+                data={
+                    "reason": "contact_verified_existing_workflow",
+                    "preserved_stage": Stage.CONTACT_VERIFIED
+                    if starting
+                    else application.stage,
+                    "adopted_version_number": number,
+                },
+                **event,
+            )
+            open_staff_item(
+                application, "contact_verified_existing_workflow", attention
+            )
+    return Confirmed(number, bool(newer) or not start_assessment)

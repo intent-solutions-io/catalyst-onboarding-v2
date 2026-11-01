@@ -38,7 +38,7 @@ def envelopes(legacy, tls, settings, monkeypatch):
     configure(settings, fake, tls)
     settings.CATALYST_AGREEMENT_DEADLINE_SECONDS = 2
     settings.CATALYST_AGREEMENT_COMPANY_EMAIL = "company@example.test"
-    settings.CATALYST_AGREEMENT_COMPANY_NAME = "Synthetic Company"
+    settings.CATALYST_AGREEMENT_COMPANY_NAME = "Hedy Example"
     settings.CATALYST_AGREEMENT_COMPANY_ROLE = "APPROVER"
     monkeypatch.setitem(runtime._declared, "kind", runtime.process_kind())
     grant(legacy, legacy.user, "manage_agreements")
@@ -88,7 +88,7 @@ def provider_envelope(env, application, type_key="nda", status="PENDING"):
             {
                 "id": 7002,
                 "email": "company@example.test",
-                "name": "Synthetic Company",
+                "name": "Hedy Example",
                 "signingOrder": 2,
             },
         ],
@@ -122,6 +122,34 @@ def read_once():
     claim = ledger.claim_next({completion.READ: handler})
     assert claim is not None
     handler.run(claim)
+
+
+@pytest.mark.parametrize("legacy", ["unverified"], indirect=True)
+def test_unverified_signing_case_can_confirm_contact_and_adopt_its_original_envelope(
+    envelopes, settings, monkeypatch
+):
+    from tests.test_legacy_review import verify_imported_contact
+
+    application = app("CAT-ND00-0007")
+    data = provider_envelope(envelopes, application)
+    resumed, item, processing = verify_imported_contact(
+        envelopes, application, settings, monkeypatch
+    )
+    with pytest.raises(Refused, match="identity_or_safety_item_open"):
+        adopt(envelopes, application)
+    assert not envelopes.fake.requests
+    processing.resolve_exception(
+        item.pk,
+        "acknowledge",
+        envelopes.user,
+        "Reviewed verified contact before envelope adoption",
+    )
+    instance = adopt(envelopes, application)
+    assert instance.envelope_id == data["id"]
+    receipt = application.events.get(kind=adoption.ADOPTED)
+    assert receipt.data["import_resume_event"] == resumed.pk
+    assert AutomationPause.objects.filter(subject_id=application.public_ref).exists()
+    assert not any(method == "POST" for method, *_ in envelopes.fake.requests)
 
 
 def test_a_pending_legacy_envelope_is_adopted_once_without_create_send_or_unpause(
@@ -418,11 +446,16 @@ def test_both_old_envelopes_reach_native_custody_and_one_held_provisioning_hando
     assert not EnvelopeAttempt.objects.exists() and not OutboundMessage.objects.exists()
 
 
+@pytest.mark.parametrize(
+    "source_from,source_to", [("nda_pending", "withdrawn"), ("active", "lapsed")]
+)
 def test_late_source_final_states_and_duplicate_envelopes_are_refused_before_provider_access(
     envelopes,
+    source_from,
+    source_to,
 ):
     envelopes.source.event(
-        envelopes.ids["CAT-ND00-0007"], "nda_pending", "withdrawn", "withdrawn", 400
+        envelopes.ids["CAT-ND00-0007"], source_from, source_to, "late_state", 400
     )
     envelopes.source.agreement(envelopes.ids["CAT-SP00-0008"], "nda", "sent", 400)
     import_v1(envelopes.source)

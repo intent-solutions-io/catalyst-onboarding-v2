@@ -22,8 +22,16 @@ from workflow.models import AutomationPause, PendingAction
 
 
 @pytest.fixture
-def legacy(v1, privileged_reset, settings):
+def legacy(v1, privileged_reset, settings, request):
     ids = populate(v1)
+    if getattr(request, "param", None) == "unverified":
+        from psycopg import sql
+
+        v1.owner.execute(
+            sql.SQL(
+                "UPDATE {}.intake_request SET email_verified_at = NULL, email_verified_via = NULL"
+            ).format(sql.Identifier(v1.schema))
+        )
     import_v1(v1)
     user = staff(
         SimpleNamespace(committed=privileged_reset), "handover-decider", DECISION_MAKER
@@ -55,6 +63,128 @@ def prepare(application, user, **overrides):
     }
     args.update(overrides)
     return review.prepare(application.pk, user, **args)
+
+
+def verify_imported_contact(env, application, settings, monkeypatch):
+    """Use the real worker's delivered link, then the supported identity acknowledgment."""
+    from io import StringIO
+
+    from django.core import mail
+    from django.core.management import call_command
+
+    from config import runtime
+    from correspondence import processing
+    from tests.test_confirmation import link_for, post_confirm
+
+    monkeypatch.setitem(runtime._declared, "kind", runtime.process_kind())
+    settings.CATALYST_WORKER_POLL_SECONDS = 0.01
+    staff_actions.resend_verification(
+        application.pk,
+        env.user,
+        "Verify the contact before case handover",
+        expected_number=1,
+    )
+    call_command("run_worker", exit_when_idle=True, stdout=StringIO())
+    send = PendingAction.objects.get(
+        subject_id=application.public_ref, kind="send_verification"
+    )
+    assert send.status == "queued"
+    assert not getattr(mail, "outbox", [])
+    staff_actions.resume(
+        application.pk,
+        env.user,
+        "Reviewed the frozen source; authorize contact verification",
+    )
+    resumed = application.events.get(kind="automation_resumed")
+    assert resumed.data["paused_by"] == "system:import:first-generation"
+    call_command("run_worker", exit_when_idle=True, stdout=StringIO())
+    send.refresh_from_db()
+    assert send.status == "done"
+    [message] = mail.outbox
+    assert message.to == [application.email]
+    link = link_for(application)
+    assert link in message.body
+    version = application.versions.get(version_number=1)
+    before = application.stage
+    response = post_confirm(Client(), link, version.public_id)
+    assert (
+        response.status_code == 200
+        and "Email address confirmed" in response.content.decode()
+    )
+    application.refresh_from_db()
+    assert application.stage == (
+        "contact_verified" if before == "submitted" else before
+    )
+    assert application.contact_verified_at is not None
+    item = StaffItem.objects.get(
+        application=application, reason_code="contact_verified_existing_workflow"
+    )
+    staff_actions.pause(
+        application.pk, env.user, "Hold for the explicit legacy handover"
+    )
+    return resumed, item, processing
+
+
+@pytest.mark.parametrize("legacy", ["unverified"], indirect=True)
+@pytest.mark.parametrize("reference", ["CAT-RQ00-0001", "CAT-NI00-0004"])
+def test_unverified_import_can_receive_mail_confirm_and_reach_recorded_review(
+    legacy, reference, settings, monkeypatch
+):
+    application = app(reference)
+    resumed, item, processing = verify_imported_contact(
+        legacy, application, settings, monkeypatch
+    )
+    with pytest.raises(Refused, match="identity_or_safety_item_open"):
+        prepare(application, legacy.user)
+    processing.resolve_exception(
+        item.pk,
+        "acknowledge",
+        legacy.user,
+        "Reviewed verified contact and preserved history",
+    )
+    receipt = prepare(application, legacy.user)
+    assert receipt.data["import_resume_event"] == resumed.pk
+    application.refresh_from_db()
+    assert application.stage == "awaiting_decision"
+    assert (
+        AutomationPause.objects.get(subject_id=application.public_ref).actor_ref
+        == f"user:{legacy.user.pk}"
+    )
+    assert list(
+        PendingAction.objects.filter(subject_id=application.public_ref).values_list(
+            "kind", "status"
+        )
+    ) == [("send_verification", "done")]
+    assert (
+        snapshot.manifest(application, pack.load())["first_generation"]["review_event"]
+        == receipt.pk
+    )
+
+
+def test_an_ordinary_staff_pause_cannot_replace_the_import_resume_receipt(legacy):
+    application = app()
+    from django.db import transaction
+
+    # A historical generic resume satisfies the database audit rule, but lacks the
+    # original import-pause provenance required to authorize this handover.
+    with transaction.atomic():
+        AutomationPause.objects.filter(subject_id=application.public_ref).delete()
+        ApplicationEvent.objects.create(
+            application=application,
+            kind="automation_resumed",
+            actor_type=ApplicationEvent.ActorType.STAFF,
+            actor_ref=f"user:{legacy.user.pk}",
+            data={"note": "Historical generic resume without import provenance"},
+        )
+    staff_actions.pause(application.pk, legacy.user, "Hold this case for legacy review")
+    with pytest.raises(Refused, match="import_pause_required"):
+        prepare(application, legacy.user)
+    # A genuine receipt for a different case is not authority for this case.
+    staff_actions.resume(
+        app("CAT-RQ00-0002").pk, legacy.user, "Reviewed the other imported case"
+    )
+    with pytest.raises(Refused, match="import_pause_required"):
+        prepare(application, legacy.user)
 
 
 def test_legacy_review_reaches_a_real_qualification_decision_without_replaying_mail(

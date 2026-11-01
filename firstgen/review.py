@@ -19,6 +19,7 @@ from workflow.models import AutomationPause, PendingAction
 
 from .models import ImportedCase, ImportedRecord
 
+IMPORT_PAUSE_ACTORS = ("import:first-generation", "system:import:first-generation")
 REVIEWED = "legacy_review_prepared"
 STAGES = (
     Stage.CONTACT_VERIFIED,
@@ -105,6 +106,36 @@ def can_review(user):
     return can_decide(user) and user.has_perm("applications.view_application")
 
 
+def import_resume_receipt(application, pause):
+    """A staff re-pause can retain the original import review after sending verification.
+
+    Only the append-only receipt written by the reviewed system-pause resume counts.
+    A safety pause, ordinary resume, another case or an applicant event is not evidence.
+    """
+    if pause is None or not pause.actor_ref.startswith("user:"):
+        return None
+    receipts = application.events.filter(
+        kind="automation_resumed",
+        actor_type=ApplicationEvent.ActorType.STAFF,
+        actor_ref__startswith="user:",
+        occurred_at__lte=pause.created_at,
+        data__paused_by__in=IMPORT_PAUSE_ACTORS,
+        data__system_pause=True,
+    ).order_by("-pk")
+    for receipt in receipts:
+        note = receipt.data.get("note")
+        if isinstance(note, str) and len(note.strip()) >= 10:
+            return receipt
+    return None
+
+
+def has_import_pause(state):
+    pause = state["pause"]
+    return pause is not None and (
+        pause.actor_ref in IMPORT_PAUSE_ACTORS or state["import_resume"] is not None
+    )
+
+
 def review_state(application):
     source = source_state(application)
     if source is None:
@@ -112,15 +143,18 @@ def review_state(application):
     pause = AutomationPause.objects.filter(
         subject_type="application", subject_id=application.public_ref
     ).first()
+    resume = import_resume_receipt(application, pause)
     return {
         **source,
         "pause": pause,
+        "import_resume": resume,
         "digest": digest(
             {
                 "source": source["sha256"],
                 "stage": application.stage,
                 "verified": application.contact_verified_at,
                 "pause": pause.pk if pause else None,
+                "import_resume": resume.pk if resume else None,
             }
         ),
     }
@@ -141,7 +175,7 @@ def prepare(
     with transaction.atomic():
         application = Application.objects.select_for_update().get(pk=application_id)
         state = review_state(application)
-        case, pause = state["case"], state["pause"]
+        case = state["case"]
         if state["digest"] != expected_digest:
             raise Refused("changed_since_shown")
         if application.stage not in STAGES or case.v1_state not in SOURCE_STATES:
@@ -177,14 +211,7 @@ def prepare(
         if not application.contact_verified_at or not state["version"]:
             raise Refused("verified_contact_and_adopted_submission_required")
         prior = application.events.filter(kind=REVIEWED).order_by("-pk").first()
-        if prior is None and (
-            pause is None
-            or pause.actor_ref
-            not in (
-                "import:first-generation",
-                "system:import:first-generation",
-            )
-        ):
+        if prior is None and not has_import_pause(state):
             raise Refused("import_pause_required")
         # An earlier envelope/account remains consequential even when its historical status says closed.
         if any(
@@ -241,6 +268,9 @@ def prepare(
                 "version": state["version"],
                 "record_count": len(state["records"]),
                 "source_stopped_attested": True,
+                "import_resume_event": state["import_resume"].pk
+                if state["import_resume"]
+                else None,
                 "history_reviewed": True,
                 "note": note,
                 "disposition": "prior_questions_to_human_review",

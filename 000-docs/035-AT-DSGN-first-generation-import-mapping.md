@@ -198,9 +198,18 @@ creates no job, changes no pause and makes no provider request.
 If an imported case has already progressed beyond `submitted` without recorded contact verification,
 confirming a new v2 challenge adopts only the displayed submission and records address control. It
 preserves the existing stage and pause, queues no new assessment, and opens a staff review item for
-continuation. The ordinary `submitted` confirmation still starts the normal assessment path. Issuing
-a verification while paused does not bypass the pause on its send; delivery still requires the
-existing handover review and resume procedure.
+continuation. A still-`submitted` import moves to `contact_verified` and the same staff review,
+without queuing an assessment before its history is reviewed. New native submissions retain the
+ordinary assessment path. Issuing a verification while paused does not bypass the pause on its
+send; delivery still requires the existing handover review and resume procedure.
+
+For an unverified import, staff record the review and resume needed for the verification mail,
+then the applicant confirms the delivered link. Staff pause the case again, acknowledge the
+contact-review item and perform the explicit history review or envelope adoption. The first
+handover accepts this staff pause only when the case's append-only history contains the reviewed
+resume of its original import pause, preceding the current pause. The handover records that
+resume event. An ordinary pause/resume, another case's receipt or an unresolved identity/safety
+item cannot substitute for it. The handover itself never resumes automation.
 
 Open continuation work remains in `bgl.23`: an operator must reconcile the open signing envelopes,
 questions, contact-verification gaps and uncertain mailbox operations before resuming each case.

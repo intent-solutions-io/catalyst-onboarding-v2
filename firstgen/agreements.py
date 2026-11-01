@@ -113,8 +113,7 @@ def _state(application, record_id, version_id, expected_digest):
     if pause is None:
         raise Refused("pause_required_for_envelope_handover")
     if (
-        pause.actor_ref
-        not in ("import:first-generation", "system:import:first-generation")
+        not review.has_import_pause(state)
         and not application.events.filter(kind=ADOPTED).exists()
     ):
         raise Refused("import_pause_required")
@@ -220,7 +219,11 @@ def _state(application, record_id, version_id, expected_digest):
                 r["id"],
             ),
         )
-        if latest["data"]["to_state"] not in ("nda_pending", "setup_pending", "lapsed"):
+        data = latest["data"]
+        if data["to_state"] not in ("nda_pending", "setup_pending", "lapsed") or (
+            data["to_state"] == "lapsed"
+            and data.get("from_state") not in ("nda_pending", "setup_pending")
+        ):
             raise Refused("later_legacy_state_requires_reconciliation")
     return state, record, version, recipients, None
 
@@ -314,6 +317,9 @@ def adopt(
                 "template": version.pk,
                 "template_sha256": services.template_digest(version),
                 "source_stopped_attested": True,
+                "import_resume_event": state["import_resume"].pk
+                if state["import_resume"]
+                else None,
                 "mapping_reviewed": True,
                 "provider_status": env.status,
                 "note": note,

@@ -2181,6 +2181,7 @@ P6_SUPPORTING = {
     ],
     "bgl.23 existing legacy envelopes are adopted without duplicate creation and verified by native reads": [
         "test_legacy_envelopes::test_both_old_envelopes_reach_native_custody_and_one_held_provisioning_handoff",
+        "test_legacy_envelopes::test_unverified_signing_case_can_confirm_contact_and_adopt_its_original_envelope",
         "test_legacy_envelopes::test_late_source_final_states_and_duplicate_envelopes_are_refused_before_provider_access",
         "test_legacy_envelopes::test_a_pending_legacy_envelope_is_adopted_once_without_create_send_or_unpause",
         "test_legacy_envelopes::test_only_the_native_provider_read_verifies_the_legacy_nda_before_ua_adoption",
@@ -2194,6 +2195,8 @@ P6_SUPPORTING = {
     ],
     "bgl.23 verified pre-signing legacy cases reach a bound human decision without operation replay": [
         "test_legacy_review::test_legacy_review_reaches_a_real_qualification_decision_without_replaying_mail",
+        "test_legacy_review::test_unverified_import_can_receive_mail_confirm_and_reach_recorded_review",
+        "test_legacy_review::test_an_ordinary_staff_pause_cannot_replace_the_import_resume_receipt",
         "test_legacy_review::test_legacy_review_is_idempotent_and_late_source_records_invalidate_the_snapshot",
         "test_legacy_review::test_legacy_review_requires_authority_current_state_verification_and_attestations",
         "test_legacy_review::test_legacy_review_refuses_provider_states_and_native_work_in_flight",
