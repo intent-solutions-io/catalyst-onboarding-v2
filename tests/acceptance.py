@@ -1567,6 +1567,20 @@ P6_CASES = {
 }
 
 P6_SUPPORTING = {
+    "9kg.61 segmented journal recovery and constant-size usage reads": [
+        "test_journal_segments::test_segments_keep_global_anchors_and_archive_only_unanchored_ranges",
+        "test_journal_segments::test_unknown_or_foreign_backup_anchor_refuses_archival_without_moving_evidence",
+        "test_journal_segments::test_rotation_crash_after_rename_resumes_the_existing_lineage",
+        "test_journal_segments::test_torn_continuation_repair_preserves_closed_evidence",
+        "test_journal_segments::test_missing_or_altered_closed_segment_fails_the_full_chain_and_cannot_be_repaired",
+        "test_journal_segments::test_continuation_metadata_is_verified_even_with_a_recomputed_hash",
+        "test_journal_segments::test_usage_reads_and_updates_do_not_rescan_history_after_initialization",
+        "test_journal_segments::test_cache_write_crash_and_missing_day_rebuild_without_lowering_usage",
+        "test_journal_segments::test_concurrent_rotation_and_usage_writers_keep_one_chain",
+        "test_journal_segments::test_real_backup_restore_spans_rotation_and_retained_archive",
+        "test_journal_segments::test_operator_command_requires_recovery_and_complete_inventory_confirmations",
+        "test_journal_segments::test_deploy_probe_refuses_old_readers_before_migration_or_switch",
+    ],
     # bgl.12 (034 section 2.2 rows 15 to 19): the live MiniMax branch and the routine-advance policy, both behind
     # activations that are off in code; a named design rule like the 9kg groups, never a staging case.
     "bgl.12 the live model branch and the routine-advance policy act only under their activations": [
