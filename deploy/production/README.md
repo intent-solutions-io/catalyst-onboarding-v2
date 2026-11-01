@@ -155,6 +155,73 @@ tail requires recovery from the receiver, or the existing explicit accepted-loss
 rebaseline procedure; no automatic rebaseline is provided here. Full off-host loss,
 restore and alert drills remain deployment evidence, not claims made by unit tests.
 
+### Restricted SSH transport
+
+`workflow.journal_gateway` supplies the source gateway and receiver stream decoder.
+Its version-one wire format is one JSON packet line followed by the exact journal
+bytes. Metadata is limited to 4096 bytes; the journal has no transport size quota.
+No remote filename or archive member is accepted. The full chain and digest are
+checked before receiver staging changes, then the existing receive protocol persists
+and reads back the independent copy before returning a receipt.
+
+Install a dedicated source SSH key with `restrict` and a root-owned forced command.
+The receiver alone holds the private key. The login must have no Docker-group access,
+general sudo, writable wrapper/configuration, forwarding or other unrestricted key.
+The forced command passes `SSH_ORIGINAL_COMMAND` as **one quoted operation argument**;
+it must never evaluate it or use it as a container command. Only the exact strings
+`export-v1` and `ack-v1` are accepted. Paths, image digest, container user and mounts
+are fixed by the operator-owned wrapper, not by the SSH request or client environment.
+
+The wrapper's fixed container invocation has this shape (replace the operator inputs
+when provisioning; this is not an installation command):
+
+```bash
+# Wrapper-owned constants: approved image digest, journal volume, private staging path,
+# and the uid:gid allowed to access only those mounts. No production env/secrets file.
+exec /usr/bin/timeout --kill-after=5s 120s /usr/bin/docker run --rm -i \
+  --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+  --user "$JOURNAL_UID_GID" --entrypoint python \
+  --mount "type=volume,src=$JOURNAL_VOLUME,dst=/journal" \
+  --mount "type=bind,src=$SOURCE_STAGE,dst=/stage" \
+  "$PINNED_IMAGE" -m workflow.journal_gateway source \
+  --journal /journal --stage /stage --operation="${SSH_ORIGINAL_COMMAND-}"
+```
+
+Provision the source stage as described above. The gateway loads no production
+settings, opens no database and needs no provider or custody secret. An SSH transport
+timeout must also terminate/clean its specific container; do not rely on killing the
+Docker client alone to stop a daemon-managed container. The deployed wrapper must
+use a unique container identity and bounded cleanup for that invocation.
+
+On the receiver, precreate private, disjoint `/transfer` and `/copy` directories in
+the isolated receiver container. Provision both once using the existing standalone
+command (the reversed second invocation provisions staging, not another live journal):
+
+```bash
+python -m workflow.journal_pull --source /transfer --to /copy --provision
+python -m workflow.journal_pull --source /copy --to /transfer --provision
+```
+
+For each serialized receiver cycle:
+
+1. Pin the source host key, use the dedicated identity, batch mode and disabled
+   forwarding. Request exactly `export-v1` over SSH and feed its stdout to the
+   network-isolated receiver container's
+   `python -m workflow.journal_gateway receive --stage /transfer --to /copy`.
+2. Require **both** SSH and the receiver process to exit successfully (`pipefail` if
+   piping). Save this invocation's returned receipt privately; never substitute a
+   previous receipt when either process fails. A partial or corrupt stream cannot
+   replace the receiver's copy. A source failure after emitting complete bytes may
+   leave a valid copy, but still must not trigger acknowledgment from a failed cycle.
+3. Only then request exactly `ack-v1`, sending that receipt on stdin and closing stdin.
+   Require a successful source response. Failed acknowledgment leaves a durable
+   receiver copy and the source alert outstanding; the next complete cycle may retry.
+
+Keep a receiver-side lock across export, persistence and acknowledgment, and retain
+the five-minute cadence and independent failure monitoring above. Local protocol
+tests do not establish off-host custody, SSH restrictions, timer operation or recovery.
+Those require the independently controlled destination and live host acceptance.
+
 ## Local alert rehearsal
 
 Run `CATALYST_STACK_ENV=production bash scripts/alert_drill.sh` on the development

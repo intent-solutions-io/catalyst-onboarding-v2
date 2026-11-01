@@ -1810,6 +1810,11 @@ P6_SUPPORTING = {
         "test_erasure_replay::test_9kg_25_a_restored_plaintext_copy_of_an_erased_subjects_document_withholds_the_marker",
     ],
     "9kg.28 pulled journal copies require a verified receiver receipt before the source records shipping": [
+        "test_journal_gateway::test_unknown_operations_refuse_before_any_io",
+        "test_journal_gateway::test_stream_requires_receiver_persistence_before_acknowledgment",
+        "test_journal_gateway::test_bad_streams_and_staged_receipts_preserve_receiver_and_watermark",
+        "test_journal_gateway::test_oversized_receipt_and_overlapping_paths_refuse",
+        "test_journal_gateway::test_cli_export_receive_ack_needs_no_database_or_production_settings",
         "test_journal_pull::test_only_a_verified_receiver_receipt_marks_the_current_export_shipped",
         "test_journal_pull::test_corrupted_or_mixed_packages_never_overwrite_the_receiver",
         "test_journal_pull::test_a_lost_source_tail_refuses_acknowledgment_and_cannot_replace_the_receiver",
