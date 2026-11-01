@@ -66,12 +66,23 @@ LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}")
 # The kinds the journal accepts and the data keys each may carry (codes, references, counts and digests only).
 KINDS = {
     "genesis": {"id"},
-    "restore": {"backup_seq", "backup_head", "backup_journal_id", "backup_started_at", "behind_shipped",
-                "shipped_seq"},
+    "restore": {
+        "backup_seq",
+        "backup_head",
+        "backup_journal_id",
+        "backup_started_at",
+        "behind_shipped",
+        "shipped_seq",
+    },
     "repair": {"discarded_bytes", "last_good_hash"},
     "application_closed": {"outcome", "phase"},
     "access_revocation": {"state", "phase"},
-    "automation_pause": {"state", "by", "phase", "actor"},  # actor: an opaque staff reference (staff_ref) on a resume
+    "automation_pause": {
+        "state",
+        "by",
+        "phase",
+        "actor",
+    },  # actor: an opaque staff reference (staff_ref) on a resume
     "staff_item_resolved": {"reason", "resolution"},
     "question_withdrawn": {"reason", "phase"},
     "reply_link_outcome": {"state", "outcome"},
@@ -86,19 +97,55 @@ KINDS = {
     # hash of the email key and `key_id` names its key, never the key or the address.
     # `mac` is HMAC-SHA-256 under the erasure key over the kind, the key and the rest of the data, so an entry cannot be
     # forged or altered without the key (PR #99 security review).
-    "erasure_intent": {"subject", "key_id", "authority", "reason", "classes", "handoffs", "retained", "phase", "mac"},
-    "erasure_complete": {"subject", "key_id", "status", "changed", "custody", "keys_destroyed", "key_files_removed",
-                         "phase", "mac"},
-    "erasure_handoff": {"provider", "completed_on", "phase", "mac"},
+    "erasure_intent": {
+        "subject",
+        "key_id",
+        "mac_key_id",
+        "authority",
+        "reason",
+        "classes",
+        "handoffs",
+        "retained",
+        "phase",
+        "mac",
+    },
+    "erasure_complete": {
+        "subject",
+        "key_id",
+        "mac_key_id",
+        "status",
+        "changed",
+        "custody",
+        "keys_destroyed",
+        "key_files_removed",
+        "phase",
+        "mac",
+    },
+    "erasure_handoff": {"provider", "completed_on", "phase", "mac", "key_id"},
     # 9kg.25 (erasure.replay): the erasures re-applied to a restored database, keyed `erasure_replay:<restore seq>` (the
     # seq of the `restore` entry it answers, 0 for a hold placed by hand): `through` is the seq of the last erasure
     # entry it covered, the rest are counts. The post-restore review and lift re-read it, verified by its `mac`.
-    "erasures_replayed": {"restore", "through", "subjects", "erased", "already", "absent", "key_id", "phase", "mac"},
+    "erasures_replayed": {
+        "restore",
+        "through",
+        "subjects",
+        "erased",
+        "already",
+        "absent",
+        "key_id",
+        "phase",
+        "mac",
+    },
     # 9kg.34 (agreements.keystore): one custody data key destroyed, keyed `custody_key:<key reference>` (a random
     # reference, never key material), with the erased subject's public reference. Appended before the key's files are
     # unlinked (the restrictive class): recovery never restores a key recorded here, and a destruction recorded but
     # interrupted is finished by the next erasure run or by recovery.
-    "custody_key_destroyed": {"subject", "phase", "mac"},  # mac: HMAC under the erasure key, as for erasure_*
+    "custody_key_destroyed": {
+        "subject",
+        "key_id",
+        "phase",
+        "mac",
+    },  # mac: HMAC under the erasure key, as for erasure_*
     # 9kg.34 (review of PR #102, F2): an orphan the owner reaped: a never-used key (`kind: key`) or a sealed file no row
     # names (`kind: sealed_file`), keyed `custody_orphan:<reference>`.
     "custody_orphan_reaped": {"kind", "phase"},
@@ -112,7 +159,13 @@ KINDS = {
     # showed the company recipient signed. Codes only.
     "agreement_countersign": {"phase", "outcome"},
 }
-RESTRICTIVE = ("application_closed", "access_revocation", "automation_pause", "question_withdrawn", "staff_role_changed")
+RESTRICTIVE = (
+    "application_closed",
+    "access_revocation",
+    "automation_pause",
+    "question_withdrawn",
+    "staff_role_changed",
+)
 
 
 class JournalError(Exception):
@@ -170,16 +223,28 @@ def _acceptable(value) -> bool:
     if isinstance(value, str):
         if len(value) > 128:
             return False
-        return value in ("", "*") or any(pattern.fullmatch(value) is not None for pattern in (UUID, HEX, CODE, ISO))
-    if isinstance(value, list):  # group names are configuration labels (never personal data): letters, digits, spaces
-        return len(value) <= 32 and all(isinstance(v, str) and (_acceptable(v) or LABEL.fullmatch(v) is not None) for v in value)
+        return value in ("", "*") or any(
+            pattern.fullmatch(value) is not None for pattern in (UUID, HEX, CODE, ISO)
+        )
+    if isinstance(
+        value, list
+    ):  # group names are configuration labels (never personal data): letters, digits, spaces
+        return len(value) <= 32 and all(
+            isinstance(v, str) and (_acceptable(v) or LABEL.fullmatch(v) is not None)
+            for v in value
+        )
     return False
 
 
 def check_content(kind: str, key: str, data: dict) -> None:
     """The allow-list (PR #89 security review): a known kind, its own keys, and values that are codes, references,
     counts, digests or times. Anything else is refused before it can reach the file."""
-    if kind not in KINDS or not isinstance(key, str) or len(key) > 128 or not re.fullmatch(r"[a-z_]+:[A-Za-z0-9:_.-]+", key):
+    if (
+        kind not in KINDS
+        or not isinstance(key, str)
+        or len(key) > 128
+        or not re.fullmatch(r"[a-z_]+:[A-Za-z0-9:_.-]+", key)
+    ):
         raise JournalError("content_refused")
     if set(data) - KINDS[kind] or not all(_acceptable(v) for v in data.values()):
         raise JournalError("content_refused")
@@ -188,9 +253,16 @@ def check_content(kind: str, key: str, data: dict) -> None:
 def _parse(line: bytes, number: int) -> Entry:
     try:
         raw = json.loads(line)
-        entry = Entry(seq=int(raw["seq"]), at=str(raw["at"]), kind=str(raw["kind"]), key=str(raw["key"]),
-                      data=dict(raw["data"]), prev=str(raw["prev"]), hash=str(raw["hash"]))
-    except (ValueError, KeyError, TypeError):
+        entry = Entry(
+            seq=int(raw["seq"]),
+            at=str(raw["at"]),
+            kind=str(raw["kind"]),
+            key=str(raw["key"]),
+            data=dict(raw["data"]),
+            prev=str(raw["prev"]),
+            hash=str(raw["hash"]),
+        )
+    except ValueError, KeyError, TypeError:
         raise JournalError("malformed") from None
     if entry.seq != number:
         raise JournalError("chain_broken")
@@ -205,7 +277,9 @@ def _check(entry: Entry, prev: str) -> None:
 
 
 def _lock_fd():
-    return os.open(os.path.join(directory(), LOCK), os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    return os.open(
+        os.path.join(directory(), LOCK), os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600
+    )
 
 
 def _read_bytes() -> bytes:
@@ -225,7 +299,9 @@ def _entries(raw: bytes) -> list[Entry]:
     if raw and not raw.endswith(b"\n"):
         raise JournalError("torn_tail")
     entries, prev = [], GENESIS
-    for number, line in enumerate((ln for ln in raw.split(b"\n") if ln.strip()), start=1):
+    for number, line in enumerate(
+        (ln for ln in raw.split(b"\n") if ln.strip()), start=1
+    ):
         entry = _parse(line, number)
         _check(entry, prev)
         entries.append(entry)
@@ -279,7 +355,11 @@ def head() -> tuple[int, str, str]:
     """(seq, hash, identity) of the last entry; (0, GENESIS, "") for an empty journal. The backup records them in
     its receipt, so a restore knows which entries postdate the backup point and which journal they belong to."""
     entries = read()
-    return (entries[-1].seq, entries[-1].hash, str(entries[0].data.get("id", ""))) if entries else (0, GENESIS, "")
+    return (
+        (entries[-1].seq, entries[-1].hash, str(entries[0].data.get("id", "")))
+        if entries
+        else (0, GENESIS, "")
+    )
 
 
 def _tail(handle) -> tuple[int, str]:
@@ -301,7 +381,7 @@ def _tail(handle) -> tuple[int, str]:
     try:
         entry = json.loads(last[-1])
         return int(entry["seq"]), str(entry["hash"])
-    except (ValueError, KeyError, TypeError):
+    except ValueError, KeyError, TypeError:
         raise JournalError("torn_tail") from None
 
 
@@ -318,9 +398,15 @@ def _note_failure(code: str) -> None:
     signal reads its length). Nothing here raises: the effect's transaction has already committed."""
     logger.error("effect journal append failed (%s)", code)
     try:
-        fd = os.open(os.path.join(directory(), FAILURES), os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+        fd = os.open(
+            os.path.join(directory(), FAILURES),
+            os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW,
+            0o600,
+        )
         with os.fdopen(fd, "ab") as handle:
-            handle.write(f"{datetime.now(UTC).isoformat(timespec='seconds')} {code}\n".encode())
+            handle.write(
+                f"{datetime.now(UTC).isoformat(timespec='seconds')} {code}\n".encode()
+            )
     except OSError:
         pass
 
@@ -334,8 +420,14 @@ def failures() -> int:
 
 
 def _write_entry(handle, kind: str, key: str, data: dict, seq: int, prev: str) -> Entry:
-    payload = {"seq": seq, "at": datetime.now(UTC).isoformat(timespec="microseconds"), "kind": kind, "key": key,
-               "data": data, "prev": prev}
+    payload = {
+        "seq": seq,
+        "at": datetime.now(UTC).isoformat(timespec="microseconds"),
+        "kind": kind,
+        "key": key,
+        "data": data,
+        "prev": prev,
+    }
     entry = Entry(**payload, hash=_digest(prev, payload))
     handle.write((_canonical(asdict(entry)) + "\n").encode())
     return entry
@@ -348,7 +440,14 @@ def _append_locked(kind: str, key: str, data: dict) -> Entry:
         with open(path, "rb") as reader:
             seq, prev = _tail(reader)
         if seq == 0 and kind != "genesis":  # the first entry names the journal
-            genesis = _write_entry(handle, "genesis", f"journal:{secrets.token_hex(16)}", {"id": secrets.token_hex(16)}, 1, prev)
+            genesis = _write_entry(
+                handle,
+                "genesis",
+                f"journal:{secrets.token_hex(16)}",
+                {"id": secrets.token_hex(16)},
+                1,
+                prev,
+            )
             seq, prev = genesis.seq, genesis.hash
         entry = _write_entry(handle, kind, key, data, seq + 1, prev)
         handle.flush()
@@ -368,9 +467,18 @@ def ensure_genesis() -> bool:
         path = os.path.join(directory(), FILE)
         if os.path.exists(path) and os.path.getsize(path) > 0:
             return False
-        wfd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+        wfd = os.open(
+            path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600
+        )
         with os.fdopen(wfd, "ab") as handle:
-            _write_entry(handle, "genesis", f"journal:{secrets.token_hex(16)}", {"id": secrets.token_hex(16)}, 1, GENESIS)
+            _write_entry(
+                handle,
+                "genesis",
+                f"journal:{secrets.token_hex(16)}",
+                {"id": secrets.token_hex(16)},
+                1,
+                GENESIS,
+            )
             handle.flush()
             os.fsync(handle.fileno())
         _fsync_dir(directory())
@@ -389,10 +497,14 @@ def append(kind: str, key: str, data: dict | None = None) -> Entry | None:
     if not configured():
         if not _warned["not_configured"]:
             _warned["not_configured"] = True
-            logger.warning("effect journal not configured: effects are not durable in this environment")
+            logger.warning(
+                "effect journal not configured: effects are not durable in this environment"
+            )
         return None
     data = dict(data or {})
-    check_content(kind, key, data)  # a content refusal is a programming error: it raises
+    check_content(
+        kind, key, data
+    )  # a content refusal is a programming error: it raises
     try:
         fd = _lock_fd()
     except OSError:
@@ -421,7 +533,9 @@ def record(kind: str, key: str, data=None) -> None:
     if getattr(_state, "replaying", False):
         return
     frozen = None if callable(data) else dict(data or {})
-    transaction.on_commit(lambda: append(kind, key, data() if frozen is None else frozen), robust=True)
+    transaction.on_commit(
+        lambda: append(kind, key, data() if frozen is None else frozen), robust=True
+    )
 
 
 def prepare(kind: str, key: str, data: dict | None = None) -> None:
@@ -480,12 +594,35 @@ def after_restore(anchor=None) -> tuple[list[Entry], datetime | None, int | None
         start = anchor[1] if anchor is not None else 0
         return [e for e in entries if e.seq > start and e.kind != "genesis"], None, None
     marker = restores[-1]
-    backup_seq, backup_head = marker.data.get("backup_seq"), marker.data.get("backup_head") or ""
-    start = int(backup_seq) if isinstance(backup_seq, int) and not isinstance(backup_seq, bool) and backup_seq >= 0 else 0
-    verify_anchor(entries, str(marker.data.get("backup_journal_id") or ""), start, backup_head)
+    backup_seq, backup_head = (
+        marker.data.get("backup_seq"),
+        marker.data.get("backup_head") or "",
+    )
+    start = (
+        int(backup_seq)
+        if isinstance(backup_seq, int)
+        and not isinstance(backup_seq, bool)
+        and backup_seq >= 0
+        else 0
+    )
+    verify_anchor(
+        entries, str(marker.data.get("backup_journal_id") or ""), start, backup_head
+    )
     since = marker.data.get("backup_started_at")
-    window = datetime.fromtimestamp(float(since), UTC) if isinstance(since, (int, float)) and not isinstance(since, bool) else None
-    return [e for e in entries if start < e.seq < marker.seq and e.kind not in ("restore", "genesis")], window, marker.seq
+    window = (
+        datetime.fromtimestamp(float(since), UTC)
+        if isinstance(since, (int, float)) and not isinstance(since, bool)
+        else None
+    )
+    return (
+        [
+            e
+            for e in entries
+            if start < e.seq < marker.seq and e.kind not in ("restore", "genesis")
+        ],
+        window,
+        marker.seq,
+    )
 
 
 def usage_high_water(day: str) -> int:
@@ -509,14 +646,16 @@ def usage_high_water(day: str) -> int:
         highs: dict[str, int] = {}
         for entry in read():
             if entry.kind == "model_usage":
-                highs[entry.key] = max(highs.get(entry.key, 0), int(entry.data.get("requests", 0)))
+                highs[entry.key] = max(
+                    highs.get(entry.key, 0), int(entry.data.get("requests", 0))
+                )
         cache = (stamp, highs)
         _state.usage_cache = cache
     return cache[1].get(f"usage:{day}", 0)
 
 
 def directory_problem(write: bool) -> str:
-    """"" when the configured directory exists, is a private directory (0700, not a link) and, for a process that
+    """ "" when the configured directory exists, is a private directory (0700, not a link) and, for a process that
     journals, is writable; else a code. The start-up check and the readiness probe use it (PR #89 review)."""
     path = directory()
     if not path:
@@ -560,7 +699,9 @@ def repair() -> dict:
             return {"repaired": False, "discarded_bytes": 0}
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         aside = os.path.join(directory(), f"{FILE}.torn-{stamp}")
-        tfd = os.open(aside, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        tfd = os.open(
+            aside, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
+        )
         with os.fdopen(tfd, "wb") as handle:
             handle.write(torn)
             handle.flush()
@@ -570,8 +711,17 @@ def repair() -> dict:
             handle.truncate(consumed)
             handle.flush()
             os.fsync(handle.fileno())
-        entry = _append_locked("repair", f"repair:{stamp}", {"discarded_bytes": len(torn), "last_good_hash": prev})
-        return {"repaired": True, "discarded_bytes": len(torn), "last_good_hash": prev, "seq": entry.seq}
+        entry = _append_locked(
+            "repair",
+            f"repair:{stamp}",
+            {"discarded_bytes": len(torn), "last_good_hash": prev},
+        )
+        return {
+            "repaired": True,
+            "discarded_bytes": len(torn),
+            "last_good_hash": prev,
+            "seq": entry.seq,
+        }
     finally:
         fcntl.flock(fd, fcntl.LOCK_UN)
         os.close(fd)

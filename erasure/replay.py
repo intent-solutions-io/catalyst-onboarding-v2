@@ -72,14 +72,7 @@ def state(entries, secret: bytes | None, since=None) -> str:
         and e.seq > seq
         and (since is None or e.when >= since)
     ]
-    verified = [
-        e
-        for e in markers
-        if secret is None
-        or hmac.compare_digest(
-            str(e.data.get("mac", "")), record.entry_mac(MARKER, e.key, e.data, secret)
-        )
-    ]
+    verified = [e for e in markers if secret is None or record.verifies(e, secret)]
     if not verified:
         return "forged_marker" if markers else "unreplayed"
     through = verified[-1].data.get("through")
@@ -133,6 +126,7 @@ def _keys_by_subject(conn, secret: bytes) -> dict:
     PR #103, finding 1). Also read only the normalized sender column of unmatched mail (9kg.71),
     never its body, attachments or other message columns."""
     found = {}
+    held_keys = tuple(record.verification_keys(secret).values())
     for query in (
         "SELECT email_key, public_ref FROM applications_application",
         "SELECT email_key, public_id FROM applications_invitation",
@@ -141,9 +135,10 @@ def _keys_by_subject(conn, secret: bytes) -> dict:
     ):
         for key, ref in conn.execute(query).fetchall():
             if _real(key):
-                entry = found.setdefault(record.subject_hash(key, secret), {})
-                if entry.get(key) is None:
-                    entry[key] = str(ref) if ref is not None else None
+                for held in held_keys:
+                    entry = found.setdefault(record.subject_hash(key, held), {})
+                    if entry.get(key) is None:
+                        entry[key] = str(ref) if ref is not None else None
     conn.rollback()
     return found
 
@@ -171,7 +166,9 @@ def _recovery_addresses(subjects, secret, supplied, found):
             raise Refused("replay_addresses_malformed") from None
         if len(key) > EMAIL_MAX:
             raise Refused("replay_addresses_malformed")
-        digest = record.subject_hash(key, secret)
+        digest = record.subject_hash(
+            key, record.subject_key(subjects[ref].intent.data, secret)
+        )
         if not hmac.compare_digest(subjects[ref].intent.data["subject"], digest):
             raise Refused("replay_address_mismatch", [ref])
         found.setdefault(digest, {}).setdefault(key, None)
@@ -255,7 +252,10 @@ def replay(conn, expected_head: str, rows=None, *, recovery_addresses=None) -> d
         for ref, key in own.items()
         if _real(key)
         and not hmac.compare_digest(
-            subjects[ref].intent.data["subject"], record.subject_hash(key, secret)
+            subjects[ref].intent.data["subject"],
+            record.subject_hash(
+                key, record.subject_key(subjects[ref].intent.data, secret)
+            ),
         )
     )
     if mismatched:

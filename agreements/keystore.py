@@ -109,12 +109,15 @@ class KeyStoreError(Exception):
 
 # --- configuration ------------------------------------------------------------------------------------------------
 
+
 def wrapping_key() -> bytes:
     value = getattr(settings, "CATALYST_CUSTODY_WRAPPING_KEY", "") or ""
     if not value:
         raise KeyStoreError("wrapping_key_missing")
     if not WRAPPING_KEY.fullmatch(value):
-        raise KeyStoreError("wrapping_key_invalid")  # 64 lower-case hex: exactly 32 random bytes
+        raise KeyStoreError(
+            "wrapping_key_invalid"
+        )  # 64 lower-case hex: exactly 32 random bytes
     return bytes.fromhex(value)
 
 
@@ -125,7 +128,9 @@ def next_wrapping_key() -> bytes:
     value = getattr(settings, "CATALYST_CUSTODY_NEXT_WRAPPING_KEY", "") or ""
     if not value:
         raise KeyStoreError("next_wrapping_key_missing")
-    if runtime.process_kind() != "management":  # review of PR #104, F3: a worker declares itself after the guards ran
+    if (
+        runtime.process_kind() != "management"
+    ):  # review of PR #104, F3: a worker declares itself after the guards ran
         raise KeyStoreError("next_wrapping_key_not_allowed")
     if not WRAPPING_KEY.fullmatch(value):
         raise KeyStoreError("wrapping_key_invalid")
@@ -146,16 +151,24 @@ def directories() -> tuple[Path, Path]:
     if not primary or not mirror:
         raise KeyStoreError("keys_not_configured")
     primary_path, mirror_path = Path(primary), Path(mirror)
-    if not primary_path.is_absolute() or not mirror_path.is_absolute() or primary_path.resolve() == mirror_path.resolve():
+    if (
+        not primary_path.is_absolute()
+        or not mirror_path.is_absolute()
+        or primary_path.resolve() == mirror_path.resolve()
+    ):
         raise KeyStoreError("key_store_unsafe")
     return primary_path, mirror_path
 
 
 def configured() -> bool:
-    return bool(getattr(settings, "CATALYST_CUSTODY_KEY_DIR", "") and getattr(settings, "CATALYST_CUSTODY_KEY_MIRROR_DIR", ""))
+    return bool(
+        getattr(settings, "CATALYST_CUSTODY_KEY_DIR", "")
+        and getattr(settings, "CATALYST_CUSTODY_KEY_MIRROR_DIR", "")
+    )
 
 
 # --- the two directories ------------------------------------------------------------------------------------------
+
 
 def _open_dir(path: Path) -> int:
     """Opened once without following a link and checked through its descriptor (agreements.storage's rule). Never
@@ -166,7 +179,11 @@ def _open_dir(path: Path) -> int:
     except OSError:
         raise KeyStoreError("key_store_unavailable") from None
     info = os.fstat(fd)
-    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+    if (
+        not stat.S_ISDIR(info.st_mode)
+        or info.st_uid != os.getuid()
+        or info.st_mode & 0o077
+    ):
         os.close(fd)
         raise KeyStoreError("key_store_unsafe")
     try:
@@ -191,7 +208,9 @@ def provision() -> dict:
         if marker.exists():
             report[name] = "already_provisioned"
             continue
-        fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        fd = os.open(
+            marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
+        )
         try:
             os.write(fd, MARKER_TEXT)
             os.fsync(fd)
@@ -216,7 +235,12 @@ def _write(path: Path, ref: str, blob: bytes) -> None:
     directory = _open_dir(path)
     try:
         try:
-            fd = os.open(_name(ref), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+            fd = os.open(
+                _name(ref),
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=directory,
+            )
         except OSError:
             raise KeyStoreError("key_store_unavailable") from None
         try:
@@ -245,12 +269,20 @@ def _read(path: Path, ref: str) -> bytes | None:
         except OSError as exc:
             if exc.errno == errno.ENOENT:
                 return None
-            raise KeyStoreError("key_store_unsafe" if exc.errno == errno.ELOOP else "key_store_unavailable") from None
+            raise KeyStoreError(
+                "key_store_unsafe"
+                if exc.errno == errno.ELOOP
+                else "key_store_unavailable"
+            ) from None
     finally:
         os.close(directory)
     try:
         info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid()
+            or info.st_mode & 0o077
+        ):
             raise KeyStoreError("key_store_unsafe")
         return os.read(fd, 4096)
     finally:
@@ -291,7 +323,12 @@ def _replace(path: Path, ref: str, blob: bytes) -> None:
         except FileNotFoundError:
             pass
         try:
-            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+            fd = os.open(
+                temporary,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=directory,
+            )
         except OSError:
             raise KeyStoreError("key_store_unavailable") from None
         try:
@@ -312,7 +349,9 @@ def _replace(path: Path, ref: str, blob: bytes) -> None:
             raise KeyStoreError("key_store_unavailable") from None
         os.fsync(directory)
     finally:
-        with contextlib.suppress(OSError):  # review of PR #104, F1: no wrapped key is ever left under another name
+        with contextlib.suppress(
+            OSError
+        ):  # review of PR #104, F1: no wrapped key is ever left under another name
             os.unlink(temporary, dir_fd=directory)
         os.close(directory)
 
@@ -320,7 +359,11 @@ def _replace(path: Path, ref: str, blob: bytes) -> None:
 def _listing(path: Path) -> set:
     directory = _open_dir(path)
     try:
-        return {m.group(1) for name in os.listdir(directory) if (m := KEY_FILE.fullmatch(name))}
+        return {
+            m.group(1)
+            for name in os.listdir(directory)
+            if (m := KEY_FILE.fullmatch(name))
+        }
     finally:
         os.close(directory)
 
@@ -332,7 +375,11 @@ def strays() -> int:
     for path in directories():
         directory = _open_dir(path)
         try:
-            count += sum(1 for name in os.listdir(directory) if name != MARKER and not KEY_FILE.fullmatch(name))
+            count += sum(
+                1
+                for name in os.listdir(directory)
+                if name != MARKER and not KEY_FILE.fullmatch(name)
+            )
         finally:
             os.close(directory)
     return count
@@ -347,7 +394,9 @@ def store_lock(exclusive: bool):
     directory = _open_dir(primary)
     try:
         try:
-            fcntl.flock(directory, fcntl.LOCK_EX | fcntl.LOCK_NB if exclusive else fcntl.LOCK_SH)
+            fcntl.flock(
+                directory, fcntl.LOCK_EX | fcntl.LOCK_NB if exclusive else fcntl.LOCK_SH
+            )
         except BlockingIOError:
             raise KeyStoreError("custody_operation_in_progress") from None
         yield
@@ -357,6 +406,7 @@ def store_lock(exclusive: bool):
 
 # --- wrapping -------------------------------------------------------------------------------------------------------
 
+
 def _b64(data: bytes) -> str:
     return base64.b64encode(data).decode()
 
@@ -364,15 +414,23 @@ def _b64(data: bytes) -> str:
 def _wrap(secret: bytes, ref: str, data_key: bytes) -> bytes:
     nonce = os.urandom(NONCE)
     sealed = AESGCM(secret).encrypt(nonce, data_key, WRAP_AAD + ref.encode())
-    return json.dumps({"v": 1, "scheme": SCHEME, "wrapping_key_id": wrapping_key_id(secret), "nonce": _b64(nonce),
-                       "sealed": _b64(sealed)}, sort_keys=True).encode()
+    return json.dumps(
+        {
+            "v": 1,
+            "scheme": SCHEME,
+            "wrapping_key_id": wrapping_key_id(secret),
+            "nonce": _b64(nonce),
+            "sealed": _b64(sealed),
+        },
+        sort_keys=True,
+    ).encode()
 
 
 def wrapped_by(blob: bytes) -> str | None:
     """The id of the wrapping key a wrapped key file was written under (9kg.69), or None when the file is unreadable."""
     try:
         value = json.loads(blob)["wrapping_key_id"]
-    except (ValueError, KeyError, TypeError):
+    except ValueError, KeyError, TypeError:
         return None
     return value if isinstance(value, str) else None
 
@@ -380,15 +438,18 @@ def wrapped_by(blob: bytes) -> str | None:
 def _unwrap(secret: bytes, ref: str, blob: bytes) -> bytes:
     try:
         record = json.loads(blob)
-        nonce, sealed = base64.b64decode(record["nonce"], validate=True), base64.b64decode(record["sealed"], validate=True)
+        nonce, sealed = (
+            base64.b64decode(record["nonce"], validate=True),
+            base64.b64decode(record["sealed"], validate=True),
+        )
         wrapped_by = record["wrapping_key_id"]
-    except (ValueError, KeyError, TypeError):
+    except ValueError, KeyError, TypeError:
         raise KeyStoreError("key_corrupt") from None
     if wrapped_by != wrapping_key_id(secret):
         raise KeyStoreError("wrapping_key_mismatch")
     try:
         data_key = AESGCM(secret).decrypt(nonce, sealed, WRAP_AAD + ref.encode())
-    except (InvalidTag, ValueError):
+    except InvalidTag, ValueError:
         raise KeyStoreError("key_corrupt") from None
     if len(data_key) != 32:
         raise KeyStoreError("key_corrupt")
@@ -396,6 +457,7 @@ def _unwrap(secret: bytes, ref: str, blob: bytes) -> bytes:
 
 
 # --- the operations -------------------------------------------------------------------------------------------------
+
 
 def create() -> tuple[str, bytes, str]:
     """A new data key, wrapped and durable in both directories before it is used. Returns (reference, data key,
@@ -442,7 +504,9 @@ def load(ref: str) -> bytes:
         raise KeyStoreError("key_destroyed")
     blob = _read(primary, ref)
     if blob is None:
-        raise KeyStoreError("key_needs_recovery" if _read(mirror, ref) is not None else "key_lost")
+        raise KeyStoreError(
+            "key_needs_recovery" if _read(mirror, ref) is not None else "key_lost"
+        )
     return _unwrap(secret, ref, blob)
 
 
@@ -457,18 +521,28 @@ def seal(plaintext: bytes, storage_key: str) -> tuple[str, str, bytes]:
     ref, data_key, wrapped_by = create()
     nonce = os.urandom(NONCE)
     aad = document_aad(storage_key, ref, hashlib.sha256(plaintext).hexdigest())
-    return ref, wrapped_by, MAGIC + nonce + AESGCM(data_key).encrypt(nonce, plaintext, aad)
+    return (
+        ref,
+        wrapped_by,
+        MAGIC + nonce + AESGCM(data_key).encrypt(nonce, plaintext, aad),
+    )
 
 
-def open_sealed(sealed: bytes, storage_key: str, ref: str, plaintext_sha256: str) -> bytes:
+def open_sealed(
+    sealed: bytes, storage_key: str, ref: str, plaintext_sha256: str
+) -> bytes:
     """The plaintext of a sealed file; `sealed_file_invalid` when the bytes do not open under their own key, name and
     recorded plaintext hash."""
     if not sealed.startswith(MAGIC) or len(sealed) < len(MAGIC) + NONCE + 16:
         raise KeyStoreError("sealed_file_invalid")
     data_key = load(ref)
-    nonce = sealed[len(MAGIC):len(MAGIC) + NONCE]
+    nonce = sealed[len(MAGIC) : len(MAGIC) + NONCE]
     try:
-        return AESGCM(data_key).decrypt(nonce, sealed[len(MAGIC) + NONCE:], document_aad(storage_key, ref, plaintext_sha256))
+        return AESGCM(data_key).decrypt(
+            nonce,
+            sealed[len(MAGIC) + NONCE :],
+            document_aad(storage_key, ref, plaintext_sha256),
+        )
     except InvalidTag:
         raise KeyStoreError("sealed_file_invalid") from None
 
@@ -487,22 +561,21 @@ def present(ref: str) -> tuple[bool, bool]:
     return _read(primary, ref) is not None, _read(mirror, ref) is not None
 
 
-def destroyed_refs(entries, secret: bytes | None = None, forged: list | None = None) -> set:
+def destroyed_refs(
+    entries, secret: bytes | None = None, forged: list | None = None
+) -> set:
     """The key references the journal records as destroyed (or being destroyed): what recovery must never restore.
     With the erasure key, an entry whose `mac` does not verify is left out and its reference added to `forged`, as
     `erasure.record.fold` does (review of PR #102, F6); without it (the web and worker processes, which never hold that
     key) entries count unverified, which can only make a key refuse, never make one readable."""
-    import hmac
-
-    from erasure.record import entry_mac
+    from erasure.record import verifies
 
     out = set()
     for entry in entries:
         if entry.kind != DESTROYED:
             continue
         ref = entry.key.partition(":")[2]
-        if secret is not None and not hmac.compare_digest(str(entry.data.get("mac", "")),
-                                                          entry_mac(entry.kind, entry.key, entry.data, secret)):
+        if secret is not None and not verifies(entry, secret):
             if forged is not None:
                 forged.append(ref)
             continue
@@ -544,24 +617,46 @@ def destroy(subject_ref: str, refs) -> int:
     provisioned) and the journal, not the wrapping key."""
     from workflow import journal
 
-    from erasure.record import entry_mac
+    from erasure.record import entry_mac, key_id
 
     primary, mirror = directories()
     if not journal.configured():
         raise KeyStoreError("journal_unavailable")
     secret = _erasure_secret()
     if secret is None:
-        raise KeyStoreError("erasure_key_missing")  # every destruction entry carries a mac under the erasure key
+        raise KeyStoreError(
+            "erasure_key_missing"
+        )  # every destruction entry carries a mac under the erasure key
     removed = 0
-    with store_lock(exclusive=False):  # never while a rotation reads and replaces the files (review of PR #104, F2)
+    with store_lock(
+        exclusive=False
+    ):  # never while a rotation reads and replaces the files (review of PR #104, F2)
         for ref in sorted(set(refs)):
             _name(ref)
-            key, data = f"custody_key:{ref}", {"subject": str(subject_ref), "phase": "prepare"}
-            if journal.append(DESTROYED, key, {**data, "mac": entry_mac(DESTROYED, key, data, secret)}) is None:
-                raise KeyStoreError("journal_unavailable")  # never unlink what the record does not hold
+            key, data = (
+                f"custody_key:{ref}",
+                {
+                    "subject": str(subject_ref),
+                    "phase": "prepare",
+                    "key_id": key_id(secret),
+                },
+            )
+            if (
+                journal.append(
+                    DESTROYED,
+                    key,
+                    {**data, "mac": entry_mac(DESTROYED, key, data, secret)},
+                )
+                is None
+            ):
+                raise KeyStoreError(
+                    "journal_unavailable"
+                )  # never unlink what the record does not hold
             removed += int(_unlink(mirror, ref))
             removed += int(_unlink(primary, ref))
-    for ref in set(refs):  # verified, not assumed: every reference is gone from both directories
+    for ref in set(
+        refs
+    ):  # verified, not assumed: every reference is gone from both directories
         if _read(mirror, ref) is not None or _read(primary, ref) is not None:
             raise KeyStoreError("destruction_incomplete")
     return removed
@@ -606,17 +701,30 @@ def recover(expected_head: str) -> dict:
     secret = wrapping_key()
     primary, mirror = directories()
     destroyed = _destroyed_at_head(expected_head)
-    report = {"copied_to_primary": 0, "copied_to_mirror": 0, "destruction_finished": 0, "unrecoverable": 0}
+    report = {
+        "copied_to_primary": 0,
+        "copied_to_mirror": 0,
+        "destruction_finished": 0,
+        "unrecoverable": 0,
+    }
     in_primary, in_mirror = _listing(primary), _listing(mirror)
     for ref in sorted((in_primary | in_mirror) & destroyed):
-        report["destruction_finished"] += int(_unlink(mirror, ref)) + int(_unlink(primary, ref))
+        report["destruction_finished"] += int(_unlink(mirror, ref)) + int(
+            _unlink(primary, ref)
+        )
     for ref in sorted((in_primary ^ in_mirror) - destroyed):
-        source, target, field = (mirror, primary, "copied_to_primary") if ref in in_mirror else (primary, mirror, "copied_to_mirror")
+        source, target, field = (
+            (mirror, primary, "copied_to_primary")
+            if ref in in_mirror
+            else (primary, mirror, "copied_to_mirror")
+        )
         blob = _read(source, ref)
         try:
             _unwrap(secret, ref, blob or b"")
         except KeyStoreError:
-            report["unrecoverable"] += 1  # corrupt or wrapped under another key: reported, never copied
+            report["unrecoverable"] += (
+                1  # corrupt or wrapped under another key: reported, never copied
+            )
             continue
         _write(target, ref, blob)
         report[field] += 1
@@ -634,16 +742,24 @@ def _destroyed_at_head(expected_head: str) -> set:
     try:
         entries = journal.read()
         if expected_head == "none":
-            if any(e.kind == DESTROYED or e.kind.startswith("erasure_") for e in entries):
+            if any(
+                e.kind == DESTROYED or e.kind.startswith("erasure_") for e in entries
+            ):
                 raise journal.JournalError("journal_mismatch")
         else:
             found = HEAD.fullmatch(expected_head or "")
             if found is None or int(found.group(2)) < 1:
                 raise KeyStoreError("bad_head")
-            journal.verify_anchor(entries, found.group(1), int(found.group(2)), found.group(3))
+            journal.verify_anchor(
+                entries, found.group(1), int(found.group(2)), found.group(3)
+            )
         return _verified_destroyed(entries)
     except journal.JournalError as exc:
-        raise KeyStoreError("journal_mismatch" if exc.code == "journal_mismatch" else "journal_unavailable") from None
+        raise KeyStoreError(
+            "journal_mismatch"
+            if exc.code == "journal_mismatch"
+            else "journal_unavailable"
+        ) from None
 
 
 def rotate(expected_head: str) -> dict:
@@ -670,13 +786,28 @@ def _rotate(current: bytes, upcoming: bytes, expected_head: str) -> dict:
     destroyed = _destroyed_at_head(expected_head)
     old_id, new_id = wrapping_key_id(current), wrapping_key_id(upcoming)
     key = f"custody_rotation:{old_id}:{new_id}"
-    if journal.append("custody_rotation", key, {"from_key": old_id, "to_key": new_id, "phase": "prepare"}) is None:
+    if (
+        journal.append(
+            "custody_rotation",
+            key,
+            {"from_key": old_id, "to_key": new_id, "phase": "prepare"},
+        )
+        is None
+    ):
         raise KeyStoreError("journal_unavailable")
-    report = {"from_key": old_id, "to_key": new_id, "rewrapped": 0, "already_rotated": 0, "destruction_finished": 0,
-              "unrecoverable": 0}
+    report = {
+        "from_key": old_id,
+        "to_key": new_id,
+        "rewrapped": 0,
+        "already_rotated": 0,
+        "destruction_finished": 0,
+        "unrecoverable": 0,
+    }
     in_primary, in_mirror = _listing(primary), _listing(mirror)
     for ref in sorted((in_primary | in_mirror) & destroyed):
-        report["destruction_finished"] += int(_unlink(mirror, ref)) + int(_unlink(primary, ref))
+        report["destruction_finished"] += int(_unlink(mirror, ref)) + int(
+            _unlink(primary, ref)
+        )
     live_primary, live_mirror = in_primary - destroyed, in_mirror - destroyed
     if live_primary != live_mirror:
         raise KeyStoreError("key_needs_recovery")
@@ -696,7 +827,9 @@ def _rotate(current: bytes, upcoming: bytes, expected_head: str) -> dict:
                 report["unrecoverable"] += 1
                 continue
             if held is not None and data_key != held:
-                report["unrecoverable"] += 1  # the mirror and the primary disagree: never rotated into agreement
+                report["unrecoverable"] += (
+                    1  # the mirror and the primary disagree: never rotated into agreement
+                )
                 continue
             held = data_key
             if by == new_id:
@@ -727,15 +860,24 @@ def retire(retired_id: str, expected_head: str) -> dict:
         raise KeyStoreError("bad_key_id")
     current = wrapping_key()
     if getattr(settings, "CATALYST_CUSTODY_NEXT_WRAPPING_KEY", ""):
-        raise KeyStoreError("next_wrapping_key_present")  # the rotation's secret file is removed before retirement
+        raise KeyStoreError(
+            "next_wrapping_key_present"
+        )  # the rotation's secret file is removed before retirement
     if wrapping_key_id(current) == retired_id:
         raise KeyStoreError("retired_key_still_current")
     primary, mirror = directories()
     destroyed = _destroyed_at_head(expected_head)
-    rotated = [e for e in journal.read() if e.kind == "custody_rotation" and e.data.get("phase") == "done"
-               and e.key.startswith(f"custody_rotation:{retired_id}:")]
+    rotated = [
+        e
+        for e in journal.read()
+        if e.kind == "custody_rotation"
+        and e.data.get("phase") == "done"
+        and e.key.startswith(f"custody_rotation:{retired_id}:")
+    ]
     if not rotated:
-        raise KeyStoreError("rotation_not_done")  # review of PR #104, F4: never an id no rotation retired
+        raise KeyStoreError(
+            "rotation_not_done"
+        )  # review of PR #104, F4: never an id no rotation retired
     if strays() or (_listing(primary) | _listing(mirror)) & destroyed:
         raise KeyStoreError("rotation_incomplete")
     still = 0
@@ -745,11 +887,23 @@ def retire(retired_id: str, expected_head: str) -> dict:
             if wrapped_by(blob) == retired_id:
                 still += 1
                 continue
-            _unwrap(current, ref, blob)  # every live key opens under the current key, or this raises
+            _unwrap(
+                current, ref, blob
+            )  # every live key opens under the current key, or this raises
     if still:
         raise KeyStoreError("rotation_incomplete")
-    if journal.append("custody_rotation", f"custody_rotation_retired:{retired_id}",
-                      {"from_key": retired_id, "to_key": wrapping_key_id(current), "phase": "done"}) is None:
+    if (
+        journal.append(
+            "custody_rotation",
+            f"custody_rotation_retired:{retired_id}",
+            {
+                "from_key": retired_id,
+                "to_key": wrapping_key_id(current),
+                "phase": "done",
+            },
+        )
+        is None
+    ):
         raise KeyStoreError("journal_unavailable")
     return {"retired_key": retired_id, "current_key": wrapping_key_id(current)}
 
