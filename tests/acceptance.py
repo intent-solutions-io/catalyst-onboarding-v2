@@ -2326,6 +2326,14 @@ P6_SUPPORTING = {
         "test_geographic_review::test_geographic_gate_rechecks_queued_assessments_and_reply_admission",
         "test_geographic_review::test_geographic_rule_change_invalidates_model_reliance_and_shown_decision",
     ],
+    "bgl.15 staff talent search uses confirmed self-reported profiles (034 row 12)": [
+        "test_talent::test_talent_search_matches_confirmed_values_across_fields_and_not_private_data",
+        "test_talent::test_talent_unverified_submissions_cannot_create_or_replace_a_profile",
+        "test_talent::test_talent_pages_require_staff_permission_and_escape_claims",
+        "test_talent::test_talent_search_paginates_and_validates_queries_without_losing_results",
+        "test_talent::test_talent_erasure_removes_profile_and_search_matches",
+        "test_talent::test_talent_search_keeps_imported_credentials_without_activating_verification",
+    ],
     "bgl.16 the first-generation import converts every v1 record, reports every row and keeps the person erasable (035)": [
         "test_first_generation_import::test_bgl16_a_dry_run_reports_every_row_and_leaves_nothing",
         "test_first_generation_import::test_bgl16_every_v1_state_maps_to_its_stage_is_paused_and_nothing_is_queued_or_sent",

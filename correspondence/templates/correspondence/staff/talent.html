@@ -1,0 +1,31 @@
+{% extends "correspondence/staff/base.html" %}{% load correspondence_display %}
+{% block content %}
+<h1>Talent search</h1>
+<p>Education and certifications are self-reported. Credential verification is off.</p>
+<p>Search confirmed names, education, certifications, contributions and experience. All words must match;
+results are newest confirmed submissions first. Email, phone and confidential work descriptions are not searched.</p>
+<form method="get">{{ form.q.label_tag }} {{ form.q }} {{ form.q.errors }} {{ form.page.errors }} <button>Search</button></form>
+{% if page.paginator %}
+<p>{{ page.paginator.count }} matching profile{{ page.paginator.count|pluralize }}.</p>
+{% for adoption in page %}{% with a=adoption.application f=adoption.submission_version.submitted_fields %}
+<article>
+<h2><bdi>{{ f.name|visible }}</bdi></h2>
+<p>{{ a.reference }} · {{ a.get_stage_display }} · <a href="{% url 'correspondence_staff:application' a.public_ref %}">Open application</a></p>
+<p>Confirmed {{ adoption.adopted_at }}; submission version {{ adoption.submission_version.version_number }}.</p>
+<h3>Education</h3>
+<ul>{% for row in f.education %}<li><bdi>{{ row.credential|visible }}</bdi> — <bdi>{{ row.institution|visible }}</bdi></li>
+{% empty %}<li>{% if f.no_degree %}Applicant reports no post-secondary education.{% else %}No education recorded.{% endif %}</li>{% endfor %}</ul>
+<h3>Certifications</h3>
+<ul>{% for row in f.claims.credentials %}<li><bdi>{{ row.name|visible }}</bdi> — <bdi>{{ row.issuer|visible }}</bdi>
+{% if row.identifier %}; identifier: <bdi>{{ row.identifier|visible }}</bdi>{% endif %}
+{% if row.url %}; submitted reference: <bdi>{{ row.url|visible }}</bdi>{% endif %}</li>
+{% empty %}<li>{% if f.no_certifications %}Applicant reports no certifications.{% else %}No certifications recorded.{% endif %}</li>{% endfor %}</ul>
+{% if f.claims.contribution %}<h3>Contribution</h3><pre class="untrusted">{{ f.claims.contribution|visible }}</pre>{% endif %}
+{% if f.claims.experience %}<h3>Experience</h3><pre class="untrusted">{{ f.claims.experience|visible }}</pre>{% endif %}
+</article>
+{% endwith %}{% empty %}<p>No confirmed profiles match.</p>{% endfor %}
+<nav aria-label="Search pages">{% if page.has_previous %}<a href="?q={{ query|urlencode }}&amp;page={{ page.previous_page_number }}">Previous</a> · {% endif %}
+Page {{ page.number }} of {{ page.paginator.num_pages }}
+{% if page.has_next %} · <a href="?q={{ query|urlencode }}&amp;page={{ page.next_page_number }}">Next</a>{% endif %}</nav>
+{% endif %}
+{% endblock %}

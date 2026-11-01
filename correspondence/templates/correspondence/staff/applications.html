@@ -1,6 +1,7 @@
 {% extends "correspondence/staff/base.html" %}{% load correspondence_display %}
 {% block content %}
 <h1>Applications</h1>
+<p><a href="{% url 'correspondence_staff:talent' %}">Search talent profiles</a></p>
 <form method="get"><label>Show <select name="show"><option value="">all</option><option value="paused"{% if show == "paused" %} selected{% endif %}>paused</option><option value="proposed"{% if show == "proposed" %} selected{% endif %}>with a proposed question</option></select></label>
 <label>Reference <input name="ref"></label> <button>Find</button></form>
 <table><tr><th>Applicant</th><th>Stage</th><th>Automation</th><th></th></tr>
