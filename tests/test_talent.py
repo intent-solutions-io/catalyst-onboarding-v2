@@ -106,7 +106,7 @@ def test_talent_search_paginates_and_validates_queries_without_losing_results(
 ):
     monkeypatch.setattr("correspondence.talent.PAGE_SIZE", 1)
     older = apply(p2, **ROWS)
-    newer = apply(p2, **ROWS, email="second@example.test", name="Second Example")
+    newer = apply(p2, **ROWS, email="second@example.test", name="Ada Other")
     page = screen(p2, q="synthetic", page=1)
     assert page.context["page"].paginator.count == 2
     assert [row.application_id for row in page.context["page"]] == [newer.pk]
