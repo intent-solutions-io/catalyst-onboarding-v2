@@ -40,7 +40,6 @@
 }
 
 (catalyst_site) {
-	tls internal
 	log {
 		output stdout
 		format filter {
@@ -62,6 +61,7 @@
 }
 
 {$CATALYST_PUBLIC_HOST:catalyst.staging.test} {
+	tls internal
 	import catalyst_site
 	request_body {
 		max_size 128KB
@@ -79,6 +79,7 @@
 # screens, the token paths or the health paths. The compose file always gives the proxy a value (a placeholder name
 # when no alias is set), so this block always has an address.
 {$CATALYST_PUBLIC_HOST_ALIASES:alias.staging.test} {
+	tls internal
 	import catalyst_site
 	request_body {
 		max_size 128KB
@@ -94,6 +95,8 @@
 
 {$CATALYST_STAFF_HOST:staff.staging.test}:{$CATALYST_STAFF_PORT:8444} {
 	bind {$CATALYST_STAFF_BIND:127.0.0.1}
+	# File-backed TLS is selected only for this named site, never by site order.
+	tls {$CATALYST_STAFF_TLS:internal}
 	import catalyst_site
 	request_body {
 		max_size 1MB
