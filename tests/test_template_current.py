@@ -195,7 +195,18 @@ def test_retired_template_keeps_legacy_adoption_timers_and_native_verification(
 def test_template_migration_preserves_multiple_approvals_and_reverses_exactly(
     envelopes,
 ):
+    from config import release
+
+    migration = "agreements.0014_one_current_template"
+    old_image = [name for name in release.known() if name != migration]
+    assert migration in release.FORWARD_ONLY
     owner = envelopes.committed.connect("owner", autocommit=True)
+    applied = [
+        row[0]
+        for row in owner.execute("SELECT app || '.' || name FROM django_migrations")
+    ]
+    assert release.blockers(applied, old_image, release.FORWARD_ONLY) == [migration]
+    assert release.blockers(applied, release.known(), release.FORWARD_ONLY) == []
     query = "SELECT pg_get_functiondef(%s::regprocedure)"
     names = [
         "public.catalyst_agreement_template_frozen()",

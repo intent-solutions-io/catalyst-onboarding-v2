@@ -87,9 +87,13 @@ def company_templates(env):
             recipient_slots=slots,
             pdf_sha256=hashlib.sha256(PDF).hexdigest(),
         )
-        services.approve_template_version(
+        version, _ = services.approve_template_version(
             version.pk, env.template_owner, services.template_digest(version)
         )
+        if key == "nda":
+            env.template = version
+        else:
+            env.ua = version
 
 
 @pytest.fixture

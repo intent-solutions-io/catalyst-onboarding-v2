@@ -58,10 +58,10 @@ APPS = (
 DEPLOY_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{3,63}")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 
-# "app.migration_name" for every migration that an image without it cannot run against. Empty: no release so far has
-# needed one (every migration to date adds tables, nullable or database-defaulted columns, grants or triggers; the
-# contracting scan and EXPAND_SAFE below are the record).
-FORWARD_ONLY: frozenset[str] = frozenset()
+# A previous image cannot approve replacements under the one-current constraint or
+# adopt a retired historical template. The deploy guard must refuse that image
+# while this migration is applied; a forward repair or controlled recovery is required.
+FORWARD_ONLY: frozenset[str] = frozenset({"agreements.0014_one_current_template"})
 CONTRACTING_OPERATIONS = frozenset(
     {
         "RemoveField",

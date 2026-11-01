@@ -868,7 +868,8 @@ preparation; native provider reads still verify signing. Retirement never queues
 
 Migration 0014 preserves the highest version selected by the previous code, retiring other approved versions
 without changing their approval metadata. Its reverse restores those historical approval states and the exact
-previous protection functions. Because older images do not recognize retired approvals in legacy handover,
-rollback during a handover needs the compatible image or a reviewed migration reversal; do not resume an older
-worker against retired-template handovers blindly. No provider template is approved or retired in production by
-this repository change.
+previous protection functions. Older images cannot approve a second template under the new constraint or
+recognize retired approvals in legacy handover. `config.release.FORWARD_ONLY` therefore records 0014: the deploy
+guard refuses an image that does not know it while the migration is applied. Recovery requires a compatible
+forward repair or the controlled restore procedure; the tested migration reverse is not permission to bypass
+that guard or discard later data. No provider template is approved or retired in production by this change.

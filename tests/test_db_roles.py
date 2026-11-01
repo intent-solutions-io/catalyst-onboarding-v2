@@ -597,7 +597,8 @@ def test_history_protection_migrations_reverse_and_reapply_and_keep_data(connect
         assert (
             count() == TRIGGER_COUNT - 43
         )  # the model-use approvals came back with assessments; the custody envelope (agreements 0010) waits on agreements
-        manage_as_owner("migrate", "agreements", "--verbosity", "0")
+        manage_as_owner("migrate", "agreements", "0013", "--verbosity", "0")
+        # 0014 depends on imported-envelope provenance; verify the historical epoch first.
         assert count() == TRIGGER_COUNT - 32
         manage_as_owner("migrate", "correspondence", "--verbosity", "0")
         assert count() == TRIGGER_COUNT - 21

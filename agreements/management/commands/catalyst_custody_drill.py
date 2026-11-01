@@ -32,6 +32,7 @@ from pathlib import Path
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 from django.db.models.functions import Now
 
 from agreements import custody_policy, keystore, storage
@@ -107,34 +108,44 @@ def synthetic_document(app, pdf: bytes, *, sealed: bool = True):
         raise CommandError(
             "synthetic documents are made only in the test and staging environments"
         )
+    from agreements.template_versions import lock_type
+
     nda = AgreementType.objects.get(key="nda")
-    instance = AgreementInstance.objects.filter(
-        application=app, agreement_type=nda
-    ).first()  # one live per type
-    if instance is None:
-        number = (
-            AgreementTemplateVersion.objects.filter(agreement_type=nda)
-            .order_by("-version")
-            .values_list("version", flat=True)
-            .first()
-            or 0
-        ) + 1
-        version = AgreementTemplateVersion.objects.create(
-            agreement_type=nda,
-            version=number,
-            provider_template_ref="drill",
-            provider_template_number=1,
-            pdf_sha256="0" * 64,
-        )
-        AgreementTemplateVersion.objects.filter(pk=version.pk).update(
-            status="approved", approved_by="custody drill", approved_at=Now()
-        )
-        instance = AgreementInstance.objects.create(
-            application=app,
-            agreement_type=nda,
-            template_version=version,
-            external_key=f"drill-{uuid.uuid4().hex}",
-        )
+    with transaction.atomic():
+        lock_type(nda.pk)
+        instance = AgreementInstance.objects.filter(
+            application=app, agreement_type=nda
+        ).first()
+        if instance is None:
+            # A second synthetic applicant uses the current version; the drill must
+            # never replace a template approval merely to exercise custody storage.
+            version = AgreementTemplateVersion.objects.filter(
+                agreement_type=nda, status="approved"
+            ).first()
+            if version is None:
+                number = (
+                    AgreementTemplateVersion.objects.filter(agreement_type=nda)
+                    .order_by("-version")
+                    .values_list("version", flat=True)
+                    .first()
+                    or 0
+                ) + 1
+                version = AgreementTemplateVersion.objects.create(
+                    agreement_type=nda,
+                    version=number,
+                    provider_template_ref="drill",
+                    provider_template_number=1,
+                    pdf_sha256="0" * 64,
+                )
+                AgreementTemplateVersion.objects.filter(pk=version.pk).update(
+                    status="approved", approved_by="custody drill", approved_at=Now()
+                )
+            instance = AgreementInstance.objects.create(
+                application=app,
+                agreement_type=nda,
+                template_version=version,
+                external_key=f"drill-{uuid.uuid4().hex}",
+            )
     observation = ProviderObservation.objects.create(
         instance=instance, application=app, source="read", envelope_status="COMPLETED"
     )
