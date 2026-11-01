@@ -14,7 +14,10 @@ SUPPORTING is evidence the S1-T8 bead also requires that is not a numbered case:
 contract (ADR-14) and the test-only reset (D-21). It is reported the same way and gated the same way.
 """
 
+import json
+import os
 import re
+import time
 
 CASES = {
     "TEST-S1-01": [
@@ -224,6 +227,13 @@ SUPPORTING = {
     "GATE-S1 enforcement": [
         "test_acceptance::test_the_gate_fails_a_full_run_with_a_case_not_pass_and_spares_a_selected_subset",
         "test_acceptance::test_ci_runs_the_whole_suite_with_no_selection",
+        "test_ci_shards::test_the_union_covers_every_parametrized_instance_and_unmapped_test",
+        "test_ci_shards::test_incomplete_stale_duplicate_or_unsuccessful_evidence_is_refused",
+        "test_ci_shards::test_missing_acceptance_cases_and_invalid_registers_are_refused",
+        "test_ci_shards::test_the_aggregate_writes_the_full_register_and_removes_stale_success_on_failure",
+        "test_ci_shards::test_real_pytest_shards_collect_the_same_manifest_and_merge_without_losing_instances",
+        "test_ci_shards::test_sharding_refuses_selected_or_collection_only_runs",
+        "test_ci_shards::test_required_checks_preserve_parallel_fast_feedback_and_complete_evidence",
         "test_acceptance::test_the_acceptance_map_names_exactly_the_cases_in_005",
         "test_acceptance::test_every_mapped_test_exists",
     ],
@@ -2538,3 +2548,23 @@ def instance_key(nodeid: str) -> str:
     """'tests/test_x.py::test_name[param]' -> 'test_x::test_name[param]' (one instance)."""
     path, _, name = nodeid.partition("::")
     return f"{path.rsplit('/', 1)[-1].removesuffix('.py')}::{name}"
+
+
+def write_register(statuses, path, commit, exit_status, image_digest=None):
+    """The same atomic evidence register for local full runs and a verified CI shard union."""
+    rows = register(statuses)
+    gate_counts = {}
+    for _, gate, cases, supporting in gates():
+        gate_counts[gate] = {kind: {s: [statuses[g] for g in groups].count(s) for s in ("PASS", "FAIL", "INCOMPLETE", "NOT RUN")}
+                       for kind, groups in (("numbered", cases), ("supporting", supporting))}
+    # Written beside the target and moved into place (PR #95 review), so a reader never sees a half-written file.
+    temporary = path + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as out:
+        json.dump({"gate": "GATE-STAGING", "commit": commit, "exit_status": exit_status,
+                   "image_digest": image_digest,
+                   "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "rows": rows,
+                   "summary": summarise(rows),
+                   "supporting": {group: statuses[group] for group in P6_SUPPORTING},
+                   "gates": gate_counts}, out, indent=1, sort_keys=True)
+    os.replace(temporary, path)
+    return path
