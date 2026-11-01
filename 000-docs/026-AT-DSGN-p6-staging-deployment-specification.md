@@ -219,6 +219,16 @@ record (P6-D-8).
 7. Negative controls must each fail the drill: a truncated dump, a missing custody file, a wrong migration list, a
    missing role, **and a token consumed after T that still works after the restore.**
 
+**Restored transaction markers (`9kg.58`).** A rebuilt cluster can reuse a transaction ID stored in an older
+backup. The pause-resume, qualification-decision and signing-verification database guards therefore require both
+the current transaction ID and an evidence timestamp at or after `transaction_timestamp()` (`occurred_at`,
+`created_at` and `observed_at`, respectively). Existing timestamps are preserved. The migrations refine the
+installed functions in place, preserving their other guards, erasure branches, ownership and privileges.
+`tests/test_restore_transaction_guards.py` performs a real synthetic backup/restore, deterministically injects
+the ID collision in the isolated restored database, and checks all three refusals as both application and owner
+roles. Fresh evidence inside a savepoint still passes. This is a focused recovery proof, not a substitute for the
+production restore, external-effect reconciliation or handover drill.
+
 **Cadence:** before GATE-STAGING, monthly afterwards (precedent), and after any change to the backup tooling. Drills
 on staging use synthetic data only. **A drill with production data runs only on the production host, with no egress
 and a destroyed scratch volume, never on the dev box.**

@@ -178,6 +178,9 @@ APPROVED_MIGRATIONS = {
     ("crm", "0001_initial"),
     ("crm", "0002_grants"),
     ("erasure", "0006_twenty_projection"),
+    ("workflow", "0007_restore_transaction_time"),
+    ("assessments", "0012_restore_transaction_time"),
+    ("agreements", "0013_restore_transaction_time"),
     (
         "erasure",
         "0007_orphan_replay_lookup",

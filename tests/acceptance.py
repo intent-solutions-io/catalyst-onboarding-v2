@@ -1989,6 +1989,10 @@ P6_SUPPORTING = {
         "test_agreement_custody::test_9kg54_completed_after_uncertain_distribution_is_verified_and_stored_without_resending",
         "test_agreement_custody::test_9kg54_a_staff_retry_after_late_completion_reads_and_stores_without_distributing_again",
     ],
+    "9kg.58 restored transaction IDs cannot reuse old resume, decision or signing evidence": [
+        "test_restore_transaction_guards::test_9kg_58_real_restore_refuses_old_evidence_with_a_reused_txid_for_all_three_guards",
+        "test_restore_transaction_guards::test_9kg_58_migrations_reverse_and_reapply_without_changing_rows_or_protections",
+    ],
     "9kg.6 the pause row is cleared only by an audited resume (database guard)": [
         "test_pause_guard::test_9kg6_a_bare_delete_or_update_by_the_application_role_is_refused",
         "test_pause_guard::test_9kg6_the_migration_owner_is_refused_the_same_way_and_truncate_is_refused_for_every_role",
