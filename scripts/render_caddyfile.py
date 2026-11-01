@@ -25,18 +25,30 @@ def _link_paths() -> tuple[str, ...]:
     runs anywhere; tests compare the result with config.redaction.PRIVATE_PATHS."""
     values = {}
     for node in ast.parse((ROOT / "applications" / "links.py").read_text()).body:
-        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+        ):
             if node.targets[0].id in ("CONFIRM_PATH", "SETUP_PATH", "WITHDRAW_PATH"):
                 values[node.targets[0].id] = ast.literal_eval(node.value)
-    return tuple(values[name] for name in ("CONFIRM_PATH", "SETUP_PATH", "WITHDRAW_PATH"))
+    return tuple(
+        values[name] for name in ("CONFIRM_PATH", "SETUP_PATH", "WITHDRAW_PATH")
+    )
 
 
 PRIVATE_PATHS = _link_paths()
 # bgl.2 (034 row 1): the first generation's exact paths too, which every link in the wild uses; both forms are routes in v2.
 # bgl.8 (034 row 29): the signing return page, where the provider sends a signer (agreements.provider.RETURN_PATH on the
 # public base URL) and where the first generation's envelopes already send them; both forms are routes in v2.
-PUBLIC_EXACT = ("/request-access/", "/request-access/received/", "/request-access", "/request-access/received",
-                "/signing/return/", "/signing/return")
+PUBLIC_EXACT = (
+    "/request-access/",
+    "/request-access/received/",
+    "/request-access",
+    "/request-access/received",
+    "/signing/return/",
+    "/signing/return",
+)
 # bgl.2: what a public host alias (the learning host) is served: the public request pages, nothing else.
 ALIAS_PATHS = PUBLIC_EXACT
 TARGET = ROOT / "deploy" / "staging" / "Caddyfile"
@@ -46,7 +58,9 @@ PRODUCTION_TARGET = ROOT / "deploy" / "production" / "Caddyfile"
 LEARN_LOG = ROOT / "deploy" / "cutover" / "catalyst-learn-log.caddy"
 
 
-for _prefix in PRIVATE_PATHS:  # a prefix without its slashes would silently widen what is matched
+for (
+    _prefix
+) in PRIVATE_PATHS:  # a prefix without its slashes would silently widen what is matched
     if not __import__("re").fullmatch(r"/[a-z0-9-]+/", _prefix):
         raise SystemExit(f"render_caddyfile: unexpected private path {_prefix!r}")
 
@@ -64,7 +78,9 @@ def _encodable(char: str) -> str:
 
 def redaction_pattern() -> str:
     """The token segment after any private prefix: any letter case, encoded letters and slashes, repeated slashes."""
-    names = "|".join("".join(_encodable(c) for c in prefix.strip("/")) for prefix in PRIVATE_PATHS)
+    names = "|".join(
+        "".join(_encodable(c) for c in prefix.strip("/")) for prefix in PRIVATE_PATHS
+    )
     return f"(?i)^/+({names})(?:/|%2f)+[^/?#]+"
 
 
@@ -121,7 +137,6 @@ def render() -> str:
 }}
 
 (catalyst_site) {{
-	tls internal
 	log {{
 		output stdout
 		{log_format()}
@@ -139,6 +154,7 @@ def render() -> str:
 }}
 
 {{$CATALYST_PUBLIC_HOST:catalyst.staging.test}} {{
+	tls internal
 	import catalyst_site
 	request_body {{
 		max_size 128KB
@@ -156,6 +172,7 @@ def render() -> str:
 # screens, the token paths or the health paths. The compose file always gives the proxy a value (a placeholder name
 # when no alias is set), so this block always has an address.
 {{$CATALYST_PUBLIC_HOST_ALIASES:alias.staging.test}} {{
+	tls internal
 	import catalyst_site
 	request_body {{
 		max_size 128KB
@@ -171,6 +188,8 @@ def render() -> str:
 
 {{$CATALYST_STAFF_HOST:staff.staging.test}}:{{$CATALYST_STAFF_PORT:8444}} {{
 	bind {{$CATALYST_STAFF_BIND:127.0.0.1}}
+	# File-backed TLS is selected only for this named site, never by site order.
+	tls {{$CATALYST_STAFF_TLS:internal}}
 	import catalyst_site
 	request_body {{
 		max_size 1MB
