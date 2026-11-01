@@ -145,6 +145,8 @@ def test_9kg_73_both_functions_reverse_and_reapply_without_changing_rows_or_gran
         assert [row[2:] for row in reversed_functions] == [row[2:] for row in installed]
         assert rows() == before
     finally:
-        manage_as_owner("migrate", "erasure", "0008", "--verbosity", "0")
+        # Reversing erasure also reverses dependent community protections and grants.
+        # Restore the whole graph before comparing the current functions or using the app role.
+        manage_as_owner("migrate", "--verbosity", "0")
     assert owner.execute(query).fetchall() == installed
     assert rows() == before

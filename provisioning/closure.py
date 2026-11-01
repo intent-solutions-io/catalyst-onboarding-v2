@@ -97,6 +97,9 @@ def close_locked(
         except agreement_services.Refused as exc:
             if str(exc) != "stopped_for_good":
                 raise services.Refused(str(exc)) from None
+    from .community import revoke_locked
+
+    revoke_locked(application)
     for request in ProvisioningRequest.objects.select_for_update(of=("self",)).filter(
         application=application
     ):

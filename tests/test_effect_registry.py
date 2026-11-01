@@ -46,6 +46,7 @@ PACKAGES = (
 )
 # The primitives themselves: each is checked below for write methods the scanner does not know.
 IMPLEMENTATIONS = {
+    "provisioning/community_adapter.py",
     "workflow/journal.py",
     "agreements/provider.py",
     "correspondence/transport.py",
@@ -111,6 +112,7 @@ INTERNAL_KINDS = {"genesis", "repair"}
 # Modules that open a network connection, start a process or write a file, and what they touch. A new one fails the
 # outward test until it is reviewed: classified in workflow/effects.py if a restore cannot undo it, listed here if not.
 OUTWARD = {
+    "provisioning/community_adapter.py": "Discord exact member and managed-role HTTPS API boundary",
     "agreements/keystore.py": "custody data keys and their mirror, outside the backup (026 section 16)",
     "agreements/storage.py": "custody documents, outside the backup (026 section 16)",
     "agreements/provider.py": "the Documenso client (its writes are the documenso family)",
@@ -366,6 +368,12 @@ class _Function(ast.NodeVisitor):
             self._add("documenso", name, node, read=name in DOCUMENSO_READS)
         elif module == "crm.twenty" and name in TWENTY_WRITES | TWENTY_READS:
             self._add("twenty", name, node, read=name in TWENTY_READS)
+        elif module == "provisioning.community_adapter" and name in {
+            "read_member",
+            "grant_role",
+            "revoke_role",
+        }:
+            self._add("discord", name, node, read=name == "read_member")
         elif receiver is not None:
             attr = func.attr
             if bound in self.hosts or inline == "provisioning.adapter.host":

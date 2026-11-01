@@ -18,6 +18,8 @@ POSTGRESQL_ENGINE = "django.db.backends.postgresql"
 # The secrets Catalyst reads (6B.5, 026 section 5): one list, used by settings to read them and by the guards to refuse
 # them in the environment outside test and development.
 SECRET_ENV_NAMES = (
+    "CATALYST_COMMUNITY_IDENTITY_KEY",
+    "CATALYST_COMMUNITY_BOT_TOKEN",
     "CATALYST_SECRET_KEY",
     "CATALYST_VERIFICATION_KEY",
     "CATALYST_VERIFICATION_FALLBACK_KEYS",
@@ -1593,6 +1595,81 @@ def intake_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return problems
 
 
+def community_problems(settings, environ):
+    """Default-off integration; enabling grants is separate from protective access.
+
+    The authority digest references the reviewed release/policy record; its presence
+    is configuration, not independent proof that a human approved a release.
+    """
+    adapter = getattr(settings, "CATALYST_COMMUNITY_ADAPTER", "")
+    token = getattr(settings, "CATALYST_COMMUNITY_BOT_TOKEN", "")
+    key = getattr(settings, "CATALYST_COMMUNITY_IDENTITY_KEY", "")
+    enabled = getattr(settings, "CATALYST_COMMUNITY_GRANTS_ENABLED", False)
+    problems = []
+    if environ.get("CATALYST_COMMUNITY_GRANTS_ENABLED", "false") not in (
+        "true",
+        "false",
+    ):
+        problems.append("CATALYST_COMMUNITY_GRANTS_ENABLED must be true or false")
+    if enabled and not adapter:
+        problems.append("Community grants require an explicitly configured adapter")
+    if key and (not re.fullmatch(r"[0-9a-f]{64}", key) or len(set(key)) == 1):
+        problems.append(
+            "CATALYST_COMMUNITY_IDENTITY_KEY must be an independent random 32-byte key"
+        )
+    if key and key in (
+        getattr(settings, "SECRET_KEY", ""),
+        getattr(settings, "CATALYST_CUSTODY_WRAPPING_KEY", ""),
+        getattr(settings, "CATALYST_ERASURE_KEY", ""),
+        getattr(settings, "CATALYST_CUSTODY_NEXT_WRAPPING_KEY", ""),
+        *(getattr(settings, "CATALYST_ERASURE_PREVIOUS_KEYS", []) or []),
+    ):
+        problems.append("Community identity key must be independent")
+    if adapter and not key:
+        problems.append("Community adapter requires its identity key")
+    if adapter == "provisioning.community_adapter.LiveDiscord":
+        if settings.CATALYST_ENV != "production":
+            problems.append(
+                "Live Discord transport is admitted only in a reviewed production release"
+            )
+        authority = getattr(settings, "CATALYST_COMMUNITY_LIVE_AUTHORITY", "")
+        if not re.fullmatch(r"[0-9a-f]{64}", authority):
+            problems.append(
+                "Live Discord requires the reviewed integration authority digest"
+            )
+        guild = getattr(settings, "CATALYST_COMMUNITY_GUILD_ID", "")
+        roles = getattr(settings, "CATALYST_COMMUNITY_ROLE_IDS", {})
+        if not re.fullmatch(r"[1-9][0-9]{16,19}", guild) or set(roles) != {
+            "Member",
+            "Certified",
+            "Leaders",
+        }:
+            problems.append(
+                "Discord scope requires one exact guild and three explicit roles"
+            )
+        elif len(set(roles.values())) != 3 or any(
+            not re.fullmatch(r"[1-9][0-9]{16,19}", value) or value == guild
+            for value in roles.values()
+        ):
+            problems.append("Discord managed role IDs must be distinct and valid")
+        if not token:
+            problems.append("Live Discord requires a separate access credential")
+        if token and _process_kind() not in ("worker", "reconcile"):
+            problems.append(
+                "Discord access credential belongs only to worker or restore reconciliation"
+            )
+    elif adapter and (
+        settings.CATALYST_ENV not in ("test", "staging", "development")
+        or not adapter.startswith("tests.")
+    ):
+        problems.append("Unknown community adapter refused")
+    if token and adapter != "provisioning.community_adapter.LiveDiscord":
+        problems.append(
+            "Discord credential without the reviewed live adapter is refused"
+        )
+    return problems
+
+
 def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
     return (
         database_problems(settings.DATABASES)
@@ -1607,6 +1684,7 @@ def all_problems(settings, environ: Mapping[str, str]) -> list[str]:
         + agreement_problems(settings, environ)
         + provisioning_problems(settings, environ)
         + twenty_problems(settings, environ, _process_kind())
+        + community_problems(settings, environ)
         + host_problems(settings)
         + alias_problems(settings)
         + live_problems(settings)

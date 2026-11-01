@@ -554,6 +554,10 @@ DATABASE_CONSTRAINTS = {
     "application_reference_format",  # bgl.5
     "countersign_claim_state_valid",
     "countersign_claim_v2_envelope_only",  # bgl.9
+    "community_identity_unique",
+    "community_revision_positive",
+    "community_has_reviewer",
+    "community_revoked_no_grants",  # 9kg.81
 }
 
 
@@ -1444,6 +1448,7 @@ def test_every_p6_test_is_mapped():
         "test_agreement_parity",
         # bgl.9: the automated countersignature and release file
         "test_countersign_release",
+        "test_community_access",
     )
     found = set()
     for path in sorted((ROOT / "tests").glob("test_*.py")):

@@ -1472,7 +1472,8 @@ def test_9kg_34_erasure_0003_reverses_to_exactly_the_function_0002_installs(
         " WHERE n.nspname = 'public' AND p.proname = 'catalyst_erase'"
     )
     owner = privileged_reset.connect("owner", autocommit=True)
-    with_custody = owner.execute(query).fetchone()[0]
+    with_all_extensions = owner.execute(query).fetchone()[0]
+    with_custody = with_all_extensions
     assert (
         "agreements_custodyenvelope" in with_custody
         and catalog.CUSTODY_BEGIN in with_custody
@@ -1516,15 +1517,18 @@ def test_9kg_34_erasure_0003_reverses_to_exactly_the_function_0002_installs(
                     psql.Identifier(fresh)
                 )
             )
-    # bgl.16 and bgl.14: erasure 0005 adds the import's subject column and 0006 the Twenty link's (with the `twenty`
-    # handoff) to the function, so 0003's reverse is compared with the function as 0004 left it (0006 and 0005 reversed
-    # first), which is the one 0003's reverse finds.
-    manage_as_owner("migrate", "erasure", "0004", "--verbosity", "0")
-    at_0004 = owner.execute(query).fetchone()[0]
-    for table in ("firstgen_importedrecord", "crm_twentylink"):
-        assert table in with_custody and table not in at_0004, table
-    manage_as_owner("migrate", "erasure", "0002", "--verbosity", "0")
     try:
+        # Reverse modern extensions before comparing custody's historical schema epoch.
+        manage_as_owner("migrate", "provisioning", "0008", "--verbosity", "0")
+        manage_as_owner("migrate", "erasure", "0004", "--verbosity", "0")
+        at_0004 = owner.execute(query).fetchone()[0]
+        for table in (
+            "firstgen_importedrecord",
+            "crm_twentylink",
+            "provisioning_communityaccess",
+        ):
+            assert table in with_all_extensions and table not in at_0004, table
+        manage_as_owner("migrate", "erasure", "0002", "--verbosity", "0")
         reversed_ = owner.execute(query).fetchone()[0]
         assert reversed_ == before_0003 == catalog.without_custody(at_0004)
         assert (
@@ -1533,7 +1537,7 @@ def test_9kg_34_erasure_0003_reverses_to_exactly_the_function_0002_installs(
         )
     finally:
         manage_as_owner("migrate", "--verbosity", "0")
-    assert owner.execute(query).fetchone()[0] == with_custody
+    assert owner.execute(query).fetchone()[0] == with_all_extensions
 
 
 # --- the data review of PR #102, K2: the plaintext refusal is the committed call's own --------------------------------
