@@ -33,6 +33,7 @@ jobs:
           POSTGRES_USER: catalyst_admin
           POSTGRES_PASSWORD: synthetic-ci-admin-only
         options: >-
+          --tmpfs /var/lib/postgresql/data:rw,size=1g
           --health-cmd "pg_isready -U catalyst_admin -d catalyst"
           --health-interval 2s --health-timeout 5s --health-retries 30
     env:
