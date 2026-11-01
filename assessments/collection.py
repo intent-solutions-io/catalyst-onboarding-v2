@@ -275,6 +275,22 @@ class StartEvidenceCollection(_ApplicationAction):
                 ),
             )
         version = adoption.submission_version
+        from applications import geographic_review
+
+        if geographic_review.evidence(application):
+
+            def hold():
+                geographic_review.ensure_hold(application)
+                transition(
+                    application.pk,
+                    (Stage.CONTACT_VERIFIED,),
+                    Stage.ASSESSING,
+                    event_kind="geographic_review_required",
+                    data=geographic_review.evidence(application),
+                    actor_ref=f"pending_action:{claim.id}",
+                )
+
+            return Decision(Status.DONE, geographic_review.REASON, write=hold)
         claims = (version.submitted_fields or {}).get("claims")
         if claims is None:
             return Decision(

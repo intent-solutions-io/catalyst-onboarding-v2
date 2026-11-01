@@ -95,6 +95,11 @@ class Command(BaseCommand):
             or str(adoption.submission_version.public_id) != action.input_ref
         ):
             return "adoption_mismatch"
+        from applications import geographic_review
+
+        # This action will enter human review without fetching or model dispatch, even without claims.
+        if geographic_review.evidence(application):
+            return ""
         if (adoption.submission_version.submitted_fields or {}).get("claims") is None:
             return "claims_missing"
         return ""

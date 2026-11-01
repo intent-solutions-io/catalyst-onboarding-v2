@@ -35,6 +35,7 @@ OK_SEND = (
     PendingAction.Status.DONE,
 )
 REASONS = {
+    "sanctions_concern": "Geographic review: adopted residence or phone prefix needs a human decision; no model call or automatic decline",
     "repeat_after_verification": "a submission arrived after the address was verified; it was not adopted",
     "repeat_after_decline": "a submission arrived after the application was declined; it was not adopted and nothing new was created",
     "newer_unverified_version": "a newer submission exists than the one the applicant confirmed",

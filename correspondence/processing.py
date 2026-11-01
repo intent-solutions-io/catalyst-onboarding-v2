@@ -167,7 +167,11 @@ ACKNOWLEDGE_ONLY = {
 # 9kg.41 (owner decision on the PR #93 review): a suspended or capped snapshot closes only through the human-only
 # decision on the decision screen (which resolves it) or a later successful run, never by an acknowledgement that would
 # leave the case looking as if a run were coming.
-DECISION_SCREEN_ITEMS = {"assessment_suspended", "assessment_capped"}
+DECISION_SCREEN_ITEMS = {
+    "assessment_suspended",
+    "assessment_capped",
+    "sanctions_concern",
+}
 # 9kg.67 (029 appendix B, GAP 5): the words on each resolution button. The code stays the submitted value, the
 # resolution record and the audit trail; only the button text is plain English. Every code in RESOLUTIONS and the
 # acknowledgement have one (tested), and no label equals its code.

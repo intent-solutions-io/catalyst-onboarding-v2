@@ -239,6 +239,10 @@ DECISION_SCREEN = (
 )
 EVIDENCE_SCREEN = ("review_evidence", "operate_evidence")
 P3_HINTS = {
+    "sanctions_concern": (
+        "decision",
+        "Geographic review requires a recorded human-only decision; acknowledging cannot release it.",
+    ),
     "assessment_suspended": (
         "decision",
         "This item closes only through the human-only decision recorded there.",

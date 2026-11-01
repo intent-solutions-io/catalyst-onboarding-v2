@@ -181,6 +181,10 @@ class Interpreter:
     def admit(self, application) -> str:
         """A refusal code, or "" to proceed. Inside the pre-call transaction (lock order: application, then the
         advisory budget lock, then the action)."""
+        from applications import geographic_review
+
+        if geographic_review.ensure_hold(application):
+            return geographic_review.REASON
         try:
             agent.build_model(_use())
         except agent.ModelUnavailable as exc:

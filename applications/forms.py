@@ -7,7 +7,7 @@ version carries every answer the applicant gave at the time and the erasure path
 - the S1 fields `name`, `email`, `reason` (POL-03 placeholder set; limits match the model columns);
 - the P3 claim fields under `claims` (P3-D-1): work samples, contribution, experience, confidential work and the
   credential rows; stored only when at least one is given (an S1-shaped submission otherwise);
-- the first-generation answers (034 section 1.2 step 1, row 3): country of residence (ISO 3166-1 alpha-2), phone
+- the first-generation answers (034 section 1.2 step 1, row 3): country of residence (ISO countries and the historical review regions), phone
   (E.164, with the country it was read for), the interest track (a short code), the optional marketing consent with
   the version of the wording it answered, the 18+ attestation, up to three education rows or the "none" tick, the
   credential rows made required-or-"none" (up to four; a row needs a name and an identifier or a link), and the
@@ -80,7 +80,7 @@ class AccessRequestForm(forms.Form):
     name = forms.CharField(max_length=NAME_MAX)
     email = forms.EmailField(max_length=EMAIL_MAX)
     residence_country = forms.ChoiceField(
-        choices=countries.choices, label="Country of residence"
+        choices=countries.residence_choices, label="Country of residence"
     )
     phone_country = forms.ChoiceField(
         choices=countries.phone_choices, label="Country for your phone number"

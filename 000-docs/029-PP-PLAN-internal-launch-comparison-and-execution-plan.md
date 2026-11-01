@@ -283,6 +283,24 @@ screen shows its age (`9kg.41`); the stage, item and pause classes are counted b
 - **Provider effects** are disabled by code-fixed empty settings plus the guards; the provider's reminder behaviour
   and `documentDeleted` email setting are NOT VERIFIED (the Documenso canary).
 
+**Geographic review (`bgl.4`, 034 row 8).** Adopted residence and normalized phone values are
+checked against the carried-forward human-review policy in `applications/geographic_review.py`.
+The historical list is a conservative review trigger, not a current legal prohibition or an
+automatic decline; a phone prefix does not establish residence. The form includes the four
+historical residence-region choices, while phone countries retain their country/calling-code list.
+The applicant receives the normal received page, receipt and verification flow. Once verified,
+a matching case opens `sanctions_concern` for staff and reaches the human-only decision screen
+without fetching evidence or calling the model, including when portfolio claims are absent.
+
+Assessment enqueue, an already-queued assessment and reply-model admission all recheck the
+adopted answers. An older successful model result cannot support an automatic or model-assisted
+decision under a matching policy. Only the existing explicitly authorized decision-maker can
+record the human-only disposition, with the normal rationale, snapshot and policy bindings; a
+queue acknowledgement cannot release it. The recorded decision includes the review version and
+signal categories, never a copied phone number. A later unverified submission cannot lift the
+gate. The receipt and applicant pages never expose the review reason. This implementation does
+not approve new legal policy or establish deployment/cutover readiness.
+
 ## 6. Recovery, retention and custody
 
 ### 6.1 Data classes and copies

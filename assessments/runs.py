@@ -68,6 +68,11 @@ def enqueue_assessment(
 ):
     """Returns the queued run, or None when nothing is needed or allowed; `why` receives the reason code."""
     why = why if why is not None else []
+    from applications import geographic_review
+
+    if geographic_review.ensure_hold(application):
+        why.append(geographic_review.REASON)
+        return None
     try:
         pack = packs.load()
     except packs.PackRefused as exc:
@@ -335,6 +340,25 @@ class RunAssessment:
                     "stage_changed",
                     False,
                     lambda: _finish_run(run, Run.REFUSED, error_code="stage_changed"),
+                    None,
+                ),
+                None,
+                None,
+            )
+        from applications import geographic_review
+
+        if geographic_review.evidence(application):
+            return (
+                (
+                    Status.DONE,
+                    geographic_review.REASON,
+                    False,
+                    lambda: (
+                        _finish_run(
+                            run, Run.REFUSED, error_code=geographic_review.REASON
+                        ),
+                        geographic_review.ensure_hold(application),
+                    ),
                     None,
                 ),
                 None,

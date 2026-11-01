@@ -281,13 +281,25 @@ def choices():
     )
 
 
+RESIDENCE_REGIONS = (
+    ("UA-43", "Ukraine (Crimea)"),
+    ("UA-14", "Ukraine (Donetsk region)"),
+    ("UA-09", "Ukraine (Luhansk region)"),
+    ("UA-40", "Ukraine (Sevastopol)"),
+)
+
+
+def residence_choices():
+    return sorted([*choices(), *RESIDENCE_REGIONS], key=lambda pair: pair[1].casefold())
+
+
 def phone_choices():
     """Select options for the phone's country, each labelled with its calling code."""
     return [(code, f"{name} (+{CALLING_CODES[code]})") for code, name in choices()]
 
 
 def name(code: str) -> str:
-    return NAMES.get(code, code)
+    return NAMES.get(code, dict(RESIDENCE_REGIONS).get(code, code))
 
 
 def normalize_phone(raw: str, country: str) -> str:
