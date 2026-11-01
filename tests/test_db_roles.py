@@ -440,34 +440,37 @@ def test_history_protection_migrations_reverse_and_reapply_and_keep_data(connect
         return len(trigger_states(owner))
 
     assert count() == TRIGGER_COUNT
-    manage_as_owner("migrate", "applications", "0002", "--verbosity", "0")
-    assert count() == 6  # 0003 reversed (with every later migration that depends on it): 0002 intact
-    manage_as_owner("migrate", "applications", "0001", "--verbosity", "0")
-    assert count() == 0
-    manage_as_owner("migrate", "applications", "0003", "--verbosity", "0")
-    # assessments (P3: captures and decisions) and agreements (P4: recipients) depend on applications 0003, so they
-    # stayed reversed, as did the invitation table (applications 0005, 9kg.43), the staff role grants (accounts 0007,
-    # 9kg.30), the pause guard (workflow 0005, on applications 0006) and the member-on-file table (applications 0008)
-    assert count() == TRIGGER_COUNT - 49  # the model-use approvals (assessments 0011, oc4.9), the custody envelope (agreements 0010, 9kg.34), correspondence (9kg.1, 9kg.5), provisioning (5B.1), the invitation and member-on-file tables, the grant record, the pause guard and the erasure audit (9kg.32) stayed reversed
-    manage_as_owner("migrate", "assessments", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 43  # the model-use approvals came back with assessments; the custody envelope (agreements 0010) waits on agreements
-    manage_as_owner("migrate", "agreements", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 32
-    manage_as_owner("migrate", "correspondence", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 21
-    manage_as_owner("migrate", "provisioning", "--verbosity", "0")  # provisioning 0007 brings the grant record (accounts 0007)
-    assert count() == TRIGGER_COUNT - 11  # the invitation, member-on-file and pause no-truncates (applications 0005, 0008, workflow 0005) and the erasure audit's two remain
-    manage_as_owner("migrate", "applications", "--verbosity", "0")
-    assert count() == TRIGGER_COUNT - 9  # applications 0006 to 0009 are back; the pause guard waits on workflow
-    manage_as_owner("migrate", "workflow", "--verbosity", "0")  # the pause guard (9kg.6)
-    assert count() == TRIGGER_COUNT - 8  # and the import's six wait on erasure (firstgen 0002 depends on erasure 0002)
-    manage_as_owner("migrate", "erasure", "--verbosity", "0")  # the erasure audit and the trigger branches (9kg.32); erasure 0005 brings firstgen
-    assert count() == TRIGGER_COUNT
-    assert {state for _, _, state in trigger_states(owner)} == {"O"}
-    assert owner.execute("SELECT count(*) FROM applications_submissionversion WHERE id = %s AND application_id = %s",
-                         [version_id, app_id]).fetchone()[0] == 1
-    assert owner.execute("SELECT count(*) FROM applications_versionadoption WHERE id = %s", [adoption_id]).fetchone()[0] == 1
-    manage_as_owner("migrate", "--verbosity", "0")  # reversing applications also reversed accounts.0003 (staff view)
+    try:
+        manage_as_owner("migrate", "applications", "0002", "--verbosity", "0")
+        assert count() == 6  # 0003 reversed (with every later migration that depends on it): 0002 intact
+        manage_as_owner("migrate", "applications", "0001", "--verbosity", "0")
+        assert count() == 0
+        manage_as_owner("migrate", "applications", "0003", "--verbosity", "0")
+        # assessments (P3: captures and decisions) and agreements (P4: recipients) depend on applications 0003, so they
+        # stayed reversed, as did the invitation table (applications 0005, 9kg.43), the staff role grants (accounts 0007,
+        # 9kg.30), the pause guard (workflow 0005, on applications 0006) and the member-on-file table (applications 0008)
+        assert count() == TRIGGER_COUNT - 49  # the model-use approvals (assessments 0011, oc4.9), the custody envelope (agreements 0010, 9kg.34), correspondence (9kg.1, 9kg.5), provisioning (5B.1), the invitation and member-on-file tables, the grant record, the pause guard and the erasure audit (9kg.32) stayed reversed
+        manage_as_owner("migrate", "assessments", "--verbosity", "0")
+        assert count() == TRIGGER_COUNT - 43  # the model-use approvals came back with assessments; the custody envelope (agreements 0010) waits on agreements
+        manage_as_owner("migrate", "agreements", "--verbosity", "0")
+        assert count() == TRIGGER_COUNT - 32
+        manage_as_owner("migrate", "correspondence", "--verbosity", "0")
+        assert count() == TRIGGER_COUNT - 21
+        manage_as_owner("migrate", "provisioning", "--verbosity", "0")  # provisioning 0007 brings the grant record (accounts 0007)
+        assert count() == TRIGGER_COUNT - 11  # the invitation, member-on-file and pause no-truncates (applications 0005, 0008, workflow 0005) and the erasure audit's two remain
+        manage_as_owner("migrate", "applications", "--verbosity", "0")
+        assert count() == TRIGGER_COUNT  # applications 0011 preserves imported CAT labels, so it also brings firstgen
+        # firstgen 0002 depends on erasure protections, which bring the workflow pause guards back too.
+        manage_as_owner("migrate", "workflow", "--verbosity", "0")  # the pause guard (9kg.6)
+        assert count() == TRIGGER_COUNT  # already present through applications 0011 -> firstgen 0002
+        manage_as_owner("migrate", "erasure", "--verbosity", "0")  # the erasure audit and the trigger branches (9kg.32); erasure 0005 brings firstgen
+        assert count() == TRIGGER_COUNT
+        assert {state for _, _, state in trigger_states(owner)} == {"O"}
+        assert owner.execute("SELECT count(*) FROM applications_submissionversion WHERE id = %s AND application_id = %s",
+                             [version_id, app_id]).fetchone()[0] == 1
+        assert owner.execute("SELECT count(*) FROM applications_versionadoption WHERE id = %s", [adoption_id]).fetchone()[0] == 1
+    finally:
+        manage_as_owner("migrate", "--verbosity", "0")  # restore every protection even if an intermediate assertion fails
 
 
 def test_grant_migrations_reverse_and_reapply(connect):
