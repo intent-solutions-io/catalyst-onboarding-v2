@@ -12,8 +12,8 @@
 | Conventions | Intent Blueprint Docs 3.0.0 (stable IDs, evidence status, lifecycle links); doc-filing v4.5 |
 | Supersedes | nothing; the earlier planning drafts named in section 2 were not available |
 
-> **Status reconciled 2026-10-31:** wave one has a recorded production launch under D-53. The full first-generation
-> replacement is in development and has no completed cutover proof in the reviewed records. Read `006` for the
+> **Status reconciled 2026-11-01:** the combined parity implementation is deployed on the US host; live provider
+> activation and the full first-generation cutover remain unverified. Read `006` for the
 > dated evidence snapshot and Beads for current task state. Earlier synthetic-only statements describe their
 > original scopes; later owner decisions apply only as recorded. D-54 mirrors existing owner answers, not new
 > agent-created approvals.
