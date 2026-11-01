@@ -18,10 +18,28 @@ from django.db import models
 from django.db.models import F, Q
 from django.db.models.functions import Lower, Now
 
-LIVE_REQUEST = ("awaiting_approval", "approved", "create_pending", "create_uncertain", "found_by_evidence", "created",
-                "verify_uncertain", "verified", "setup_pending", "setup_complete", "stopping")
-REQUEST_STATUSES = (*LIVE_REQUEST, "active", "conflict", "failed_needs_staff", "superseded", "stopped",
-                    "recovered_after_stop")
+LIVE_REQUEST = (
+    "awaiting_approval",
+    "approved",
+    "create_pending",
+    "create_uncertain",
+    "found_by_evidence",
+    "created",
+    "verify_uncertain",
+    "verified",
+    "setup_pending",
+    "setup_complete",
+    "stopping",
+)
+REQUEST_STATUSES = (
+    *LIVE_REQUEST,
+    "active",
+    "conflict",
+    "failed_needs_staff",
+    "superseded",
+    "stopped",
+    "recovered_after_stop",
+)
 
 
 class AddressReservation(models.Model):
@@ -30,7 +48,11 @@ class AddressReservation(models.Model):
         REVIEWED_EXCEPTION = "reviewed_exception"
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="reservations")
+    application = models.ForeignKey(
+        "applications.Application",
+        on_delete=models.PROTECT,
+        related_name="reservations",
+    )
     local_part = models.CharField(max_length=64)
     domain = models.CharField(max_length=253)
     basis = models.CharField(max_length=24, choices=Basis.choices)
@@ -41,14 +63,27 @@ class AddressReservation(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(Lower("local_part"), Lower("domain"), condition=Q(released_at__isnull=True),
-                                    name="reservation_live_address_unique"),
-            models.CheckConstraint(condition=Q(basis__in=["naming_rule", "reviewed_exception"]),
-                                   name="reservation_basis_valid"),
-            models.CheckConstraint(condition=Q(basis="naming_rule") | ~Q(reviewed_by=""),
-                                   name="reservation_exception_reviewed"),
-            models.CheckConstraint(condition=Q(local_part__regex=r"^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$")
-                                   & ~Q(local_part__contains=".."), name="reservation_local_part_safe"),
+            models.UniqueConstraint(
+                Lower("local_part"),
+                Lower("domain"),
+                condition=Q(released_at__isnull=True),
+                name="reservation_live_address_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(basis__in=["naming_rule", "reviewed_exception"]),
+                name="reservation_basis_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(basis="naming_rule") | ~Q(reviewed_by=""),
+                name="reservation_exception_reviewed",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    local_part__regex=r"^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                )
+                & ~Q(local_part__contains=".."),
+                name="reservation_local_part_safe",
+            ),
         ]
 
     @property
@@ -62,42 +97,83 @@ class ProvisioningRequest(models.Model):
         CHECKLIST = "checklist"
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT,
-                                    related_name="provisioning_requests")
-    reservation = models.ForeignKey(AddressReservation, on_delete=models.PROTECT, related_name="requests")
+    application = models.ForeignKey(
+        "applications.Application",
+        on_delete=models.PROTECT,
+        related_name="provisioning_requests",
+    )
+    reservation = models.ForeignKey(
+        AddressReservation, on_delete=models.PROTECT, related_name="requests"
+    )
     method = models.CharField(max_length=16, choices=Method.choices)
     quota_mb = models.PositiveIntegerField()
     send_limit = models.PositiveIntegerField()
     prerequisite_digest = models.CharField(max_length=64)
-    approval_digest = models.CharField(max_length=64)  # what the approver must confirm: address, limits, method, digest
+    approval_digest = models.CharField(
+        max_length=64
+    )  # what the approver must confirm: address, limits, method, digest
     status = models.CharField(max_length=24, default="awaiting_approval")
     approved_by = models.CharField(max_length=200, blank=True, default="")
     approved_at = models.DateTimeField(null=True, blank=True)
-    stop_requested_at = models.DateTimeField(null=True, blank=True)  # 023 11.5: orthogonal to the status
-    superseded_by = models.OneToOneField("self", on_delete=models.PROTECT, null=True, blank=True,
-                                         related_name="supersedes")
+    stop_requested_at = models.DateTimeField(
+        null=True, blank=True
+    )  # 023 11.5: orthogonal to the status
+    superseded_by = models.OneToOneField(
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supersedes",
+    )
     created_at = models.DateTimeField(db_default=Now())
     updated_at = models.DateTimeField(db_default=Now())
 
     class Meta:
         permissions = [
-            ("approve_provisioning", "Approve the exact mailbox for an applicant (P5-D-3; named grant only)"),
-            ("operate_provisioning", "Record checklist provisioning, attest verification and decide conflicts"),
+            (
+                "approve_provisioning",
+                "Approve the exact mailbox for an applicant (P5-D-3; named grant only)",
+            ),
+            (
+                "operate_provisioning",
+                "Record checklist provisioning, attest verification and decide conflicts",
+            ),
         ]
         constraints = [
-            models.UniqueConstraint(fields=["application"], condition=Q(status__in=LIVE_REQUEST),
-                                    name="provisioning_one_live_request"),
-            models.CheckConstraint(condition=Q(status__in=REQUEST_STATUSES), name="provisioning_status_valid"),
-            models.CheckConstraint(condition=Q(method__in=["api", "checklist"]), name="provisioning_method_valid"),
-            models.CheckConstraint(condition=Q(quota_mb__gte=1), name="provisioning_quota_positive"),  # never unlimited
-            models.CheckConstraint(condition=Q(send_limit__gte=1) & Q(send_limit__lte=9600),
-                                   name="provisioning_send_limit_range"),
+            models.UniqueConstraint(
+                fields=["application"],
+                condition=Q(status__in=LIVE_REQUEST),
+                name="provisioning_one_live_request",
+            ),
             models.CheckConstraint(
-                condition=(Q(approved_by="") & Q(approved_at__isnull=True)) | (~Q(approved_by="") & Q(approved_at__isnull=False)),
-                name="provisioning_approval_consistent"),
-            models.CheckConstraint(condition=Q(status__in=["awaiting_approval", "superseded", "stopped"])
-                                   | ~Q(approved_by=""), name="provisioning_progress_needs_approval"),
-            models.CheckConstraint(condition=~Q(superseded_by=F("id")), name="provisioning_not_self_superseding"),
+                condition=Q(status__in=REQUEST_STATUSES),
+                name="provisioning_status_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(method__in=["api", "checklist"]),
+                name="provisioning_method_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(quota_mb__gte=1), name="provisioning_quota_positive"
+            ),  # never unlimited
+            models.CheckConstraint(
+                condition=Q(send_limit__gte=1) & Q(send_limit__lte=9600),
+                name="provisioning_send_limit_range",
+            ),
+            models.CheckConstraint(
+                condition=(Q(approved_by="") & Q(approved_at__isnull=True))
+                | (~Q(approved_by="") & Q(approved_at__isnull=False)),
+                name="provisioning_approval_consistent",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=["awaiting_approval", "superseded", "stopped"])
+                | ~Q(approved_by=""),
+                name="provisioning_progress_needs_approval",
+            ),
+            models.CheckConstraint(
+                condition=~Q(superseded_by=F("id")),
+                name="provisioning_not_self_superseding",
+            ),
         ]
 
 
@@ -117,23 +193,47 @@ class ProvisioningAttempt(models.Model):
         NOT_CREATED = "not_created"  # an unknown create later read as absent
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    request = models.ForeignKey(ProvisioningRequest, on_delete=models.PROTECT, related_name="attempts")
+    request = models.ForeignKey(
+        ProvisioningRequest, on_delete=models.PROTECT, related_name="attempts"
+    )
     step = models.CharField(max_length=16, choices=Step.choices)
     series = models.PositiveIntegerField(default=0)
-    outcome = models.CharField(max_length=24, choices=Outcome.choices, default=Outcome.SENDING)
+    outcome = models.CharField(
+        max_length=24, choices=Outcome.choices, default=Outcome.SENDING
+    )
     code = models.CharField(max_length=64, blank=True, default="")
-    absent_before = models.BooleanField(default=False)  # 023 11.3: an authoritative absent read in the same claim
+    absent_before = models.BooleanField(
+        default=False
+    )  # 023 11.3: an authoritative absent read in the same claim
     started_at = models.DateTimeField(db_default=Now())
     finished_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
-            models.CheckConstraint(condition=Q(step__in=["create", "read"]), name="provisioning_attempt_step_valid"),
-            models.CheckConstraint(condition=Q(outcome__in=["sending", "succeeded", "absent", "conflict", "rejected",
-                                                             "unknown", "found_by_evidence", "not_created"]),
-                                   name="provisioning_attempt_outcome_valid"),
-            models.UniqueConstraint(fields=["request"], condition=Q(step="create", outcome__in=["sending", "unknown"]),
-                                    name="provisioning_one_open_create"),
+            models.CheckConstraint(
+                condition=Q(step__in=["create", "read"]),
+                name="provisioning_attempt_step_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    outcome__in=[
+                        "sending",
+                        "succeeded",
+                        "absent",
+                        "conflict",
+                        "rejected",
+                        "unknown",
+                        "found_by_evidence",
+                        "not_created",
+                    ]
+                ),
+                name="provisioning_attempt_outcome_valid",
+            ),
+            models.UniqueConstraint(
+                fields=["request"],
+                condition=Q(step="create", outcome__in=["sending", "unknown"]),
+                name="provisioning_one_open_create",
+            ),
         ]
 
 
@@ -144,24 +244,57 @@ class ProvisioningEvidence(models.Model):
         CHECKLIST_ATTESTED = "checklist_attested"
         STAFF_CONFIRMED = "staff_confirmed"  # a found_by_evidence outcome confirmed by staff (023 11.3)
 
-    request = models.ForeignKey(ProvisioningRequest, on_delete=models.PROTECT, related_name="evidence")
+    request = models.ForeignKey(
+        ProvisioningRequest, on_delete=models.PROTECT, related_name="evidence"
+    )
     kind = models.CharField(max_length=24, choices=Kind.choices)
     actor_ref = models.CharField(max_length=200)
-    facts = models.JSONField(default=dict)  # allowlisted: name, quota, limit, suspended; never a credential
+    facts = models.JSONField(
+        default=dict
+    )  # allowlisted: name, quota, limit, suspended; never a credential
     note = models.CharField(max_length=500, blank=True, default="")
     created_at = models.DateTimeField(db_default=Now())
 
     class Meta:
         constraints = [
-            models.CheckConstraint(condition=Q(kind__in=["adapter_read", "checklist_created", "checklist_attested",
-                                                         "staff_confirmed"]), name="provisioning_evidence_kind_valid"),
-            models.CheckConstraint(condition=~Q(actor_ref=""), name="provisioning_evidence_has_actor"),
+            models.CheckConstraint(
+                condition=Q(
+                    kind__in=[
+                        "adapter_read",
+                        "checklist_created",
+                        "checklist_attested",
+                        "staff_confirmed",
+                    ]
+                ),
+                name="provisioning_evidence_kind_valid",
+            ),
+            models.CheckConstraint(
+                condition=~Q(actor_ref=""), name="provisioning_evidence_has_actor"
+            ),
         ]
 
 
-SETUP_STATES = ("invitation_pending", "invitation_sending", "invited", "invitation_uncertain", "invitation_failed",
-                "presented", "set_pending", "completed", "set_uncertain", "expired", "cancelled", "superseded")
-LIVE_SETUP = ("invitation_pending", "invitation_sending", "invited", "presented", "set_pending")
+SETUP_STATES = (
+    "invitation_pending",
+    "invitation_sending",
+    "invited",
+    "invitation_uncertain",
+    "invitation_failed",
+    "presented",
+    "set_pending",
+    "completed",
+    "set_uncertain",
+    "expired",
+    "cancelled",
+    "superseded",
+)
+LIVE_SETUP = (
+    "invitation_pending",
+    "invitation_sending",
+    "invited",
+    "presented",
+    "set_pending",
+)
 
 
 class CredentialSetup(models.Model):
@@ -179,11 +312,18 @@ class CredentialSetup(models.Model):
         ONE_TIME_PASSWORD = "one_time_password"
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    request = models.ForeignKey(ProvisioningRequest, on_delete=models.PROTECT, related_name="setups")
+    request = models.ForeignKey(
+        ProvisioningRequest, on_delete=models.PROTECT, related_name="setups"
+    )
     series = models.PositiveIntegerField()
     # A database default too, so a row written without the column (the release before this one, during a deploy) is
     # the link flow it always was.
-    mode = models.CharField(max_length=24, choices=Mode.choices, default=Mode.SET_YOUR_OWN, db_default=Mode.SET_YOUR_OWN)
+    mode = models.CharField(
+        max_length=24,
+        choices=Mode.choices,
+        default=Mode.SET_YOUR_OWN,
+        db_default=Mode.SET_YOUR_OWN,
+    )
     recipient = models.CharField(max_length=320)
     token_sha256 = models.CharField(max_length=64, blank=True, default="")
     state = models.CharField(max_length=24, default="invitation_pending")
@@ -196,24 +336,58 @@ class CredentialSetup(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["request", "series"], name="setup_series_unique"),
-            models.UniqueConstraint(fields=["request"], condition=Q(state__in=LIVE_SETUP), name="setup_one_live_per_request"),
-            models.UniqueConstraint(fields=["token_sha256"], condition=~Q(token_sha256=""), name="setup_token_unique"),
-            models.CheckConstraint(condition=Q(state__in=SETUP_STATES), name="setup_state_valid"),
-            models.CheckConstraint(condition=Q(mode__in=["set_your_own", "one_time_password"]), name="setup_mode_valid"),
+            models.UniqueConstraint(
+                fields=["request", "series"], name="setup_series_unique"
+            ),
+            models.UniqueConstraint(
+                fields=["request"],
+                condition=Q(state__in=LIVE_SETUP),
+                name="setup_one_live_per_request",
+            ),
+            models.UniqueConstraint(
+                fields=["token_sha256"],
+                condition=~Q(token_sha256=""),
+                name="setup_token_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(state__in=SETUP_STATES), name="setup_state_valid"
+            ),
+            models.CheckConstraint(
+                condition=Q(mode__in=["set_your_own", "one_time_password"]),
+                name="setup_mode_valid",
+            ),
             # A link series carries its token once invited; a one-time-password series never has one.
-            models.CheckConstraint(condition=Q(mode="one_time_password")
-                                   | ~Q(state__in=["invited", "presented", "set_pending", "completed"])
-                                   | (~Q(token_sha256="") & Q(expires_at__isnull=False)), name="setup_invited_has_token"),
-            models.CheckConstraint(condition=Q(state="completed") | Q(completed_at__isnull=True),
-                                   name="setup_completed_consistent"),
+            models.CheckConstraint(
+                condition=Q(mode="one_time_password")
+                | ~Q(state__in=["invited", "presented", "set_pending", "completed"])
+                | (~Q(token_sha256="") & Q(expires_at__isnull=False)),
+                name="setup_invited_has_token",
+            ),
+            models.CheckConstraint(
+                condition=Q(state="completed") | Q(completed_at__isnull=True),
+                name="setup_completed_consistent",
+            ),
         ]
 
 
-REVOCATION_KINDS = ("setup_links", "password_rotation", "owned_forwarders", "inbound_forwarders", "catch_all",
-                    "sessions", "app_credentials")
-REVOCATION_STATES = ("requested", "pending", "applied_unverified", "verified", "not_applicable", "unsupported",
-                     "exception")
+REVOCATION_KINDS = (
+    "setup_links",
+    "password_rotation",
+    "owned_forwarders",
+    "inbound_forwarders",
+    "catch_all",
+    "sessions",
+    "app_credentials",
+)
+REVOCATION_STATES = (
+    "requested",
+    "pending",
+    "applied_unverified",
+    "verified",
+    "not_applicable",
+    "unsupported",
+    "exception",
+)
 
 
 class AccessRevocation(models.Model):
@@ -223,7 +397,9 @@ class AccessRevocation(models.Model):
     with a reason. Never a deletion of mailbox data."""
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    request = models.ForeignKey(ProvisioningRequest, on_delete=models.PROTECT, related_name="revocations")
+    request = models.ForeignKey(
+        ProvisioningRequest, on_delete=models.PROTECT, related_name="revocations"
+    )
     kind = models.CharField(max_length=24)
     state = models.CharField(max_length=24, default="requested")
     note = models.CharField(max_length=500, blank=True, default="")
@@ -232,12 +408,26 @@ class AccessRevocation(models.Model):
     updated_at = models.DateTimeField(db_default=Now())
 
     class Meta:
-        permissions = [("close_application", "Withdraw or close an application on the applicant's behalf (POL-12)")]
+        permissions = [
+            (
+                "close_application",
+                "Withdraw or close an application on the applicant's behalf (POL-12)",
+            )
+        ]
         constraints = [
-            models.UniqueConstraint(fields=["request", "kind"], name="revocation_one_per_kind"),
-            models.CheckConstraint(condition=Q(kind__in=REVOCATION_KINDS), name="revocation_kind_valid"),
-            models.CheckConstraint(condition=Q(state__in=REVOCATION_STATES), name="revocation_state_valid"),
-            models.CheckConstraint(condition=~Q(state="exception") | ~Q(decided_by=""), name="revocation_exception_decided"),
+            models.UniqueConstraint(
+                fields=["request", "kind"], name="revocation_one_per_kind"
+            ),
+            models.CheckConstraint(
+                condition=Q(kind__in=REVOCATION_KINDS), name="revocation_kind_valid"
+            ),
+            models.CheckConstraint(
+                condition=Q(state__in=REVOCATION_STATES), name="revocation_state_valid"
+            ),
+            models.CheckConstraint(
+                condition=~Q(state="exception") | ~Q(decided_by=""),
+                name="revocation_exception_decided",
+            ),
         ]
 
 
@@ -246,10 +436,14 @@ class WithdrawalConfirmation(models.Model):
     applicant's request; GET shows what withdrawing means, POST commits. Only the token's SHA-256 is stored."""
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="withdrawals")
+    application = models.ForeignKey(
+        "applications.Application", on_delete=models.PROTECT, related_name="withdrawals"
+    )
     recipient = models.CharField(max_length=320)
     token_sha256 = models.CharField(max_length=64, blank=True, default="")
-    state = models.CharField(max_length=16, default="pending")  # pending, sent, used, expired, superseded, uncertain
+    state = models.CharField(
+        max_length=16, default="pending"
+    )  # pending, sent, used, expired, superseded, uncertain
     expires_at = models.DateTimeField(null=True, blank=True)
     requested_by = models.CharField(max_length=200)
     created_at = models.DateTimeField(db_default=Now())
@@ -257,11 +451,30 @@ class WithdrawalConfirmation(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["token_sha256"], condition=~Q(token_sha256=""), name="withdrawal_token_unique"),
-            models.UniqueConstraint(fields=["application"], condition=Q(state__in=["pending", "sent"]),
-                                    name="withdrawal_one_live_per_application"),
-            models.CheckConstraint(condition=Q(state__in=["pending", "sent", "used", "expired", "superseded", "uncertain"]),
-                                   name="withdrawal_state_valid"),
-            models.CheckConstraint(condition=~Q(requested_by=""), name="withdrawal_has_requester"),
+            models.UniqueConstraint(
+                fields=["token_sha256"],
+                condition=~Q(token_sha256=""),
+                name="withdrawal_token_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["application"],
+                condition=Q(state__in=["pending", "sent"]),
+                name="withdrawal_one_live_per_application",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    state__in=[
+                        "pending",
+                        "sent",
+                        "used",
+                        "expired",
+                        "superseded",
+                        "uncertain",
+                    ]
+                ),
+                name="withdrawal_state_valid",
+            ),
+            models.CheckConstraint(
+                condition=~Q(requested_by=""), name="withdrawal_has_requester"
+            ),
         ]
-

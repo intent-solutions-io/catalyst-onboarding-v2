@@ -59,8 +59,10 @@ WELCOME_TEMPLATE = "provisioning_welcome"
 ITEM_SETUP = "provisioning_setup_needs_staff"
 ITEM_ACTIVATION = "provisioning_activation_blocked"
 SUBJECT = "Set the password for your new mailbox"
-BODY = ("Hello {name},\n\nYour mailbox has been created. Choose its password here (the link works once and expires):\n\n"
-        "{link}\n\nIf you did not expect this message, ignore it.\n")
+BODY = (
+    "Hello {name},\n\nYour mailbox has been created. Choose its password here (the link works once and expires):\n\n"
+    "{link}\n\nIf you did not expect this message, ignore it.\n"
+)
 
 
 def token_hash(token: str) -> str:
@@ -73,7 +75,9 @@ def setup_link(token: str) -> str:
 
 def _outside_company(address: str) -> bool:
     domain = settings.CATALYST_PROVISIONING_DOMAIN.lower()
-    return bool(address) and not (domain and address.lower().rsplit("@", 1)[-1] == domain)
+    return bool(address) and not (
+        domain and address.lower().rsplit("@", 1)[-1] == domain
+    )
 
 
 def recipient_problem(application, setup) -> str:
@@ -98,33 +102,50 @@ def open_setup(request, actor_ref: str) -> CredentialSetup | None:
         core.item(ITEM_SETUP, request)
         return None
     series = request.setups.count()
-    mode = settings.CATALYST_PROVISIONING_CREDENTIAL_MODE  # fixed on the row: a later switch never changes a live series
-    setup = CredentialSetup.objects.create(request=request, series=series, recipient=recipient, mode=mode)
+    mode = (
+        settings.CATALYST_PROVISIONING_CREDENTIAL_MODE
+    )  # fixed on the row: a later switch never changes a live series
+    setup = CredentialSetup.objects.create(
+        request=request, series=series, recipient=recipient, mode=mode
+    )
     core.set_status(request, "setup_pending")
     if mode == ONE_TIME_PASSWORD:
         core.enqueue(OTP_WELCOME, request, f"otp_welcome:{setup.public_id}:{series}")
     else:
         core.enqueue(INVITE, request, f"setup_invite:{setup.public_id}:{series}")
-    core.record(request.application, "provisioning_setup_opened", {"request": str(request.public_id), "series": series,
-                                                                   "mode": mode}, actor_ref)
+    core.record(
+        request.application,
+        "provisioning_setup_opened",
+        {"request": str(request.public_id), "series": series, "mode": mode},
+        actor_ref,
+    )
     return setup
 
 
 def _supersede_and_reopen(setup, request, actor_ref: str, code: str) -> None:
     """A series that cannot be trusted any more is superseded; a new one opens, bounded, then staff decide."""
-    CredentialSetup.objects.filter(pk=setup.pk, state__in=(*LIVE_SETUP, "invitation_uncertain", "set_uncertain")).update(
-        state="superseded", updated_at=Now())
-    core.record(request.application, "provisioning_setup_superseded", {"request": str(request.public_id),
-                                                                       "series": setup.series, "code": code}, actor_ref)
+    CredentialSetup.objects.filter(
+        pk=setup.pk, state__in=(*LIVE_SETUP, "invitation_uncertain", "set_uncertain")
+    ).update(state="superseded", updated_at=Now())
+    core.record(
+        request.application,
+        "provisioning_setup_superseded",
+        {"request": str(request.public_id), "series": setup.series, "code": code},
+        actor_ref,
+    )
     if request.status != "setup_pending":
         return  # superseded, stopped or otherwise moved on: a late sweep never reopens it
-    if request.setups.count() >= settings.CATALYST_SETUP_INVITE_MAX_SERIES or request.stop_requested_at is not None:
+    if (
+        request.setups.count() >= settings.CATALYST_SETUP_INVITE_MAX_SERIES
+        or request.stop_requested_at is not None
+    ):
         core.item(ITEM_SETUP, request)
         return
     open_setup(request, actor_ref)
 
 
 # --- the invitation ---------------------------------------------------------------------------------------------
+
 
 class SendSetupInvitation(_Action):
     kind = INVITE
@@ -134,8 +155,15 @@ class SendSetupInvitation(_Action):
     def _setup(self, claim):
         key = self._key(claim)
         setup_id = key.split(":")[1] if key.count(":") >= 2 else ""
-        return CredentialSetup.objects.select_related("request__application", "request__reservation").filter(
-            public_id=setup_id).first() if setup_id else None
+        return (
+            CredentialSetup.objects.select_related(
+                "request__application", "request__reservation"
+            )
+            .filter(public_id=setup_id)
+            .first()
+            if setup_id
+            else None
+        )
 
     def run(self, claim) -> None:
         setup = self._setup(claim)
@@ -144,24 +172,50 @@ class SendSetupInvitation(_Action):
             return
         try:
             with transaction.atomic():
-                application, request = core.lock(setup.request.application_id, setup.request_id)
-                setup = CredentialSetup.objects.select_for_update(of=("self",)).get(pk=setup.pk)
+                application, request = core.lock(
+                    setup.request.application_id, setup.request_id
+                )
+                setup = CredentialSetup.objects.select_for_update(of=("self",)).get(
+                    pk=setup.pk
+                )
                 ledger.fence(claim)
-                if setup.state == "invitation_sending":  # a crash after the send: the outcome is unknown
-                    CredentialSetup.objects.filter(pk=setup.pk).update(state="invitation_uncertain", updated_at=Now())
-                    _supersede_and_reopen(setup, request, f"pending_action:{claim.id}", "earlier_send_unknown")
-                    ledger.finish(claim, self, status=Status.DONE, error="earlier_send_unknown")
+                if (
+                    setup.state == "invitation_sending"
+                ):  # a crash after the send: the outcome is unknown
+                    CredentialSetup.objects.filter(pk=setup.pk).update(
+                        state="invitation_uncertain", updated_at=Now()
+                    )
+                    _supersede_and_reopen(
+                        setup,
+                        request,
+                        f"pending_action:{claim.id}",
+                        "earlier_send_unknown",
+                    )
+                    ledger.finish(
+                        claim, self, status=Status.DONE, error="earlier_send_unknown"
+                    )
                     return
-                if setup.state != "invitation_pending" or request.status != "setup_pending":
-                    ledger.finish(claim, self, status=Status.DONE, error="nothing_to_send")
+                if (
+                    setup.state != "invitation_pending"
+                    or request.status != "setup_pending"
+                ):
+                    ledger.finish(
+                        claim, self, status=Status.DONE, error="nothing_to_send"
+                    )
                     return
-                problem = core.database_problem(application, request) or recipient_problem(application, setup)
+                problem = core.database_problem(
+                    application, request
+                ) or recipient_problem(application, setup)
                 if problem:
-                    CredentialSetup.objects.filter(pk=setup.pk).update(state="cancelled", updated_at=Now())
+                    CredentialSetup.objects.filter(pk=setup.pk).update(
+                        state="cancelled", updated_at=Now()
+                    )
                     core.item(ITEM_SETUP, request, claim_id=claim.id)
                     ledger.finish(claim, self, status=Status.DONE, error=problem)
                     return
-                CredentialSetup.objects.filter(pk=setup.pk).update(state="invitation_sending", updated_at=Now())
+                CredentialSetup.objects.filter(pk=setup.pk).update(
+                    state="invitation_sending", updated_at=Now()
+                )
         except ledger.LeaseLost:
             return
         if transaction.get_connection().in_atomic_block:
@@ -169,42 +223,79 @@ class SendSetupInvitation(_Action):
         token = secrets.token_urlsafe(32)  # minted now; only its hash is ever stored
         digest = token_hash(token)
         message = EmailMessage(
-            subject=SUBJECT, to=[setup.recipient], from_email=from_header(), reply_to=reply_to(),
-            body=BODY.format(name=setup.request.application.display_name, link=setup_link(token)),
-            headers={"Message-ID": make_msgid(domain=urlsplit(settings.CATALYST_PUBLIC_BASE_URL).hostname)})
+            subject=SUBJECT,
+            to=[setup.recipient],
+            from_email=from_header(),
+            reply_to=reply_to(),
+            body=BODY.format(
+                name=setup.request.application.display_name, link=setup_link(token)
+            ),
+            headers={
+                "Message-ID": make_msgid(
+                    domain=urlsplit(settings.CATALYST_PUBLIC_BASE_URL).hostname
+                )
+            },
+        )
         try:
             sent = message.send(fail_silently=False) == 1
         except Exception as exc:
-            logger.warning("action %s: setup invitation send failed (%s)", claim.id, type(exc).__name__)
+            logger.warning(
+                "action %s: setup invitation send failed (%s)",
+                claim.id,
+                type(exc).__name__,
+            )
             sent = False
         del token, message
         try:
-            ledger.finish(claim, self, status=Status.DONE, error="" if sent else "send_uncertain",
-                          write=lambda: self._result(claim, setup, digest, sent))
+            ledger.finish(
+                claim,
+                self,
+                status=Status.DONE,
+                error="" if sent else "send_uncertain",
+                write=lambda: self._result(claim, setup, digest, sent),
+            )
         except Exception as exc:
             raise ledger.LeftForRecovery from exc
 
     def _result(self, claim, setup, digest, sent) -> None:
-        setup = CredentialSetup.objects.select_related("request__application").get(pk=setup.pk)
+        setup = CredentialSetup.objects.select_related("request__application").get(
+            pk=setup.pk
+        )
         request = setup.request
         actor = f"pending_action:{claim.id}"
         if not sent:
             # Never reconciled by evidence: the old token (never stored) is dead; a new series mints a new one.
-            CredentialSetup.objects.filter(pk=setup.pk).update(state="invitation_uncertain", updated_at=Now())
+            CredentialSetup.objects.filter(pk=setup.pk).update(
+                state="invitation_uncertain", updated_at=Now()
+            )
             _supersede_and_reopen(setup, request, actor, "send_uncertain")
             return
-        if not CredentialSetup.objects.filter(pk=setup.pk, state="invitation_sending").update(
-                state="invited", token_sha256=digest, updated_at=Now(),
-                expires_at=Now() + timedelta(seconds=settings.CATALYST_SETUP_LINK_SECONDS)):
+        if not CredentialSetup.objects.filter(
+            pk=setup.pk, state="invitation_sending"
+        ).update(
+            state="invited",
+            token_sha256=digest,
+            updated_at=Now(),
+            expires_at=Now() + timedelta(seconds=settings.CATALYST_SETUP_LINK_SECONDS),
+        ):
             return
         # An unused link ends visibly: at expiry it is `expired` and a new series opens (bounded), never a stall.
-        core.enqueue(SWEEP, request, f"setup_expire:{setup.public_id}:0",
-                     due_in=timedelta(seconds=settings.CATALYST_SETUP_LINK_SECONDS))
-        core.record(request.application, "provisioning_setup_invited", {"request": str(request.public_id),
-                                                                        "series": setup.series}, actor)
+        core.enqueue(
+            SWEEP,
+            request,
+            f"setup_expire:{setup.public_id}:0",
+            due_in=timedelta(seconds=settings.CATALYST_SETUP_LINK_SECONDS),
+        )
+        core.record(
+            request.application,
+            "provisioning_setup_invited",
+            {"request": str(request.public_id), "series": setup.series},
+            actor,
+        )
 
 
 # --- the applicant's page ---------------------------------------------------------------------------------------
+
 
 class SetupRefused(Exception):
     """One uniform refusal for an unknown, used, expired, cancelled or superseded link (no enumeration)."""
@@ -214,9 +305,18 @@ def live_setup(token: str):
     """The setup a token opens, or None. Never consumes the token (a GET or a link preview is harmless)."""
     if not token or len(token) > 100:
         return None
-    setup = (CredentialSetup.objects.select_related("request__application", "request__reservation")
-             .filter(token_sha256=token_hash(token), state__in=("invited", "presented")).first())
-    if setup is None or setup.request.stop_requested_at is not None or setup.request.status != "setup_pending":
+    setup = (
+        CredentialSetup.objects.select_related(
+            "request__application", "request__reservation"
+        )
+        .filter(token_sha256=token_hash(token), state__in=("invited", "presented"))
+        .first()
+    )
+    if (
+        setup is None
+        or setup.request.stop_requested_at is not None
+        or setup.request.status != "setup_pending"
+    ):
         return None
     if recipient_problem(setup.request.application, setup):
         return None
@@ -226,7 +326,9 @@ def live_setup(token: str):
 
 
 def mark_presented(setup) -> None:
-    CredentialSetup.objects.filter(pk=setup.pk, state="invited").update(state="presented", updated_at=Now())
+    CredentialSetup.objects.filter(pk=setup.pk, state="invited").update(
+        state="presented", updated_at=Now()
+    )
 
 
 @sensitive_variables("password")
@@ -241,47 +343,90 @@ def set_password(token: str, password: str) -> str:
     with transaction.atomic():
         application, request = core.lock(setup.request.application_id, setup.request_id)
         setup = CredentialSetup.objects.select_for_update(of=("self",)).get(pk=setup.pk)
-        if (setup.state not in ("invited", "presented") or setup.token_sha256 != token_hash(token)
-                or request.status != "setup_pending" or core.database_problem(application, request)
-                or recipient_problem(application, setup)  # re-checked at redemption (023 11.8)
-                or CredentialSetup.objects.filter(pk=setup.pk, expires_at__lte=Now()).exists()):
+        if (
+            setup.state not in ("invited", "presented")
+            or setup.token_sha256 != token_hash(token)
+            or request.status != "setup_pending"
+            or core.database_problem(application, request)
+            or recipient_problem(
+                application, setup
+            )  # re-checked at redemption (023 11.8)
+            or CredentialSetup.objects.filter(
+                pk=setup.pk, expires_at__lte=Now()
+            ).exists()
+        ):
             raise SetupRefused
-        CredentialSetup.objects.filter(pk=setup.pk).update(state="set_pending", set_started_at=Now(),
-                                                           set_attempts=setup.set_attempts + 1, updated_at=Now())
-        core.enqueue(SWEEP, request, f"setup_sweep:{setup.public_id}:{setup.set_attempts + 1}",
-                     due_in=timedelta(seconds=settings.CATALYST_SETUP_SET_TIMEOUT_SECONDS))
+        CredentialSetup.objects.filter(pk=setup.pk).update(
+            state="set_pending",
+            set_started_at=Now(),
+            set_attempts=setup.set_attempts + 1,
+            updated_at=Now(),
+        )
+        core.enqueue(
+            SWEEP,
+            request,
+            f"setup_sweep:{setup.public_id}:{setup.set_attempts + 1}",
+            due_in=timedelta(seconds=settings.CATALYST_SETUP_SET_TIMEOUT_SECONDS),
+        )
     try:
-        adapter.host().set_password(request.reservation.domain, request.reservation.local_part, password)
+        adapter.host().set_password(
+            request.reservation.domain, request.reservation.local_part, password
+        )
         result = None
     except adapter.AdapterError as exc:
-        result = adapter.AdapterError(exc.code, sent=exc.sent, status=exc.status)  # no traceback holds the password
+        result = adapter.AdapterError(
+            exc.code, sent=exc.sent, status=exc.status
+        )  # no traceback holds the password
         del exc
     except Exception as exc:
-        logger.error("setup %s: the credential operation raised %s", setup.public_id, type(exc).__name__)
+        logger.error(
+            "setup %s: the credential operation raised %s",
+            setup.public_id,
+            type(exc).__name__,
+        )
         result = adapter.AdapterError("handler_error", sent=True)
     del password
     outcome = "refused"
     with transaction.atomic():
         application, request = core.lock(request.application_id, request.pk)
-        current = CredentialSetup.objects.select_for_update(of=("self",)).get(pk=setup.pk)
-        if current.state != "set_pending":  # the sweep already called it uncertain: keep that
+        current = CredentialSetup.objects.select_for_update(of=("self",)).get(
+            pk=setup.pk
+        )
+        if (
+            current.state != "set_pending"
+        ):  # the sweep already called it uncertain: keep that
             outcome = "refused"
         elif result is None:
-            CredentialSetup.objects.filter(pk=setup.pk).update(state="completed", completed_at=Now(), updated_at=Now())
+            CredentialSetup.objects.filter(pk=setup.pk).update(
+                state="completed", completed_at=Now(), updated_at=Now()
+            )
             if request.stop_requested_at is None:
                 core.set_status(request, "setup_complete")
                 core.enqueue(ACTIVATE, request, f"activate:{request.public_id}")
-            core.record(application, "provisioning_setup_completed", {"request": str(request.public_id)}, "applicant")
+            core.record(
+                application,
+                "provisioning_setup_completed",
+                {"request": str(request.public_id)},
+                "applicant",
+            )
             outcome = "completed"
-        elif not result.unknown and result.status == 400:  # the server refused this choice: choose again, bounded
+        elif (
+            not result.unknown and result.status == 400
+        ):  # the server refused this choice: choose again, bounded
             if current.set_attempts >= settings.CATALYST_SETUP_SET_ATTEMPTS:
-                _supersede_and_reopen(current, request, "applicant", "set_attempts_exhausted")
+                _supersede_and_reopen(
+                    current, request, "applicant", "set_attempts_exhausted"
+                )
                 outcome = "refused"
             else:
-                CredentialSetup.objects.filter(pk=setup.pk).update(state="presented", updated_at=Now())
+                CredentialSetup.objects.filter(pk=setup.pk).update(
+                    state="presented", updated_at=Now()
+                )
                 outcome = "retry"
         else:  # unknown: never read back; a new invitation lets the applicant choose again
-            CredentialSetup.objects.filter(pk=setup.pk).update(state="set_uncertain", updated_at=Now())
+            CredentialSetup.objects.filter(pk=setup.pk).update(
+                state="set_uncertain", updated_at=Now()
+            )
             _supersede_and_reopen(current, request, "applicant", "set_uncertain")
             outcome = "refused"
     if outcome == "refused":  # raised after the commit, so the recorded outcome stands
@@ -301,24 +446,49 @@ class SweepSetup(_Action):
         mode, setup_id, n = (key.split(":") + ["", "", ""])[:3]
 
         def write():
-            setup = CredentialSetup.objects.select_related("request__application").filter(public_id=setup_id).first()
+            setup = (
+                CredentialSetup.objects.select_related("request__application")
+                .filter(public_id=setup_id)
+                .first()
+            )
             if setup is None:
                 return
             actor = f"pending_action:{claim.id}"
             if mode == "setup_expire":
-                if setup.state in ("invited", "presented") and CredentialSetup.objects.filter(
-                        pk=setup.pk, expires_at__lte=Now()).exists():
-                    CredentialSetup.objects.filter(pk=setup.pk).update(state="expired", updated_at=Now())
-                    core.record(setup.request.application, "provisioning_setup_expired",
-                                {"request": str(setup.request.public_id), "series": setup.series}, actor)
+                if (
+                    setup.state in ("invited", "presented")
+                    and CredentialSetup.objects.filter(
+                        pk=setup.pk, expires_at__lte=Now()
+                    ).exists()
+                ):
+                    CredentialSetup.objects.filter(pk=setup.pk).update(
+                        state="expired", updated_at=Now()
+                    )
+                    core.record(
+                        setup.request.application,
+                        "provisioning_setup_expired",
+                        {
+                            "request": str(setup.request.public_id),
+                            "series": setup.series,
+                        },
+                        actor,
+                    )
                     _reopen_after(setup, setup.request, actor)
                 return
             timeout = timedelta(seconds=settings.CATALYST_SETUP_SET_TIMEOUT_SECONDS)
-            if (setup.state != "set_pending" or str(setup.set_attempts) != n
-                    or not CredentialSetup.objects.filter(pk=setup.pk, set_started_at__lte=Now() - timeout).exists()):
+            if (
+                setup.state != "set_pending"
+                or str(setup.set_attempts) != n
+                or not CredentialSetup.objects.filter(
+                    pk=setup.pk, set_started_at__lte=Now() - timeout
+                ).exists()
+            ):
                 return  # a later attempt, or still within its time: not this sweep's business (security review)
-            CredentialSetup.objects.filter(pk=setup.pk).update(state="set_uncertain", updated_at=Now())
+            CredentialSetup.objects.filter(pk=setup.pk).update(
+                state="set_uncertain", updated_at=Now()
+            )
             _supersede_and_reopen(setup, setup.request, actor, "set_timed_out")
+
         ledger.finish(claim, self, status=Status.DONE, write=write)
 
 
@@ -326,7 +496,10 @@ def _reopen_after(setup, request, actor_ref: str) -> None:
     """After an expired (terminal) series: open a new one within the bound, else staff."""
     if request.status != "setup_pending":
         return  # superseded, stopped or otherwise moved on: a late expiry never reopens it
-    if request.setups.count() >= settings.CATALYST_SETUP_INVITE_MAX_SERIES or request.stop_requested_at is not None:
+    if (
+        request.setups.count() >= settings.CATALYST_SETUP_INVITE_MAX_SERIES
+        or request.stop_requested_at is not None
+    ):
         core.item(ITEM_SETUP, request)
         return
     open_setup(request, actor_ref)
@@ -345,10 +518,15 @@ def reissue(request_id: int, user, reason: str) -> CredentialSetup:
     request = ProvisioningRequest.objects.get(pk=request_id)
     with transaction.atomic():
         application, request = core.lock(request.application_id, request.pk)
-        if request.status not in ("setup_pending", "verified"):  # verified: no usable recipient when it was opened
+        if request.status not in (
+            "setup_pending",
+            "verified",
+        ):  # verified: no usable recipient when it was opened
             raise services.Refused("not_awaiting_setup")
         if request.method != ProvisioningRequest.Method.API:
-            raise services.Refused("checklist_credential_is_a_separate_contingency")  # P5-D-6 option (b)
+            raise services.Refused(
+                "checklist_credential_is_a_separate_contingency"
+            )  # P5-D-6 option (b)
         problem = core.database_problem(application, request)
         if problem:
             raise services.Refused(problem)
@@ -356,18 +534,25 @@ def reissue(request_id: int, user, reason: str) -> CredentialSetup:
             raise services.Refused("set_in_progress")
         if request.setups.filter(state="invitation_sending").exists():
             raise services.Refused("invitation_in_flight")
-        request.setups.filter(state__in=("invitation_pending", "invited", "presented")).update(
-            state="superseded", updated_at=Now())
+        request.setups.filter(
+            state__in=("invitation_pending", "invited", "presented")
+        ).update(state="superseded", updated_at=Now())
         setup = open_setup(request, services.actor(user))
         if setup is None:
             raise services.Refused("recipient_not_usable")
-        for open_one in StaffItem.objects.filter(reason_code=ITEM_SETUP, dedupe_key=f"provisioning:{request.public_id}",
-                                                 status=StaffItem.Status.OPEN):
-            resolve_item(open_one, code="reissued", actor_ref=services.actor(user), note=note)
+        for open_one in StaffItem.objects.filter(
+            reason_code=ITEM_SETUP,
+            dedupe_key=f"provisioning:{request.public_id}",
+            status=StaffItem.Status.OPEN,
+        ):
+            resolve_item(
+                open_one, code="reissued", actor_ref=services.actor(user), note=note
+            )
     return setup
 
 
 # --- activation -------------------------------------------------------------------------------------------------
+
 
 class Activate(_Action):
     kind = ACTIVATE
@@ -383,25 +568,54 @@ class Activate(_Action):
             return
         problem = fresh_read_problem(request.application)  # B6, outside any transaction
         if problem == "provider_unavailable":
-            ledger.finish(claim, self, status=Status.QUEUED, error=problem, refund_attempt=True,
-                          due_in=timedelta(seconds=settings.CATALYST_PROVISIONING_RECONCILE_GRACE_SECONDS))
+            ledger.finish(
+                claim,
+                self,
+                status=Status.QUEUED,
+                error=problem,
+                refund_attempt=True,
+                due_in=timedelta(
+                    seconds=settings.CATALYST_PROVISIONING_RECONCILE_GRACE_SECONDS
+                ),
+            )
             return
-        ledger.finish(claim, self, status=Status.DONE, error=problem, write=lambda: self._activate(claim, request, problem))
+        ledger.finish(
+            claim,
+            self,
+            status=Status.DONE,
+            error=problem,
+            write=lambda: self._activate(claim, request, problem),
+        )
 
     def _activate(self, claim, request, fresh_problem) -> None:
         from correspondence.models import ApprovedMessage
-        from correspondence.outbound import Refused, _freeze, current_template_version, enqueue_send
+        from correspondence.outbound import (
+            Refused,
+            _freeze,
+            current_template_version,
+            enqueue_send,
+        )
         from correspondence.rendering import TemplateRefused
 
         application = Application.objects.get(pk=request.application_id)
-        request = ProvisioningRequest.objects.select_related("reservation").get(pk=request.pk)
+        request = ProvisioningRequest.objects.select_related("reservation").get(
+            pk=request.pk
+        )
         actor = f"pending_action:{claim.id}"
         if application.stage != Stage.PROVISIONING:
             return  # already active, or no longer provisioning: nothing more (the lock is held, so this stands)
         problem = fresh_problem or core.database_problem(application, request)
-        completed = request.setups.filter(state="completed", completed_at__isnull=False).order_by("-series").first()
-        verified = application.events.filter(kind="provisioning_verified", data__request=str(request.public_id)).exists()
-        if not problem and (request.status != "setup_complete" or not (completed and verified)):
+        completed = (
+            request.setups.filter(state="completed", completed_at__isnull=False)
+            .order_by("-series")
+            .first()
+        )
+        verified = application.events.filter(
+            kind="provisioning_verified", data__request=str(request.public_id)
+        ).exists()
+        if not problem and (
+            request.status != "setup_complete" or not (completed and verified)
+        ):
             problem = "not_ready"
         # A one-time-password series already sent its welcome (the one carrying the credential, 034 row 39): activation
         # sends no second one. The link flow's welcome is frozen and queued here.
@@ -412,23 +626,45 @@ class Activate(_Action):
         message = None
         if not problem and not with_password:
             try:  # the welcome is frozen first: no activation without a welcome to send (security review)
-                message = _freeze(application, ApprovedMessage.Kind.WELCOME, verified_address(application), version,
-                                  {"display_name": application.display_name,
-                                   "mailbox_address": request.reservation.address},
-                                  actor, ApprovedMessage.Authority.SYSTEM_POLICY)
+                message = _freeze(
+                    application,
+                    ApprovedMessage.Kind.WELCOME,
+                    verified_address(application),
+                    version,
+                    {
+                        "display_name": application.display_name,
+                        "mailbox_address": request.reservation.address,
+                    },
+                    actor,
+                    ApprovedMessage.Authority.SYSTEM_POLICY,
+                )
             except (Refused, TemplateRefused) as exc:
                 problem = f"welcome_refused_{type(exc).__name__.lower()}"
         if problem:
             core.item(ITEM_ACTIVATION, request, claim_id=claim.id)
-            core.record(application, "provisioning_activation_refused", {"request": str(request.public_id),
-                                                                         "reason": problem}, actor)
+            core.record(
+                application,
+                "provisioning_activation_refused",
+                {"request": str(request.public_id), "reason": problem},
+                actor,
+            )
             return
-        transition(application.pk, (Stage.PROVISIONING,), Stage.ACTIVE, event_kind="provisioning_activated",
-                   data={"request": str(request.public_id), "welcome": "sent_with_password" if with_password else "queued"},
-                   actor_ref=actor)
+        transition(
+            application.pk,
+            (Stage.PROVISIONING,),
+            Stage.ACTIVE,
+            event_kind="provisioning_activated",
+            data={
+                "request": str(request.public_id),
+                "welcome": "sent_with_password" if with_password else "queued",
+            },
+            actor_ref=actor,
+        )
         core.set_status(request, "active")
         if message is not None:
-            enqueue_send(message, 0)  # the P2 sender sends it later, outside this transaction, with its own checks
+            enqueue_send(
+                message, 0
+            )  # the P2 sender sends it later, outside this transaction, with its own checks
 
 
 def retry_activation(request_id: int, user, reason: str) -> None:
@@ -446,8 +682,15 @@ def retry_activation(request_id: int, user, reason: str) -> None:
         application, request = core.lock(request.application_id, request.pk)
         if request.status != "setup_complete":
             raise services.Refused("not_ready")
-        n = PendingAction.objects.filter(kind=ACTIVATE, input_ref=str(request.public_id)).count()
+        n = PendingAction.objects.filter(
+            kind=ACTIVATE, input_ref=str(request.public_id)
+        ).count()
         core.enqueue(ACTIVATE, request, f"activate:{request.public_id}:{n}")
-        for open_one in StaffItem.objects.filter(reason_code=ITEM_ACTIVATION, dedupe_key=f"provisioning:{request.public_id}",
-                                                 status=StaffItem.Status.OPEN):
-            resolve_item(open_one, code="retried", actor_ref=services.actor(user), note=note)
+        for open_one in StaffItem.objects.filter(
+            reason_code=ITEM_ACTIVATION,
+            dedupe_key=f"provisioning:{request.public_id}",
+            status=StaffItem.Status.OPEN,
+        ):
+            resolve_item(
+                open_one, code="retried", actor_ref=services.actor(user), note=note
+            )
