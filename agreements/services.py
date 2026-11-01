@@ -19,7 +19,12 @@ from django.db.models.functions import Now
 from applications.models import Application, ApplicationEvent, Stage
 from correspondence.models import StaffItem
 from correspondence.common import Refused as NoteRefused
-from correspondence.staff_items import clean_note as _clean_note, event, open_item, resolve_item
+from correspondence.staff_items import (
+    clean_note as _clean_note,
+    event,
+    open_item,
+    resolve_item,
+)
 from workflow.models import PendingAction
 
 from . import handlers
@@ -43,7 +48,9 @@ def _final_stop(application):
     """The latest withdrawal or closure not followed by a resume, if any: those are final here (POL-12, P5)."""
     from .completion import RESUMED_EVENT, STOPPED_EVENT
 
-    for row in application.events.filter(kind__in=(STOPPED_EVENT, RESUMED_EVENT)).order_by("-id"):
+    for row in application.events.filter(
+        kind__in=(STOPPED_EVENT, RESUMED_EVENT)
+    ).order_by("-id"):
         if row.kind == RESUMED_EVENT:
             return None
         if (row.data or {}).get("reason") != "on_hold":
@@ -67,16 +74,31 @@ def _earlier_types_passed(application, agreement_type) -> None:
     from .completion import gate_passed
     from .models import AgreementType
 
-    for earlier in AgreementType.objects.filter(required=True, order__lt=agreement_type.order):
-        live = (AgreementInstance.objects.filter(application=application, agreement_type=earlier, replaced_at__isnull=True)
-                .exclude(issue_status__in=("superseded", "cancelled")).first())
+    for earlier in AgreementType.objects.filter(
+        required=True, order__lt=agreement_type.order
+    ):
+        live = (
+            AgreementInstance.objects.filter(
+                application=application,
+                agreement_type=earlier,
+                replaced_at__isnull=True,
+            )
+            .exclude(issue_status__in=("superseded", "cancelled"))
+            .first()
+        )
         if live is None or not gate_passed(live):
             raise Refused("earlier_agreement_not_passed")
 
 
 def can(user, permission: str) -> bool:
-    return (user is not None and user.is_authenticated and user.is_active and user.is_staff and not user.is_superuser
-            and user.has_perm(f"agreements.{permission}"))
+    return (
+        user is not None
+        and user.is_authenticated
+        and user.is_active
+        and user.is_staff
+        and not user.is_superuser
+        and user.has_perm(f"agreements.{permission}")
+    )
 
 
 def require(user, permission: str) -> None:
@@ -90,24 +112,42 @@ def template_digest(version: AgreementTemplateVersion) -> str:
     live template (a Documenso-side integrity canary is a separate bead)."""
     import json
 
-    frozen = {"type": version.agreement_type.key, "version": version.version, "provider_template_ref": version.provider_template_ref,
-              "provider_template_number": version.provider_template_number, "recipient_slots": version.recipient_slots,
-              "pdf_sha256": version.pdf_sha256}
-    return hashlib.sha256(json.dumps(frozen, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    frozen = {
+        "type": version.agreement_type.key,
+        "version": version.version,
+        "provider_template_ref": version.provider_template_ref,
+        "provider_template_number": version.provider_template_number,
+        "recipient_slots": version.recipient_slots,
+        "pdf_sha256": version.pdf_sha256,
+    }
+    return hashlib.sha256(
+        json.dumps(frozen, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
 
 
-def approve_template_version(version_id: int, user, expected_digest: str) -> tuple[AgreementTemplateVersion, bool]:
+def approve_template_version(
+    version_id: int, user, expected_digest: str
+) -> tuple[AgreementTemplateVersion, bool]:
     """Returns (version, changed): an already approved version is returned unchanged with False, so a caller can say
     so instead of claiming an approval it did not make."""
     require(user, "approve_agreement_template")
     with transaction.atomic():
-        version = AgreementTemplateVersion.objects.select_for_update(of=("self",)).select_related("agreement_type").get(pk=version_id)
+        version = (
+            AgreementTemplateVersion.objects.select_for_update(of=("self",))
+            .select_related("agreement_type")
+            .get(pk=version_id)
+        )
         if expected_digest != template_digest(version):
             raise Refused("template_changed_since_shown")
         if version.status == AgreementTemplateVersion.Status.APPROVED:
             return version, False
-        AgreementTemplateVersion.objects.filter(pk=version.pk, status=AgreementTemplateVersion.Status.DRAFT).update(
-            status=AgreementTemplateVersion.Status.APPROVED, approved_by=f"user:{user.pk}", approved_at=Now())
+        AgreementTemplateVersion.objects.filter(
+            pk=version.pk, status=AgreementTemplateVersion.Status.DRAFT
+        ).update(
+            status=AgreementTemplateVersion.Status.APPROVED,
+            approved_by=f"user:{user.pk}",
+            approved_at=Now(),
+        )
     version.refresh_from_db()
     return version, True
 
@@ -115,9 +155,13 @@ def approve_template_version(version_id: int, user, expected_digest: str) -> tup
 def create_absence_checked(attempt) -> bool:
     """A failed or truncated listing never authorizes minting another create key (9kg.53)."""
     return attempt.instance.application.events.filter(
-        kind=handlers.RECONCILIATION_CHECKED, data__attempt=str(attempt.public_id),
-        data__mode="check", data__source="listing", data__reached=True,
-        data__complete=True, data__matches=0,
+        kind=handlers.RECONCILIATION_CHECKED,
+        data__attempt=str(attempt.public_id),
+        data__mode="check",
+        data__source="listing",
+        data__reached=True,
+        data__complete=True,
+        data__matches=0,
     ).exists()
 
 
@@ -128,43 +172,99 @@ def decide_uncertain_create(instance_id: int, user, choice: str) -> AgreementIns
     actor = f"user:{user.pk}"
     instance = AgreementInstance.objects.get(pk=instance_id)
     with transaction.atomic():
-        application = Application.objects.select_for_update(of=("self",)).get(pk=instance.application_id)
-        instance = AgreementInstance.objects.select_for_update(of=("self",)).get(pk=instance_id)
+        application = Application.objects.select_for_update(of=("self",)).get(
+            pk=instance.application_id
+        )
+        instance = AgreementInstance.objects.select_for_update(of=("self",)).get(
+            pk=instance_id
+        )
         if instance.issue_status != "create_uncertain":
             raise Refused("not_uncertain")
-        attempt = EnvelopeAttempt.objects.filter(instance=instance, step=EnvelopeAttempt.Step.CREATE,
-                                                 external_key=instance.external_key,
-                                                 outcome=EnvelopeAttempt.Outcome.UNKNOWN).order_by("-id").first()
+        attempt = (
+            EnvelopeAttempt.objects.filter(
+                instance=instance,
+                step=EnvelopeAttempt.Step.CREATE,
+                external_key=instance.external_key,
+                outcome=EnvelopeAttempt.Outcome.UNKNOWN,
+            )
+            .order_by("-id")
+            .first()
+        )
         if attempt is None:
             raise Refused("no_unknown_attempt")
-        if StaffItem.objects.filter(reason_code=handlers.DUPLICATE_ENVELOPES, dedupe_key=f"create:{attempt.public_id}",
-                                    status=StaffItem.Status.OPEN).exists():
-            raise Refused("duplicate_envelopes_open")  # more than one envelope carries this key: never a third
-        if PendingAction.objects.filter(kind=handlers.RECONCILE, input_ref=str(attempt.public_id),
-                                        status__in=(PendingAction.Status.QUEUED, PendingAction.Status.RUNNING)).exists():
-            raise Refused("reconciliation_in_progress")  # decide only once the evidence checks have ended
+        if StaffItem.objects.filter(
+            reason_code=handlers.DUPLICATE_ENVELOPES,
+            dedupe_key=f"create:{attempt.public_id}",
+            status=StaffItem.Status.OPEN,
+        ).exists():
+            raise Refused(
+                "duplicate_envelopes_open"
+            )  # more than one envelope carries this key: never a third
+        if PendingAction.objects.filter(
+            kind=handlers.RECONCILE,
+            input_ref=str(attempt.public_id),
+            status__in=(PendingAction.Status.QUEUED, PendingAction.Status.RUNNING),
+        ).exists():
+            raise Refused(
+                "reconciliation_in_progress"
+            )  # decide only once the evidence checks have ended
         if choice == "not_sent" and not create_absence_checked(attempt):
             raise Refused("successful_empty_listing_required")
-        outcome = EnvelopeAttempt.Outcome.DECIDED_NOT_SENT if choice == "not_sent" else EnvelopeAttempt.Outcome.ABANDONED
-        EnvelopeAttempt.objects.filter(pk=attempt.pk).update(outcome=outcome, finished_at=Now())
-        PendingAction.objects.filter(kind=handlers.CREATE, input_ref=str(instance.public_id),
-                                     status=PendingAction.Status.UNCERTAIN).update(
-            status=PendingAction.Status.DONE, last_error=f"decided_{choice}", completed_at=Now(), updated_at=Now())
+        outcome = (
+            EnvelopeAttempt.Outcome.DECIDED_NOT_SENT
+            if choice == "not_sent"
+            else EnvelopeAttempt.Outcome.ABANDONED
+        )
+        EnvelopeAttempt.objects.filter(pk=attempt.pk).update(
+            outcome=outcome, finished_at=Now()
+        )
+        PendingAction.objects.filter(
+            kind=handlers.CREATE,
+            input_ref=str(instance.public_id),
+            status=PendingAction.Status.UNCERTAIN,
+        ).update(
+            status=PendingAction.Status.DONE,
+            last_error=f"decided_{choice}",
+            completed_at=Now(),
+            updated_at=Now(),
+        )
         if choice == "not_sent" and application.stage == Stage.AGREEMENTS:
-            instance.external_key = handlers.new_key()  # P4-D-19: never the same key twice
-            AgreementInstance.objects.filter(pk=instance.pk).update(external_key=instance.external_key,
-                                                                    issue_status="create_pending", updated_at=Now())
+            instance.external_key = (
+                handlers.new_key()
+            )  # P4-D-19: never the same key twice
+            AgreementInstance.objects.filter(pk=instance.pk).update(
+                external_key=instance.external_key,
+                issue_status="create_pending",
+                updated_at=Now(),
+            )
             handlers.enqueue_create(instance)
         else:  # abandoned: closed as _close closes an instance without an envelope (issue and signing both cancelled)
-            AgreementInstance.objects.filter(pk=instance.pk).update(issue_status="cancelled", signing_status="cancelled",
-                                                                    updated_at=Now())
+            AgreementInstance.objects.filter(pk=instance.pk).update(
+                issue_status="cancelled", signing_status="cancelled", updated_at=Now()
+            )
         handlers.enqueue_reconcile(attempt, 1, watch=True)
-        for item in StaffItem.objects.filter(reason_code=handlers.CREATE_UNKNOWN, dedupe_key=f"create:{attempt.public_id}",
-                                             status=StaffItem.Status.OPEN):
-            resolve_item(item, code=f"decided_{choice}", actor_ref=actor, effects={"instance": str(instance.public_id)})
-        event(application, "agreement_create_decided", {"instance": str(instance.public_id), "choice": choice,
-                                                        "attempt": str(attempt.public_id)},
-              actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
+        for item in StaffItem.objects.filter(
+            reason_code=handlers.CREATE_UNKNOWN,
+            dedupe_key=f"create:{attempt.public_id}",
+            status=StaffItem.Status.OPEN,
+        ):
+            resolve_item(
+                item,
+                code=f"decided_{choice}",
+                actor_ref=actor,
+                effects={"instance": str(instance.public_id)},
+            )
+        event(
+            application,
+            "agreement_create_decided",
+            {
+                "instance": str(instance.public_id),
+                "choice": choice,
+                "attempt": str(attempt.public_id),
+            },
+            actor_type=ApplicationEvent.ActorType.STAFF,
+            actor_ref=actor,
+        )
     instance.refresh_from_db()
     return instance
 
@@ -172,19 +272,33 @@ def decide_uncertain_create(instance_id: int, user, choice: str) -> AgreementIns
 # --- 4B.2: cancel, reissue, stop and the unknown distribute (021 section 4; P4-D-9, P4-D-18, P4-D-20) ------------------
 
 STOP_REASONS = ("withdrawn", "closed", "on_hold")
-LIVE = ("held", "create_pending", "create_uncertain", "distribute_pending", "distribute_uncertain", "issued",
-        "failed_needs_staff")
+LIVE = (
+    "held",
+    "create_pending",
+    "create_uncertain",
+    "distribute_pending",
+    "distribute_uncertain",
+    "issued",
+    "failed_needs_staff",
+)
 
 
 def _lock(instance_id):
     instance = AgreementInstance.objects.get(pk=instance_id)
-    application = Application.objects.select_for_update(of=("self",)).get(pk=instance.application_id)
-    return application, AgreementInstance.objects.select_for_update(of=("self",)).get(pk=instance_id)
+    application = Application.objects.select_for_update(of=("self",)).get(
+        pk=instance.application_id
+    )
+    return application, AgreementInstance.objects.select_for_update(of=("self",)).get(
+        pk=instance_id
+    )
 
 
 def _in_flight(instance) -> bool:
-    return PendingAction.objects.filter(kind__in=(handlers.CREATE, handlers.DISTRIBUTE, "cancel_agreement"),
-                                        input_ref=str(instance.public_id), status=PendingAction.Status.RUNNING).exists()
+    return PendingAction.objects.filter(
+        kind__in=(handlers.CREATE, handlers.DISTRIBUTE, "cancel_agreement"),
+        input_ref=str(instance.public_id),
+        status=PendingAction.Status.RUNNING,
+    ).exists()
 
 
 def _close(instance, actor, *, staff_cancel: bool = False) -> str:
@@ -197,32 +311,58 @@ def _close(instance, actor, *, staff_cancel: bool = False) -> str:
     from .completion import enqueue_cancel_instance
 
     if instance.signing_status == "signing_complete_verified":
-        raise Refused("agreement_already_signed")  # a signed agreement is never cancelled here
+        raise Refused(
+            "agreement_already_signed"
+        )  # a signed agreement is never cancelled here
     if staff_cancel and instance.signing_status == "signing_complete_observed":
         raise Refused("completion_observed_verify_first")
     if _in_flight(instance):
         # D-42: a stop must not be forgotten because an exchange is running. The request is recorded once; the
         # exchange records its own result first (a request already sent may have taken effect) and then routes to
         # cancellation instead of continuing (agreements.handlers.cancel_requested).
-        AgreementInstance.objects.filter(pk=instance.pk, cancel_requested_at__isnull=True).update(
-            cancel_requested_at=Now(), updated_at=Now())
+        AgreementInstance.objects.filter(
+            pk=instance.pk, cancel_requested_at__isnull=True
+        ).update(cancel_requested_at=Now(), updated_at=Now())
         return "cancel_requested"
     if instance.envelope_id:
-        AgreementInstance.objects.filter(pk=instance.pk).update(issue_status="cancel_pending", updated_at=Now())
+        AgreementInstance.objects.filter(pk=instance.pk).update(
+            issue_status="cancel_pending", updated_at=Now()
+        )
         enqueue_cancel_instance(instance)
         return "cancel_pending"
-    for attempt in EnvelopeAttempt.objects.filter(instance=instance, step=EnvelopeAttempt.Step.CREATE,
-                                                  outcome__in=(EnvelopeAttempt.Outcome.SENDING, EnvelopeAttempt.Outcome.UNKNOWN)):
-        EnvelopeAttempt.objects.filter(pk=attempt.pk).update(outcome=EnvelopeAttempt.Outcome.ABANDONED, finished_at=Now())
+    for attempt in EnvelopeAttempt.objects.filter(
+        instance=instance,
+        step=EnvelopeAttempt.Step.CREATE,
+        outcome__in=(EnvelopeAttempt.Outcome.SENDING, EnvelopeAttempt.Outcome.UNKNOWN),
+    ):
+        EnvelopeAttempt.objects.filter(pk=attempt.pk).update(
+            outcome=EnvelopeAttempt.Outcome.ABANDONED, finished_at=Now()
+        )
         handlers.enqueue_reconcile(attempt, 1, watch=True)
-        for item in StaffItem.objects.filter(reason_code=handlers.CREATE_UNKNOWN, dedupe_key=f"create:{attempt.public_id}",
-                                             status=StaffItem.Status.OPEN):
-            resolve_item(item, code="abandoned_by_stop", actor_ref=actor, effects={"instance": str(instance.public_id)})
-    PendingAction.objects.filter(kind=handlers.CREATE, input_ref=str(instance.public_id),
-                                 status=PendingAction.Status.UNCERTAIN).update(
-        status=PendingAction.Status.DONE, last_error="abandoned_by_stop", completed_at=Now(), updated_at=Now())
-    AgreementInstance.objects.filter(pk=instance.pk).update(issue_status="cancelled", signing_status="cancelled",
-                                                            updated_at=Now())
+        for item in StaffItem.objects.filter(
+            reason_code=handlers.CREATE_UNKNOWN,
+            dedupe_key=f"create:{attempt.public_id}",
+            status=StaffItem.Status.OPEN,
+        ):
+            resolve_item(
+                item,
+                code="abandoned_by_stop",
+                actor_ref=actor,
+                effects={"instance": str(instance.public_id)},
+            )
+    PendingAction.objects.filter(
+        kind=handlers.CREATE,
+        input_ref=str(instance.public_id),
+        status=PendingAction.Status.UNCERTAIN,
+    ).update(
+        status=PendingAction.Status.DONE,
+        last_error="abandoned_by_stop",
+        completed_at=Now(),
+        updated_at=Now(),
+    )
+    AgreementInstance.objects.filter(pk=instance.pk).update(
+        issue_status="cancelled", signing_status="cancelled", updated_at=Now()
+    )
     return "cancelled"
 
 
@@ -234,27 +374,56 @@ def cancel_agreement(instance_id: int, user) -> AgreementInstance:
     with transaction.atomic():
         application, instance = _lock(instance_id)
         if instance.issue_status == "cancel_uncertain":
-            attempts = EnvelopeAttempt.objects.filter(instance=instance, step=EnvelopeAttempt.Step.CANCEL,
-                                                      outcome=EnvelopeAttempt.Outcome.UNKNOWN)
-            if PendingAction.objects.filter(kind=handlers.RECONCILE, input_ref__in=[str(a.public_id) for a in attempts],
-                                            status__in=(PendingAction.Status.QUEUED, PendingAction.Status.RUNNING)).exists():
+            attempts = EnvelopeAttempt.objects.filter(
+                instance=instance,
+                step=EnvelopeAttempt.Step.CANCEL,
+                outcome=EnvelopeAttempt.Outcome.UNKNOWN,
+            )
+            if PendingAction.objects.filter(
+                kind=handlers.RECONCILE,
+                input_ref__in=[str(a.public_id) for a in attempts],
+                status__in=(PendingAction.Status.QUEUED, PendingAction.Status.RUNNING),
+            ).exists():
                 raise Refused("reconciliation_in_progress")
             for attempt in attempts:
-                for item in StaffItem.objects.filter(reason_code=handlers.CANCEL_UNKNOWN, status=StaffItem.Status.OPEN,
-                                                     dedupe_key=f"cancel:{attempt.public_id}"):
-                    resolve_item(item, code="decided_cancel_again", actor_ref=actor,
-                                 effects={"instance": str(instance.public_id)})
-            attempts.update(outcome=EnvelopeAttempt.Outcome.DECIDED_NOT_SENT, finished_at=Now())
-            PendingAction.objects.filter(kind="cancel_agreement", input_ref=str(instance.public_id),
-                                         status=PendingAction.Status.UNCERTAIN).update(
-                status=PendingAction.Status.DONE, last_error="decided_cancel_again", completed_at=Now(), updated_at=Now())
-            AgreementInstance.objects.filter(pk=instance.pk).update(issue_status="failed_needs_staff", updated_at=Now())
+                for item in StaffItem.objects.filter(
+                    reason_code=handlers.CANCEL_UNKNOWN,
+                    status=StaffItem.Status.OPEN,
+                    dedupe_key=f"cancel:{attempt.public_id}",
+                ):
+                    resolve_item(
+                        item,
+                        code="decided_cancel_again",
+                        actor_ref=actor,
+                        effects={"instance": str(instance.public_id)},
+                    )
+            attempts.update(
+                outcome=EnvelopeAttempt.Outcome.DECIDED_NOT_SENT, finished_at=Now()
+            )
+            PendingAction.objects.filter(
+                kind="cancel_agreement",
+                input_ref=str(instance.public_id),
+                status=PendingAction.Status.UNCERTAIN,
+            ).update(
+                status=PendingAction.Status.DONE,
+                last_error="decided_cancel_again",
+                completed_at=Now(),
+                updated_at=Now(),
+            )
+            AgreementInstance.objects.filter(pk=instance.pk).update(
+                issue_status="failed_needs_staff", updated_at=Now()
+            )
             instance.refresh_from_db()
         elif instance.issue_status not in LIVE:
             raise Refused("not_live")
         done = _close(instance, actor, staff_cancel=True)
-        event(application, "agreement_cancel_requested", {"instance": str(instance.public_id), "result": done},
-              actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
+        event(
+            application,
+            "agreement_cancel_requested",
+            {"instance": str(instance.public_id), "result": done},
+            actor_type=ApplicationEvent.ActorType.STAFF,
+            actor_ref=actor,
+        )
     instance.refresh_from_db()
     return instance
 
@@ -274,21 +443,33 @@ def reissue_agreement(instance_id: int, user) -> AgreementInstance:
             raise Refused("already_superseded")
         if not (old.issue_status == "cancelled" or old.signing_status == "declined"):
             raise Refused("cancel_first")
-        if StaffItem.objects.filter(application=application, status=StaffItem.Status.OPEN,
-                                    reason_code="agreement_completed_after_cancel",
-                                    dedupe_key__endswith=str(old.public_id)).exists():
-            raise Refused("completion_after_cancel_open")  # the provider shows it signed: staff decide first
+        if StaffItem.objects.filter(
+            application=application,
+            status=StaffItem.Status.OPEN,
+            reason_code="agreement_completed_after_cancel",
+            dedupe_key__endswith=str(old.public_id),
+        ).exists():
+            raise Refused(
+                "completion_after_cancel_open"
+            )  # the provider shows it signed: staff decide first
         _earlier_types_passed(application, old.agreement_type)
         version = handlers.approved_version(old.agreement_type.key)
         if version is None:
             raise Refused("no_approved_template")
-        AgreementInstance.objects.filter(pk=old.pk).update(issue_status="superseded", updated_at=Now())
+        AgreementInstance.objects.filter(pk=old.pk).update(
+            issue_status="superseded", updated_at=Now()
+        )
         try:
             new = handlers.start_agreement(application, version, actor)
         except ValueError as exc:
             raise Refused(str(exc)) from None
-        event(application, "agreement_reissued", {"old": str(old.public_id), "new": str(new.public_id)},
-              actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
+        event(
+            application,
+            "agreement_reissued",
+            {"old": str(old.public_id), "new": str(new.public_id)},
+            actor_type=ApplicationEvent.ActorType.STAFF,
+            actor_ref=actor,
+        )
     return new
 
 
@@ -300,37 +481,57 @@ def stop_agreements(application_id: int, user, reason: str) -> list:
         raise Refused("unknown_reason")
     actor = f"user:{user.pk}"
     with transaction.atomic():
-        application = Application.objects.select_for_update(of=("self",)).get(pk=application_id)
+        application = Application.objects.select_for_update(of=("self",)).get(
+            pk=application_id
+        )
         if application.stage != Stage.AGREEMENTS:
             raise Refused("not_in_agreements")
-        return stop_locked(application, reason, actor, actor_type=ApplicationEvent.ActorType.STAFF)
+        return stop_locked(
+            application, reason, actor, actor_type=ApplicationEvent.ActorType.STAFF
+        )
 
 
-def stop_locked(application, reason: str, actor: str, actor_type=ApplicationEvent.ActorType.STAFF) -> list:
+def stop_locked(
+    application, reason: str, actor: str, actor_type=ApplicationEvent.ActorType.STAFF
+) -> list:
     """The stop itself, inside the caller's transaction with the application locked: also the POL-12 withdrawal and
     closure service's path (P5 5B.3), which has already authorized the act."""
     if reason not in STOP_REASONS:
         raise Refused("unknown_reason")
     if _final_stop(application) is not None:
-        raise Refused("stopped_for_good")  # a withdrawal or closure is never turned into a resumable hold
+        raise Refused(
+            "stopped_for_good"
+        )  # a withdrawal or closure is never turned into a resumable hold
     results = []
-    live = list(AgreementInstance.objects.select_for_update(of=("self",))
-                .filter(application=application, issue_status__in=LIVE).order_by("id"))
+    live = list(
+        AgreementInstance.objects.select_for_update(of=("self",))
+        .filter(application=application, issue_status__in=LIVE)
+        .order_by("id")
+    )
     for instance in live:  # an exchange in flight gets a recorded cancel request instead of a refusal (D-42)
         if instance.signing_status == "signing_complete_verified":
             continue  # signed agreements stay signed
         results.append(_close(instance, actor))
-    event(application, "agreements_stopped", {"reason": reason, "closed": len(results)},
-          actor_type=actor_type, actor_ref=actor)
+    event(
+        application,
+        "agreements_stopped",
+        {"reason": reason, "closed": len(results)},
+        actor_type=actor_type,
+        actor_ref=actor,
+    )
     return results
 
 
-def decide_uncertain_distribute(instance_id: int, user, choice: str) -> AgreementInstance:
+def decide_uncertain_distribute(
+    instance_id: int, user, choice: str
+) -> AgreementInstance:
     """An unknown distribute that reconciliation could not settle: distribute again (the step re-reads first and only
     distributes a draft) or cancel. The attempt records the decision, never a known outcome."""
     require(user, "decide_uncertain_agreement")
     if choice == "cancel":
-        require(user, "manage_agreements")  # cancelling is the manage permission's act, whoever decides (4B.2 review)
+        require(
+            user, "manage_agreements"
+        )  # cancelling is the manage permission's act, whoever decides (4B.2 review)
     if choice not in ("redistribute", "cancel"):
         raise Refused("unknown_choice")
     actor = f"user:{user.pk}"
@@ -338,31 +539,68 @@ def decide_uncertain_distribute(instance_id: int, user, choice: str) -> Agreemen
         application, instance = _lock(instance_id)
         if instance.issue_status != "distribute_uncertain":
             raise Refused("not_uncertain")
-        attempt = EnvelopeAttempt.objects.filter(instance=instance, step=EnvelopeAttempt.Step.DISTRIBUTE,
-                                                 outcome=EnvelopeAttempt.Outcome.UNKNOWN).order_by("-id").first()
+        attempt = (
+            EnvelopeAttempt.objects.filter(
+                instance=instance,
+                step=EnvelopeAttempt.Step.DISTRIBUTE,
+                outcome=EnvelopeAttempt.Outcome.UNKNOWN,
+            )
+            .order_by("-id")
+            .first()
+        )
         if attempt is None:
             raise Refused("no_unknown_attempt")
-        if PendingAction.objects.filter(kind=handlers.RECONCILE, input_ref=str(attempt.public_id),
-                                        status__in=(PendingAction.Status.QUEUED, PendingAction.Status.RUNNING)).exists():
+        if PendingAction.objects.filter(
+            kind=handlers.RECONCILE,
+            input_ref=str(attempt.public_id),
+            status__in=(PendingAction.Status.QUEUED, PendingAction.Status.RUNNING),
+        ).exists():
             raise Refused("reconciliation_in_progress")
-        EnvelopeAttempt.objects.filter(pk=attempt.pk).update(outcome=EnvelopeAttempt.Outcome.DECIDED_NOT_SENT,
-                                                             finished_at=Now())
-        PendingAction.objects.filter(kind=handlers.DISTRIBUTE, input_ref=str(instance.public_id),
-                                     status=PendingAction.Status.UNCERTAIN).update(
-            status=PendingAction.Status.DONE, last_error=f"decided_{choice}", completed_at=Now(), updated_at=Now())
+        EnvelopeAttempt.objects.filter(pk=attempt.pk).update(
+            outcome=EnvelopeAttempt.Outcome.DECIDED_NOT_SENT, finished_at=Now()
+        )
+        PendingAction.objects.filter(
+            kind=handlers.DISTRIBUTE,
+            input_ref=str(instance.public_id),
+            status=PendingAction.Status.UNCERTAIN,
+        ).update(
+            status=PendingAction.Status.DONE,
+            last_error=f"decided_{choice}",
+            completed_at=Now(),
+            updated_at=Now(),
+        )
         if choice == "redistribute":
-            AgreementInstance.objects.filter(pk=instance.pk).update(issue_status="distribute_pending", updated_at=Now())
-            series = PendingAction.objects.filter(kind=handlers.DISTRIBUTE, input_ref=str(instance.public_id)).count()
+            AgreementInstance.objects.filter(pk=instance.pk).update(
+                issue_status="distribute_pending", updated_at=Now()
+            )
+            series = PendingAction.objects.filter(
+                kind=handlers.DISTRIBUTE, input_ref=str(instance.public_id)
+            ).count()
             handlers.enqueue_distribute(instance, series)
         else:
-            AgreementInstance.objects.filter(pk=instance.pk).update(issue_status="failed_needs_staff", updated_at=Now())
+            AgreementInstance.objects.filter(pk=instance.pk).update(
+                issue_status="failed_needs_staff", updated_at=Now()
+            )
             instance.refresh_from_db()
             _close(instance, actor)
-        for item in StaffItem.objects.filter(reason_code=handlers.DISTRIBUTE_UNKNOWN,
-                                             dedupe_key=f"distribute:{attempt.public_id}", status=StaffItem.Status.OPEN):
-            resolve_item(item, code=f"decided_{choice}", actor_ref=actor, effects={"instance": str(instance.public_id)})
-        event(application, "agreement_distribute_decided", {"instance": str(instance.public_id), "choice": choice},
-              actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
+        for item in StaffItem.objects.filter(
+            reason_code=handlers.DISTRIBUTE_UNKNOWN,
+            dedupe_key=f"distribute:{attempt.public_id}",
+            status=StaffItem.Status.OPEN,
+        ):
+            resolve_item(
+                item,
+                code=f"decided_{choice}",
+                actor_ref=actor,
+                effects={"instance": str(instance.public_id)},
+            )
+        event(
+            application,
+            "agreement_distribute_decided",
+            {"instance": str(instance.public_id), "choice": choice},
+            actor_type=ApplicationEvent.ActorType.STAFF,
+            actor_ref=actor,
+        )
     instance.refresh_from_db()
     return instance
 
@@ -378,19 +616,37 @@ def resume_agreements(application_id: int, user) -> None:
     require(user, "manage_agreements")
     actor = f"user:{user.pk}"
     with transaction.atomic():
-        application = Application.objects.select_for_update(of=("self",)).get(pk=application_id)
+        application = Application.objects.select_for_update(of=("self",)).get(
+            pk=application_id
+        )
         if application.stage != Stage.AGREEMENTS:
             raise Refused("not_in_agreements")
         if _final_stop(application) is not None:
             raise Refused("stopped_for_good")
         instances = list(AgreementInstance.objects.filter(application=application))
-        if any(i.issue_status in ("cancel_pending", "cancel_uncertain") or _in_flight(i)
-               or (i.cancel_requested_at and i.issue_status not in ("cancelled", "superseded")) for i in instances):
-            raise Refused("cancellation_not_reconciled")  # resume only after every cancel has settled
+        if any(
+            i.issue_status in ("cancel_pending", "cancel_uncertain")
+            or _in_flight(i)
+            or (
+                i.cancel_requested_at
+                and i.issue_status not in ("cancelled", "superseded")
+            )
+            for i in instances
+        ):
+            raise Refused(
+                "cancellation_not_reconciled"
+            )  # resume only after every cancel has settled
         if any(integrity_hold_open(i) for i in instances):
-            raise Refused("integrity_hold_open")  # resolved only through the integrity path (D-43)
-        resumed = ApplicationEvent.objects.create(application=application, kind=RESUMED_EVENT, data={},
-                                                  actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
+            raise Refused(
+                "integrity_hold_open"
+            )  # resolved only through the integrity path (D-43)
+        resumed = ApplicationEvent.objects.create(
+            application=application,
+            kind=RESUMED_EVENT,
+            data={},
+            actor_type=ApplicationEvent.ActorType.STAFF,
+            actor_ref=actor,
+        )
         enqueue_advance(application, authorization=f"resume:{resumed.pk}")
 
 
@@ -406,16 +662,34 @@ def integrity_state(instance) -> dict:
     from .completion import INTEGRITY_HOLD
     from .models import ProviderObservation
 
-    item = StaffItem.objects.filter(reason_code=INTEGRITY_HOLD, dedupe_key=f"integrity:{instance.public_id}",
-                                    status=StaffItem.Status.OPEN).first()
-    latest = (ProviderObservation.objects.filter(instance=instance, source=ProviderObservation.Source.READ)
-              .order_by("-id").first())
+    item = StaffItem.objects.filter(
+        reason_code=INTEGRITY_HOLD,
+        dedupe_key=f"integrity:{instance.public_id}",
+        status=StaffItem.Status.OPEN,
+    ).first()
+    latest = (
+        ProviderObservation.objects.filter(
+            instance=instance, source=ProviderObservation.Source.READ
+        )
+        .order_by("-id")
+        .first()
+    )
     fresh = bool(item and latest and latest.observed_at > item.opened_at)
-    matching = bool(fresh and latest.envelope_status == "COMPLETED" and latest.identity_match
-                    and latest.recipients_match and latest.all_required_signed)
+    matching = bool(
+        fresh
+        and latest.envelope_status == "COMPLETED"
+        and latest.identity_match
+        and latest.recipients_match
+        and latest.all_required_signed
+    )
     basis = f"{instance.pk}:{item.pk if item else 0}:{latest.pk if latest else 0}"
-    return {"item": item, "latest": latest, "fresh": fresh, "matching": matching,
-            "digest": hashlib.sha256(basis.encode()).hexdigest()}
+    return {
+        "item": item,
+        "latest": latest,
+        "fresh": fresh,
+        "matching": matching,
+        "digest": hashlib.sha256(basis.encode()).hexdigest(),
+    }
 
 
 def recheck_integrity(instance_id: int, user) -> None:
@@ -428,11 +702,18 @@ def recheck_integrity(instance_id: int, user) -> None:
         if integrity_state(instance)["item"] is None:
             raise Refused("no_integrity_hold")
         enqueue_read(instance)
-        event(application, "agreement_integrity_recheck", {"instance": str(instance.public_id)},
-              actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=f"user:{user.pk}")
+        event(
+            application,
+            "agreement_integrity_recheck",
+            {"instance": str(instance.public_id)},
+            actor_type=ApplicationEvent.ActorType.STAFF,
+            actor_ref=f"user:{user.pk}",
+        )
 
 
-def resolve_integrity(instance_id: int, user, disposition: str, reason: str, expected_digest: str) -> AgreementInstance:
+def resolve_integrity(
+    instance_id: int, user, disposition: str, reason: str, expected_digest: str
+) -> AgreementInstance:
     """D-43. `continue` needs a read recorded after the hold that shows the agreement complete, ours, with exactly our
     recipients and every required signature. `replace` keeps the verified history and makes a new generation the
     eligible one. `escalate` records that the case needs the owner or counsel and keeps everything blocked. The
@@ -442,7 +723,9 @@ def resolve_integrity(instance_id: int, user, disposition: str, reason: str, exp
         raise Refused("unknown_disposition")
     raw = (reason or "").strip()
     if len(raw) > 500:
-        raise Refused("reason_too_long")  # refused, not cut: the record is what was written
+        raise Refused(
+            "reason_too_long"
+        )  # refused, not cut: the record is what was written
     note = clean_note(raw)
     if len(note) < REASON_MIN:
         raise Refused("reason_needed")
@@ -458,37 +741,75 @@ def resolve_integrity(instance_id: int, user, disposition: str, reason: str, exp
         # resolves nothing, in its event. Other events carry codes only.
         data = {"instance": str(instance.public_id), "disposition": disposition}
         if disposition == "escalate":
-            event(application, "agreement_integrity_escalated", {**data, "reason": note},
-                  actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
+            event(
+                application,
+                "agreement_integrity_escalated",
+                {**data, "reason": note},
+                actor_type=ApplicationEvent.ActorType.STAFF,
+                actor_ref=actor,
+            )
             return instance  # still held: a legal question is the owner's and counsel's
         if disposition == "continue":
             if not state["matching"]:
                 raise Refused("no_fresh_matching_read")
-            resolve_item(state["item"], code="continued_on_fresh_match", actor_ref=actor, note=note,
-                         effects={"instance": str(instance.public_id), "observation": state["latest"].pk})
-            event(application, "agreement_integrity_resolved", data, actor_type=ApplicationEvent.ActorType.STAFF,
-                  actor_ref=actor)
+            resolve_item(
+                state["item"],
+                code="continued_on_fresh_match",
+                actor_ref=actor,
+                note=note,
+                effects={
+                    "instance": str(instance.public_id),
+                    "observation": state["latest"].pk,
+                },
+            )
+            event(
+                application,
+                "agreement_integrity_resolved",
+                data,
+                actor_type=ApplicationEvent.ActorType.STAFF,
+                actor_ref=actor,
+            )
             from .completion import enqueue_advance
 
-            enqueue_advance(application)  # the sequence continues where the hold stopped it (QA review)
+            enqueue_advance(
+                application
+            )  # the sequence continues where the hold stopped it (QA review)
             instance.refresh_from_db()
             return instance
-        _open_for_new_work(application)  # replace issues a new signing request: never after a stop or during a pause
+        _open_for_new_work(
+            application
+        )  # replace issues a new signing request: never after a stop or during a pause
         require(user, "manage_agreements")
-        _earlier_types_passed(application, instance.agreement_type)  # D-15, D-43: never past a held earlier agreement
+        _earlier_types_passed(
+            application, instance.agreement_type
+        )  # D-15, D-43: never past a held earlier agreement
         version = handlers.approved_version(instance.agreement_type.key)
         if version is None:
             raise Refused("no_approved_template")
-        AgreementInstance.objects.filter(pk=instance.pk).update(replaced_at=Now(), replacement_reason="integrity_replaced",
-                                                                updated_at=Now())
+        AgreementInstance.objects.filter(pk=instance.pk).update(
+            replaced_at=Now(), replacement_reason="integrity_replaced", updated_at=Now()
+        )
         try:
             new = handlers.start_agreement(application, version, actor)
         except ValueError as exc:
             raise Refused(str(exc)) from None
-        resolve_item(state["item"], code="replaced_by_new_generation", actor_ref=actor, note=note,
-                     effects={"instance": str(instance.public_id), "replacement": str(new.public_id)})
-        event(application, "agreement_integrity_resolved", {**data, "replacement": str(new.public_id)},
-              actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
+        resolve_item(
+            state["item"],
+            code="replaced_by_new_generation",
+            actor_ref=actor,
+            note=note,
+            effects={
+                "instance": str(instance.public_id),
+                "replacement": str(new.public_id),
+            },
+        )
+        event(
+            application,
+            "agreement_integrity_resolved",
+            {**data, "replacement": str(new.public_id)},
+            actor_type=ApplicationEvent.ActorType.STAFF,
+            actor_ref=actor,
+        )
     return new
 
 
@@ -496,24 +817,47 @@ def rearm_orphan_watch(attempt_id: int, user) -> None:
     """D-44: after the bounded watch ended unresolved, a decision-maker may look again, a bounded number of times."""
     require(user, "manage_agreements")
     actor = f"user:{user.pk}"
-    attempt = EnvelopeAttempt.objects.select_related("instance__application").get(pk=attempt_id)
+    attempt = EnvelopeAttempt.objects.select_related("instance__application").get(
+        pk=attempt_id
+    )
     with transaction.atomic():
         application, _ = _lock(attempt.instance_id)
         attempt.refresh_from_db()
-        if attempt.outcome not in (EnvelopeAttempt.Outcome.DECIDED_NOT_SENT, EnvelopeAttempt.Outcome.ABANDONED):
+        if attempt.outcome not in (
+            EnvelopeAttempt.Outcome.DECIDED_NOT_SENT,
+            EnvelopeAttempt.Outcome.ABANDONED,
+        ):
             raise Refused("not_watched")
-        item = StaffItem.objects.filter(reason_code=handlers.ORPHAN_WATCH_ENDED, dedupe_key=f"watch:{attempt.public_id}",
-                                        status=StaffItem.Status.OPEN).first()
+        item = StaffItem.objects.filter(
+            reason_code=handlers.ORPHAN_WATCH_ENDED,
+            dedupe_key=f"watch:{attempt.public_id}",
+            status=StaffItem.Status.OPEN,
+        ).first()
         if item is None:
             raise Refused("watch_not_ended")
-        rearms = application.events.filter(kind="agreement_orphan_watch_rearmed", data__attempt=str(attempt.public_id))
+        rearms = application.events.filter(
+            kind="agreement_orphan_watch_rearmed", data__attempt=str(attempt.public_id)
+        )
         if rearms.count() >= handlers.MAX_WATCH_REARMS:
             raise Refused("rearm_limit_reached")
-        watches = PendingAction.objects.filter(kind=handlers.RECONCILE, input_ref=str(attempt.public_id),
-                                               idempotency_key__contains=":watch:").count()
-        event(application, "agreement_orphan_watch_rearmed", {"attempt": str(attempt.public_id)},
-              actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=actor)
-        resolve_item(item, code="watch_rearmed", actor_ref=actor, effects={"attempt": str(attempt.public_id)})
+        watches = PendingAction.objects.filter(
+            kind=handlers.RECONCILE,
+            input_ref=str(attempt.public_id),
+            idempotency_key__contains=":watch:",
+        ).count()
+        event(
+            application,
+            "agreement_orphan_watch_rearmed",
+            {"attempt": str(attempt.public_id)},
+            actor_type=ApplicationEvent.ActorType.STAFF,
+            actor_ref=actor,
+        )
+        resolve_item(
+            item,
+            code="watch_rearmed",
+            actor_ref=actor,
+            effects={"attempt": str(attempt.public_id)},
+        )
         handlers.enqueue_reconcile(attempt, watches + 1, watch=True, grace=0)
 
 
@@ -529,16 +873,26 @@ def retry_custody(instance_id: int, user) -> None:
     require(user, "operate_agreements")
     with transaction.atomic():
         application, instance = _lock(instance_id)
-        if instance.signing_status != "signing_complete_verified" or instance.custody_status != "failed_needs_staff":
+        if (
+            instance.signing_status != "signing_complete_verified"
+            or instance.custody_status != "failed_needs_staff"
+        ):
             raise Refused("custody_not_failed")
         if instance.documents.exists():
             # A stored copy exists (insert-only): replacing it, for example after corruption, is a POL-09 and POL-10
             # decision for the owner, never an operator retry (QA review of PR #43).
             raise Refused("stored_copy_exists")
-        AgreementInstance.objects.filter(pk=instance.pk).update(custody_status="pending", updated_at=Now())
+        AgreementInstance.objects.filter(pk=instance.pk).update(
+            custody_status="pending", updated_at=Now()
+        )
         enqueue_store(instance)
-        event(application, "agreement_custody_retry", {"instance": str(instance.public_id)},
-              actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=f"user:{user.pk}")
+        event(
+            application,
+            "agreement_custody_retry",
+            {"instance": str(instance.public_id)},
+            actor_type=ApplicationEvent.ActorType.STAFF,
+            actor_ref=f"user:{user.pk}",
+        )
 
 
 def retrieve_document(document_ref: str, user, reason: str):
@@ -560,18 +914,33 @@ def retrieve_document(document_ref: str, user, reason: str):
     from .models import CustodyEnvelope, DocumentAccess, StoredDocument
 
     if connection.in_atomic_block:
-        raise RuntimeError("retrieve_document must run outside a transaction, so the audit commits before release")
-    staff_caller = bool(user is not None and user.is_authenticated and user.is_active and user.is_staff)
+        raise RuntimeError(
+            "retrieve_document must run outside a transaction, so the audit commits before release"
+        )
+    staff_caller = bool(
+        user is not None and user.is_authenticated and user.is_active and user.is_staff
+    )
     actor = f"user:{user.pk}" if staff_caller else "anonymous_or_non_staff"
     ref = str(document_ref)[:64]
     raw = (reason or "").strip()
-    document = StoredDocument.objects.select_related("instance", "application").filter(public_id=ref).first() \
-        if len(ref) == 36 else None
+    document = (
+        StoredDocument.objects.select_related("instance", "application")
+        .filter(public_id=ref)
+        .first()
+        if len(ref) == 36
+        else None
+    )
     if not can(user, "retrieve_agreement_document") or document is None:
         if staff_caller:
-            DocumentAccess.objects.create(requested_ref=ref, actor_ref=actor, outcome=DocumentAccess.Outcome.DENIED)
+            DocumentAccess.objects.create(
+                requested_ref=ref,
+                actor_ref=actor,
+                outcome=DocumentAccess.Outcome.DENIED,
+            )
         else:
-            logging.getLogger(__name__).warning("agreement document retrieval refused for a non-staff caller")
+            logging.getLogger(__name__).warning(
+                "agreement document retrieval refused for a non-staff caller"
+            )
         raise Refused("not_available")
     if len(raw) > RETRIEVE_REASON_MAX:
         raise Refused("reason_too_long")
@@ -579,26 +948,55 @@ def retrieve_document(document_ref: str, user, reason: str):
     if len(note) < REASON_MIN:
         raise Refused("reason_needed")
     with transaction.atomic():  # committed before any byte is read for release
-        DocumentAccess.objects.create(document=document, requested_ref=ref, actor_ref=actor, reason=note,
-                                      outcome=DocumentAccess.Outcome.GRANTED)
-    envelope = CustodyEnvelope.objects.filter(document=document).first()  # 9kg.34: sealed at rest
+        DocumentAccess.objects.create(
+            document=document,
+            requested_ref=ref,
+            actor_ref=actor,
+            reason=note,
+            outcome=DocumentAccess.Outcome.GRANTED,
+        )
+    envelope = CustodyEnvelope.objects.filter(
+        document=document
+    ).first()  # 9kg.34: sealed at rest
     try:
-        data = storage.read(document.storage_key, document.sha256, document.size, envelope)
+        data = storage.read(
+            document.storage_key, document.sha256, document.size, envelope
+        )
     except storage.StorageError as exc:
         if str(exc) == storage.DESTROYED:
-            raise Refused("document_erased") from None  # the key was destroyed by an erasure: nothing to release
+            raise Refused(
+                "document_erased"
+            ) from None  # the key was destroyed by an erasure: nothing to release
         if str(exc) not in storage.INTEGRITY:
-            raise Refused("storage_unavailable") from None  # the environment, not the document
+            raise Refused(
+                "storage_unavailable"
+            ) from None  # the environment, not the document
         with transaction.atomic():
-            Application.objects.select_for_update(of=("self",)).get(pk=document.application_id)
-            AgreementInstance.objects.select_for_update(of=("self",)).get(pk=document.instance_id)
-            DocumentAccess.objects.create(document=document, requested_ref=ref, actor_ref=actor,
-                                          outcome=DocumentAccess.Outcome.REFUSED_INTEGRITY)
-            AgreementInstance.objects.filter(pk=document.instance_id).update(custody_status="failed_needs_staff",
-                                                                             updated_at=Now())
-            open_item(CUSTODY_CORRUPTED, f"document:{document.public_id}", application=document.application)
-            event(document.application, "agreement_document_refused", {"document": str(document.public_id),
-                                                                        "code": str(exc)})
+            Application.objects.select_for_update(of=("self",)).get(
+                pk=document.application_id
+            )
+            AgreementInstance.objects.select_for_update(of=("self",)).get(
+                pk=document.instance_id
+            )
+            DocumentAccess.objects.create(
+                document=document,
+                requested_ref=ref,
+                actor_ref=actor,
+                outcome=DocumentAccess.Outcome.REFUSED_INTEGRITY,
+            )
+            AgreementInstance.objects.filter(pk=document.instance_id).update(
+                custody_status="failed_needs_staff", updated_at=Now()
+            )
+            open_item(
+                CUSTODY_CORRUPTED,
+                f"document:{document.public_id}",
+                application=document.application,
+            )
+            event(
+                document.application,
+                "agreement_document_refused",
+                {"document": str(document.public_id), "code": str(exc)},
+            )
         raise Refused("document_integrity_failed") from None
     return f"agreement-{document.public_id}.pdf", data
 
@@ -617,8 +1015,13 @@ def correction_fields(application_id: int, agreement_type) -> list:
     from .completion import _live
     from .models import AgreementDetailsVersion
 
-    latest = (AgreementDetailsVersion.objects.filter(application_id=application_id, agreement_type=agreement_type)
-              .order_by("-version").first())
+    latest = (
+        AgreementDetailsVersion.objects.filter(
+            application_id=application_id, agreement_type=agreement_type
+        )
+        .order_by("-version")
+        .first()
+    )
     if latest is not None and latest.values:
         return sorted(latest.values)
     live = _live(application_id, agreement_type)
@@ -655,17 +1058,37 @@ def record_required_details(application_id: int, type_key: str, values: dict, us
     if correction and not any(cleaned.values()):
         raise Refused("field_invalid")
     with transaction.atomic():
-        application = Application.objects.select_for_update(of=("self",)).get(pk=application_id)
-        allowed = (Stage.ADMITTED, Stage.AGREEMENTS) + ((Stage.AGREEMENTS_COMPLETE,) if correction else ())
+        application = Application.objects.select_for_update(of=("self",)).get(
+            pk=application_id
+        )
+        allowed = (Stage.ADMITTED, Stage.AGREEMENTS) + (
+            (Stage.AGREEMENTS_COMPLETE,) if correction else ()
+        )
         if application.stage not in allowed:
-            raise Refused("not_in_agreements")  # details may come before the first agreement (QA review)
-        version = (AgreementDetailsVersion.objects.filter(application=application, agreement_type=agreement_type)
-                   .count() + 1)
+            raise Refused(
+                "not_in_agreements"
+            )  # details may come before the first agreement (QA review)
+        version = (
+            AgreementDetailsVersion.objects.filter(
+                application=application, agreement_type=agreement_type
+            ).count()
+            + 1
+        )
         row = AgreementDetailsVersion.objects.create(
-            application=application, agreement_type=agreement_type, version=version, values=cleaned,
-            values_sha256=_details_digest(cleaned), recorded_by=f"user:{user.pk}")
-        event(application, "agreement_details_recorded", {"type": type_key, "version": version},
-              actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=f"user:{user.pk}")
+            application=application,
+            agreement_type=agreement_type,
+            version=version,
+            values=cleaned,
+            values_sha256=_details_digest(cleaned),
+            recorded_by=f"user:{user.pk}",
+        )
+        event(
+            application,
+            "agreement_details_recorded",
+            {"type": type_key, "version": version},
+            actor_type=ApplicationEvent.ActorType.STAFF,
+            actor_ref=f"user:{user.pk}",
+        )
     return row
 
 
@@ -677,27 +1100,57 @@ def confirm_required_details(details_id: int, user, expected_sha256: str):
     require(user, "confirm_required_details")
     with transaction.atomic():
         row = AgreementDetailsVersion.objects.get(pk=details_id)
-        application = Application.objects.select_for_update(of=("self",)).get(pk=row.application_id)
-        row = AgreementDetailsVersion.objects.select_for_update(of=("self",)).get(pk=details_id)
+        application = Application.objects.select_for_update(of=("self",)).get(
+            pk=row.application_id
+        )
+        row = AgreementDetailsVersion.objects.select_for_update(of=("self",)).get(
+            pk=details_id
+        )
         from .completion import DETAILS_NEEDED, stopped
 
-        if application.stage not in (Stage.ADMITTED, Stage.AGREEMENTS, Stage.AGREEMENTS_COMPLETE) or stopped(application):
+        if application.stage not in (
+            Stage.ADMITTED,
+            Stage.AGREEMENTS,
+            Stage.AGREEMENTS_COMPLETE,
+        ) or stopped(application):
             raise Refused("not_in_agreements")
         if row.status != AgreementDetailsVersion.Status.DRAFT:
             raise Refused("not_draft")
-        if expected_sha256 != row.values_sha256 or _details_digest(row.values) != row.values_sha256:
-            raise Refused("changed_since_shown")  # the digest is recomputed from the values themselves
-        if AgreementDetailsVersion.objects.filter(application=application, agreement_type=row.agreement_type,
-                                                  version__gt=row.version).exists():
+        if (
+            expected_sha256 != row.values_sha256
+            or _details_digest(row.values) != row.values_sha256
+        ):
+            raise Refused(
+                "changed_since_shown"
+            )  # the digest is recomputed from the values themselves
+        if AgreementDetailsVersion.objects.filter(
+            application=application,
+            agreement_type=row.agreement_type,
+            version__gt=row.version,
+        ).exists():
             raise Refused("newer_version_exists")
         AgreementDetailsVersion.objects.filter(pk=row.pk).update(
-            status=AgreementDetailsVersion.Status.CONFIRMED, confirmed_by=f"user:{user.pk}", confirmed_at=Now())
-        event(application, "agreement_details_confirmed", {"type": row.agreement_type.key, "version": row.version},
-              actor_type=ApplicationEvent.ActorType.STAFF, actor_ref=f"user:{user.pk}")
+            status=AgreementDetailsVersion.Status.CONFIRMED,
+            confirmed_by=f"user:{user.pk}",
+            confirmed_at=Now(),
+        )
+        event(
+            application,
+            "agreement_details_confirmed",
+            {"type": row.agreement_type.key, "version": row.version},
+            actor_type=ApplicationEvent.ActorType.STAFF,
+            actor_ref=f"user:{user.pk}",
+        )
         key = f"details:{application.public_ref}:{row.agreement_type.key}"
-        for item in StaffItem.objects.filter(reason_code=DETAILS_NEEDED, dedupe_key=key, status=StaffItem.Status.OPEN):
-            resolve_item(item, code="details_confirmed", actor_ref=f"user:{user.pk}",
-                         effects={"details": str(row.public_id)})
+        for item in StaffItem.objects.filter(
+            reason_code=DETAILS_NEEDED, dedupe_key=key, status=StaffItem.Status.OPEN
+        ):
+            resolve_item(
+                item,
+                code="details_confirmed",
+                actor_ref=f"user:{user.pk}",
+                effects={"details": str(row.public_id)},
+            )
         if application.stage == Stage.AGREEMENTS:
             enqueue_advance(application)
         # At `admitted`, the NDA held for these details is released again only by the owner's activation command
