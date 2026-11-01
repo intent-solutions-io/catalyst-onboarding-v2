@@ -26,7 +26,12 @@ from correspondence.staff_items import clean_note, resolve_item
 from workflow.models import PendingAction
 
 from . import adapter, core, naming
-from .models import AddressReservation, ProvisioningAttempt, ProvisioningEvidence, ProvisioningRequest
+from .models import (
+    AddressReservation,
+    ProvisioningAttempt,
+    ProvisioningEvidence,
+    ProvisioningRequest,
+)
 
 REASON_MIN = 10
 
@@ -36,8 +41,13 @@ class Refused(Exception):
 
 
 def can(user, permission: str) -> bool:
-    return (user is not None and user.is_authenticated and user.is_active and not user.is_superuser
-            and user.has_perm(f"provisioning.{permission}"))
+    return (
+        user is not None
+        and user.is_authenticated
+        and user.is_active
+        and not user.is_superuser
+        and user.has_perm(f"provisioning.{permission}")
+    )
 
 
 def require(user, permission: str) -> None:
@@ -51,7 +61,9 @@ def actor(user) -> str:
 
 # A note goes into append-only history: anything that looks like a credential is refused, never stored (security
 # review of PR #53). Staff are told on the screen not to type one.
-CREDENTIAL_LIKE = re.compile(r"(?i)\b(pass(word|wd)?|pwd|secret|token|api[ _-]?key)\b\s*[:=]")
+CREDENTIAL_LIKE = re.compile(
+    r"(?i)\b(pass(word|wd)?|pwd|secret|token|api[ _-]?key)\b\s*[:=]"
+)
 
 
 def _reason(text: str) -> str:
@@ -64,20 +76,28 @@ def _reason(text: str) -> str:
 
 
 def _resolve(request, reason_code: str, code: str, who: str, note: str = "") -> None:
-    for open_one in StaffItem.objects.filter(reason_code=reason_code, dedupe_key=f"provisioning:{request.public_id}",
-                                             status=StaffItem.Status.OPEN):
+    for open_one in StaffItem.objects.filter(
+        reason_code=reason_code,
+        dedupe_key=f"provisioning:{request.public_id}",
+        status=StaffItem.Status.OPEN,
+    ):
         resolve_item(open_one, code=code, actor_ref=who, note=note)
 
 
 # --- release ----------------------------------------------------------------------------------------------------
+
 
 def _free(application, local_part: str, domain: str) -> bool:
     """Not reserved, not live for anyone (this application's own held addresses included), and never an address this
     application already tried: a provider conflict or a possible mailbox is never proposed again (QA review)."""
     if naming.reserved(local_part):
         return False
-    same = AddressReservation.objects.filter(local_part__iexact=local_part, domain__iexact=domain)
-    tried = same.filter(application=application, requests__attempts__step="create").exists()
+    same = AddressReservation.objects.filter(
+        local_part__iexact=local_part, domain__iexact=domain
+    )
+    tried = same.filter(
+        application=application, requests__attempts__step="create"
+    ).exists()
     return not same.filter(released_at__isnull=True).exists() and not tried
 
 
@@ -100,22 +120,42 @@ def _propose(application, domain: str) -> str | None:
     candidates = naming.candidates_for(application.display_name)
     if not candidates:
         return None
-    taken = _taken_at_host(domain, candidates) if settings.CATALYST_PROVISIONING_NAMING_HOST_CHECK else set()
-    return next((c for c in candidates if c not in taken and _free(application, c, domain)), None)
+    taken = (
+        _taken_at_host(domain, candidates)
+        if settings.CATALYST_PROVISIONING_NAMING_HOST_CHECK
+        else set()
+    )
+    return next(
+        (c for c in candidates if c not in taken and _free(application, c, domain)),
+        None,
+    )
 
 
-def _refused(application, reason: str, dry_run: bool, actor: str = "owner_command") -> str:
+def _refused(
+    application, reason: str, dry_run: bool, actor: str = "owner_command"
+) -> str:
     """023 section 5 step 1: a refusal leaves the hand-off held, with a staff item and an event."""
     if not dry_run and reason not in ("not_held",):
         from correspondence.staff_items import open_item
 
-        open_item(core.ITEM_BLOCKED, f"release:{application.public_ref}", application=application)
-        core.record(application, "provisioning_release_refused", {"reason": reason}, actor)
+        open_item(
+            core.ITEM_BLOCKED,
+            f"release:{application.public_ref}",
+            application=application,
+        )
+        core.record(
+            application, "provisioning_release_refused", {"reason": reason}, actor
+        )
     return reason
 
 
-def release(action_id: int, activation_version: int, approval_ref: str, dry_run: bool = False,
-            actor: str = "owner_command") -> str:
+def release(
+    action_id: int,
+    activation_version: int,
+    approval_ref: str,
+    dry_run: bool = False,
+    actor: str = "owner_command",
+) -> str:
     """One held hand-off. Returns a reason code ("released" or why it stays held). A dry run writes nothing. `actor` is
     the owner's command, or `auto-release` under CATALYST_RELEASE_MODE "automatic" (bgl.9, provisioning.auto_release)."""
     from agreements.completion import fresh_read_problem, prerequisites
@@ -132,9 +172,13 @@ def release(action_id: int, activation_version: int, approval_ref: str, dry_run:
     if problem:
         return problem  # an integrity hold has already opened its own staff item
     proposed = None
-    if not AddressReservation.objects.filter(application=application, released_at__isnull=True, requests__isnull=True).exists():
+    if not AddressReservation.objects.filter(
+        application=application, released_at__isnull=True, requests__isnull=True
+    ).exists():
         try:
-            proposed = _propose(application, domain)  # the policy's candidates, read at the host when configured
+            proposed = _propose(
+                application, domain
+            )  # the policy's candidates, read at the host when configured
         except adapter.AdapterError as exc:  # the host could not answer: the hand-off stays held, nothing is reserved
             return _refused(application, f"host_read_{exc.code}", dry_run, actor)
     with transaction.atomic():
@@ -143,7 +187,9 @@ def release(action_id: int, activation_version: int, approval_ref: str, dry_run:
         if action.status != PendingAction.Status.HELD:
             return "not_held"
         if application.stage != Stage.AGREEMENTS_COMPLETE:
-            return _refused(application, "stage_not_agreements_complete", dry_run, actor)
+            return _refused(
+                application, "stage_not_agreements_complete", dry_run, actor
+            )
         problem = core.database_problem(application)
         if problem:
             return _refused(application, problem, dry_run, actor)
@@ -151,47 +197,98 @@ def release(action_id: int, activation_version: int, approval_ref: str, dry_run:
         # The prerequisites must hold today (checked above). If they changed since the P4 hand-off (for example a D-43
         # replacement), that is recorded, and the approver confirms the new snapshot: the approval digest binds
         # today's prerequisite digest, never the hand-off's (QA review of PR #53).
-        if action.input_ref.startswith("agreements:") and action.input_ref != f"agreements:{digest}" and not dry_run:
-            core.record(application, "provisioning_prerequisites_changed_since_handoff",
-                        {"handoff": action.input_ref.split(":", 1)[1], "now": digest}, actor)
+        if (
+            action.input_ref.startswith("agreements:")
+            and action.input_ref != f"agreements:{digest}"
+            and not dry_run
+        ):
+            core.record(
+                application,
+                "provisioning_prerequisites_changed_since_handoff",
+                {"handoff": action.input_ref.split(":", 1)[1], "now": digest},
+                actor,
+            )
         # Reuse only a reviewed exception not yet used by any request; otherwise propose a fresh address.
-        reservation = AddressReservation.objects.filter(application=application, released_at__isnull=True,
-                                                        requests__isnull=True).first()
+        reservation = AddressReservation.objects.filter(
+            application=application, released_at__isnull=True, requests__isnull=True
+        ).first()
         if reservation is None:
-            if proposed and not _free(application, proposed, domain):  # reserved by someone since the read: run again
+            if proposed and not _free(
+                application, proposed, domain
+            ):  # reserved by someone since the read: run again
                 return _refused(application, "address_taken_meanwhile", dry_run, actor)
             local = proposed
             if local is None:
                 if not dry_run:
                     from correspondence.staff_items import open_item
 
-                    open_item(core.ITEM_NAME_REVIEW, f"naming:{application.public_ref}", application=application)
+                    open_item(
+                        core.ITEM_NAME_REVIEW,
+                        f"naming:{application.public_ref}",
+                        application=application,
+                    )
                 return "name_needs_review"
             if dry_run:
                 return "released"
-            reservation = AddressReservation.objects.create(application=application, local_part=local, domain=domain,
-                                                            basis=AddressReservation.Basis.NAMING_RULE)
+            reservation = AddressReservation.objects.create(
+                application=application,
+                local_part=local,
+                domain=domain,
+                basis=AddressReservation.Basis.NAMING_RULE,
+            )
         if dry_run:
             return "released"
         method = settings.CATALYST_PROVISIONING_METHOD
-        quota, limit = settings.CATALYST_PROVISIONING_QUOTA_MB, settings.CATALYST_PROVISIONING_SEND_LIMIT
+        quota, limit = (
+            settings.CATALYST_PROVISIONING_QUOTA_MB,
+            settings.CATALYST_PROVISIONING_SEND_LIMIT,
+        )
         request = ProvisioningRequest.objects.create(
-            application=application, reservation=reservation, method=method, quota_mb=quota, send_limit=limit,
+            application=application,
+            reservation=reservation,
+            method=method,
+            quota_mb=quota,
+            send_limit=limit,
             prerequisite_digest=digest,
-            approval_digest=core.approval_digest(reservation.address, quota, limit, method, digest))
-        transition(application.pk, (Stage.AGREEMENTS_COMPLETE,), Stage.PROVISIONING, event_kind="provisioning_released",
-                   data={"request": str(request.public_id), "activation_version": activation_version,
-                         "approval_ref": approval_ref}, actor_ref=actor)
-        PendingAction.objects.filter(pk=action.pk).update(status=PendingAction.Status.DONE, completed_at=Now(),
-                                                          updated_at=Now(), last_error="released")
-        for open_one in StaffItem.objects.filter(reason_code=core.ITEM_BLOCKED, dedupe_key=f"release:{application.public_ref}",
-                                                 status=StaffItem.Status.OPEN):
-            resolve_item(open_one, code="released", actor_ref=actor,
-                         **({} if actor == "owner_command" else {"actor_type": "system"}))
+            approval_digest=core.approval_digest(
+                reservation.address, quota, limit, method, digest
+            ),
+        )
+        transition(
+            application.pk,
+            (Stage.AGREEMENTS_COMPLETE,),
+            Stage.PROVISIONING,
+            event_kind="provisioning_released",
+            data={
+                "request": str(request.public_id),
+                "activation_version": activation_version,
+                "approval_ref": approval_ref,
+            },
+            actor_ref=actor,
+        )
+        PendingAction.objects.filter(pk=action.pk).update(
+            status=PendingAction.Status.DONE,
+            completed_at=Now(),
+            updated_at=Now(),
+            last_error="released",
+        )
+        for open_one in StaffItem.objects.filter(
+            reason_code=core.ITEM_BLOCKED,
+            dedupe_key=f"release:{application.public_ref}",
+            status=StaffItem.Status.OPEN,
+        ):
+            resolve_item(
+                open_one,
+                code="released",
+                actor_ref=actor,
+                **({} if actor == "owner_command" else {"actor_type": "system"}),
+            )
     return "released"
 
 
-def reserve_exception(application_id: int, local_part: str, user, reason: str) -> AddressReservation:
+def reserve_exception(
+    application_id: int, local_part: str, user, reason: str
+) -> AddressReservation:
     """P5-D-1: a reviewed address for a one-part, non-Latin or preferred professional name. Same rules: safe, not
     reserved, not anyone else's."""
     from applications.models import Application
@@ -203,27 +300,45 @@ def reserve_exception(application_id: int, local_part: str, user, reason: str) -
     except naming.NamingRefused as exc:
         raise Refused(str(exc)) from None
     with transaction.atomic():
-        application = Application.objects.select_for_update(of=("self",)).get(pk=application_id)
+        application = Application.objects.select_for_update(of=("self",)).get(
+            pk=application_id
+        )
         if application.stage != Stage.AGREEMENTS_COMPLETE:
             raise Refused("stage_not_agreements_complete")
-        if AddressReservation.objects.filter(application=application, released_at__isnull=True,
-                                             requests__isnull=True).exists():
+        if AddressReservation.objects.filter(
+            application=application, released_at__isnull=True, requests__isnull=True
+        ).exists():
             raise Refused("already_reserved")
         domain = settings.CATALYST_PROVISIONING_DOMAIN
         if not _free(application, local, domain):
             raise Refused("address_taken")
-        reservation = AddressReservation.objects.create(application=application, local_part=local, domain=domain,
-                                                        basis=AddressReservation.Basis.REVIEWED_EXCEPTION,
-                                                        reviewed_by=actor(user))
-        for open_one in StaffItem.objects.filter(reason_code=core.ITEM_NAME_REVIEW,
-                                                 dedupe_key=f"naming:{application.public_ref}", status="open"):
-            resolve_item(open_one, code="reviewed_exception", actor_ref=actor(user), note=note)
-        core.record(application, "provisioning_address_exception", {"reservation": str(reservation.public_id)},
-                    actor(user), actor_type="staff")
+        reservation = AddressReservation.objects.create(
+            application=application,
+            local_part=local,
+            domain=domain,
+            basis=AddressReservation.Basis.REVIEWED_EXCEPTION,
+            reviewed_by=actor(user),
+        )
+        for open_one in StaffItem.objects.filter(
+            reason_code=core.ITEM_NAME_REVIEW,
+            dedupe_key=f"naming:{application.public_ref}",
+            status="open",
+        ):
+            resolve_item(
+                open_one, code="reviewed_exception", actor_ref=actor(user), note=note
+            )
+        core.record(
+            application,
+            "provisioning_address_exception",
+            {"reservation": str(reservation.public_id)},
+            actor(user),
+            actor_type="staff",
+        )
     return reservation
 
 
 # --- approval -----------------------------------------------------------------------------------------------------
+
 
 def approve(request_id: int, user, expected_digest: str) -> ProvisioningRequest:
     require(user, "approve_provisioning")
@@ -247,8 +362,13 @@ def _approved(application, request, who: str, extra: dict, **event_fields) -> No
         core.enqueue(core.CREATE, request, f"{core.CREATE}:{request.public_id}:0")
     else:
         core.item(core.ITEM_CHECKLIST, request)
-    core.record(application, "provisioning_approved", {"request": str(request.public_id), "method": request.method,
-                                                       **extra}, who, **event_fields)
+    core.record(
+        application,
+        "provisioning_approved",
+        {"request": str(request.public_id), "method": request.method, **extra},
+        who,
+        **event_fields,
+    )
 
 
 def approve_automatically(request_id: int, who: str, approval_ref: str) -> str:
@@ -263,18 +383,26 @@ def approve_automatically(request_id: int, who: str, approval_ref: str) -> str:
             return "not_awaiting_approval"
         if request.reservation.basis != AddressReservation.Basis.NAMING_RULE:
             return "address_needs_approver"
-        shown = core.approval_digest(request.reservation.address, request.quota_mb, request.send_limit, request.method,
-                                     request.prerequisite_digest)
+        shown = core.approval_digest(
+            request.reservation.address,
+            request.quota_mb,
+            request.send_limit,
+            request.method,
+            request.prerequisite_digest,
+        )
         if shown != request.approval_digest:
             return "changed_since_release"
         problem = core.database_problem(application, request)
         if problem:
             return problem
-        _approved(application, request, who, {"approval_ref": approval_ref, "by": "automatic"})
+        _approved(
+            application, request, who, {"approval_ref": approval_ref, "by": "automatic"}
+        )
     return "approved"
 
 
 # --- the checklist path (P5-D-4 fallback, P5-D-5) ------------------------------------------------------------------
+
 
 def record_checklist_creation(request_id: int, user, note: str) -> None:
     require(user, "operate_provisioning")
@@ -282,18 +410,33 @@ def record_checklist_creation(request_id: int, user, note: str) -> None:
     request = ProvisioningRequest.objects.get(pk=request_id)
     with transaction.atomic():
         application, request = core.lock(request.application_id, request.pk)
-        if request.method != ProvisioningRequest.Method.CHECKLIST or request.status != "approved":
+        if (
+            request.method != ProvisioningRequest.Method.CHECKLIST
+            or request.status != "approved"
+        ):
             raise Refused("not_an_approved_checklist_request")
         problem = core.database_problem(application, request)
         if problem:
             raise Refused(problem)
-        ProvisioningEvidence.objects.create(request=request, kind=ProvisioningEvidence.Kind.CHECKLIST_CREATED,
-                                            actor_ref=actor(user), note=text,
-                                            facts={"address": request.reservation.address, "quota_mb": request.quota_mb,
-                                                   "send_limit": request.send_limit})
+        ProvisioningEvidence.objects.create(
+            request=request,
+            kind=ProvisioningEvidence.Kind.CHECKLIST_CREATED,
+            actor_ref=actor(user),
+            note=text,
+            facts={
+                "address": request.reservation.address,
+                "quota_mb": request.quota_mb,
+                "send_limit": request.send_limit,
+            },
+        )
         core.set_status(request, "created")
-        core.record(application, "provisioning_checklist_created", {"request": str(request.public_id)}, actor(user),
-                    actor_type="staff")
+        core.record(
+            application,
+            "provisioning_checklist_created",
+            {"request": str(request.public_id)},
+            actor(user),
+            actor_type="staff",
+        )
 
 
 def attest_checklist_verification(request_id: int, user, note: str) -> None:
@@ -304,23 +447,38 @@ def attest_checklist_verification(request_id: int, user, note: str) -> None:
     request = ProvisioningRequest.objects.get(pk=request_id)
     with transaction.atomic():
         application, request = core.lock(request.application_id, request.pk)
-        if request.method != ProvisioningRequest.Method.CHECKLIST or request.status != "created":
+        if (
+            request.method != ProvisioningRequest.Method.CHECKLIST
+            or request.status != "created"
+        ):
             raise Refused("not_a_created_checklist_request")
-        created = request.evidence.filter(kind=ProvisioningEvidence.Kind.CHECKLIST_CREATED).first()
+        created = request.evidence.filter(
+            kind=ProvisioningEvidence.Kind.CHECKLIST_CREATED
+        ).first()
         if created is None or created.actor_ref == actor(user):
             raise Refused("verifier_must_differ_from_creator")
-        ProvisioningEvidence.objects.create(request=request, kind=ProvisioningEvidence.Kind.CHECKLIST_ATTESTED,
-                                            actor_ref=actor(user), note=text)
+        ProvisioningEvidence.objects.create(
+            request=request,
+            kind=ProvisioningEvidence.Kind.CHECKLIST_ATTESTED,
+            actor_ref=actor(user),
+            note=text,
+        )
         core.set_status(request, "verified")
         _resolve(request, core.ITEM_CHECKLIST, "verified", actor(user))
-        core.record(application, "provisioning_verified", {"request": str(request.public_id), "by": "checklist"},
-                    actor(user), actor_type="staff")
+        core.record(
+            application,
+            "provisioning_verified",
+            {"request": str(request.public_id), "by": "checklist"},
+            actor(user),
+            actor_type="staff",
+        )
         from .credentials import open_setup
 
         open_setup(request, actor(user))  # 5B.2
 
 
 # --- found by evidence, conflicts and supersession -----------------------------------------------------------------
+
 
 def confirm_found_mailbox(request_id: int, user, decision: str, reason: str) -> None:
     """023 11.3: after an unknown create, a mailbox read as present is ours only when staff confirm it. Also for a
@@ -333,30 +491,59 @@ def confirm_found_mailbox(request_id: int, user, decision: str, reason: str) -> 
     request = ProvisioningRequest.objects.get(pk=request_id)
     with transaction.atomic():
         application, request = core.lock(request.application_id, request.pk)
-        late = StaffItem.objects.filter(dedupe_key=f"provisioning:{request.public_id}", status=StaffItem.Status.OPEN,
-                                        reason_code__in=(core.ITEM_LATE_MAILBOX, core.ITEM_CONFIRM_FOUND)).exists() or (
-            request.attempts.filter(step="create", outcome="conflict",
-                                    code__in=("present_but_not_provably_ours", "conflict_after_ours")).exists()
-            and request.stop_requested_at is not None)
+        late = StaffItem.objects.filter(
+            dedupe_key=f"provisioning:{request.public_id}",
+            status=StaffItem.Status.OPEN,
+            reason_code__in=(core.ITEM_LATE_MAILBOX, core.ITEM_CONFIRM_FOUND),
+        ).exists() or (
+            request.attempts.filter(
+                step="create",
+                outcome="conflict",
+                code__in=("present_but_not_provably_ours", "conflict_after_ours"),
+            ).exists()
+            and request.stop_requested_at is not None
+        )
         if request.status != "found_by_evidence" and not late:
             raise Refused("not_found_by_evidence")
-        ProvisioningEvidence.objects.create(request=request, kind=ProvisioningEvidence.Kind.STAFF_CONFIRMED,
-                                            actor_ref=actor(user), note=note, facts={"decision": decision})
+        ProvisioningEvidence.objects.create(
+            request=request,
+            kind=ProvisioningEvidence.Kind.STAFF_CONFIRMED,
+            actor_ref=actor(user),
+            note=note,
+            facts={"decision": decision},
+        )
         if request.status == "found_by_evidence":
             if decision == "ours":
                 core.set_status(request, "created")
-                core.enqueue(core.VERIFY, request, f"{core.VERIFY}:{request.public_id}:0",
-                             due_in=timedelta(seconds=settings.CATALYST_PROVISIONING_RECONCILE_GRACE_SECONDS))
+                core.enqueue(
+                    core.VERIFY,
+                    request,
+                    f"{core.VERIFY}:{request.public_id}:0",
+                    due_in=timedelta(
+                        seconds=settings.CATALYST_PROVISIONING_RECONCILE_GRACE_SECONDS
+                    ),
+                )
             else:
                 core.set_status(request, "conflict")
         elif request.stop_requested_at is not None or decision == "ours":
             from .closure import ensure_revocations
 
-            ensure_revocations(request, actor(user))  # proven ours: revoke; refused: settles as nothing of ours
-        for code in (core.ITEM_CONFIRM_FOUND, core.ITEM_LATE_MAILBOX, core.ITEM_CONFLICT):
+            ensure_revocations(
+                request, actor(user)
+            )  # proven ours: revoke; refused: settles as nothing of ours
+        for code in (
+            core.ITEM_CONFIRM_FOUND,
+            core.ITEM_LATE_MAILBOX,
+            core.ITEM_CONFLICT,
+        ):
             _resolve(request, code, decision, actor(user), note)
-        core.record(application, "provisioning_found_decided", {"request": str(request.public_id), "decision": decision},
-                    actor(user), actor_type="staff")
+        core.record(
+            application,
+            "provisioning_found_decided",
+            {"request": str(request.public_id), "decision": decision},
+            actor(user),
+            actor_type="staff",
+        )
 
 
 # A create attempt after which a mailbox may exist for the address: anything but a definite rejection, or a conflict
@@ -365,15 +552,35 @@ FOREIGN_BEFORE_OURS = ("present_before_create",)
 
 
 def _mailbox_may_exist(request) -> bool:
-    attempts = request.attempts.filter(step="create").exclude(outcome=ProvisioningAttempt.Outcome.REJECTED).exclude(
-        outcome=ProvisioningAttempt.Outcome.CONFLICT, code__in=FOREIGN_BEFORE_OURS)
-    return attempts.exists() or request.status in ("found_by_evidence", "created", "verify_uncertain", "verified")
+    attempts = (
+        request.attempts.filter(step="create")
+        .exclude(outcome=ProvisioningAttempt.Outcome.REJECTED)
+        .exclude(
+            outcome=ProvisioningAttempt.Outcome.CONFLICT, code__in=FOREIGN_BEFORE_OURS
+        )
+    )
+    return attempts.exists() or request.status in (
+        "found_by_evidence",
+        "created",
+        "verify_uncertain",
+        "verified",
+    )
 
 
 def _open_actions(request) -> bool:
-    return PendingAction.objects.filter(input_ref=str(request.public_id), status__in=(
-        PendingAction.Status.QUEUED, PendingAction.Status.RUNNING, PendingAction.Status.HELD)).exclude(
-        idempotency_key__contains=":watch:").exclude(idempotency_key__startswith="setup_expire:").exists()
+    return (
+        PendingAction.objects.filter(
+            input_ref=str(request.public_id),
+            status__in=(
+                PendingAction.Status.QUEUED,
+                PendingAction.Status.RUNNING,
+                PendingAction.Status.HELD,
+            ),
+        )
+        .exclude(idempotency_key__contains=":watch:")
+        .exclude(idempotency_key__startswith="setup_expire:")
+        .exists()
+    )
 
 
 def supersede(request_id: int, user, reason: str) -> None:
@@ -385,23 +592,51 @@ def supersede(request_id: int, user, reason: str) -> None:
     request = ProvisioningRequest.objects.get(pk=request_id)
     with transaction.atomic():
         application, request = core.lock(request.application_id, request.pk)
-        if request.status in ("active", "superseded", "stopped", "recovered_after_stop"):
+        from firstgen.mailboxes import ownership_unreviewed
+
+        if ownership_unreviewed(request):
+            raise Refused("legacy_mailbox_review_required")
+        if request.status in (
+            "active",
+            "superseded",
+            "stopped",
+            "recovered_after_stop",
+        ):
             raise Refused("request_closed")
         if _open_actions(request):
-            raise Refused("work_in_flight")  # a create, reconcile or verify is still due: let it settle first
+            raise Refused(
+                "work_in_flight"
+            )  # a create, reconcile or verify is still due: let it settle first
         may_exist = _mailbox_may_exist(request)
         core.set_status(request, "superseded")
         if may_exist:
-            core.enqueue(core.RECONCILE, request, f"{core.RECONCILE}:{request.public_id}:watch:0",
-                         due_in=timedelta(seconds=settings.CATALYST_PROVISIONING_RECONCILE_GRACE_SECONDS))
+            core.enqueue(
+                core.RECONCILE,
+                request,
+                f"{core.RECONCILE}:{request.public_id}:watch:0",
+                due_in=timedelta(
+                    seconds=settings.CATALYST_PROVISIONING_RECONCILE_GRACE_SECONDS
+                ),
+            )
         else:
-            AddressReservation.objects.filter(pk=request.reservation_id, released_at__isnull=True).update(
-                released_at=Now(), released_by=actor(user))
-        for code in (core.ITEM_CONFLICT, core.ITEM_FAILED, core.ITEM_BLOCKED, core.ITEM_CHECKLIST,
-                     core.ITEM_CONFIRM_FOUND):
+            AddressReservation.objects.filter(
+                pk=request.reservation_id, released_at__isnull=True
+            ).update(released_at=Now(), released_by=actor(user))
+        for code in (
+            core.ITEM_CONFLICT,
+            core.ITEM_FAILED,
+            core.ITEM_BLOCKED,
+            core.ITEM_CHECKLIST,
+            core.ITEM_CONFIRM_FOUND,
+        ):
             _resolve(request, code, "superseded", actor(user), note)
-        core.record(application, "provisioning_superseded", {"request": str(request.public_id), "watched": may_exist},
-                    actor(user), actor_type="staff")
+        core.record(
+            application,
+            "provisioning_superseded",
+            {"request": str(request.public_id), "watched": may_exist},
+            actor(user),
+            actor_type="staff",
+        )
         core.return_stage_if_idle(application, actor(user))
 
 
@@ -414,14 +649,32 @@ def release_address(request_id: int, user, reason: str) -> None:
     request = ProvisioningRequest.objects.get(pk=request_id)
     with transaction.atomic():
         application, request = core.lock(request.application_id, request.pk)
-        if request.status not in ("superseded", "recovered_after_stop", "stopped", "conflict", "failed_needs_staff"):
-            raise Refused("request_still_live")  # failed_needs_staff: e.g. a rejected create left on a closed application
+        from firstgen.mailboxes import ownership_unreviewed
+
+        if ownership_unreviewed(request):
+            raise Refused("legacy_mailbox_review_required")
+        if request.status not in (
+            "superseded",
+            "recovered_after_stop",
+            "stopped",
+            "conflict",
+            "failed_needs_staff",
+        ):
+            raise Refused(
+                "request_still_live"
+            )  # failed_needs_staff: e.g. a rejected create left on a closed application
         if core.watch_open(application):
             raise Refused("watch_open")
-        if not AddressReservation.objects.filter(pk=request.reservation_id, released_at__isnull=True).update(
-                released_at=Now(), released_by=actor(user)):
+        if not AddressReservation.objects.filter(
+            pk=request.reservation_id, released_at__isnull=True
+        ).update(released_at=Now(), released_by=actor(user)):
             raise Refused("already_released")
         _resolve(request, core.ITEM_LATE_MAILBOX, "address_released", actor(user), note)
-        core.record(application, "provisioning_address_released", {"request": str(request.public_id)}, actor(user),
-                    actor_type="staff")
+        core.record(
+            application,
+            "provisioning_address_released",
+            {"request": str(request.public_id)},
+            actor(user),
+            actor_type="staff",
+        )
         core.return_stage_if_idle(application, actor(user))
