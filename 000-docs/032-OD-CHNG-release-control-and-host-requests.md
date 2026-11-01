@@ -261,17 +261,34 @@ all other rule parameters, active enforcement and empty bypass list are unchange
 runner or scan-threshold setting changed. Fixable high and critical findings retain the existing failure policy;
 docs-only changes retain the unfiltered image workflow.
 
-The matching explicit merge-guard floor is in [Intent OS PR #889](https://github.com/intent-solutions-io/intent-os/pull/889).
-Local `pnpm check` passed, including 40 hermetic guard tests and four planted guard faults. The real guard with
-that shipped policy refuses missing, pending and failed scans and accepts a successful scan with the other checks
-green. Installation on the dev box and watchdog is still pending source merge. The existing installed guard also
-requires observed non-advisory checks, but that alone does not enforce a scan that never reports.
+The matching explicit merge-guard floor merged in [Intent OS PR #889](https://github.com/intent-solutions-io/intent-os/pull/889),
+commit `311a2397`. Local `pnpm check` passed, including 40 hermetic guard tests and four planted guard faults;
+the required hosted gates, Docker drills and secret scan also passed. The real guard with that policy refuses
+missing, pending and failed scans and accepts a successful scan with the other checks green. The dev-box installer
+ran from the clean merged commit; both installed files match it byte-for-byte. The executable is unchanged and
+only Catalyst's required-check entry differs from the previous dev-box policy.
 
-[Draft PR #185](https://github.com/intent-solutions-io/catalyst-onboarding-v2/pull/185) is the real P7/P8 probe,
-never to be merged or deployed. P7 uses one hash-pinned package with an upstream fixable high finding in the
-PR-only image. Its result, the dry-run refusal, and P8's docs-only reporting result remain pending. The repository
-and live-policy task stays open until those results and installation evidence are recorded; this update does not
-claim completion of the separate disposable-repository probes in `9kg.35`.
+The watchdog on `intentsolutions` was installed from the same reviewed main archive at 13:07 UTC; the official
+installer's 37-repository credential probe passed and the timer is enabled/active. Installed policy SHA-256 is
+`f412f0029720602e39d2675e532a4c71b6b62fccae46d410cc56911e633bbf06`, identical to the dev-box policy.
+The executable files are unchanged. The canonical policy also includes seven previously merged repository
+registrations (37 total); a prior no-dispatch scan of 35 recent merges found no violations or repository-read
+errors. Neither preflight dispatched a message. The previous files and units are retained for rollback. An initial
+wrapper preflight refused a truncated expected checksum before creating the operation directory or changing the
+timer/files; after correcting the checksum from source, installation and final byte/timer readback passed.
+The archive's reviewed commit and digest are recorded in the installed provenance file; `git archive` itself has
+no Git metadata. This is policy installation evidence, not a claim that the next scheduled watchdog run occurred.
+
+Real refusal and reporting evidence, [draft PR #185](https://github.com/intent-solutions-io/catalyst-onboarding-v2/pull/185),
+**closed unmerged**:
+
+| Probe | Exact candidate and result |
+|---|---|
+| P7: known fixable finding | Head `6ddd900`; [Image run 41308293216](https://github.com/intent-solutions-io/catalyst-onboarding-v2/actions/runs/41308293216) failed on the actual scan. It identified hash-pinned PyJWT 2.3.0, fixed 2.4.0, `GHSA-ffqj-6fqr-9h24`, High. At 12:52:19 UTC, `safe-merge --dry-run` returned 1 with an explicit failed-image reason. Draft status and pending runtime checks were additional reasons. No actual merge was attempted. |
+| P8: docs-only reports every check | Head `24d3f03`; Dockerfile restored byte-for-byte to main `a913212`; net PR diff was only document 032. Image run `41308581064` passed, and [CI run 41308581057](https://github.com/intent-solutions-io/catalyst-onboarding-v2/actions/runs/41308581057) passed docs and runtime (2,505 tests exactly once, 319 acceptance groups). All three required checks reported success. |
+
+The planted package was absent from P8 and never reached main, an attested image or a deployment. These probes
+do not complete the separate disposable-repository equivalence and refusal work in `9kg.35`.
 
 2026-10-27, read-only with `gh api` by the main session (nothing applied, nothing probed):
 
