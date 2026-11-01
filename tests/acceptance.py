@@ -1749,6 +1749,15 @@ P6_SUPPORTING = {
         "test_erasure_replay::test_9kg_25_a_key_found_only_on_a_member_record_is_erased_and_a_mismatched_key_refuses_before_anything",
         "test_erasure_replay::test_9kg_25_a_restored_plaintext_copy_of_an_erased_subjects_document_withholds_the_marker",
     ],
+    "9kg.28 pulled journal copies require a verified receiver receipt before the source records shipping": [
+        "test_journal_pull::test_only_a_verified_receiver_receipt_marks_the_current_export_shipped",
+        "test_journal_pull::test_corrupted_or_mixed_packages_never_overwrite_the_receiver",
+        "test_journal_pull::test_a_lost_source_tail_refuses_acknowledgment_and_cannot_replace_the_receiver",
+        "test_journal_pull::test_an_old_receipt_or_different_lineage_cannot_advance_the_source_or_replace_the_copy",
+        "test_journal_pull::test_an_interrupted_receiver_keeps_the_new_tail_and_never_returns_a_receipt",
+        "test_journal_pull::test_the_receiver_cli_needs_no_production_settings_or_database_and_management_can_ack",
+        "test_journal_pull::test_transfer_refuses_unprovisioned_public_and_overlapping_directories",
+    ],
     "9kg.60 the effect journal shipped off the host, its lag paged, and a restore behind the shipped head refused (026)": [
         "test_journal_shipping::test_9kg_60_the_journal_and_its_head_are_shipped_whole_and_recorded_beside_the_journal",
         "test_journal_shipping::test_9kg_60_a_local_journal_that_lost_shipped_entries_never_overwrites_the_copy",
