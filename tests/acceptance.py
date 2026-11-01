@@ -2020,6 +2020,8 @@ P6_SUPPORTING = {
     ],
     # 034 rows 1, 2, 4 and 5: the public entry on the first generation's URLs.
     "bgl.2 the intake mode comes from the environment; open intake accepts anyone on the exact first-generation paths and on the listed public host aliases; a honeypot and a signed render time record nothing; global caps defer, never refuse": [
+        "test_brand_assets::test_the_exact_artwork_is_read_only_and_immutable_on_public_and_alias_hosts",
+        "test_brand_assets::test_asset_siblings_directories_and_traversal_are_not_routes",
         "test_public_intake::test_bgl_2_the_mode_is_read_from_the_environment_and_a_bad_value_refuses_start_up",
         "test_public_intake::test_bgl_2_open_mode_accepts_an_uninvited_submission",
         "test_public_intake::test_bgl_2_invitation_mode_still_refuses_an_uninvited_address_silently",

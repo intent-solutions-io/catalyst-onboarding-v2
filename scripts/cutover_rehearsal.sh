@@ -49,10 +49,12 @@ docker run -d --name "$net-learn" --network "$net" -p 127.0.0.1:18080:8080 -e CA
 for _ in $(seq 20); do curl -s -o /dev/null http://127.0.0.1:18080/ && break; sleep 0.5; done
 get() { curl -s --path-as-is "http://127.0.0.1:18080$1"; }
 reload() { docker exec "$net-learn" caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1; }
-# Near misses stay the LMS's: a missing trailing slash, a bare prefix, look-alike paths.
+# Near misses stay the LMS's: bare private prefixes, unknown artwork and look-alike paths.
 LMS_PATHS=(/ /login/ /courses/intro/ /confirmation/ /setupwizard/ /withdrawal-policy/ /request-accessible/ /static/app.css
-           /request-access /confirm /setup)
-R1=(/request-access/ /request-access/received/ /REQUEST-ACCESS/ //request-access/)
+           /confirm /setup /request-access/assets/ /request-access/assets/unknown.svg)
+R1=(/request-access/ /request-access/received/ /request-access /request-access/received /signing/return/ /signing/return
+    /request-access/assets/select-services-partner-e4897387bbdb.svg
+    /request-access/assets/select-services-partner-c96bbd4b0d98.png /REQUEST-ACCESS/ //request-access/)
 # Case, repeated slashes, an encoded letter and a dot segment: Caddy's path matcher normalizes all of them.
 R2=(/confirm/abc/ /setup/abc/ /withdraw/abc/ /CONFIRM/abc/ //setup/abc/ /%63onfirm/abc/ /x/../withdraw/abc/)
 snapshot() { for p in "${LMS_PATHS[@]}"; do printf '%s %s\n' "$p" "$(get "$p" | sha256sum | cut -c1-16)"; done; }

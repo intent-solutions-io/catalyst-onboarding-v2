@@ -103,6 +103,8 @@ def test_6b8_the_public_site_serves_only_the_applicant_routes():
         "/request-access/received",
         "/signing/return/",
         "/signing/return",  # bgl.8: the signing return page (provider.return_url)
+        "/request-access/assets/select-services-partner-e4897387bbdb.svg",
+        "/request-access/assets/select-services-partner-c96bbd4b0d98.png",
         *(p + "*" for p in PRIVATE_PATHS),
     ]  # bgl.2: the first generation's exact paths too
     for absent in ("/staff", "/admin", "/healthz", "/readyz", "/static", "/hooks"):
@@ -200,6 +202,8 @@ def test_bgl_2_the_alias_site_serves_only_the_public_request_pages():
         "/request-access/received",
         "/signing/return/",
         "/signing/return",
+        "/request-access/assets/select-services-partner-e4897387bbdb.svg",
+        "/request-access/assets/select-services-partner-c96bbd4b0d98.png",
     ]  # bgl.8: the signing return page on the learning host too
     for absent in (
         "/staff",
