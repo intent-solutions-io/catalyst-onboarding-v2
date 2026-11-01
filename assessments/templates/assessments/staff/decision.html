@@ -1,6 +1,11 @@
 {% extends "correspondence/staff/base.html" %}{% load correspondence_display %}
 {% block content %}
 <h1>Decision: <bdi>{{ application.display_name|visible }}</bdi></h1>
+{% if application.first_generation %}
+<p>Imported case: <a href="{% url 'firstgen_staff:history' application.public_ref %}">review its preserved history and handover</a>.
+{% if state.manifest.first_generation %}The snapshot binds review event {{ state.manifest.first_generation.review_event }} and the preserved history. That history requires a human decision and is not sent to the model as confirmed answers.
+{% else %}A review of the current imported history is required before a qualification snapshot is available.{% endif %}</p>
+{% endif %}
 <p>Stage {{ application.stage }}. {% if version %}Adopted version {{ version.version_number }}{% if newer_versions %}; {{ newer_versions }} newer unverified version(s) exist and are not used{% endif %}.{% else %}No adopted version.{% endif %}
 Selection policy: {{ policy_ref }}.</p>
 {% include "assessments/staff/_claims.html" %}

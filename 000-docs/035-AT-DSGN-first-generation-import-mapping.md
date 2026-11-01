@@ -136,12 +136,12 @@ The report lists, per open case, what it needs (`followups`). The import queues 
 | v2 stage after import | Next v2 step | Queued by the import |
 |---|---|---|
 | `submitted` | Staff re-send the verification: the first generation's confirm link is not honoured by v2 | No (sends mail) |
-| `contact_verified`, `assessing`, `awaiting_decision` | A staff decision on the decision screen | No |
-| `awaiting_answers` | Staff read replies to the first-generation questions and decide; replies associate through `firstgen.threads` in the reply path (section 8) | No |
-| `agreements` | The owner checks the open first-generation envelope at Documenso and records completion with `catalyst_member_on_file`, or cancels it and issues v2's | No |
-| `agreements_complete` | Staff approve the mailbox on the provisioning screen | No |
-| `provisioning` | Check MXroute for the mailbox the first generation was creating | No |
-| every open stage | Staff resume the import's automation pause once the case is reviewed | No |
+| `contact_verified`, `assessing`, `awaiting_decision` | Complete the bound history and ownership review (section 9), then use the qualification decision screen | No |
+| `awaiting_answers` | Review the old questions/replies and explicitly prepare human qualification review (section 9); old-thread replies associate through section 8 | No |
+| `agreements` | Reconcile the existing envelope and establish a supported native continuation (`bgl.23`, incomplete). A member-on-file record alone does not adopt an open envelope or authorize reissue | No |
+| `agreements_complete` | Reconcile agreement evidence and establish the native release/provisioning request before approval (`bgl.23`, incomplete) | No |
+| `provisioning` | Read back the existing MXroute operation and reconcile native ownership before further creation (`bgl.23`, incomplete) | No |
+| every open stage | Resume only after its supported continuation or disposition and the transfer of source ownership are recorded | No |
 | any case with open first-generation jobs | `v1_jobs_not_carried: <kind>/<status> xN` (reminders, signing sweeps, reviews): each is done by hand or replaced by the v2 step above | No |
 
 ## 6. What is lossy
@@ -205,3 +205,35 @@ Open continuation work remains in `bgl.23`: an operator must reconcile the open 
 questions, contact-verification gaps and uncertain mailbox operations before resuming each case.
 Showing preserved history is not proof of continuation. In particular, imported `agreements` cases do
 not yet have the admission and provider-read evidence needed by the normal v2 agreement path.
+
+## 9. Pre-signing cases: recorded human review (bgl.23)
+
+The legacy history has a separate POST action for a verified case still in contact verification, assessment,
+questions or decision review. It requires dossier access and the existing directly granted qualification-decision
+permission; superuser status or a group grant does not substitute for that authority. The reviewer explicitly
+attests that v1 no longer owns this case, its replies or its timers, and records the handover evidence and how the
+preserved questions and replies will inform a human decision. The action itself cannot stop the source service;
+the freeze and ownership receipt must be checked during the operational handover.
+
+The service locks the application, checks the digest shown with the form, requires verified contact and an adopted
+submission, and refuses signing/mailbox/release records, native admission or decline, work in flight, identity and safety
+exceptions, and pending native questions. The first review requires the original import pause. Later reviews may
+renew the receipt after a reply or a human hold, including after a separate resume; they preserve any current pause.
+Every review requires the explicit ownership and history confirmations again. It records a staff event binding
+the preserved records and adopted version, then moves the case to `awaiting_decision`. It neither removes the
+pause nor queues an assessment, sends mail, creates an envelope or fabricates a confirmed answer.
+If a later import records a withdrawal or signing transition, the original pre-signing case label cannot authorize
+this review; the later state requires its own reconciliation.
+
+The normal qualification snapshot is unavailable until the current imported history has that review. Its digest
+then includes the review event and source-history digest. A late source record or a different adopted submission
+invalidates the review and requires a fresh one. The digest also binds replies received in v2; messages still
+awaiting processing refuse preparation. The review links to current correspondence as well as imported history.
+The decision inputs retain the review event and digest explicitly. The decision screen links to the legacy history; model advice
+does not silently inherit the old answers as verified evidence. The routine model admit refuses this imported
+history: the person with decision authority must make the qualification decision.
+
+After the separate reviewed resume, a human-only decision can use the existing rationale, snapshot, authority and
+transaction guards and create the normal held NDA handoff. This is a functioning path for the reviewed pre-signing
+case, not evidence that every imported state is ready. Open envelopes, completed agreements, provisioning, active
+accounts, revocations and the live ownership transfer still need their own tested continuation and reconciliation.
