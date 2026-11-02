@@ -93,6 +93,11 @@ BASELINE: dict[str, str] = {
 }
 # Later migrations that contracting() flags but a reviewer found safe for the previous image, with the reason.
 EXPAND_SAFE: dict[str, str] = {
+    "agreements.0015_adopted_countersign_claim": (
+        "preserves every native claim the previous image creates, including its exact instance identity; "
+        "additionally allows imported identities only with a matching source and recorded adoption; "
+        "the previous image ignores non-native claims and no existing column or grant changes"
+    ),
     "applications.0011_application_reference": (
         "adds the reference nullable, preserves imported labels and backfills other existing rows before adding "
         "uniqueness and format constraints; an empty database default plus a non-elevating BEFORE INSERT trigger "
