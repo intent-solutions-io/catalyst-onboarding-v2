@@ -1584,6 +1584,7 @@ P6_SUPPORTING = {
     # bgl.12 (034 section 2.2 rows 15 to 19): the live MiniMax branch and the routine-advance policy, both behind
     # activations that are off in code; a named design rule like the 9kg groups, never a staging case.
     "bgl.12 the live model branch and the routine-advance policy act only under their activations": [
+        "test_production_admission::test_public_automated_intake_requires_and_displays_the_approved_notice",
         "test_production_admission::test_confirmation_queues_research_only_for_the_bound_production_policy",
         "test_production_admission::test_incomplete_activation_keeps_the_cohort_boundary",
         "test_production_admission::test_approved_self_report_advances_without_claiming_independent_support",

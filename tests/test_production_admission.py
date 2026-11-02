@@ -21,6 +21,29 @@ def activate(settings):
     }
 
 
+def test_public_automated_intake_requires_and_displays_the_approved_notice(
+    settings, privileged_reset
+):
+    from applications import notices, views
+    from tests.test_invitation import ensure_notice_templates
+    from tests.test_intake_notice import real_version
+
+    ensure_notice_templates()
+    settings.CATALYST_INTAKE_MODE = "open"
+    activate(settings)
+    with pytest.raises(notices.Unavailable):
+        views._data_notice()
+    real_version(
+        privileged_reset,
+        "data_notice",
+        2,
+        "MiniMax helps review your submitted information.",
+    )
+    assert "MiniMax" in views._data_notice().text
+    settings.CATALYST_PARITY_ACTIVE = False
+    assert views._data_notice() is None
+
+
 def test_confirmation_queues_research_only_for_the_bound_production_policy(
     settings, db
 ):
