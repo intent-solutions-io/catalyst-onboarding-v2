@@ -198,3 +198,22 @@ def test_owner_approval_matches_the_actual_clarification_request(purpose, index)
     actual = clarify.uses(*clarify.packs_for())[index]
     assert approval.Use.current(purpose) == actual
     assert actual.purpose == purpose and actual.pack != pack.INTERPRET
+
+
+@pytest.mark.parametrize("purpose", ["clarification_draft", "clarification_check"])
+def test_owner_command_persists_and_revokes_each_clarification_approval(
+    privileged_reset, purpose
+):
+    from assessments.models import ModelUseApproval
+    from tests.test_live_safety import approve
+
+    approve(purpose)
+    record = ModelUseApproval.objects.filter(purpose=purpose).latest("id")
+    actual = approval.Use.current(purpose)
+    assert record.terms["pack"] == actual.pack
+    assert record.terms["purpose"] == actual.purpose == purpose
+    assert record.terms_sha256 == approval.digest(record.terms)
+    approve(purpose, "--revoke")
+    assert (
+        ModelUseApproval.objects.filter(purpose=purpose).latest("id").action == "revoke"
+    )

@@ -1593,6 +1593,7 @@ P6_SUPPORTING = {
         "test_production_admission::test_production_pack_is_explicit_and_historical_packs_are_unchanged",
         "test_production_admission::test_practice_goal_has_its_own_approved_input_field",
         "test_production_admission::test_owner_approval_matches_the_actual_clarification_request",
+        "test_production_admission::test_owner_command_persists_and_revokes_each_clarification_approval",
         "test_routine_advance::test_bgl12_the_default_configuration_reaches_no_live_branch",
         "test_routine_advance::test_bgl12_the_live_branch_is_selected_only_when_settings_say_so_and_requests_are_allowed",
         "test_routine_advance::test_bgl12_a_live_call_runs_fenced_and_a_provider_failure_is_never_adverse",
