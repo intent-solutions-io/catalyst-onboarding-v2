@@ -839,3 +839,13 @@ def test_bgl9_end_to_end_countersigned_agreements_release_without_a_person(
             "provisioning_approved",
         ),
     ).exists()  # no person acted
+
+
+def test_company_role_follows_the_approved_template_across_an_nda_version_change(
+    cs, settings, monkeypatch
+):
+    settings.CATALYST_AGREEMENT_COMPANY_ROLE = "SIGNER"
+    app = issued(cs, monkeypatch)
+    instance = of(app, "nda").get()
+    assert instance.recipients.get(who="staff").role == "APPROVER"
+    assert instance.recipients.filter(required=True).count() == 2

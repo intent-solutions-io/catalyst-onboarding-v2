@@ -841,6 +841,8 @@ CATALYST_AGREEMENT_PROVIDER_ADDRESS = (
 )
 CATALYST_AGREEMENT_PROVIDER_CA_FILE = ""
 CATALYST_AGREEMENT_PROVIDER_TOKEN = ""
+CATALYST_AGREEMENT_LEGACY_TOKEN = ""
+CATALYST_AGREEMENT_LEGACY_ENVELOPES = {}
 # Documenso webhook secrets (021 section 6; P4-D-17): the installed version sends a plain shared secret in
 # `X-Documenso-Secret`. Two may be valid during a rotation. Fixed in code and empty outside `test` and `staging`; the webhook route
 # is mounted only in `test` and `development` until the P6 exposure decision.

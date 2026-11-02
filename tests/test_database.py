@@ -189,6 +189,7 @@ APPROVED_MIGRATIONS = {
     ("provisioning", "0009_communityaccess_communityreceipt_and_more"),
     ("provisioning", "0010_community_protection"),  # 9kg.81
     ("agreements", "0014_one_current_template"),
+    ("agreements", "0015_adopted_countersign_claim"),
 }
 
 

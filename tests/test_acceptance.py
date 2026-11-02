@@ -553,7 +553,7 @@ DATABASE_CONSTRAINTS = {
     "custody_envelope_key_ref_hex",  # 9kg.34
     "application_reference_format",  # bgl.5
     "countersign_claim_state_valid",
-    "countersign_claim_v2_envelope_only",  # bgl.9
+    "countersign_claim_identity_present",  # explicit source adoption is checked by trigger
     "community_identity_unique",
     "community_revision_positive",
     "community_has_reviewer",

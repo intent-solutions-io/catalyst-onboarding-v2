@@ -171,6 +171,32 @@ def configured() -> bool:
     return bool(settings.CATALYST_AGREEMENT_PROVIDER_URL)
 
 
+def legacy_binding(envelope_id: str) -> dict:
+    """An exact operator-reviewed handover binding; never infer ownership from a 404.
+
+    The production map is digest-bound and populated from the frozen source. The legacy
+    writer must be stopped before the map is activated. Creates and reconciliation listings
+    always use the distinct V2 account, even while adopted envelopes are being drained.
+    """
+    return getattr(settings, "CATALYST_AGREEMENT_LEGACY_ENVELOPES", {}).get(
+        envelope_id, {}
+    )
+
+
+def legacy_owned(envelope_id: str, external_key: str) -> bool:
+    binding = legacy_binding(envelope_id)
+    return bool(binding and binding.get("external_key") == external_key)
+
+
+def credential(envelope_id: str = "") -> str:
+    if legacy_binding(envelope_id):
+        token = getattr(settings, "CATALYST_AGREEMENT_LEGACY_TOKEN", "")
+        if not token:
+            raise ProviderError("legacy_credential_missing", sent=False)
+        return token
+    return settings.CATALYST_AGREEMENT_PROVIDER_TOKEN
+
+
 def _target():
     url = settings.CATALYST_AGREEMENT_PROVIDER_URL
     if not url:
@@ -218,12 +244,14 @@ def exchange(
     body: bytes | None = None,
     content_type: str = "",
     recipient_route: bool = False,
+    owner_envelope: str = "",
 ) -> Response:
     """One bounded HTTPS exchange. Raises ProviderError for anything but a 2xx or a 4xx response with a body.
 
     `recipient_route` (bgl.9, the countersignature): `path` is from the host's root, not under the API base, and the
     request carries no API key; it sends the instance's own `Origin` instead, the check the installed version applies
     to a token-authenticated mutation. The credential is the recipient token in the body."""
+    token = credential(owner_envelope) if not recipient_route else ""
     host, port, base, address = _target()
     if recipient_route:
         base = ""
@@ -271,9 +299,7 @@ def exchange(
                 "Origin", f"https://{host}" + ("" if port == 443 else f":{port}")
             )
         else:
-            connection.putheader(
-                "Authorization", settings.CATALYST_AGREEMENT_PROVIDER_TOKEN
-            )
+            connection.putheader("Authorization", token)
         if body is not None:
             connection.putheader("Content-Type", content_type)
             connection.putheader("Content-Length", str(len(body)))
@@ -537,13 +563,25 @@ def distribute(envelope_id: str) -> None:
     ).encode()
     _json(
         exchange(
-            "POST", "/envelope/distribute", body=body, content_type="application/json"
+            "POST",
+            "/envelope/distribute",
+            body=body,
+            content_type="application/json",
+            owner_envelope=envelope_id,
         )
     )
 
 
 def read(envelope_id: str) -> Envelope:
-    return envelope(_json(exchange("GET", f"/envelope/{quote(envelope_id, safe='')}")))
+    return envelope(
+        _json(
+            exchange(
+                "GET",
+                f"/envelope/{quote(envelope_id, safe='')}",
+                owner_envelope=envelope_id,
+            )
+        )
+    )
 
 
 def read_fields(envelope_id: str) -> tuple:
@@ -551,7 +589,13 @@ def read_fields(envelope_id: str) -> tuple:
     alone. The envelope's own facts come from `read`; this returns personal data and is called only once a completed
     envelope is being verified (agreements.completion)."""
     return typed_fields(
-        _json(exchange("GET", f"/envelope/{quote(envelope_id, safe='')}"))
+        _json(
+            exchange(
+                "GET",
+                f"/envelope/{quote(envelope_id, safe='')}",
+                owner_envelope=envelope_id,
+            )
+        )
     )
 
 
@@ -560,7 +604,13 @@ def signing_token(envelope_id: str, email: str) -> str | None:
     034 row 27: the service-sent link). The one place a token crosses the allowlist: it goes straight into the mail
     body of `agreements.signing_mail`, in memory, and is never recorded or logged. None when that recipient is not
     on the envelope or the token is not a plain token."""
-    raw = _json(exchange("GET", f"/envelope/{quote(envelope_id, safe='')}"))
+    raw = _json(
+        exchange(
+            "GET",
+            f"/envelope/{quote(envelope_id, safe='')}",
+            owner_envelope=envelope_id,
+        )
+    )
     recipients = raw.get("recipients", []) if isinstance(raw, dict) else []
     if not isinstance(recipients, list):
         return None
@@ -619,15 +669,24 @@ def find_recent(page: int) -> list[Envelope]:
 
 def cancel(envelope_id: str) -> None:
     body = json.dumps({"envelopeId": envelope_id, "reason": CANCEL_REASON}).encode()
-    exchange("POST", "/envelope/cancel", body=body, content_type="application/json")
+    exchange(
+        "POST",
+        "/envelope/cancel",
+        body=body,
+        content_type="application/json",
+        owner_envelope=envelope_id,
+    )
 
 
-def download(item_id: str) -> bytes:
+def download(item_id: str, *, envelope_id: str = "") -> bytes:
     """The signed PDF of an envelope item (4B.3 stores it). Anything that is not a PDF is refused."""
+    if legacy_binding(envelope_id) and item_id not in read(envelope_id).items:
+        raise ProviderError("legacy_item_not_in_envelope", sent=False)
     response = exchange(
         "GET",
         f"/envelope/item/{quote(item_id, safe='')}/download",
         query={"version": "signed"},
+        owner_envelope=envelope_id,
     )
     if not response.body.startswith(b"%PDF-"):
         raise ProviderError("download_not_pdf", sent=True, status=response.status)
@@ -672,9 +731,17 @@ def countersign(
     field, and a plain token. Raises CountersignRefused for a failed condition (nothing sent) and ProviderError for an
     exchange that failed (its `sent` says whether a write may have reached the provider). The recipient token is used
     in memory for these two calls and never returned, recorded or logged."""
-    if not external_key.startswith("ag_"):
+    if not external_key.startswith("ag_") and not legacy_owned(
+        envelope_id, external_key
+    ):
         raise CountersignRefused("not_a_v2_envelope")
-    raw = _json(exchange("GET", f"/envelope/{quote(envelope_id, safe='')}"))
+    raw = _json(
+        exchange(
+            "GET",
+            f"/envelope/{quote(envelope_id, safe='')}",
+            owner_envelope=envelope_id,
+        )
+    )
     if not isinstance(raw, dict) or raw.get("id") != envelope_id:
         raise CountersignRefused("identity_mismatch")
     if raw.get("externalId") != external_key:

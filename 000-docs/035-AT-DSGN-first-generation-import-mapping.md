@@ -488,3 +488,26 @@ The receipt distinguishes staff-attested existing delivery from a new native sen
 the selected outcome, source snapshot, prerequisite references, reviewed limits and successor.
 This operation does not stop v1, remove a pause, approve legal wording or establish live canary
 or rollback evidence. Those remain prerequisites for the production handover.
+
+## 16. Signing identity transfer with a newer NDA
+
+The isolated V2 signing account cannot read envelopes owned by the first generation. At the
+recorded source shutdown, the operator adds `deploy/production/handover.compose.yaml` and a
+`CATALYST_AGREEMENT_LEGACY_ENVELOPES` map to the digest-bound parity configuration. Each entry
+binds one preserved envelope ID to its exact `external_key`, `company_email` and `company_role`.
+The separate `agreement_legacy_token` secret is mounted only into the worker and owner-run
+provider commands. Keep this configuration private. Do not activate it while the source writer
+or its countersigning timers still operate.
+
+Only listed envelopes use that credential. New creates and reconciliation listings use the
+isolated V2 account; a refused request never retries with another account. Custody downloads
+also check that an item belongs to the listed envelope. Adoption retains the old recipient role
+and address. A legacy company countersignature additionally requires the matching immutable
+source record, the reviewed adoption receipt and the normal pause, recipient and single-writer
+checks. The database refuses a countersign claim without that adoption evidence.
+
+Approve historical template bindings before the new current template. Retirement preserves the
+historical approval, allowing an old envelope to finish against its original version. New
+agreements select the current template and its approved company recipient slot, so a newer NDA
+with a company SIGNER can coexist with a User Agreement whose company slot is APPROVER.
+Executed agreements remain history; changing the current template does not reissue them.

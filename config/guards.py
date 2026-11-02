@@ -32,6 +32,7 @@ SECRET_ENV_NAMES = (
     "CATALYST_ASSESSMENT_API_KEY",  # bgl.12: the live model key, a file outside test and development
     "CATALYST_TWENTY_TOKEN",
     "CATALYST_AGREEMENT_PROVIDER_TOKEN",
+    "CATALYST_AGREEMENT_LEGACY_TOKEN",
 )  # bgl.14: the Twenty token, a file outside test and development
 
 # Environments Catalyst may run in. `staging` (026 P6-D-2, D-49) is synthetic like `test`: the same fakes under the
@@ -719,6 +720,7 @@ AGREEMENT_TEST_ONLY = (
     "CATALYST_AGREEMENT_PROVIDER_ADDRESS",
     "CATALYST_AGREEMENT_PROVIDER_CA_FILE",
     "CATALYST_AGREEMENT_PROVIDER_TOKEN",
+    "CATALYST_AGREEMENT_LEGACY_TOKEN",
     "CATALYST_AGREEMENT_WEBHOOK_SECRETS",
     "CATALYST_AGREEMENT_STORAGE_DIR",
     "CATALYST_AGREEMENT_REQUIRED_DETAILS",
