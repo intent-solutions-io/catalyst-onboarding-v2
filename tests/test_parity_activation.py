@@ -94,6 +94,69 @@ def test_absent_profile_preserves_existing_wave_one_defaults():
     }
 
 
+def test_production_evidence_hosts_require_profile_and_preserve_fixture_refusals(
+    tmp_path,
+):
+    namespace = load(tmp_path, {"CATALYST_EVIDENCE_ALLOWED_HOSTS": ["github.com"]})
+    settings = SimpleNamespace(**namespace)
+    assert guards.evidence_problems(settings, {}) == []
+    settings.CATALYST_PARITY_ACTIVE = False
+    assert guards.evidence_problems(settings, {})
+    settings.CATALYST_PARITY_ACTIVE = True
+    assert guards.evidence_problems(
+        settings, {"CATALYST_EVIDENCE_ALLOWED_HOSTS": "github.com"}
+    )
+    for name, value in (
+        ("CATALYST_EVIDENCE_FIXTURE_ADDRESS", "127.0.0.1"),
+        ("CATALYST_EVIDENCE_CA_FILE", "/tmp/custom.pem"),
+    ):
+        setattr(settings, name, value)
+        assert guards.evidence_problems(settings, {})
+        setattr(settings, name, "")
+    for host in (
+        "127.0.0.1",
+        "169.254.169.254",
+        "*.github.com",
+        "github.com:443",
+        "localhost",
+        "source.test",
+        "source.invalid",
+        "source.local",
+        "sign.intentsolutions.io",
+    ):
+        settings.CATALYST_EVIDENCE_ALLOWED_HOSTS = [host]
+        assert guards.evidence_problems(settings, {}), host
+
+
+def test_fetcher_profile_rejects_other_provider_configuration(tmp_path):
+    path = tmp_path / "fetcher.json"
+    for extra, refused in (
+        ({}, False),
+        ({"CATALYST_ASSESSMENT_MODEL": "minimax:MiniMax-M3"}, True),
+    ):
+        raw = json.dumps(
+            {
+                "decision": "d54",
+                "settings": {
+                    "CATALYST_EVIDENCE_ALLOWED_HOSTS": ["github.com"],
+                    **extra,
+                },
+            }
+        ).encode()
+        path.write_bytes(raw)
+        namespace = {"CATALYST_ENV": "production", "CATALYST_PROCESS_ROLE": "fetcher"}
+        env = {
+            "CATALYST_PARITY_CONFIG": str(path),
+            "CATALYST_PARITY_SHA256": hashlib.sha256(raw).hexdigest(),
+        }
+        if refused:
+            with pytest.raises(ImproperlyConfigured, match="fetcher profile"):
+                parity.configure(namespace, env, lambda name, default: default)
+        else:
+            parity.configure(namespace, env, lambda name, default: default)
+            assert namespace["CATALYST_EVIDENCE_ALLOWED_HOSTS"] == ["github.com"]
+
+
 def test_the_production_mailbox_adapter_is_specific_and_scoped():
     configured = provider(
         CATALYST_PROVISIONING_ADAPTER="provisioning.mxroute.MXrouteHost",

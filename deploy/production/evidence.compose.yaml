@@ -1,0 +1,14 @@
+# Optional production research activation. The separate fetcher profile contains
+# only CATALYST_EVIDENCE_ALLOWED_HOSTS, matching the worker's reviewed host list.
+# No provider, mail, signing or custody credential is mounted into the fetcher.
+# The egress healthcheck requires the operator's nonempty estate deny list.
+services:
+  fetcher:
+    environment:
+      CATALYST_PARITY_CONFIG: /run/catalyst-evidence/config.json
+      CATALYST_PARITY_SHA256: ${CATALYST_EVIDENCE_PARITY_SHA256:?the reviewed evidence profile digest}
+    volumes:
+      - ${CATALYST_EVIDENCE_PARITY_CONFIG:?the reviewed evidence profile}:/run/catalyst-evidence/config.json:ro
+  egress:
+    environment:
+      CATALYST_EGRESS_FETCHING: enabled
