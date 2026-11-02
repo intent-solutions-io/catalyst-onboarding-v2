@@ -15,6 +15,7 @@ CLARIFY = "clarify_v1"  # bgl.12: the clarification draft pack (system prompt on
 CHECK = "check_v1"  # bgl.12: the second pass that checks a draft before it may be sent
 # The digest of each pack version as reviewed. Recomputed at every load; a mismatch refuses the run (TEST-P3-33).
 PINNED = {
+    "assessment_v4": "a029eb9120b63af43e5592310fad1cf01713efced3df31bf71bc84f2eb7d8f28",
     "assessment_v3": "75e5859c746e62f14d1c99a4bdbb75a4dec1eecdedefe035c24291847ead931f",
     "interpret_v1": "e375064b56dfa787c628dbc6822b65f76edfaa1373a92ce312ef6e0c79250592",
     "clarify_v1": "d851f7b591a0037e8f02e40299085a96616c396ce738cb4292f6ab595631efb2",
@@ -52,7 +53,11 @@ def _files(name: str) -> dict:
     if name not in PINNED or not _NAME.match(name):
         raise PackRefused("prompt_pack_unknown")
     try:
-        return {p.name: p.read_bytes() for p in sorted((ROOT / name).iterdir()) if p.is_file()}
+        return {
+            p.name: p.read_bytes()
+            for p in sorted((ROOT / name).iterdir())
+            if p.is_file()
+        }
     except OSError:
         raise PackRefused("prompt_pack_unreadable") from None
 
@@ -65,7 +70,14 @@ def _digest(files: dict) -> str:
     return h.hexdigest()
 
 
-def load(name: str = CURRENT) -> Pack:
+def current() -> str:
+    from django.conf import settings
+
+    return getattr(settings, "CATALYST_ASSESSMENT_PROMPT_PACK", "") or CURRENT
+
+
+def load(name: str | None = None) -> Pack:
+    name = current() if name is None else name
     files = _files(name)
     actual = _digest(files)
     if PINNED[name] != actual:
@@ -73,10 +85,12 @@ def load(name: str = CURRENT) -> Pack:
     try:
         rubric = json.loads(files["rubric.json"].decode("utf-8"))
         system = files["system.txt"].decode("utf-8")
-    except (KeyError, UnicodeDecodeError, ValueError):
+    except KeyError, UnicodeDecodeError, ValueError:
         raise PackRefused("prompt_pack_malformed") from None
     criteria = rubric.get("criteria") or []
-    if not 1 <= len(criteria) <= 8 or any(len(c.get("id", "")) > 40 or not c.get("id") for c in criteria):
+    if not 1 <= len(criteria) <= 8 or any(
+        len(c.get("id", "")) > 40 or not c.get("id") for c in criteria
+    ):
         raise PackRefused("prompt_pack_malformed")
     return Pack(name, actual, system, rubric)
 
@@ -96,5 +110,5 @@ def load_text(name: str = INTERPRET) -> TextPack:
         raise PackRefused("prompt_pack_digest_mismatch")
     try:
         return TextPack(name, actual, files["system.txt"].decode("utf-8"))
-    except (KeyError, UnicodeDecodeError):
+    except KeyError, UnicodeDecodeError:
         raise PackRefused("prompt_pack_malformed") from None

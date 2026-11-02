@@ -31,36 +31,73 @@ from dataclasses import asdict, dataclass
 
 from django.conf import settings
 
-REPAIR_LIMIT = 1  # one output repair per attempt (agent.run_checked: retries=REPAIR_LIMIT)
+REPAIR_LIMIT = (
+    1  # one output repair per attempt (agent.run_checked: retries=REPAIR_LIMIT)
+)
 REQUESTS_PER_ATTEMPT = 1 + REPAIR_LIMIT
-BUILDER_VERSION = "1"  # bump on any change to snapshot.clean, scrub, _fence, build_request or interpret.build_prompt
+BUILDER_VERSION = "2"  # approved practice-goal claim; existing approvals become stale
 INTERPRET_SCHEMA_VERSION = "1"  # interpret.InterpretOutput.schema_version
 # bgl.12: the clarification draft and its check are two more purposes through the same checked-run path, each needing
 # its own recorded approval; nothing of the applicant's leaves in them (assessments.clarify).
-PURPOSES = ("assessment", "interpretation", "clarification_draft", "clarification_check")
+PURPOSES = (
+    "assessment",
+    "interpretation",
+    "clarification_draft",
+    "clarification_check",
+)
 
 # The exact fields that may leave Catalyst for each purpose (018 section 5.2), as the request builders send them:
 # `snapshot._claim_texts` and `snapshot.build_request` for the assessment, `interpret.Interpreter.interpret` for the
 # reply interpreter. A change to what is sent must change this list, which makes every approval stale.
 FIELDS = {
     "assessment": (
-        "claims.work[].note", "claims.contribution", "claims.experience", "claims.confidential_description",
-        "claims.credentials[].name", "claims.credentials[].issuer",
-        "confirmed_answers[].question_texts", "confirmed_answers[].outcomes", "confirmed_answers[].reply_own_text",
-        "evidence_captures[].derived_text", "evidence_captures[].names_applicant", "evidence_captures[].truncated",
-        "evidence_captures[].outcome", "missing_evidence[].claim_status", "rubric.criteria[].definition",
+        "claims.work[].note",
+        "claims.contribution",
+        "claims.experience",
+        "claims.confidential_description",
+        "submitted_fields.reason",
+        "claims.credentials[].name",
+        "claims.credentials[].issuer",
+        "confirmed_answers[].question_texts",
+        "confirmed_answers[].outcomes",
+        "confirmed_answers[].reply_own_text",
+        "evidence_captures[].derived_text",
+        "evidence_captures[].names_applicant",
+        "evidence_captures[].truncated",
+        "evidence_captures[].outcome",
+        "missing_evidence[].claim_status",
+        "rubric.criteria[].definition",
     ),
-    "interpretation": ("questions[].text", "reply.derived_text_outside_quoted_and_own_text"),
-    "clarification_draft": ("proposed_questions[].text", "proposed_questions[].why_needed", "proposed_questions[].alternative_route",
-                            "rubric.criteria[].definition", "questions[].text"),
-    "clarification_check": ("proposed_questions[].text", "proposed_questions[].why_needed", "proposed_questions[].alternative_route",
-                            "rubric.criteria[].definition", "questions[].text", "draft.body"),
+    "interpretation": (
+        "questions[].text",
+        "reply.derived_text_outside_quoted_and_own_text",
+    ),
+    "clarification_draft": (
+        "proposed_questions[].text",
+        "proposed_questions[].why_needed",
+        "proposed_questions[].alternative_route",
+        "rubric.criteria[].definition",
+        "questions[].text",
+    ),
+    "clarification_check": (
+        "proposed_questions[].text",
+        "proposed_questions[].why_needed",
+        "proposed_questions[].alternative_route",
+        "rubric.criteria[].definition",
+        "questions[].text",
+        "draft.body",
+    ),
 }
 BUDGETS = (
-    "CATALYST_ASSESSMENT_ATTEMPTS", "CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT", "CATALYST_ASSESSMENT_RUNS_PER_APPLICATION",
-    "CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION", "CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST",
-    "CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT", "CATALYST_ASSESSMENT_CONCURRENT_RUNS",
-    "CATALYST_ASSESSMENT_DAILY_REQUESTS", "CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION",
+    "CATALYST_ASSESSMENT_ATTEMPTS",
+    "CATALYST_ASSESSMENT_REQUESTS_PER_SNAPSHOT",
+    "CATALYST_ASSESSMENT_RUNS_PER_APPLICATION",
+    "CATALYST_ASSESSMENT_TOKENS_PER_APPLICATION",
+    "CATALYST_ASSESSMENT_INPUT_TOKENS_PER_REQUEST",
+    "CATALYST_ASSESSMENT_OUTPUT_TOKENS_PER_ATTEMPT",
+    "CATALYST_ASSESSMENT_CONCURRENT_RUNS",
+    "CATALYST_ASSESSMENT_DAILY_REQUESTS",
+    "CATALYST_INTERPRETATION_DAILY_REQUESTS_PER_APPLICATION",
     "CATALYST_MINIMAX_REQUESTS_PER_MINUTE",
 )
 _PROVIDER = re.compile(r"^[a-z][a-z0-9-]{1,39}$")
@@ -74,6 +111,7 @@ class NotApproved(Exception):
 @dataclass(frozen=True)
 class Use:
     """What one live call would rely on: its purpose and the versions it was built from."""
+
     purpose: str
     pack: str
     pack_sha256: str
@@ -83,7 +121,13 @@ class Use:
     @classmethod
     def for_run(cls, run) -> "Use":
         """The run's own frozen versions, so a run frozen under another pack never matches a newer approval."""
-        return cls("assessment", run.prompt_pack, run.prompt_pack_sha256, run.rubric_version, run.schema_version)
+        return cls(
+            "assessment",
+            run.prompt_pack,
+            run.prompt_pack_sha256,
+            run.rubric_version,
+            run.schema_version,
+        )
 
     @classmethod
     def current(cls, purpose: str) -> "Use":
@@ -93,10 +137,21 @@ class Use:
         if purpose == "assessment":
             from .schema import SCHEMA_VERSION
 
-            pack = packs.load(packs.CURRENT)
-            return cls(purpose, pack.name, pack.sha256, pack.rubric_version, SCHEMA_VERSION)
+            pack = packs.load()
+            return cls(
+                purpose, pack.name, pack.sha256, pack.rubric_version, SCHEMA_VERSION
+            )
+        if purpose in ("clarification_draft", "clarification_check"):
+            from .clarify import packs_for, uses
+
+            draft, check = uses(*packs_for())
+            return draft if purpose == "clarification_draft" else check
+        if purpose != "interpretation":
+            raise NotApproved("model_use_purpose_unknown")
         pack = packs.load_text()
-        return cls("interpretation", pack.name, pack.sha256, None, INTERPRET_SCHEMA_VERSION)
+        return cls(
+            "interpretation", pack.name, pack.sha256, None, INTERPRET_SCHEMA_VERSION
+        )
 
 
 def parse_model(value: str):
@@ -113,31 +168,50 @@ def builder() -> dict:
     and the model settings and request limits it goes out under."""
     from . import agent, interpret, snapshot, schema
 
-    return {"version": BUILDER_VERSION,
-            "caps": {"snapshot.ITEM_CHARS": snapshot.ITEM_CHARS, "snapshot.MAX_ITEMS": snapshot.MAX_ITEMS,
-                     "snapshot.TOTAL_CHARS": snapshot.TOTAL_CHARS, "snapshot.CLAIM_CHARS": snapshot.CLAIM_CHARS,
-                     "snapshot.ANSWER_CHARS": snapshot.ANSWER_CHARS, "snapshot.ANSWER_BLOCKS": snapshot.ANSWER_BLOCKS,
-                     "snapshot.ANSWER_TOTAL_CHARS": snapshot.ANSWER_TOTAL_CHARS,
-                     "interpret.REPLY_CHARS": interpret.REPLY_CHARS,
-                     "interpret.MIN_QUOTE_CHARS": interpret.MIN_QUOTE_CHARS,
-                     "schema.MIN_QUOTE_CHARS": schema.MIN_QUOTE_CHARS},
-            "model_settings": dict(sorted(agent.model_settings().items())),
-            "rounds": settings.CATALYST_ASSESSMENT_ROUNDS,
-            "request_limit": REQUESTS_PER_ATTEMPT, "tool_calls_limit": REQUESTS_PER_ATTEMPT}
+    return {
+        "version": BUILDER_VERSION,
+        "caps": {
+            "snapshot.ITEM_CHARS": snapshot.ITEM_CHARS,
+            "snapshot.MAX_ITEMS": snapshot.MAX_ITEMS,
+            "snapshot.TOTAL_CHARS": snapshot.TOTAL_CHARS,
+            "snapshot.CLAIM_CHARS": snapshot.CLAIM_CHARS,
+            "snapshot.ANSWER_CHARS": snapshot.ANSWER_CHARS,
+            "snapshot.ANSWER_BLOCKS": snapshot.ANSWER_BLOCKS,
+            "snapshot.ANSWER_TOTAL_CHARS": snapshot.ANSWER_TOTAL_CHARS,
+            "interpret.REPLY_CHARS": interpret.REPLY_CHARS,
+            "interpret.MIN_QUOTE_CHARS": interpret.MIN_QUOTE_CHARS,
+            "schema.MIN_QUOTE_CHARS": schema.MIN_QUOTE_CHARS,
+        },
+        "model_settings": dict(sorted(agent.model_settings().items())),
+        "rounds": settings.CATALYST_ASSESSMENT_ROUNDS,
+        "request_limit": REQUESTS_PER_ATTEMPT,
+        "tool_calls_limit": REQUESTS_PER_ATTEMPT,
+    }
 
 
 def terms(use: Use, provider: str, model_id: str) -> dict:
     if use.purpose not in PURPOSES:
         raise NotApproved("model_use_purpose_unknown")
-    return {"purpose": use.purpose, "provider": provider, "model_id": model_id, "fields": list(FIELDS[use.purpose]), "builder": builder(),
-            **{k: v for k, v in asdict(use).items() if k != "purpose"},
-            "budgets": {name: getattr(settings, name) for name in BUDGETS},
-            "request_timeout_seconds": float(settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS),
-            "repair_limit": REPAIR_LIMIT, "requests_per_attempt": REQUESTS_PER_ATTEMPT}
+    return {
+        "purpose": use.purpose,
+        "provider": provider,
+        "model_id": model_id,
+        "fields": list(FIELDS[use.purpose]),
+        "builder": builder(),
+        **{k: v for k, v in asdict(use).items() if k != "purpose"},
+        "budgets": {name: getattr(settings, name) for name in BUDGETS},
+        "request_timeout_seconds": float(
+            settings.CATALYST_ASSESSMENT_REQUEST_TIMEOUT_SECONDS
+        ),
+        "repair_limit": REPAIR_LIMIT,
+        "requests_per_attempt": REQUESTS_PER_ATTEMPT,
+    }
 
 
 def digest(value: dict) -> str:
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
 
 
 def require(use: Use):
@@ -147,12 +221,17 @@ def require(use: Use):
     named = parse_model(settings.CATALYST_ASSESSMENT_MODEL)
     if named is None:
         raise NotApproved("model_not_authorized")
-    latest = ModelUseApproval.objects.filter(purpose=use.purpose).order_by("-id").first()
+    latest = (
+        ModelUseApproval.objects.filter(purpose=use.purpose).order_by("-id").first()
+    )
     if latest is None or latest.action != ModelUseApproval.Action.APPROVE:
         raise NotApproved("model_use_not_approved")
     if latest.terms_sha256 != digest(terms(use, *named)):
         raise NotApproved("model_use_approval_stale")
     # A row the command did not write (the owner can insert one by hand) must still be what it claims to be.
-    if digest(latest.terms or {}) != latest.terms_sha256 or (latest.provider, latest.model_id) != named:
+    if (
+        digest(latest.terms or {}) != latest.terms_sha256
+        or (latest.provider, latest.model_id) != named
+    ):
         raise NotApproved("model_use_approval_stale")
     return latest

@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 from django.core.exceptions import ImproperlyConfigured
 
 STRINGS = frozenset(
-    """ASSESSMENT_MODEL ASSESSMENT_LIVE_BASE_URL AGREEMENT_PROVIDER_URL
+    """ASSESSMENT_MODEL ASSESSMENT_PROMPT_PACK ASSESSMENT_LIVE_BASE_URL AGREEMENT_PROVIDER_URL
 AGREEMENT_PROVIDER_ADDRESS AGREEMENT_PROVIDER_CA_FILE AGREEMENT_STORAGE_DIR
 CUSTODY_KEY_DIR CUSTODY_KEY_MIRROR_DIR AGREEMENT_DISTRIBUTION AGREEMENT_SIGNING_BASE_URL
 AGREEMENT_COUNTERSIGN AGREEMENT_COMPANY_EMAIL AGREEMENT_COMPANY_NAME AGREEMENT_COMPANY_ROLE
@@ -42,6 +42,32 @@ def enabled(settings) -> bool:
         getattr(settings, "CATALYST_ENV", "") == "production"
         and getattr(settings, "CATALYST_PARITY_ACTIVE", False) is True
     )
+
+
+def automated_admission_enabled(settings) -> bool:
+    """The public workflow replaces the cohort hold only under a bound production policy."""
+    if (
+        not enabled(settings)
+        or getattr(settings, "CATALYST_ASSESSMENT_LIVE_ACTIVATION", 0) != 1
+        or getattr(settings, "CATALYST_ROUTINE_ADVANCE_ACTIVATION", 0) != 2
+        or not getattr(settings, "CATALYST_ASSESSMENT_MODEL", "").startswith("minimax:")
+    ):
+        return False
+    policy = getattr(settings, "CATALYST_SELECTION_POLICY", "")
+    selected = getattr(settings, "CATALYST_ASSESSMENT_PROMPT_PACK", "")
+    if (
+        not policy
+        or not selected
+        or getattr(settings, "CATALYST_SELECTION_POLICY_PACKS", {}).get(policy)
+        != selected
+    ):
+        return False
+    from assessments import pack
+
+    try:
+        return pack.load(selected).rubric.get("synthetic", True) is False
+    except pack.PackRefused:
+        return False
 
 
 def configure(namespace, environ, read_secret):

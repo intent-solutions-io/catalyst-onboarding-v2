@@ -196,13 +196,20 @@ def confirm(challenge_uuid: UUID, version_public_id: UUID) -> Confirmed:
         # Even a still-submitted import must not queue an unreviewed assessment.
         start_assessment = starting and not hasattr(application, "first_generation")
         if start_assessment:
+            from config import parity
+            from django.conf import settings
+
             PendingAction.objects.create(
                 kind=START_EVIDENCE_COLLECTION,
                 subject_type="application",
                 subject_id=application.public_ref,
                 input_ref=str(version.public_id),
                 idempotency_key=start_evidence_collection_key(application.public_ref),
-                status=PendingAction.Status.HELD,
+                status=(
+                    PendingAction.Status.QUEUED
+                    if parity.automated_admission_enabled(settings)
+                    else PendingAction.Status.HELD
+                ),
             )
         else:
             attention = ApplicationEvent.objects.create(
