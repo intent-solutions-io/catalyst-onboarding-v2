@@ -1584,6 +1584,16 @@ P6_SUPPORTING = {
     # bgl.12 (034 section 2.2 rows 15 to 19): the live MiniMax branch and the routine-advance policy, both behind
     # activations that are off in code; a named design rule like the 9kg groups, never a staging case.
     "bgl.12 the live model branch and the routine-advance policy act only under their activations": [
+        "test_production_admission::test_public_automated_intake_requires_and_displays_the_approved_notice",
+        "test_production_admission::test_confirmation_queues_research_only_for_the_bound_production_policy",
+        "test_production_admission::test_incomplete_activation_keeps_the_cohort_boundary",
+        "test_production_admission::test_approved_self_report_advances_without_claiming_independent_support",
+        "test_production_admission::test_self_report_does_not_bypass_workflow_holds",
+        "test_production_admission::test_missing_goal_and_declines_cannot_automatically_advance",
+        "test_production_admission::test_production_pack_is_explicit_and_historical_packs_are_unchanged",
+        "test_production_admission::test_practice_goal_has_its_own_approved_input_field",
+        "test_production_admission::test_owner_approval_matches_the_actual_clarification_request",
+        "test_production_admission::test_owner_command_persists_and_revokes_each_clarification_approval",
         "test_routine_advance::test_bgl12_the_default_configuration_reaches_no_live_branch",
         "test_routine_advance::test_bgl12_the_live_branch_is_selected_only_when_settings_say_so_and_requests_are_allowed",
         "test_routine_advance::test_bgl12_a_live_call_runs_fenced_and_a_provider_failure_is_never_adverse",

@@ -298,7 +298,7 @@ def _spans(text: str) -> list:
     )
 
 
-def _claim_texts(claims) -> list:
+def _claim_texts(claims, reason="") -> list:
     """(claim key, label, raw text, cap, source fields) for each applicant statement sent as a C block. The source
     fields are the approval.FIELDS names the text is made of (oc4.9)."""
     out = []
@@ -340,6 +340,16 @@ def _claim_texts(claims) -> list:
                 text,
                 400,
                 ("claims.credentials[].name", "claims.credentials[].issuer"),
+            )
+        )
+    if reason:
+        out.append(
+            (
+                "practice_goal",
+                "the applicant's stated practice goal",
+                str(reason),
+                CLAIM_CHARS,
+                ("submitted_fields.reason",),
             )
         )
     return out
@@ -407,7 +417,8 @@ def build_request(application, value: dict, pack) -> Request:
     items, missing, total = {}, [], 0
     claim_blocks = []
     used = {"rubric.criteria[].definition"}  # oc4.9: every source field that goes into the prompt below
-    for n, (key, label, raw, cap, sources) in enumerate(_claim_texts(claims), start=1):
+    reason = (version.submitted_fields or {}).get("reason", "") if pack.rubric.get("include_practice_goal") else ""
+    for n, (key, label, raw, cap, sources) in enumerate(_claim_texts(claims, reason), start=1):
         used.update(sources)
         cleaned = clean(raw, one_line=True)[:cap]
         markers = sorted({kind for kind, pattern in fetch._MARKERS if pattern.search(cleaned)})  # before the fence
@@ -457,7 +468,7 @@ def build_request(application, value: dict, pack) -> Request:
         used.update(("evidence_captures[].derived_text", "evidence_captures[].names_applicant",
                      "evidence_captures[].truncated", "evidence_captures[].outcome"))
     lines = [f"RUBRIC (version {pack.rubric_version}):"]
-    lines += [f"- {c['id']}{' (required)' if c.get('required') else ''}: {c['definition']}" for c in pack.criteria]
+    lines += [f"- {c['id']}{' (required)' if c.get('required') else ''}{' [basis=self_report]' if c.get('basis') == 'self_report' else ''}: {c['definition']}" for c in pack.criteria]
     lines.append("\nAPPLICANT CLAIMS (unverified statements):")
     for alias, label, text in claim_blocks:
         lines.append(f"{alias} ({label})")

@@ -180,6 +180,7 @@ APPROVED_MIGRATIONS = {
     ("erasure", "0006_twenty_projection"),
     ("workflow", "0007_restore_transaction_time"),
     ("assessments", "0012_restore_transaction_time"),
+    ("assessments", "0013_clarification_approval_purposes"),
     ("agreements", "0013_restore_transaction_time"),
     (
         "erasure",

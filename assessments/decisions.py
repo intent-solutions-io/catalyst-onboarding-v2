@@ -245,7 +245,7 @@ def decision_state(application) -> dict:
     """What a decision would rely on now: the current snapshot, the run (if valid), the open question set and the
     digest that binds them. The screen shows `digest`; the service recomputes it."""
     run = latest_run(application)
-    pack_name = run.prompt_pack if run is not None else packs.CURRENT
+    pack_name = run.prompt_pack if run is not None else packs.current()
     try:
         pack = packs.load(pack_name)
     except packs.PackRefused:
@@ -356,7 +356,13 @@ def cohort_boundary() -> bool:
     """9kg.85: whether the internal cohort's trial boundary applies here (set, and the environment is live)."""
     from config.guards import LIVE_ENVIRONMENTS
 
-    return COHORT_BOUNDARY and settings.CATALYST_ENV in LIVE_ENVIRONMENTS
+    from config import parity
+
+    return (
+        COHORT_BOUNDARY
+        and settings.CATALYST_ENV in LIVE_ENVIRONMENTS
+        and not parity.automated_admission_enabled(settings)
+    )
 
 
 def record_decision(

@@ -93,6 +93,11 @@ BASELINE: dict[str, str] = {
 }
 # Later migrations that contracting() flags but a reviewer found safe for the previous image, with the reason.
 EXPAND_SAFE: dict[str, str] = {
+    "assessments.0013_clarification_approval_purposes": (
+        "widens the existing purpose constraint to the draft and checking callers; previous assessment and "
+        "interpretation writes remain valid and previous readers filter their own purpose; "
+        "no existing approval, column, privilege or immutability guard changes"
+    ),
     "agreements.0015_adopted_countersign_claim": (
         "preserves every native claim the previous image creates, including its exact instance identity; "
         "additionally allows imported identities only with a matching source and recorded adoption; "

@@ -26,9 +26,9 @@ CAPTURE_OUTCOMES = ["found", "found_but_inconclusive", "not_found"]
 # What an observation of each kind can never establish (018 section 1), stored with every capture.
 CANNOT_PROVE = {
     "work_sample_page": "A work page shows that the work exists and what it says; it cannot prove who wrote it or "
-                        "what the applicant personally contributed.",
+    "what the applicant personally contributed.",
     "credential_verification": "An issuer's page can show that a credential with this identifier exists; it cannot "
-                               "prove that the person presenting it is the holder.",
+    "prove that the person presenting it is the holder.",
 }
 
 
@@ -56,23 +56,52 @@ class EvidenceSource(models.Model):
     on_unavailable = models.CharField(max_length=16, default=OnUnavailable.STAFF)
     fixture_only = models.BooleanField(default=False)
     definition_sha256 = models.CharField(max_length=64)
-    status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.DRAFT
+    )
     approved_by = models.CharField(max_length=200, blank=True, default="")
     approved_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(db_default=Now())
 
     class Meta:
-        permissions = [("approve_evidence_source", "Approve an evidence source version (owner, POL-03)")]
+        permissions = [
+            (
+                "approve_evidence_source",
+                "Approve an evidence source version (owner, POL-03)",
+            )
+        ]
         constraints = [
-            models.UniqueConstraint(fields=["key", "version"], name="evidence_source_version_unique"),
-            models.UniqueConstraint(fields=["key"], condition=Q(status="approved"), name="evidence_source_one_approved_version"),
-            models.CheckConstraint(condition=Q(version__gte=1), name="evidence_source_version_positive"),
-            models.CheckConstraint(condition=Q(kind__in=SOURCE_KINDS), name="evidence_source_kind_valid"),
-            models.CheckConstraint(condition=Q(status__in=["draft", "approved", "retired"]), name="evidence_source_status_valid"),
-            models.CheckConstraint(condition=Q(on_unavailable__in=["continue", "staff"]), name="evidence_source_on_unavailable_valid"),
-            models.CheckConstraint(condition=Q(port__gte=1, port__lte=65535), name="evidence_source_port_valid"),
-            models.CheckConstraint(condition=~Q(status="approved") | (~Q(approved_by="") & Q(approved_at__isnull=False)),
-                                   name="evidence_source_approved_has_approver"),
+            models.UniqueConstraint(
+                fields=["key", "version"], name="evidence_source_version_unique"
+            ),
+            models.UniqueConstraint(
+                fields=["key"],
+                condition=Q(status="approved"),
+                name="evidence_source_one_approved_version",
+            ),
+            models.CheckConstraint(
+                condition=Q(version__gte=1), name="evidence_source_version_positive"
+            ),
+            models.CheckConstraint(
+                condition=Q(kind__in=SOURCE_KINDS), name="evidence_source_kind_valid"
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=["draft", "approved", "retired"]),
+                name="evidence_source_status_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(on_unavailable__in=["continue", "staff"]),
+                name="evidence_source_on_unavailable_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(port__gte=1, port__lte=65535),
+                name="evidence_source_port_valid",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="approved")
+                | (~Q(approved_by="") & Q(approved_at__isnull=False)),
+                name="evidence_source_approved_has_approver",
+            ),
         ]
 
 
@@ -84,15 +113,35 @@ class EvidenceItem(models.Model):
         REFUSED = "refused"
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="evidence_items")
-    adopted_version = models.ForeignKey("applications.SubmissionVersion", on_delete=models.PROTECT, related_name="evidence_items")
-    source = models.ForeignKey(EvidenceSource, on_delete=models.PROTECT, null=True, blank=True, related_name="items")
-    claim_ref = models.CharField(max_length=32)  # "work:1", "credential:2": which claim this observes
+    application = models.ForeignKey(
+        "applications.Application",
+        on_delete=models.PROTECT,
+        related_name="evidence_items",
+    )
+    adopted_version = models.ForeignKey(
+        "applications.SubmissionVersion",
+        on_delete=models.PROTECT,
+        related_name="evidence_items",
+    )
+    source = models.ForeignKey(
+        EvidenceSource,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="items",
+    )
+    claim_ref = models.CharField(
+        max_length=32
+    )  # "work:1", "credential:2": which claim this observes
     request_url = models.CharField(max_length=2048)
     request_url_sha256 = models.CharField(max_length=64)
-    round = models.PositiveIntegerField(default=1)  # a staff re-fetch is a new slot (round n+1); the old one stays
+    round = models.PositiveIntegerField(
+        default=1
+    )  # a staff re-fetch is a new slot (round n+1); the old one stays
     required = models.BooleanField(default=False)
-    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.PENDING
+    )
     reason_code = models.CharField(max_length=64, blank=True, default="")
     finished_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(db_default=Now())
@@ -100,28 +149,62 @@ class EvidenceItem(models.Model):
 
     class Meta:
         permissions = [
-            ("review_evidence", "Read claims and evidence observations (assessment operators and decision-makers, P3-D-14)"),
-            ("operate_evidence", "Re-fetch evidence or proceed without an unavailable item (assessment operators)"),
+            (
+                "review_evidence",
+                "Read claims and evidence observations (assessment operators and decision-makers, P3-D-14)",
+            ),
+            (
+                "operate_evidence",
+                "Re-fetch evidence or proceed without an unavailable item (assessment operators)",
+            ),
         ]
         constraints = [
-            models.UniqueConstraint(fields=["application", "adopted_version", "claim_ref", "round"], name="evidence_item_one_per_claim_round"),
-            models.CheckConstraint(condition=Q(status__in=ITEM_STATUSES), name="evidence_item_status_valid"),
-            models.CheckConstraint(condition=Q(round__gte=1), name="evidence_item_round_positive"),
-            models.CheckConstraint(condition=Q(status="pending") | Q(finished_at__isnull=False), name="evidence_item_terminal_has_time"),
-            models.UniqueConstraint(fields=["id", "application"], name="evidence_item_id_application_unique"),
+            models.UniqueConstraint(
+                fields=["application", "adopted_version", "claim_ref", "round"],
+                name="evidence_item_one_per_claim_round",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=ITEM_STATUSES), name="evidence_item_status_valid"
+            ),
+            models.CheckConstraint(
+                condition=Q(round__gte=1), name="evidence_item_round_positive"
+            ),
+            models.CheckConstraint(
+                condition=Q(status="pending") | Q(finished_at__isnull=False),
+                name="evidence_item_terminal_has_time",
+            ),
+            models.UniqueConstraint(
+                fields=["id", "application"], name="evidence_item_id_application_unique"
+            ),
         ]
-        indexes = [models.Index(fields=["application"], condition=Q(status="pending"), name="evidence_item_pending")]
+        indexes = [
+            models.Index(
+                fields=["application"],
+                condition=Q(status="pending"),
+                name="evidence_item_pending",
+            )
+        ]
 
 
 class EvidenceCapture(models.Model):
-    item = models.ForeignKey(EvidenceItem, on_delete=models.PROTECT, related_name="captures")
-    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="evidence_captures")
-    source = models.ForeignKey(EvidenceSource, on_delete=models.PROTECT, related_name="captures")  # the exact version
+    item = models.ForeignKey(
+        EvidenceItem, on_delete=models.PROTECT, related_name="captures"
+    )
+    application = models.ForeignKey(
+        "applications.Application",
+        on_delete=models.PROTECT,
+        related_name="evidence_captures",
+    )
+    source = models.ForeignKey(
+        EvidenceSource, on_delete=models.PROTECT, related_name="captures"
+    )  # the exact version
     attempt_number = models.PositiveIntegerField()
     final_url = models.CharField(max_length=2048)
     http_status = models.PositiveIntegerField()
     content_type = models.CharField(max_length=200, blank=True, default="")
-    revision_marker = models.CharField(max_length=200, blank=True, default="")  # ETag or Last-Modified, if any
+    revision_marker = models.CharField(
+        max_length=200, blank=True, default=""
+    )  # ETag or Last-Modified, if any
     byte_length = models.PositiveIntegerField()
     truncated = models.BooleanField(default=False)
     response_sha256 = models.CharField(max_length=64)  # of the bytes read
@@ -137,14 +220,34 @@ class EvidenceCapture(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["item", "attempt_number"], name="evidence_capture_one_per_attempt"),
-            models.CheckConstraint(condition=Q(is_derivative=True), name="evidence_capture_is_derivative"),
-            models.CheckConstraint(condition=Q(outcome__in=CAPTURE_OUTCOMES), name="evidence_capture_outcome_valid"),
-            models.UniqueConstraint(fields=["id", "application"], name="evidence_capture_id_application_unique"),
+            models.UniqueConstraint(
+                fields=["item", "attempt_number"],
+                name="evidence_capture_one_per_attempt",
+            ),
+            models.CheckConstraint(
+                condition=Q(is_derivative=True), name="evidence_capture_is_derivative"
+            ),
+            models.CheckConstraint(
+                condition=Q(outcome__in=CAPTURE_OUTCOMES),
+                name="evidence_capture_outcome_valid",
+            ),
+            models.UniqueConstraint(
+                fields=["id", "application"],
+                name="evidence_capture_id_application_unique",
+            ),
         ]
 
 
-RUN_STATUSES = ["queued", "reserved", "succeeded", "invalid_output", "failed", "capped", "refused", "abandoned"]
+RUN_STATUSES = [
+    "queued",
+    "reserved",
+    "succeeded",
+    "invalid_output",
+    "failed",
+    "capped",
+    "refused",
+    "abandoned",
+]
 
 
 class AssessmentRun(models.Model):
@@ -153,7 +256,9 @@ class AssessmentRun(models.Model):
 
     class Status(models.TextChoices):
         QUEUED = "queued"
-        RESERVED = "reserved"  # an invocation is recorded and the model may have been called
+        RESERVED = (
+            "reserved"  # an invocation is recorded and the model may have been called
+        )
         SUCCEEDED = "succeeded"
         INVALID_OUTPUT = "invalid_output"
         FAILED = "failed"
@@ -162,10 +267,20 @@ class AssessmentRun(models.Model):
         ABANDONED = "abandoned"
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="assessment_runs")
-    adopted_version = models.ForeignKey("applications.SubmissionVersion", on_delete=models.PROTECT, related_name="assessment_runs")
+    application = models.ForeignKey(
+        "applications.Application",
+        on_delete=models.PROTECT,
+        related_name="assessment_runs",
+    )
+    adopted_version = models.ForeignKey(
+        "applications.SubmissionVersion",
+        on_delete=models.PROTECT,
+        related_name="assessment_runs",
+    )
     round = models.PositiveIntegerField(default=1)
-    trigger = models.CharField(max_length=32)  # evidence_complete, activation, staff_rerun
+    trigger = models.CharField(
+        max_length=32
+    )  # evidence_complete, activation, staff_rerun
     snapshot = models.JSONField()
     snapshot_sha256 = models.CharField(max_length=64)
     prompt_pack = models.CharField(max_length=64)
@@ -177,7 +292,9 @@ class AssessmentRun(models.Model):
     output_mode = models.CharField(max_length=16, blank=True, default="")
     library_version = models.CharField(max_length=32, blank=True, default="")
     request_sha256 = models.CharField(max_length=64, blank=True, default="")
-    status = models.CharField(max_length=16, choices=Status.choices, default=Status.QUEUED)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.QUEUED
+    )
     error_code = models.CharField(max_length=64, blank=True, default="")
     output = models.JSONField(null=True, blank=True)
     output_sha256 = models.CharField(max_length=64, blank=True, default="")
@@ -190,18 +307,36 @@ class AssessmentRun(models.Model):
     finished_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        permissions = [("rerun_assessment", "Request a new assessment run (assessment operators)")]
+        permissions = [
+            ("rerun_assessment", "Request a new assessment run (assessment operators)")
+        ]
         constraints = [
-            models.CheckConstraint(condition=Q(status__in=RUN_STATUSES), name="assessment_run_status_valid"),
-            models.CheckConstraint(condition=Q(round__gte=1), name="assessment_run_round_positive"),
+            models.CheckConstraint(
+                condition=Q(status__in=RUN_STATUSES), name="assessment_run_status_valid"
+            ),
+            models.CheckConstraint(
+                condition=Q(round__gte=1), name="assessment_run_round_positive"
+            ),
             # One succeeded run per snapshot; one run in flight per application (018 6).
-            models.UniqueConstraint(fields=["application", "snapshot_sha256"], condition=Q(status="succeeded"),
-                                    name="assessment_run_one_success_per_snapshot"),
-            models.UniqueConstraint(fields=["application"], condition=Q(status__in=["queued", "reserved"]),
-                                    name="assessment_run_one_in_flight"),
-            models.CheckConstraint(condition=~Q(status="succeeded") | Q(output__isnull=False), name="assessment_run_success_has_output"),
-            models.CheckConstraint(condition=Q(status__in=["queued", "reserved"]) | Q(finished_at__isnull=False),
-                                   name="assessment_run_terminal_has_time"),
+            models.UniqueConstraint(
+                fields=["application", "snapshot_sha256"],
+                condition=Q(status="succeeded"),
+                name="assessment_run_one_success_per_snapshot",
+            ),
+            models.UniqueConstraint(
+                fields=["application"],
+                condition=Q(status__in=["queued", "reserved"]),
+                name="assessment_run_one_in_flight",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="succeeded") | Q(output__isnull=False),
+                name="assessment_run_success_has_output",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=["queued", "reserved"])
+                | Q(finished_at__isnull=False),
+                name="assessment_run_terminal_has_time",
+            ),
         ]
 
 
@@ -209,21 +344,36 @@ class AssessmentInvocation(models.Model):
     """Recorded before any model request (018 6): if the worker dies after the provider may have processed or
     billed the call, the reservation still counts. Never refunded once recorded."""
 
-    run = models.ForeignKey(AssessmentRun, on_delete=models.PROTECT, related_name="invocations")
-    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="assessment_invocations")
+    run = models.ForeignKey(
+        AssessmentRun, on_delete=models.PROTECT, related_name="invocations"
+    )
+    application = models.ForeignKey(
+        "applications.Application",
+        on_delete=models.PROTECT,
+        related_name="assessment_invocations",
+    )
     snapshot_sha256 = models.CharField(max_length=64)
     attempt = models.PositiveIntegerField()
     reserved_requests = models.PositiveIntegerField()
     reserved_tokens = models.PositiveIntegerField()
-    used_tokens = models.PositiveIntegerField(null=True, blank=True)  # known only when the call returned usage
-    status = models.CharField(max_length=16, default="started")  # started, completed, abandoned
+    used_tokens = models.PositiveIntegerField(
+        null=True, blank=True
+    )  # known only when the call returned usage
+    status = models.CharField(
+        max_length=16, default="started"
+    )  # started, completed, abandoned
     started_at = models.DateTimeField(db_default=Now())
     finished_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["run", "attempt"], name="assessment_invocation_one_per_attempt"),
-            models.CheckConstraint(condition=Q(status__in=["started", "completed", "abandoned"]), name="assessment_invocation_status_valid"),
+            models.UniqueConstraint(
+                fields=["run", "attempt"], name="assessment_invocation_one_per_attempt"
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=["started", "completed", "abandoned"]),
+                name="assessment_invocation_status_valid",
+            ),
         ]
 
 
@@ -249,46 +399,92 @@ class QualificationDecision(models.Model):
         HUMAN_ONLY = "human_only"  # model advice unavailable or suspended (D-35)
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="qualification_decisions")
-    adopted_version = models.ForeignKey("applications.SubmissionVersion", on_delete=models.PROTECT, related_name="+")
-    run = models.ForeignKey(AssessmentRun, on_delete=models.PROTECT, null=True, blank=True, related_name="decisions")
+    application = models.ForeignKey(
+        "applications.Application",
+        on_delete=models.PROTECT,
+        related_name="qualification_decisions",
+    )
+    adopted_version = models.ForeignKey(
+        "applications.SubmissionVersion", on_delete=models.PROTECT, related_name="+"
+    )
+    run = models.ForeignKey(
+        AssessmentRun,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="decisions",
+    )
     outcome = models.CharField(max_length=16, choices=Outcome.choices)
     basis = models.CharField(max_length=16, choices=Basis.choices)
     human_only_reason = models.CharField(max_length=300, blank=True, default="")
     # oc4.12: the structured reason for a human-only assessment (decisions.HUMAN_ONLY_CODES), never free text alone;
     # `advice_suspended` cites the suspension record in `decision_inputs`.
-    human_only_code = models.CharField(max_length=40, blank=True, default="", db_default="")
+    human_only_code = models.CharField(
+        max_length=40, blank=True, default="", db_default=""
+    )
     reason_code = models.CharField(max_length=40)
     reason_text = models.TextField(blank=True, default="")
-    rationale = models.JSONField(default=dict)  # {criterion: {capability, evidence_strength, note}}
+    rationale = models.JSONField(
+        default=dict
+    )  # {criterion: {capability, evidence_strength, note}}
     snapshot_sha256 = models.CharField(max_length=64)
-    decision_digest = models.CharField(max_length=64)  # what the decision-maker saw (snapshot, questions, run)
-    policy_ref = models.CharField(max_length=100)  # the selection policy, or the synthetic rubric until one exists
+    decision_digest = models.CharField(
+        max_length=64
+    )  # what the decision-maker saw (snapshot, questions, run)
+    policy_ref = models.CharField(
+        max_length=100
+    )  # the selection policy, or the synthetic rubric until one exists
     # oc4.12 (oc4.10 item 3): the pack and rubric relied on, recorded whatever the policy reference says.
     prompt_pack = models.CharField(max_length=64, blank=True, default="", db_default="")
-    prompt_pack_sha256 = models.CharField(max_length=64, blank=True, default="", db_default="")
+    prompt_pack_sha256 = models.CharField(
+        max_length=64, blank=True, default="", db_default=""
+    )
     rubric_version = models.PositiveIntegerField(default=0, db_default=0)
     # oc4.12 (oc4.10 item 2): everything the decision digest binds, kept with the decision (decisions.decision_state).
     decision_inputs = models.JSONField(default=dict, db_default="{}")
     actor_ref = models.CharField(max_length=200)
-    second_actor_ref = models.CharField(max_length=200, blank=True, default="")  # P3-D-9: optional, not required
+    second_actor_ref = models.CharField(
+        max_length=200, blank=True, default=""
+    )  # P3-D-9: optional, not required
     created_at = models.DateTimeField(db_default=Now())
     # The top-level transaction that inserted the row (the same inside a savepoint); the database backstop
     # compares it with the current transaction (migration 0008, TEST-P3-52).
     created_txid = models.BigIntegerField(db_default=CurrentTransactionId())
 
     class Meta:
-        permissions = [("record_qualification_decision", "Record an admit, decline or hold decision (POL-05; granted explicitly)")]
+        permissions = [
+            (
+                "record_qualification_decision",
+                "Record an admit, decline or hold decision (POL-05; granted explicitly)",
+            )
+        ]
         constraints = [
-            models.CheckConstraint(condition=Q(outcome__in=["admit", "decline", "hold"]), name="decision_outcome_valid"),
-            models.CheckConstraint(condition=Q(basis__in=["model_assisted", "human_only"]), name="decision_basis_valid"),
-            models.CheckConstraint(condition=(Q(basis="model_assisted") & Q(run__isnull=False)) |
-                                   (Q(basis="human_only") & Q(run__isnull=True) & ~Q(human_only_reason="")),
-                                   name="decision_basis_matches_run"),
-            models.UniqueConstraint(fields=["application"], condition=Q(outcome__in=["admit", "decline"]),
-                                    name="decision_one_final_per_application"),
-            models.CheckConstraint(condition=Q(basis="model_assisted") | ~Q(human_only_code=""),
-                                   name="decision_human_only_has_code"),  # oc4.12: a structured reason, never text alone
+            models.CheckConstraint(
+                condition=Q(outcome__in=["admit", "decline", "hold"]),
+                name="decision_outcome_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(basis__in=["model_assisted", "human_only"]),
+                name="decision_basis_valid",
+            ),
+            models.CheckConstraint(
+                condition=(Q(basis="model_assisted") & Q(run__isnull=False))
+                | (
+                    Q(basis="human_only")
+                    & Q(run__isnull=True)
+                    & ~Q(human_only_reason="")
+                ),
+                name="decision_basis_matches_run",
+            ),
+            models.UniqueConstraint(
+                fields=["application"],
+                condition=Q(outcome__in=["admit", "decline"]),
+                name="decision_one_final_per_application",
+            ),
+            models.CheckConstraint(
+                condition=Q(basis="model_assisted") | ~Q(human_only_code=""),
+                name="decision_human_only_has_code",
+            ),  # oc4.12: a structured reason, never text alone
         ]
 
 
@@ -324,8 +520,24 @@ class ModelUseApproval(models.Model):
 
     class Meta:
         constraints = [
-            models.CheckConstraint(condition=Q(purpose__in=["assessment", "interpretation"]), name="model_use_purpose_valid"),
-            models.CheckConstraint(condition=Q(action__in=["approve", "revoke"]), name="model_use_action_valid"),
+            models.CheckConstraint(
+                condition=Q(
+                    purpose__in=[
+                        "assessment",
+                        "interpretation",
+                        "clarification_draft",
+                        "clarification_check",
+                    ]
+                ),
+                name="model_use_purpose_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(action__in=["approve", "revoke"]),
+                name="model_use_action_valid",
+            ),
             # A decision code, never free text: lowercase letters, digits and _ . : - (3 to 64 characters).
-            models.CheckConstraint(condition=Q(approval_ref__regex=APPROVAL_REF_PATTERN), name="model_use_approval_ref_is_a_code"),
+            models.CheckConstraint(
+                condition=Q(approval_ref__regex=APPROVAL_REF_PATTERN),
+                name="model_use_approval_ref_is_a_code",
+            ),
         ]

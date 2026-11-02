@@ -33,7 +33,9 @@ from assessments.models import APPROVAL_REF_PATTERN, ModelUseApproval
 def approval_code(value) -> str:
     ref = grants.require_approval(value)
     if not re.fullmatch(APPROVAL_REF_PATTERN, ref):
-        raise CommandError("--approval-ref must be a decision code: 3 to 64 of a-z, 0-9, _ . : -")
+        raise CommandError(
+            "--approval-ref must be a decision code: 3 to 64 of a-z, 0-9, _ . : -"
+        )
     return ref
 
 
@@ -43,31 +45,66 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--purpose", choices=approval.PURPOSES, required=True)
         parser.add_argument("--provider", help="the provider's lowercase name")
-        parser.add_argument("--model-id", help="the exact model identifier the approval names")
-        parser.add_argument("--approval-ref", help="the decision that authorizes this approval or revocation")
-        parser.add_argument("--revoke", action="store_true", help="record a revocation for the purpose")
-        parser.add_argument("--show", action="store_true", help="print the terms and their digest; write nothing")
+        parser.add_argument(
+            "--model-id", help="the exact model identifier the approval names"
+        )
+        parser.add_argument(
+            "--approval-ref",
+            help="the decision that authorizes this approval or revocation",
+        )
+        parser.add_argument(
+            "--revoke", action="store_true", help="record a revocation for the purpose"
+        )
+        parser.add_argument(
+            "--show",
+            action="store_true",
+            help="print the terms and their digest; write nothing",
+        )
 
-    def handle(self, purpose, provider=None, model_id=None, approval_ref=None, revoke=False, show=False, **options):
+    def handle(
+        self,
+        purpose,
+        provider=None,
+        model_id=None,
+        approval_ref=None,
+        revoke=False,
+        show=False,
+        **options,
+    ):
         if revoke and show:
             raise CommandError("--revoke and --show cannot be combined")
         if revoke:
             ref = approval_code(approval_ref)
             record = ModelUseApproval.objects.create(
-                purpose=purpose, action=ModelUseApproval.Action.REVOKE, provider="", model_id="", terms={},
-                terms_sha256="", approval_ref=ref, actor_ref=grants.actor())
-            self.stdout.write(f"revoked live model use for {purpose!r} (record {record.pk})")
+                purpose=purpose,
+                action=ModelUseApproval.Action.REVOKE,
+                provider="",
+                model_id="",
+                terms={},
+                terms_sha256="",
+                approval_ref=ref,
+                actor_ref=grants.actor(),
+            )
+            self.stdout.write(
+                f"revoked live model use for {purpose!r} (record {record.pk})"
+            )
             return
         named = approval.parse_model(f"{provider or ''}:{model_id or ''}")
         if named is None:
-            raise CommandError("--provider (lowercase letters, digits, hyphens) and --model-id are required")
+            raise CommandError(
+                "--provider (lowercase letters, digits, hyphens) and --model-id are required"
+            )
         try:
             use = approval.Use.current(purpose)
         except packs.PackRefused as exc:
-            raise CommandError(f"the current prompt pack is refused ({exc}); nothing to approve") from None
-        if purpose == "assessment" and packs.load(packs.CURRENT).rubric.get("synthetic", True):
-            raise CommandError("the current assessment rubric is synthetic (POL-04 wording not approved); a synthetic "
-                               "rubric may not be approved for live use")
+            raise CommandError(
+                f"the current prompt pack is refused ({exc}); nothing to approve"
+            ) from None
+        if purpose == "assessment" and packs.load().rubric.get("synthetic", True):
+            raise CommandError(
+                "the current assessment rubric is synthetic (POL-04 wording not approved); a synthetic "
+                "rubric may not be approved for live use"
+            )
         terms = approval.terms(use, *named)
         digest = approval.digest(terms)
         self.stdout.write(json.dumps(terms, indent=2, sort_keys=True))
@@ -76,7 +113,16 @@ class Command(BaseCommand):
             return
         ref = approval_code(approval_ref)
         record = ModelUseApproval.objects.create(
-            purpose=purpose, action=ModelUseApproval.Action.APPROVE, provider=named[0], model_id=named[1], terms=terms,
-            terms_sha256=digest, approval_ref=ref, actor_ref=grants.actor())
-        self.stdout.write(f"approved live model use for {purpose!r} on these terms (record {record.pk}); no live model "
-                          "branch exists in this code, so no request is made until one is built and authorized")
+            purpose=purpose,
+            action=ModelUseApproval.Action.APPROVE,
+            provider=named[0],
+            model_id=named[1],
+            terms=terms,
+            terms_sha256=digest,
+            approval_ref=ref,
+            actor_ref=grants.actor(),
+        )
+        self.stdout.write(
+            f"approved live model use for {purpose!r} on these terms (record {record.pk}); "
+            "runtime activation and request-rate checks still apply"
+        )

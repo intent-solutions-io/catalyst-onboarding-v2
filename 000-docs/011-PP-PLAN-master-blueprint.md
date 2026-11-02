@@ -466,6 +466,23 @@ do not prove template approval, live provider compatibility, completed import, p
 backup/restore readiness, counsel clearance or a successful cutover. They must not be presented as unanswered
 product choices, or as evidence that the associated code is already enabled.
 
+### 4.4 Production admission and notice activation (2026-11-02)
+
+The owner directed completing the replacement workflow after being presented with the recommendation to preserve
+three admission criteria and the concrete production data notice. The approved criteria are a specific work example,
+a description of personal contribution, and a technical practice goal. Applicant statements may satisfy these
+criteria; they are not independent proof of authorship, competence or credentials. Missing detail calls for a focused
+follow-up. Declines and exceptions remain human decisions.
+
+`assessment_v4` records this production rubric. It is explicitly selected by the digest-bound deployment profile;
+the historical synthetic packs remain unchanged. Model approvals bind each actual purpose and prompt separately.
+The approved notice discloses public-link research, MiniMax processing and routine automatic advancement; its exact
+text and approval digest are held in the private deployment record and the application's versioned template record.
+This supersedes the internal-trial notice for the public replacement, not the retention or recovery requirements.
+
+This decision authorizes activation. It does not assert that the release, case import, provider checks or traffic
+transfer have completed. Those remain measured production operations under `bgl.18`.
+
 ## 5. Who may authorize what
 
 | Action | Authority | Status |
