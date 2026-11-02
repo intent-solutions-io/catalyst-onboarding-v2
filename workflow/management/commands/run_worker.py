@@ -28,11 +28,19 @@ def select(registry: dict, only: str, exclude: str) -> dict:
     unknown = (wanted | unwanted) - set(registry)
     if unknown:
         raise CommandError(f"unknown action kinds: {', '.join(sorted(unknown))}")
-    selected = {kind: h for kind, h in registry.items() if (not wanted or kind in wanted) and kind not in unwanted}
+    selected = {
+        kind: h
+        for kind, h in registry.items()
+        if (not wanted or kind in wanted) and kind not in unwanted
+    }
     if not selected:  # a process with nothing to run is a misconfiguration, never a quiet idle loop (PR #65 review)
         raise CommandError("no action kinds left to run")
-    if settings.CATALYST_PROCESS_ROLE == "fetcher" and set(selected) != {"fetch_evidence"}:
-        raise CommandError("the fetcher runs only fetch_evidence (--only fetch_evidence)")  # its role grants nothing else
+    if settings.CATALYST_PROCESS_ROLE == "fetcher" and set(selected) != {
+        "fetch_evidence"
+    }:
+        raise CommandError(
+            "the fetcher runs only fetch_evidence (--only fetch_evidence)"
+        )  # its role grants nothing else
     return selected
 
 
@@ -40,27 +48,44 @@ class Command(BaseCommand):
     help = "Run the pending-action worker: claim and run queued actions until stopped (or idle, with --exit-when-idle)."
 
     def add_arguments(self, parser):
-        parser.add_argument("--exit-when-idle", action="store_true", help="stop when no action is claimable")
+        parser.add_argument(
+            "--exit-when-idle",
+            action="store_true",
+            help="stop when no action is claimable",
+        )
         # 6B.5 (026 section 5, P6-D-14): the fetcher runs only the evidence fetch; the worker runs everything else.
-        parser.add_argument("--only", default="", help="comma-separated action kinds this process may run")
-        parser.add_argument("--exclude", default="", help="comma-separated action kinds this process never runs")
+        parser.add_argument(
+            "--only",
+            default="",
+            help="comma-separated action kinds this process may run",
+        )
+        parser.add_argument(
+            "--exclude",
+            default="",
+            help="comma-separated action kinds this process never runs",
+        )
 
     def handle(self, *args, exit_when_idle=False, only="", exclude="", **options):
         runtime.declare_process("worker")
         # 9kg.69 (review of PR #104, F3): the start-up guards ran before this process declared itself a worker.
         if getattr(settings, "CATALYST_CUSTODY_NEXT_WRAPPING_KEY", ""):
-            raise CommandError("CATALYST_CUSTODY_NEXT_WRAPPING_KEY is held only by the owner-run rotation")
-        if settings.CATALYST_PROCESS_ROLE != "fetcher" and settings.CATALYST_ENV not in ("test", "development"):
+            raise CommandError(
+                "CATALYST_CUSTODY_NEXT_WRAPPING_KEY is held only by the owner-run rotation"
+            )
+        if (
+            settings.CATALYST_PROCESS_ROLE != "fetcher"
+            and settings.CATALYST_ENV not in ("test", "development")
+        ):
             from workflow import journal
 
-            problem = journal.directory_problem(write=True)  # 9kg.33: a worker that cannot journal does not start
+            problem = journal.directory_problem(
+                write=True
+            )  # 9kg.33: a worker that cannot journal does not start
             if problem:
-                raise CommandError(f"effect journal directory is {problem}: CATALYST_EFFECT_JOURNAL_DIR")
+                raise CommandError(
+                    f"effect journal directory is {problem}: CATALYST_EFFECT_JOURNAL_DIR"
+                )
             journal.ensure_genesis()  # every later backup anchors to this journal's identity
-        if settings.CATALYST_PROCESS_ROLE != "fetcher":
-            from assessments import live
-
-            live.allow_requests()  # bgl.12: on only under the live activation, in a synthetic environment, when configured
         if settings.CATALYST_PROCESS_ROLE != "fetcher":
             from config.apps import sweep_custody_keys
 
@@ -75,14 +100,25 @@ class Command(BaseCommand):
         poll = settings.CATALYST_WORKER_POLL_SECONDS
         try:
             registry = select(ledger.handlers(), only, exclude)
+            if settings.CATALYST_PROCESS_ROLE != "fetcher":
+                from assessments import live
+
+                # Handler imports install the model client's default refusal. Activate only after
+                # those imports, before the first claim; every actual request still checks approval.
+                live.allow_requests()
             self.stdout.write("worker started")
             self.stdout.flush()
             while not stop.is_set():
-                heartbeat.beat(settings.CATALYST_WORKER_HEARTBEAT_FILE)  # 6B.4: alive, even while the database is down
+                heartbeat.beat(
+                    settings.CATALYST_WORKER_HEARTBEAT_FILE
+                )  # 6B.4: alive, even while the database is down
                 try:
                     worked = ledger.run_one(registry)
                 except (OperationalError, InterfaceError) as exc:
-                    logger.warning("worker: database unavailable (%s); reconnecting", type(exc).__name__)
+                    logger.warning(
+                        "worker: database unavailable (%s); reconnecting",
+                        type(exc).__name__,
+                    )
                     connections.close_all()
                     stop.wait(poll)
                     continue

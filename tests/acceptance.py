@@ -1584,6 +1584,8 @@ P6_SUPPORTING = {
     # bgl.12 (034 section 2.2 rows 15 to 19): the live MiniMax branch and the routine-advance policy, both behind
     # activations that are off in code; a named design rule like the 9kg groups, never a staging case.
     "bgl.12 the live model branch and the routine-advance policy act only under their activations": [
+        "test_live_workflow_regressions::test_cold_worker_preserves_model_activation_after_loading_handlers",
+        "test_live_workflow_regressions::test_twenty_accepts_complete_close_responses_but_refuses_truncation",
         "test_parity_activation::test_production_evidence_hosts_require_profile_and_preserve_fixture_refusals",
         "test_parity_activation::test_fetcher_profile_rejects_other_provider_configuration",
         "test_production_admission::test_public_automated_intake_requires_and_displays_the_approved_notice",
