@@ -516,9 +516,11 @@ EVIDENCE_TEST_ONLY = (
 
 
 def evidence_problems(settings, environ: Mapping[str, str]) -> list[str]:
-    """018 3.3 step 7 (P3 3B.1): evidence fetching is synthetic only. Outside `test` and `staging`, no host may be
-    fetchable, no fixture address may be pinned and no custom trust store may be set; in `staging` only `.test` hosts,
-    a loopback fixture address and an absolute trust-store path; none of them may come from the environment."""
+    """Evidence hosts require the production parity profile or the synthetic settings.
+
+    Production admits explicit public names outside this estate, never fixture addresses or custom trust stores.
+    Staging retains only .test hosts and its loopback fixture. Direct environment overrides remain forbidden.
+    """
     problems = [
         f"{name} may not be set from the environment"
         for name in EVIDENCE_TEST_ONLY
@@ -527,6 +529,19 @@ def evidence_problems(settings, environ: Mapping[str, str]) -> list[str]:
     environment = getattr(settings, "CATALYST_ENV", "")
     if not synthetic(environment):
         for name in EVIDENCE_TEST_ONLY:
+            if name == "CATALYST_EVIDENCE_ALLOWED_HOSTS" and parity.enabled(settings):
+                hosts = getattr(settings, name, ()) or ()
+                if any(
+                    not isinstance(host, str)
+                    or not _live_host(host)
+                    or host.endswith((".test", ".invalid", ".localhost", ".local"))
+                    or _production_host(host)
+                    for host in hosts
+                ):
+                    problems.append(
+                        "production evidence hosts must be public DNS names outside this estate"
+                    )
+                continue
             if getattr(settings, name, None):
                 problems.append(
                     f"{name} is allowed only in the test and staging environments (synthetic evidence only)"

@@ -18,6 +18,24 @@ The overlay requires the separate custody directories and per-process secret fil
 named in the YAML. An absent profile retains the base configuration; a wrong digest,
 unknown setting or invalid provider target refuses startup.
 
+## Public evidence sources
+
+Add `CATALYST_EVIDENCE_ALLOWED_HOSTS` to the reviewed worker profile for the exact
+public hosts that approved evidence-source definitions may fetch. Each source still
+requires its own recorded approval, path prefix, content types and redirect list.
+Private addresses, estate hosts, fixture addresses and custom trust stores remain refused.
+
+Include `evidence.compose.yaml` for the isolated fetcher. Set
+`CATALYST_EVIDENCE_PARITY_CONFIG` and `CATALYST_EVIDENCE_PARITY_SHA256` to a separate
+digest-bound profile containing **only** `CATALYST_EVIDENCE_ALLOWED_HOSTS`, with the
+same host list. The fetcher rejects profiles containing model or other provider settings;
+it receives no provider credentials or custody keys. Its existing egress proxy remains
+mandatory, with TLS verification and address checks on every fetch and redirect.
+
+Before enabling the overlay, populate the operator's existing egress deny file with
+the estate's current domains. The enabled egress healthcheck refuses an empty or broken
+deny file. Verify a bounded approved public fetch before opening production intake.
+
 ## Staff certificates
 
 For a staff host with an existing certificate, include `staff-tls.compose.yaml` after

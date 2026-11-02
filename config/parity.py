@@ -30,7 +30,7 @@ MINIMAX_REQUESTS_PER_MINUTE PROVISIONING_QUOTA_MB PROVISIONING_SEND_LIMIT""".spl
 )
 FLAGS = frozenset("TWENTY_PROJECTION PROVISIONING_NAMING_HOST_CHECK".split())
 LISTS = frozenset(
-    "PROVIDER_ALLOWED_HOSTS PROVISIONING_RESERVED_LOCAL_PARTS PROVISIONING_RESERVED_PREFIXES".split()
+    "PROVIDER_ALLOWED_HOSTS EVIDENCE_ALLOWED_HOSTS PROVISIONING_RESERVED_LOCAL_PARTS PROVISIONING_RESERVED_PREFIXES".split()
 )
 MAPPINGS = frozenset(
     "AGREEMENT_REQUIRED_DETAILS AGREEMENT_FIELD_LAYOUTS AGREEMENT_LEGACY_ENVELOPES SELECTION_POLICY_PACKS".split()
@@ -117,6 +117,12 @@ def configure(namespace, environ, read_secret):
         raise ImproperlyConfigured(
             "parity configuration is unreadable, unpinned or invalid"
         ) from None
+    if namespace.get("CATALYST_PROCESS_ROLE") == "fetcher" and set(converted) - {
+        "CATALYST_EVIDENCE_ALLOWED_HOSTS"
+    }:
+        raise ImproperlyConfigured(
+            "the fetcher profile may configure only evidence hosts"
+        )
     bindings = converted.get("CATALYST_AGREEMENT_LEGACY_ENVELOPES", {})
     keys = set()
     for envelope, binding in bindings.items():
