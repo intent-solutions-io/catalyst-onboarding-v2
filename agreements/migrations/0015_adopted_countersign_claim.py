@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 SQL = """
 CREATE FUNCTION public.catalyst_countersign_identity() RETURNS trigger
-LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
+LANGUAGE plpgsql SET search_path = pg_catalog, public, pg_temp AS $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM public.agreements_agreementinstance i
@@ -27,6 +27,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
+REVOKE ALL ON FUNCTION public.catalyst_countersign_identity() FROM PUBLIC;
 CREATE TRIGGER catalyst_countersign_identity BEFORE INSERT OR UPDATE OF instance_id, envelope_id, external_key
 ON public.agreements_countersignclaim FOR EACH ROW EXECUTE FUNCTION public.catalyst_countersign_identity();
 """

@@ -2447,6 +2447,7 @@ P6_SUPPORTING = {
         "test_countersign_release::test_bgl9_two_workers_one_claim_one_signature",
         "test_countersign_release::test_bgl9_the_claim_is_unique_per_envelope_and_only_for_v2_keys",
         "test_countersign_release::test_bgl9_a_foreign_envelope_is_refused_and_never_touched",
+        "test_countersign_release::test_company_role_follows_the_approved_template_across_an_nda_version_change",
         "test_countersign_release::test_bgl9_a_failure_is_retried_and_the_retry_signs_once",
         "test_countersign_release::test_bgl9_after_thirty_minutes_of_failure_the_owner_countersigns_by_hand",
         "test_countersign_release::test_bgl9_a_paused_case_is_never_countersigned",
