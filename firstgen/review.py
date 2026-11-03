@@ -161,25 +161,18 @@ def review_state(application):
 
 
 def pending_native_work(application):
-    """Keep conflicting work blocked, but let an untouched CRM projection wait.
+    """Keep onboarding work blocked without depending on back-office CRM timing.
 
-    Import and staff audit events queue a projection when Twenty is enabled. The
-    application pause prevents it running, so requiring its completion before
-    handover deadlocks the case. It reads the current dossier after resume and
-    cannot advance onboarding. A leased, attempted or held projection still needs
-    reconciliation; only the untouched queued action is safe to leave pending.
+    Import and staff audit events queue a projection when Twenty is enabled. CRM
+    runs even while the application is paused and cannot advance onboarding; its
+    retries or a concurrent worker claim must not block handover. Leave that work
+    and its lease untouched, preserving CRM's independent reconciliation path.
     """
     return PendingAction.objects.filter(
         subject_type="application",
         subject_id=application.public_ref,
         status__in=("queued", "running", "held"),
-    ).exclude(
-        kind="twenty_project",
-        status="queued",
-        attempts=0,
-        lease_token__isnull=True,
-        lease_expires_at__isnull=True,
-    )
+    ).exclude(kind="twenty_project")
 
 
 def prepare(

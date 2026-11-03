@@ -290,9 +290,9 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 
 ### Fixed
 
-- Legacy handover no longer deadlocks behind the untouched CRM projection queued by import or staff audit events.
-  Review, envelope adoption, release and mailbox reconciliation leave that projection queued for resume;
-  attempted, held or leased projections and conflicting onboarding work still require reconciliation.
+- Legacy handover no longer depends on the CRM projection queued by import or staff audit events.
+  Review, envelope adoption, release and mailbox reconciliation preserve CRM work and its independent
+  retries even when a worker claims it during handover; conflicting onboarding work still blocks.
 
 - The P3 real-use defects 4 to 7 (bead `oc4.10`; `018` section 21): a dead reserved run (for example on a paused
   application) no longer holds a global concurrency slot; a handler defect with attempts left returns the run to queued
