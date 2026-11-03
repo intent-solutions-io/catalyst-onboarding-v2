@@ -35,7 +35,7 @@ REPAIR_LIMIT = (
     1  # one output repair per attempt (agent.run_checked: retries=REPAIR_LIMIT)
 )
 REQUESTS_PER_ATTEMPT = 1 + REPAIR_LIMIT
-BUILDER_VERSION = "2"  # approved practice-goal claim; existing approvals become stale
+BUILDER_VERSION = "3"  # full assessment narratives; existing approvals become stale
 INTERPRET_SCHEMA_VERSION = "1"  # interpret.InterpretOutput.schema_version
 # bgl.12: the clarification draft and its check are two more purposes through the same checked-run path, each needing
 # its own recorded approval; nothing of the applicant's leaves in them (assessments.clarify).

@@ -892,7 +892,7 @@ def test_oc4_9_a_builder_that_sends_an_undeclared_field_fails_the_absence_check(
 
 
 BUILDER_PIN = (
-    "2",
+    "3",
     "d1d8e7dcc3c12f781fd3a4137f369767651321051faa97166a4c061e1982025e",
 )  # (approval.BUILDER_VERSION, sha256 of the sources below)
 

@@ -563,6 +563,8 @@ P2_CASES = {
 P3_CASES = {
     "TEST-P3-01": [
         "test_assessment::test_p3_01_a_valid_output_is_stored_with_provenance_and_the_stage_moves_for_staff",
+        "test_assessment_narratives::test_p3_long_narratives_keep_provenance_checks_without_wasting_a_repair",
+        "test_assessment_narratives::test_long_hyphenated_narratives_are_screened_without_suffix_rescanning",
     ],
     "TEST-P3-02": [
         "test_assessment::test_p3_02_25_malformed_output_gets_one_repair_then_staff_and_never_a_third_request",
