@@ -1,8 +1,33 @@
 """Long model explanations retain provenance and unsafe-text validation."""
 
+import subprocess
+import sys
+
 import pytest
 
 from tests.test_assessment import a, assessed, ev, p2, tls, valid  # noqa: F401 (shared fixtures)
+
+
+def test_long_hyphenated_narratives_are_screened_without_suffix_rescanning():
+    # A subprocess bounds the regression: the old regex consumes quadratic CPU time.
+    # Check a forbidden tail too, so truncating the text cannot satisfy this test.
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+from correspondence.question_screen import unsafe
+text = 'a-' * 100000
+assert not unsafe(text)
+assert unsafe(text + ' example.com')
+assert unsafe(text + ' someone@example.test')
+""",
+        ],
+        check=True,
+        timeout=5,
+        capture_output=True,
+        text=True,
+    )
 
 
 @pytest.mark.parametrize("fault", ["", "quote", "unsafe_text"])

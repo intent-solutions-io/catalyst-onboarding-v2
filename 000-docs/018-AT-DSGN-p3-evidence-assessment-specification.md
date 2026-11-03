@@ -267,8 +267,8 @@ specification;** the boundary above is what an owner authorization would approve
 | `injection_suspected` | boolean, with 1 to 4 citations when true | informative only |
 | `limitations` | at most 5, each at most 200 characters | e.g. truncated items, unavailable sources |
 
-The bounds keep the largest valid output near 10,000 characters (about 2,500 tokens). Injection markers are
-computed on the sanitized derivative (after hidden elements are stripped), so markers and quotes refer to the
+Narrative text has no presentation-length cap; the collection and citation bounds above still apply. Injection
+markers are computed on the sanitized derivative (after hidden elements are stripped), so markers and quotes refer to the
 same text; any `<think>` block inline in `content` (F-13) is removed before parsing and never stored.
 
 Cross-checks stored, never silently corrected: `admit` with a required criterion `not_supported` is flagged
