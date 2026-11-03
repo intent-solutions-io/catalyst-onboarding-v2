@@ -117,7 +117,16 @@ def test_mailbox_reconciliation_preserves_crm_projection(recovery, settings, sta
 def test_applicant_work_still_blocks_handover(legacy, settings, state):
     application = app()
     action = queued_projection(application, settings, state)
-    PendingAction.objects.filter(pk=action.pk).update(kind="send_verification")
+    PendingAction.objects.create(
+        kind="send_verification",
+        subject_type="application",
+        subject_id=application.public_ref,
+        idempotency_key="handover-conflicting-applicant-work",
+        status=action.status,
+        attempts=action.attempts,
+        lease_token=action.lease_token,
+        lease_expires_at=action.lease_expires_at,
+    )
     with pytest.raises(Refused, match="native_work_in_flight"):
         prepare(application, legacy.user)
     assert not application.events.filter(kind="legacy_review_prepared").exists()
