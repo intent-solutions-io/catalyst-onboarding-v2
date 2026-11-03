@@ -160,6 +160,28 @@ def review_state(application):
     }
 
 
+def pending_native_work(application):
+    """Keep conflicting work blocked, but let an untouched CRM projection wait.
+
+    Import and staff audit events queue a projection when Twenty is enabled. The
+    application pause prevents it running, so requiring its completion before
+    handover deadlocks the case. It reads the current dossier after resume and
+    cannot advance onboarding. A leased, attempted or held projection still needs
+    reconciliation; only the untouched queued action is safe to leave pending.
+    """
+    return PendingAction.objects.filter(
+        subject_type="application",
+        subject_id=application.public_ref,
+        status__in=("queued", "running", "held"),
+    ).exclude(
+        kind="twenty_project",
+        status="queued",
+        attempts=0,
+        lease_token__isnull=True,
+        lease_expires_at__isnull=True,
+    )
+
+
 def prepare(
     application_id, user, *, expected_digest, source_stopped, history_reviewed, note
 ):
@@ -229,11 +251,7 @@ def prepare(
             status__in=("received", "awaiting_processing")
         ).exists():
             raise Refused("inbound_review_in_flight")
-        if PendingAction.objects.filter(
-            subject_type="application",
-            subject_id=application.public_ref,
-            status__in=("queued", "running", "held"),
-        ).exists():
+        if pending_native_work(application).exists():
             raise Refused("native_work_in_flight")
         from assessments.decisions import IDENTITY_ITEMS
         from correspondence.staff_actions import PAUSE_CAUSES

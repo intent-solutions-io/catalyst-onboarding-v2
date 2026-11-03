@@ -17,7 +17,6 @@ from correspondence.common import Refused
 from correspondence.messages import verified_address
 from correspondence.models import StaffItem
 from correspondence.staff_items import clean_note, event
-from workflow.models import PendingAction
 
 from . import mapping, review
 from .models import ImportedRecord
@@ -181,11 +180,7 @@ def _state(application, record_id, version_id, expected_digest):
     ):
         raise Refused("identity_or_safety_item_open")
     if (
-        PendingAction.objects.filter(
-            subject_type="application",
-            subject_id=application.public_ref,
-            status__in=("queued", "running", "held"),
-        )
+        review.pending_native_work(application)
         .exclude(
             kind__in=(
                 completion.READ,
