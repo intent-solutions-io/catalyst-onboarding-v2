@@ -480,6 +480,11 @@ The approved notice discloses public-link research, MiniMax processing and routi
 text and approval digest are held in the private deployment record and the application's versioned template record.
 This supersedes the internal-trial notice for the public replacement, not the retention or recovery requirements.
 
+Under this bound production activation, an admit queues its NDA handoff automatically when the signing provider
+is configured and an approved NDA template exists. The decision, handoff and activation event commit together;
+the signing worker still checks the decision, verified contact, pauses and template before any provider effect.
+Outside that activation, the historical held handoff and owner-run release command remain in place.
+
 This decision authorizes activation. It does not assert that the release, case import, provider checks or traffic
 transfer have completed. Those remain measured production operations under `bgl.18`.
 

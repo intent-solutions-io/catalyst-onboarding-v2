@@ -32,7 +32,8 @@ record and refusals, as `actor_ref` `policy:routine_advance:v<n>`; it never reco
 human screen is unchanged. At the default configuration no such decision exists.
 
 Then: the `QualificationDecision` row, the stage move (`admitted`, `declined` or `on_hold`), an event, and the
-follow-on: a held `issue_nda:<application>` for admit (P4 releases it); for decline a queued
+follow-on: `issue_nda:<application>` for admit (held by default; queued under bound production admission with
+a configured signing provider and approved NDA template); for decline a queued
 `send_decline:<application>` (oc4.11, `assessments.decline`: the decline notice), unless the decision-maker chose to
 withhold the notice, with a reason, which the decision records (`decision_inputs["decline_notice"]`) and which queues
 nothing; nothing for hold. A database trigger refuses any move into a decided stage without a decision row inserted
@@ -576,7 +577,7 @@ def record_decision(
 def _follow_on(
     application, decision, from_stages, code: str, actor: str, actor_type
 ) -> None:
-    """The stage move, the withdrawal of unsent proposed questions and the held follow-on action, shared by the human
+    """The stage move, the withdrawal of unsent proposed questions and the follow-on action, shared by the human
     decision and the routine policy's admit (bgl.12). Inside the decision's transaction."""
     outcome = decision.outcome
     try:
@@ -618,14 +619,40 @@ def _follow_on(
         )
     kind = FOLLOW_ON.get(outcome)
     if kind:
+        from agreements.template_versions import approved_version
+        from config.parity import automated_admission_enabled
+
+        automatic_signing = (
+            outcome == "admit"
+            and automated_admission_enabled(settings)
+            and bool(settings.CATALYST_AGREEMENT_PROVIDER_URL)
+            and approved_version("nda") is not None
+        )
         PendingAction.objects.create(
             kind=kind,
             subject_type="application",
             subject_id=application.public_ref,
             input_ref=str(decision.public_id),
             idempotency_key=f"{kind}:{application.public_ref}",
-            status=PendingAction.Status.HELD,
+            status=(
+                PendingAction.Status.QUEUED
+                if automatic_signing
+                else PendingAction.Status.HELD
+            ),
         )
+        if automatic_signing:
+            ApplicationEvent.objects.create(
+                application=application,
+                kind="agreements_activated",
+                actor_type=actor_type,
+                actor_ref=actor,
+                data={
+                    "activation_version": 1,
+                    "approval_ref": decision.policy_ref,
+                    "decision": str(decision.public_id),
+                    "mode": "production_workflow",
+                },
+            )
 
 
 ROUTINE_REASON = "routine_advance"  # the reason code of every automatic admit; the actor names the policy version
@@ -637,7 +664,7 @@ def record_routine_admit(
     """bgl.12 (034 rows 15 and 18): the routine-advance policy's admit, on the existing admit path and with the same
     record, inside the caller's transaction with the application locked. The decision stands on the valid succeeded run
     for the current snapshot (basis `model_assisted`), carries the policy's per-criterion rationale (validated like a
-    human's) and its verdict in `decision_inputs`, and ends in the same held `issue_nda`. Everything the human path
+    human's) and its verdict in `decision_inputs`, and uses the same guarded `issue_nda` handoff. Everything the human path
     refuses is refused here too (a stale run, pending evidence, an open identity item, an open question, a pause, the
     cohort boundary), and the authority setting is not consulted: this is not a person deciding, and the policy runs
     only under its own activation. Never a decline, never a hold."""
