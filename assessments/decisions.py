@@ -64,7 +64,7 @@ from correspondence.models import Question, StaffItem
 from correspondence.processing import RESOLUTIONS
 from correspondence.common import Refused as NoteRefused
 from correspondence.staff_items import clean_note as _clean_note, resolve_item
-from workflow.models import AutomationPause, PendingAction
+from workflow.models import AutomationPause
 
 from .quotas import exceeds
 from . import decline as declines, pack as packs, snapshot
@@ -619,40 +619,9 @@ def _follow_on(
         )
     kind = FOLLOW_ON.get(outcome)
     if kind:
-        from agreements.template_versions import approved_version
-        from config.parity import automated_admission_enabled
+        from workflow.admission import enqueue_nda
 
-        automatic_signing = (
-            outcome == "admit"
-            and automated_admission_enabled(settings)
-            and bool(settings.CATALYST_AGREEMENT_PROVIDER_URL)
-            and approved_version("nda") is not None
-        )
-        PendingAction.objects.create(
-            kind=kind,
-            subject_type="application",
-            subject_id=application.public_ref,
-            input_ref=str(decision.public_id),
-            idempotency_key=f"{kind}:{application.public_ref}",
-            status=(
-                PendingAction.Status.QUEUED
-                if automatic_signing
-                else PendingAction.Status.HELD
-            ),
-        )
-        if automatic_signing:
-            ApplicationEvent.objects.create(
-                application=application,
-                kind="agreements_activated",
-                actor_type=actor_type,
-                actor_ref=actor,
-                data={
-                    "activation_version": 1,
-                    "approval_ref": decision.policy_ref,
-                    "decision": str(decision.public_id),
-                    "mode": "production_workflow",
-                },
-            )
+        enqueue_nda(application, decision, actor=actor, actor_type=actor_type)
 
 
 ROUTINE_REASON = "routine_advance"  # the reason code of every automatic admit; the actor names the policy version

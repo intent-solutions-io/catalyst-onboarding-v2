@@ -9,7 +9,9 @@ from tests.http_fixture import ScriptedHTTPS
 from tests.test_inbound import tls  # noqa: F401
 
 
-@pytest.mark.parametrize("mode", ["complete", "empty", "truncated", "capped"])
+@pytest.mark.parametrize(
+    "mode", ["complete", "empty", "truncated", "truncated_whitespace", "capped"]
+)
 def test_evidence_close_response_preserves_completion_and_limits(tls, settings, mode):
     server = ScriptedHTTPS(tls.evidence).start()
     try:
@@ -33,16 +35,17 @@ def test_evidence_close_response_preserves_completion_and_limits(tls, settings, 
             handler.send_response(200)
             handler.send_header("Content-Type", "text/plain")
             handler.send_header("Connection", "close")
-            handler.send_header(
-                "Content-Length", str(len(body) + (5 if mode == "truncated" else 0))
-            )
+            declared = str(len(body) + (5 if mode.startswith("truncated") else 0))
+            if mode == "truncated_whitespace":
+                declared += " \t"
+            handler.send_header("Content-Length", declared)
             handler.end_headers()
             handler.wfile.write(body)
             handler.close_connection = True
 
         server.routes["/work"] = respond
         url = f"https://{source.host}:{source.port}/work"
-        if mode == "truncated":
+        if mode.startswith("truncated"):
             with pytest.raises(fetch.Transient, match="response_truncated"):
                 fetch.fetch(url, source)
         else:

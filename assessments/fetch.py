@@ -446,6 +446,7 @@ def _one_request(target: Target, ip: str, extra, source, remaining) -> FetchResu
             response.getheader("ETag") or response.getheader("Last-Modified") or ""
         )[:200]
         cap = min(source.max_bytes, settings.CATALYST_EVIDENCE_MAX_BYTES)
+        expected_length = response.length
         chunks, size, truncated = [], 0, False
         # HTTPResponse releases the socket when a declared body is complete.
         # Do not set another timeout on that closed TLS socket.
@@ -463,13 +464,7 @@ def _one_request(target: Target, ip: str, extra, source, remaining) -> FetchResu
             if size > cap:
                 truncated = True
                 break
-        declared = response.getheader("Content-Length")
-        if (
-            not truncated
-            and declared is not None
-            and declared.isdigit()
-            and int(declared) != size
-        ):
+        if not truncated and expected_length is not None and expected_length != size:
             raise Transient("response_truncated")
         body = b"".join(chunks)[:cap]
         charset = (
