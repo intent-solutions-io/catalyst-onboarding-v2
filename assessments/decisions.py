@@ -64,7 +64,7 @@ from correspondence.models import Question, StaffItem
 from correspondence.processing import RESOLUTIONS
 from correspondence.common import Refused as NoteRefused
 from correspondence.staff_items import clean_note as _clean_note, resolve_item
-from workflow.models import AutomationPause
+from workflow.models import AutomationPause, PendingAction
 
 from .quotas import exceeds
 from . import decline as declines, pack as packs, snapshot
@@ -619,9 +619,23 @@ def _follow_on(
         )
     kind = FOLLOW_ON.get(outcome)
     if kind:
-        from workflow.admission import enqueue_nda
+        from workflow.admission import activate_nda_handoff
 
-        enqueue_nda(application, decision, actor=actor, actor_type=actor_type)
+        automatic_signing = activate_nda_handoff(
+            application, decision, actor=actor, actor_type=actor_type
+        )
+        PendingAction.objects.create(
+            kind=kind,
+            subject_type="application",
+            subject_id=application.public_ref,
+            input_ref=str(decision.public_id),
+            idempotency_key=f"{kind}:{application.public_ref}",
+            status=(
+                PendingAction.Status.QUEUED
+                if automatic_signing
+                else PendingAction.Status.HELD
+            ),
+        )
 
 
 ROUTINE_REASON = "routine_advance"  # the reason code of every automatic admit; the actor names the policy version
