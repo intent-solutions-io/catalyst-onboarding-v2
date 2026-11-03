@@ -160,6 +160,21 @@ def review_state(application):
     }
 
 
+def pending_native_work(application):
+    """Keep onboarding work blocked without depending on back-office CRM timing.
+
+    Import and staff audit events queue a projection when Twenty is enabled. CRM
+    runs even while the application is paused and cannot advance onboarding; its
+    retries or a concurrent worker claim must not block handover. Leave that work
+    and its lease untouched, preserving CRM's independent reconciliation path.
+    """
+    return PendingAction.objects.filter(
+        subject_type="application",
+        subject_id=application.public_ref,
+        status__in=("queued", "running", "held"),
+    ).exclude(kind="twenty_project")
+
+
 def prepare(
     application_id, user, *, expected_digest, source_stopped, history_reviewed, note
 ):
@@ -229,11 +244,7 @@ def prepare(
             status__in=("received", "awaiting_processing")
         ).exists():
             raise Refused("inbound_review_in_flight")
-        if PendingAction.objects.filter(
-            subject_type="application",
-            subject_id=application.public_ref,
-            status__in=("queued", "running", "held"),
-        ).exists():
+        if pending_native_work(application).exists():
             raise Refused("native_work_in_flight")
         from assessments.decisions import IDENTITY_ITEMS
         from correspondence.staff_actions import PAUSE_CAUSES
