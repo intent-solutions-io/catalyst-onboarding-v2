@@ -258,10 +258,10 @@ specification;** the boundary above is what an owner authorization would approve
 |---|---|---|
 | `criteria` | 1 to 8 findings | exactly one per rubric criterion, no extras |
 | finding `rating` | `supported`, `partly_supported`, `not_supported`, `insufficient_evidence` | any rating but `insufficient_evidence` needs a citation |
-| finding `summary` | at most 300 characters | cleaned; no URL or HTML |
+| finding `summary` | plain text; no presentation-length cap | cleaned; no URL or HTML |
 | `citations` | at most 3 per finding: an alias and a verbatim quote (1 to 300 characters) | the alias exists in this request; the quote occurs verbatim in exactly the sanitized text that was sent for that item; code computes offsets (the model never gives offsets); a citation overlapping a deterministic injection marker is flagged |
 | `recommendation` | `admit`, `decline`, `hold` | advisory only |
-| `recommendation_basis` | at most 600 characters; 1 to 8 criterion ids | ids exist in the rubric |
+| `recommendation_basis` | plain text; no presentation-length cap; 1 to 8 criterion ids | ids exist in the rubric |
 | `confidence` | `low`, `medium`, `high` | no numeric score |
 | `proposed_questions` | 0 to 3: text (at most 400), criterion id, why needed (at most 200) | no URL, address or credential request |
 | `injection_suspected` | boolean, with 1 to 4 citations when true | informative only |

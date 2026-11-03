@@ -485,6 +485,12 @@ is configured and an approved NDA template exists. The decision, handoff and act
 the signing worker still checks the decision, verified contact, pauses and template before any provider effect.
 Outside that activation, the historical held handoff and owner-run release command remain in place.
 
+The workflow repair removes the 300-character finding-summary and 600-character recommendation-explanation
+caps: a longer explanation alone must not stop an application. Text is preserved without truncation. Evidence,
+citation, unsafe-text and decision checks remain in force, as do request-rate pacing, timeouts and bounded
+repairs. This widens the existing output shape; historical output remains readable. Builder version 3 requires
+renewed model-use records before live requests under the changed contract.
+
 This decision authorizes activation. It does not assert that the release, case import, provider checks or traffic
 transfer have completed. Those remain measured production operations under `bgl.18`.
 
