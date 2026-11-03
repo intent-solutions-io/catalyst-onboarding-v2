@@ -49,16 +49,55 @@ MAX_REDIRECTS = 3
 USER_AGENT = "CatalystEvidence/1 (synthetic)"
 REDIRECT_STATUSES = (301, 302, 303, 307, 308)
 TRANSIENT_STATUSES = (408, 425, 429, *range(500, 600))
-PRIVATE_STATUSES = (401, 403)  # private or access-controlled: unavailable, never a negative finding
+PRIVATE_STATUSES = (
+    401,
+    403,
+)  # private or access-controlled: unavailable, never a negative finding
 
 # Explicit denials on top of "global unicast only" (018 3.3 step 2).
-_DENY = [ipaddress.ip_network(n) for n in (
-    "0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.0.0.0/24",
-    "192.168.0.0/16", "198.18.0.0/15", "224.0.0.0/4", "240.0.0.0/4", "255.255.255.255/32",
-    "::/128", "::1/128", "::/96", "64:ff9b::/96", "64:ff9b:1::/48", "2001::/32", "2002::/16", "fc00::/7",
-    "fe80::/10", "ff00::/8", "fd00:ec2::254/128", "192.88.99.0/24", "100::/64", "2001:db8::/32", "::ffff:0:0:0/96",
-)]
-CHARSETS = {"utf-8", "utf8", "us-ascii", "ascii", "iso-8859-1", "latin-1", "windows-1252", "cp1252", "utf-16"}
+_DENY = [
+    ipaddress.ip_network(n)
+    for n in (
+        "0.0.0.0/8",
+        "10.0.0.0/8",
+        "100.64.0.0/10",
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+        "172.16.0.0/12",
+        "192.0.0.0/24",
+        "192.168.0.0/16",
+        "198.18.0.0/15",
+        "224.0.0.0/4",
+        "240.0.0.0/4",
+        "255.255.255.255/32",
+        "::/128",
+        "::1/128",
+        "::/96",
+        "64:ff9b::/96",
+        "64:ff9b:1::/48",
+        "2001::/32",
+        "2002::/16",
+        "fc00::/7",
+        "fe80::/10",
+        "ff00::/8",
+        "fd00:ec2::254/128",
+        "192.88.99.0/24",
+        "100::/64",
+        "2001:db8::/32",
+        "::ffff:0:0:0/96",
+    )
+]
+CHARSETS = {
+    "utf-8",
+    "utf8",
+    "us-ascii",
+    "ascii",
+    "iso-8859-1",
+    "latin-1",
+    "windows-1252",
+    "cp1252",
+    "utf-16",
+}
 
 
 class Refused(Exception):
@@ -96,7 +135,9 @@ class Derived:
 def _own_addresses() -> frozenset:
     """This host's own addresses (018 3.3 step 2, hairpin): a source must never resolve back to the worker host."""
     try:
-        return frozenset(info[4][0] for info in socket.getaddrinfo(socket.gethostname(), None))
+        return frozenset(
+            info[4][0] for info in socket.getaddrinfo(socket.gethostname(), None)
+        )
     except OSError:
         return frozenset()
 
@@ -120,7 +161,10 @@ def classify(ip: str, extra_allowed: frozenset = frozenset()) -> bool:
             addr = addr.ipv4_mapped
         elif addr.sixtofour is not None or addr.teredo is not None:
             return False
-    if any(addr in net for net in _DENY if net.version == addr.version) or str(addr) in OWN_ADDRESSES:
+    if (
+        any(addr in net for net in _DENY if net.version == addr.version)
+        or str(addr) in OWN_ADDRESSES
+    ):
         return False
     return addr.is_global and not addr.is_multicast
 
@@ -132,7 +176,9 @@ def _is_ip_literal(host: str) -> bool:
     except ValueError:
         pass
     try:
-        socket.inet_aton(host)  # accepts decimal, octal and hex forms such as 2130706433 or 0x7f.1
+        socket.inet_aton(
+            host
+        )  # accepts decimal, octal and hex forms such as 2130706433 or 0x7f.1
         return True
     except OSError:
         return False
@@ -149,14 +195,18 @@ class Target:
 def validate_url(url: str, source, allowed_hosts) -> Target:
     try:
         return _validate_url(url, source, allowed_hosts)
-    except ValueError:  # urlsplit and friends raise on malformed input such as "https://[x"
+    except (
+        ValueError
+    ):  # urlsplit and friends raise on malformed input such as "https://[x"
         raise Refused("url_invalid") from None
 
 
 def _validate_url(url: str, source, allowed_hosts) -> Target:
     if not url or len(url) > MAX_URL:
         raise Refused("url_too_long")
-    if any(ch in url for ch in "\\\r\n\t ") or any(unicodedata.category(ch) in ("Cc", "Cf") for ch in url):
+    if any(ch in url for ch in "\\\r\n\t ") or any(
+        unicodedata.category(ch) in ("Cc", "Cf") for ch in url
+    ):
         raise Refused("url_characters_refused")
     parts = urlsplit(url)
     if parts.scheme.lower() != "https":
@@ -186,13 +236,21 @@ def _validate_url(url: str, source, allowed_hosts) -> Target:
     if decoded.endswith("/") and normalized != "/":
         normalized += "/"
     prefix = source.path_prefix.rstrip("/")
-    if not (normalized == prefix or normalized.startswith(prefix + "/")):  # a path-segment prefix, not a string one
+    if not (
+        normalized == prefix or normalized.startswith(prefix + "/")
+    ):  # a path-segment prefix, not a string one
         raise Refused("path_not_allowed")
-    request_path = quote(normalized, safe="/-._~!$&'()*+,;=:@")  # exactly the path that was checked
+    request_path = quote(
+        normalized, safe="/-._~!$&'()*+,;=:@"
+    )  # exactly the path that was checked
     if parts.query:
         request_path += "?" + quote(parts.query, safe="=&;%+/?:@,-._~!$'()*")
-    return Target(url=f"https://{host}{'' if port == 443 else f':{port}'}{request_path}", host=host, port=port,
-                  request_path=request_path)
+    return Target(
+        url=f"https://{host}{'' if port == 443 else f':{port}'}{request_path}",
+        host=host,
+        port=port,
+        request_path=request_path,
+    )
 
 
 def resolve(host: str, port: int, timeout: float) -> list:
@@ -227,14 +285,18 @@ def _addresses(source, host, port, remaining):
 
 
 def tls_context():
-    context = ssl.create_default_context(cafile=settings.CATALYST_EVIDENCE_CA_FILE or None)
+    context = ssl.create_default_context(
+        cafile=settings.CATALYST_EVIDENCE_CA_FILE or None
+    )
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     return context
 
 
 def fetch(url: str, source) -> FetchResult:
     started = time.monotonic()
-    deadline = started + min(source.deadline_seconds, settings.CATALYST_EVIDENCE_DEADLINE_SECONDS)
+    deadline = started + min(
+        source.deadline_seconds, settings.CATALYST_EVIDENCE_DEADLINE_SECONDS
+    )
 
     def remaining() -> float:
         left = deadline - time.monotonic()
@@ -244,7 +306,9 @@ def fetch(url: str, source) -> FetchResult:
 
     if source.fixture_only and not guards.synthetic(settings.CATALYST_ENV):
         raise Refused("fixture_source_outside_test")
-    listed = set(settings.CATALYST_EVIDENCE_ALLOWED_HOSTS)  # every host, source or redirect, must be listed here too
+    listed = set(
+        settings.CATALYST_EVIDENCE_ALLOWED_HOSTS
+    )  # every host, source or redirect, must be listed here too
     if source.host not in listed:
         raise Refused("host_not_allowed")
     # Redirects are off unless the source lists the target host (its own host included), and every listed redirect
@@ -252,9 +316,14 @@ def fetch(url: str, source) -> FetchResult:
     redirect_allowed = {h.lower() for h in source.redirect_hosts if h.lower() in listed}
     current, hops = url, 0
     while True:
-        target = validate_url(current, source, {source.host} if hops == 0 else redirect_allowed)
+        target = validate_url(
+            current, source, {source.host} if hops == 0 else redirect_allowed
+        )
         if settings.CATALYST_EVIDENCE_PROXY and not source.fixture_only:
-            ips, extra = [None], frozenset()  # the egress proxy resolves and classifies every address
+            ips, extra = (
+                [None],
+                frozenset(),
+            )  # the egress proxy resolves and classifies every address
         else:
             ips, extra = _addresses(source, target.host, target.port, remaining())
             if not ips or not all(classify(ip, extra) for ip in ips):
@@ -286,15 +355,21 @@ def _one_request(target: Target, ip: str, extra, source, remaining) -> FetchResu
     def expire():
         expired.set()
         try:
-            live["sock"].shutdown(socket.SHUT_RDWR)  # the TLS socket once wrapped: wrapping detaches the plain one
-        except (OSError, KeyError):
+            live["sock"].shutdown(
+                socket.SHUT_RDWR
+            )  # the TLS socket once wrapped: wrapping detaches the plain one
+        except OSError, KeyError:
             pass
 
     try:
         if settings.CATALYST_EVIDENCE_PROXY:
-            raw = socket.create_connection(_proxy_address(), timeout=min(10.0, remaining()))
+            raw = socket.create_connection(
+                _proxy_address(), timeout=min(10.0, remaining())
+            )
         else:
-            raw = socket.create_connection((ip, target.port), timeout=min(10.0, remaining()))
+            raw = socket.create_connection(
+                (ip, target.port), timeout=min(10.0, remaining())
+            )
         live["sock"] = raw
         watchdog = threading.Timer(remaining(), expire)
         watchdog.daemon = True
@@ -305,16 +380,27 @@ def _one_request(target: Target, ip: str, extra, source, remaining) -> FetchResu
             peer = raw.getpeername()[0]
         if not classify(peer, extra):
             raise Refused("peer_not_allowed")
-        tls = tls_context().wrap_socket(raw, server_hostname=target.host, do_handshake_on_connect=False)
-        raw = live["sock"] = tls  # the watchdog now holds the TLS socket, so the handshake itself is bounded
+        tls = tls_context().wrap_socket(
+            raw, server_hostname=target.host, do_handshake_on_connect=False
+        )
+        raw = live["sock"] = (
+            tls  # the watchdog now holds the TLS socket, so the handshake itself is bounded
+        )
         tls.settimeout(remaining())
         tls.do_handshake()
         if expired.is_set():
             raise Transient("deadline_exceeded")
-        connection = http.client.HTTPSConnection(target.host, target.port, timeout=remaining())
+        connection = http.client.HTTPSConnection(
+            target.host, target.port, timeout=remaining()
+        )
         connection.sock = tls  # never reconnects or re-resolves
-        connection.putrequest("GET", target.request_path, skip_host=True, skip_accept_encoding=True)
-        connection.putheader("Host", target.host if target.port == 443 else f"{target.host}:{target.port}")
+        connection.putrequest(
+            "GET", target.request_path, skip_host=True, skip_accept_encoding=True
+        )
+        connection.putheader(
+            "Host",
+            target.host if target.port == 443 else f"{target.host}:{target.port}",
+        )
         connection.putheader("User-Agent", USER_AGENT)
         connection.putheader("Accept-Encoding", "identity")
         connection.putheader("Connection", "close")
@@ -325,27 +411,50 @@ def _one_request(target: Target, ip: str, extra, source, remaining) -> FetchResu
             raise Transient("deadline_exceeded")
         status = response.status
         if status in REDIRECT_STATUSES:
-            return FetchResult(target.url, status, "", "", b"", False, peer, location=response.getheader("Location") or "")
+            return FetchResult(
+                target.url,
+                status,
+                "",
+                "",
+                b"",
+                False,
+                peer,
+                location=response.getheader("Location") or "",
+            )
         if status in TRANSIENT_STATUSES:
             raise Transient(f"http_{status}")
         if status in PRIVATE_STATUSES:
             raise Private(f"http_{status}")
-        encoding = (response.getheader("Content-Encoding") or "identity").strip().lower()
+        encoding = (
+            (response.getheader("Content-Encoding") or "identity").strip().lower()
+        )
         if encoding != "identity":
             raise Refused("content_encoding_refused")
-        content_type = (response.getheader("Content-Type") or "").split(";")[0].strip().lower()
+        content_type = (
+            (response.getheader("Content-Type") or "").split(";")[0].strip().lower()
+        )
         if status == 200 and content_type not in source.content_types:
             raise Refused("content_type_refused")
         if status not in (200, 404, 410):
             raise Refused(f"http_{status}")
-        if status in (404, 410):  # recorded as "not found"; the error page itself is never stored
+        if status in (
+            404,
+            410,
+        ):  # recorded as "not found"; the error page itself is never stored
             return FetchResult(target.url, status, "", "", b"", False, peer)
-        revision = (response.getheader("ETag") or response.getheader("Last-Modified") or "")[:200]
+        revision = (
+            response.getheader("ETag") or response.getheader("Last-Modified") or ""
+        )[:200]
         cap = min(source.max_bytes, settings.CATALYST_EVIDENCE_MAX_BYTES)
+        expected_length = response.length
         chunks, size, truncated = [], 0, False
-        while True:
+        # HTTPResponse releases the socket when a declared body is complete.
+        # Do not set another timeout on that closed TLS socket.
+        while not response.isclosed():
             tls.settimeout(remaining())
-            chunk = response.read1(min(65536, cap + 1 - size))  # one receive at a time, so the deadline is checked per chunk
+            chunk = response.read1(
+                min(65536, cap + 1 - size)
+            )  # one receive at a time, so the deadline is checked per chunk
             if expired.is_set():
                 raise Transient("deadline_exceeded")
             if not chunk:
@@ -355,20 +464,44 @@ def _one_request(target: Target, ip: str, extra, source, remaining) -> FetchResu
             if size > cap:
                 truncated = True
                 break
+        if not truncated and expected_length is not None and expected_length != size:
+            raise Transient("response_truncated")
         body = b"".join(chunks)[:cap]
-        charset = (response.getheader("Content-Type") or "").partition("charset=")[2].split(";")[0].strip()
-        return FetchResult(target.url, status, content_type + (f";charset={charset}" if charset else ""), revision, body,
-                           truncated, peer)
-    except (Refused, Transient):
+        charset = (
+            (response.getheader("Content-Type") or "")
+            .partition("charset=")[2]
+            .split(";")[0]
+            .strip()
+        )
+        return FetchResult(
+            target.url,
+            status,
+            content_type + (f";charset={charset}" if charset else ""),
+            revision,
+            body,
+            truncated,
+            peer,
+        )
+    except Refused, Transient:
         raise
     except UnicodeError:
         raise Refused("url_invalid") from None
     except ssl.SSLCertVerificationError:
         raise Refused("tls_certificate_refused") from None
-    except (TimeoutError, socket.timeout):
-        raise Transient("deadline_exceeded" if _past(expired, remaining) else "timeout") from None
-    except (ssl.SSLError, ConnectionError, OSError, http.client.HTTPException, ValueError):
-        raise Transient("deadline_exceeded" if _past(expired, remaining) else "connection_failed") from None
+    except TimeoutError, socket.timeout:
+        raise Transient(
+            "deadline_exceeded" if _past(expired, remaining) else "timeout"
+        ) from None
+    except (
+        ssl.SSLError,
+        ConnectionError,
+        OSError,
+        http.client.HTTPException,
+        ValueError,
+    ):
+        raise Transient(
+            "deadline_exceeded" if _past(expired, remaining) else "connection_failed"
+        ) from None
     finally:
         if watchdog is not None:
             watchdog.cancel()
@@ -388,7 +521,9 @@ def _tunnel(raw, host: str, port: int, remaining) -> str:
     """Ask the egress proxy for a tunnel; returns the peer address it connected to. A refusal is never retried; a
     proxy that cannot reach the host is transient."""
     raw.settimeout(remaining())
-    raw.sendall(f"CONNECT {host}:{port} HTTP/1.1\r\nHost: {host}:{port}\r\n\r\n".encode("ascii"))
+    raw.sendall(
+        f"CONNECT {host}:{port} HTTP/1.1\r\nHost: {host}:{port}\r\n\r\n".encode("ascii")
+    )
     head = b""
     while b"\r\n\r\n" not in head:
         chunk = raw.recv(1024)
@@ -397,9 +532,14 @@ def _tunnel(raw, host: str, port: int, remaining) -> str:
         head += chunk
     lines = head.split(b"\r\n\r\n", 1)[0].decode("ascii", "replace").split("\r\n")
     status = lines[0].split(" ")[1] if len(lines[0].split(" ")) > 1 else ""
-    fields = {k.strip().lower(): v.strip() for k, _, v in (line.partition(":") for line in lines[1:])}
+    fields = {
+        k.strip().lower(): v.strip()
+        for k, _, v in (line.partition(":") for line in lines[1:])
+    }
     if status == "200":
-        return fields.get("x-catalyst-peer", "")  # classified by the caller; an empty peer fails classify
+        return fields.get(
+            "x-catalyst-peer", ""
+        )  # classified by the caller; an empty peer fails classify
     if status in ("502", "503"):
         raise Transient("egress_unavailable")
     raise Refused(fields.get("x-catalyst-refusal", "egress_refused")[:40])
@@ -416,15 +556,63 @@ def _past(expired, remaining) -> bool:
 
 # --- derivation ---------------------------------------------------------------------------------------------
 
-_SKIP_TAGS = {"script", "style", "noscript", "template", "head", "iframe", "object", "svg"}
-_VOID = {"br", "hr", "img", "input", "meta", "link", "area", "base", "col", "embed", "source", "track", "wbr"}
+_SKIP_TAGS = {
+    "script",
+    "style",
+    "noscript",
+    "template",
+    "head",
+    "iframe",
+    "object",
+    "svg",
+}
+_VOID = {
+    "br",
+    "hr",
+    "img",
+    "input",
+    "meta",
+    "link",
+    "area",
+    "base",
+    "col",
+    "embed",
+    "source",
+    "track",
+    "wbr",
+}
 _HIDDEN_STYLE = re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden", re.I)
 _MARKERS = [
-    ("instruction_override", re.compile(r"\b(ignore|disregard|forget)\b.{0,40}\b(previous|prior|above|all)\b.{0,20}\b(instructions?|rules?)\b", re.I)),
-    ("role_claim", re.compile(r"\b(system|assistant|developer)\s*(prompt|message|:)", re.I)),
-    ("model_directive", re.compile(r"\b(you are now|act as|respond only with|output (only|exactly))\b", re.I)),
-    ("delimiter_lookalike", re.compile(r"<<\s*/?\s*DATA|\[\[|\]\]|<\s*/?\s*(system|instructions?)\s*>", re.I)),
-    ("decision_directive", re.compile(r"\b(admit|approve|accept)\s+(this|the)\s+(applicant|candidate|application)\b", re.I)),
+    (
+        "instruction_override",
+        re.compile(
+            r"\b(ignore|disregard|forget)\b.{0,40}\b(previous|prior|above|all)\b.{0,20}\b(instructions?|rules?)\b",
+            re.I,
+        ),
+    ),
+    (
+        "role_claim",
+        re.compile(r"\b(system|assistant|developer)\s*(prompt|message|:)", re.I),
+    ),
+    (
+        "model_directive",
+        re.compile(
+            r"\b(you are now|act as|respond only with|output (only|exactly))\b", re.I
+        ),
+    ),
+    (
+        "delimiter_lookalike",
+        re.compile(
+            r"<<\s*/?\s*DATA|\[\[|\]\]|<\s*/?\s*(system|instructions?)\s*>", re.I
+        ),
+    ),
+    (
+        "decision_directive",
+        re.compile(
+            r"\b(admit|approve|accept)\s+(this|the)\s+(applicant|candidate|application)\b",
+            re.I,
+        ),
+    ),
 ]
 
 
@@ -441,7 +629,12 @@ class _Text(HTMLParser):
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.parts, self.stack, self.open, self.events = [], [], {}, 0  # (tag, hidden) per tracked open element
+        self.parts, self.stack, self.open, self.events = (
+            [],
+            [],
+            {},
+            0,
+        )  # (tag, hidden) per tracked open element
 
     def _count(self):
         self.events += 1
@@ -453,11 +646,17 @@ class _Text(HTMLParser):
         if tag in _VOID:
             return
         a = dict(attrs)
-        hidden = (tag in _SKIP_TAGS or "hidden" in a or (a.get("aria-hidden") or "").lower() == "true"
-                  or bool(_HIDDEN_STYLE.search(a.get("style") or "")))
+        hidden = (
+            tag in _SKIP_TAGS
+            or "hidden" in a
+            or (a.get("aria-hidden") or "").lower() == "true"
+            or bool(_HIDDEN_STYLE.search(a.get("style") or ""))
+        )
         parent_hidden = bool(self.stack) and self.stack[-1][1]
         if len(self.stack) >= self.MAX_DEPTH:
-            if hidden and not parent_hidden:  # a hidden element past the cap hides the rest of that subtree
+            if (
+                hidden and not parent_hidden
+            ):  # a hidden element past the cap hides the rest of that subtree
                 self.stack[-1] = (self.stack[-1][0], True)
             return
         self.stack.append((tag, hidden or parent_hidden))
@@ -483,7 +682,11 @@ class _Text(HTMLParser):
 
 def _clean(text: str) -> str:
     text = unicodedata.normalize("NFC", text)
-    text = "".join(ch for ch in text if ch in "\n\t" or unicodedata.category(ch) not in ("Cc", "Cf", "Cs", "Co"))
+    text = "".join(
+        ch
+        for ch in text
+        if ch in "\n\t" or unicodedata.category(ch) not in ("Cc", "Cf", "Cs", "Co")
+    )
     lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.split("\n")]
     return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
 
@@ -494,7 +697,9 @@ def derive(result: FetchResult) -> Derived:
     same text, so a later quote and its marker refer to identical characters."""
     content_type, _, charset = result.content_type.partition(";charset=")
     charset = charset.strip().lower()
-    if charset not in CHARSETS:  # a server-chosen codec (punycode, unicode_escape, utf-7) is never used
+    if (
+        charset not in CHARSETS
+    ):  # a server-chosen codec (punycode, unicode_escape, utf-7) is never used
         charset = "utf-8"
     raw = result.body.decode(charset, errors="replace")
     many = False
@@ -513,9 +718,13 @@ def derive(result: FetchResult) -> Derived:
         text, derived.truncated = text[:limit], True
     derived.truncated = derived.truncated or many
     derived.text = text
-    derived.markers = sorted({name for name, pattern in _MARKERS if pattern.search(text)})
+    derived.markers = sorted(
+        {name for name, pattern in _MARKERS if pattern.search(text)}
+    )
     return derived
 
 
 def sha256(data) -> str:
-    return hashlib.sha256(data if isinstance(data, bytes) else data.encode()).hexdigest()
+    return hashlib.sha256(
+        data if isinstance(data, bytes) else data.encode()
+    ).hexdigest()

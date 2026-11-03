@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from assessments import approval, clarify, pack, policy, schema, snapshot
+from tests.test_agreements import a, c, d, ev, g, p2, tls  # noqa: F401
 
 
 def activate(settings):
@@ -15,10 +16,8 @@ def activate(settings):
     settings.CATALYST_ASSESSMENT_MODEL = "minimax:MiniMax-M3"
     settings.CATALYST_ROUTINE_ADVANCE_ACTIVATION = 2
     settings.CATALYST_ASSESSMENT_PROMPT_PACK = "assessment_v4"
-    settings.CATALYST_SELECTION_POLICY = "production-admission-20261102"
-    settings.CATALYST_SELECTION_POLICY_PACKS = {
-        "production-admission-20261102": "assessment_v4"
-    }
+    settings.CATALYST_SELECTION_POLICY = "SP-PRACTICE-1"
+    settings.CATALYST_SELECTION_POLICY_PACKS = {"SP-PRACTICE-1": "assessment_v4"}
 
 
 def test_public_automated_intake_requires_and_displays_the_approved_notice(
@@ -42,6 +41,30 @@ def test_public_automated_intake_requires_and_displays_the_approved_notice(
     assert "MiniMax" in views._data_notice().text
     settings.CATALYST_PARITY_ACTIVE = False
     assert views._data_notice() is None
+
+
+@pytest.mark.parametrize("missing", ["", "provider", "template"])
+def test_production_admit_queues_nda_only_with_configured_approved_signing(
+    g, monkeypatch, settings, missing
+):
+    from assessments import decisions
+    from tests.test_agreements import approve
+    from tests.test_decision import ready_app, decide
+    from workflow.models import PendingAction
+
+    settings.CATALYST_ASSESSMENT_PROMPT_PACK = "assessment_v4"
+    app = ready_app(g, monkeypatch)
+    if missing != "template":
+        approve(g)
+    activate(settings)
+    if missing == "provider":
+        settings.CATALYST_AGREEMENT_PROVIDER_URL = ""
+    decision = decide(g, app, "admit")
+    action = PendingAction.objects.get(kind="issue_nda", subject_id=app.public_ref)
+    assert action.input_ref == str(decision.public_id)
+    assert action.status == ("held" if missing else "queued")
+    assert app.events.filter(kind="agreements_activated").exists() is (not missing)
+    assert decisions.QualificationDecision.objects.filter(application=app).count() == 1
 
 
 def test_confirmation_queues_research_only_for_the_bound_production_policy(
