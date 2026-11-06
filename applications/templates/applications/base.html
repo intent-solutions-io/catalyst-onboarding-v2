@@ -3,16 +3,115 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Request access{% endblock %}</title>
+  <title>{% block title %}Request access{% endblock %} · Intent Solutions</title>
   <style>
-  /* 9kg.41: readable at phone width: long links and answers wrap, form controls never overflow the screen */
-  body { font-family: system-ui, sans-serif; margin: 1rem; max-width: 40rem; line-height: 1.4; }
-  p, dd, li, label { overflow-wrap: anywhere; }
-  input, textarea, select { max-width: 100%; box-sizing: border-box; }
-  textarea { width: 100%; }
+    :root { color-scheme: light; --ink:#161b1d; --orange:#ef5a24; --teal:#2e5c59; --paper:#f3f6f4; --line:#cbd5cf; --muted:#52605a; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--paper); color:var(--ink); font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif; }
+    a { color:var(--teal); text-underline-offset:.18em; }
+    a:hover { text-decoration-thickness:2px; }
+    :focus-visible { outline:3px solid var(--teal); outline-offset:4px; }
+    .site-header { background:var(--ink); border-bottom:4px solid var(--orange); }
+    .header-inner { max-width:1120px; margin:auto; padding:24px 32px; display:flex; align-items:center; justify-content:space-between; gap:24px; }
+    .wordmark { color:white; text-decoration:none; font-size:22px; font-weight:750; letter-spacing:-.6px; }
+    .header-caption { color:#c8d1cd; font-size:13px; margin:2px 0 0; }
+    .partner-badge { display:block; width:240px; height:auto; max-width: 100%; }
+    .skip-link { position:absolute; left:16px; top:-100px; background:white; padding:12px; z-index:2; }
+    .skip-link:focus { top:8px; }
+    main { max-width:1120px; margin:auto; padding:40px 32px 56px; }
+    h1,h2,h3,legend { line-height:1.2; }
+    h1 { font-size:clamp(30px,4vw,46px); letter-spacing:-1.2px; margin:0 0 16px; }
+    h2 { font-size:24px; letter-spacing:-.4px; margin:0 0 12px; }
+    h3 { font-size:18px; margin:0 0 10px; }
+    p { margin:0 0 16px; }
+    p,dd,li,label { overflow-wrap: anywhere; }
+    .eyebrow { color:var(--teal); font:700 12px/1.5 ui-monospace,SFMono-Regular,monospace; letter-spacing:1.3px; text-transform:uppercase; margin-bottom:10px; }
+    .intro { max-width:760px; margin-bottom:28px; }
+    .lead { font-size:19px; line-height:1.55; }
+    .muted,.helptext { color:var(--muted); }
+    .application-layout { display:grid; grid-template-columns:minmax(0,1fr) 280px; align-items:start; gap:28px; }
+    .form-card,.journey,.data-panel { background:white; border:1px solid var(--line); border-radius:8px; }
+    .form-card { padding:32px; }
+    .form-section { border:0; border-bottom:1px solid var(--line); margin:0 0 28px; padding:0 0 28px; min-width:0; }
+    .form-section:last-of-type { margin-bottom:20px; }
+    legend { padding:0 0 12px; font-size:23px; font-weight:700; }
+    .section-help { color:var(--muted); margin-bottom:22px; }
+    .field { margin:0 0 20px; min-width:0; }
+    .field label { display:block; font-weight:600; margin-bottom:6px; }
+    .field-hint { font-size:13px; font-weight:400; color:var(--muted); }
+    input,textarea,select { max-width: 100%; font:inherit; }
+    input:not([type=checkbox]):not([type=radio]):not([type=hidden]),textarea,select { width:100%; border:1px solid #83958b; border-radius:5px; padding:10px 12px; background:white; color:var(--ink); min-height:46px; }
+    textarea { display:block; resize:vertical; }
+    input[type=checkbox],input[type=radio] { width:20px; height:20px; accent-color:var(--teal); flex:0 0 auto; margin:3px 0 0; }
+    .field .checkbox-label { display:flex; gap:12px; align-items:flex-start; padding:6px 0; font-weight:500; cursor:pointer; }
+    .helptext { display:block; font-size:14px; margin-top:6px; }
+    .field-grid { display:grid; grid-template-columns:1fr 1fr; gap:0 20px; }
+    .field-grid > * { min-width:0; }
+    .entry { border:0; border-top:1px solid var(--line); padding:18px 0 0; margin:0 0 8px; min-width:0; }
+    .entry legend { font-size:16px; padding:0 8px 0 0; }
+    details { margin:16px 0; }
+    summary { cursor:pointer; color:var(--teal); font-weight:650; padding:12px 0; min-height:44px; }
+    details[open] > summary { margin-bottom:12px; }
+    .journey { padding:24px; border-top:4px solid var(--orange); }
+    .journey ol { padding-left:22px; margin:16px 0 20px; }
+    .journey li { padding-left:4px; margin-bottom:14px; }
+    .journey li::marker { color:var(--teal); font-weight:700; }
+    .journey strong { display:block; }
+    .journey p,.journey li { font-size:14px; }
+    .journey .small { margin-bottom:0; }
+    .data-panel { padding:18px 22px; margin:24px 0; }
+    .data-panel > summary { padding:0; display:list-item; }
+    .data-panel section { font-size:15px; }
+    .data-panel section p { margin-bottom:0; }
+    .before-submit { font-size:14px; margin-bottom:20px; }
+    button,input[type=submit] { display:inline-block; background:var(--orange); color:var(--ink); border:2px solid var(--orange); border-radius:5px; padding:12px 24px; font:700 17px/1.4 system-ui,sans-serif; cursor:pointer; min-height:48px; }
+    button:hover { border-color:var(--ink); }
+    .error-summary { border:2px solid #a43224; border-radius:6px; background:#fff8f6; padding:20px; margin-bottom:24px; }
+    .error-summary h2 { font-size:20px; }
+    .error-summary a,.errorlist { color:#922b20; }
+    .errorlist { padding-left:20px; margin:6px 0; font-size:14px; }
+    [aria-invalid=true] { border-color:#a43224 !important; }
+    .site-footer { border-top:1px solid var(--line); max-width:1056px; margin:0 auto; padding:24px 0 36px; color:var(--muted); font-size:13px; }
+    .footer-links { display:flex; flex-wrap:wrap; gap:12px 24px; margin-bottom:16px; }
+    .site-footer address { font-style:normal; }
+    .small { font-size:14px; }
+    @media (max-width:800px) {
+      .application-layout { grid-template-columns:1fr; }
+      .journey ol { display:grid; grid-template-columns:1fr 1fr; gap:0 24px; }
+      .header-inner { padding:20px; }
+      .partner-badge { width:190px; }
+      main { padding:28px 20px 40px; }
+      .form-card { padding:24px; }
+      .site-footer { margin:0 20px; }
+    }
+    @media (max-width:480px) {
+      .header-inner { gap:14px; align-items:flex-start; flex-direction:column; }
+      .partner-badge { width:180px; }
+      .header-caption { font-size:12px; }
+      .field-grid { grid-template-columns:1fr; }
+      .form-card { padding:20px 16px; }
+      .journey { padding:20px; }
+      .journey ol { display:block; }
+      .intro .lead { font-size:17px; }
+      button[type=submit] { width:100%; }
+    }
   </style>
 </head>
 <body>
-  <main>{% block content %}{% endblock %}</main>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header"><div class="header-inner">
+    <div><a class="wordmark" href="https://intentsolutions.io/">Intent Solutions</a><p class="header-caption">Technical partner community</p></div>
+    <img class="partner-badge" src="/request-access/assets/select-services-partner-c96bbd4b0d98.png" width="300" height="95" alt="Claude Partner Network — Select Services Partner">
+  </div></header>
+  <main id="main">{% block content %}{% endblock %}</main>
+  <footer class="site-footer">
+    <nav class="footer-links" aria-label="Policies and support">
+      <a href="https://intentsolutions.io/privacy/">Privacy Policy</a>
+      <a href="https://intentsolutions.io/data-retention/">Data Retention Policy</a>
+      <a href="mailto:agreements@intentsolutions.io">Contact the onboarding team</a>
+      <a href="https://learn.intentsolutions.io/">Back to Learn</a>
+    </nav>
+    <address>intentsolutions.io LLC<br>26050 Equity Dr, Ste E - 1062, Daphne, AL 36526, United States</address>
+  </footer>
 </body>
 </html>

@@ -5,13 +5,13 @@
 # the database. compose.yaml and the full suite (scripts/test.sh) are unchanged; the image pin lives here, not there,
 # so the Python and PostgreSQL pins stay the only two that compose.yaml and ci.yml share (tests/test_startup.py).
 #
-# The image carries the browsers and their system libraries for this exact Playwright release (1.63.0, the version
+# The image carries the browsers and their system libraries for this exact Playwright release (1.64.1, the version
 # requirements/browser.txt pins; the module refuses a mismatch). It has no Playwright package, so the server's own
 # copy is installed from the same hash-locked requirements/browser.txt at start-up.
 
 services:
   browser:
-    image: mcr.microsoft.com/playwright/python:v1.63.0-noble@sha256:72bd171a9ffc2b4b59532aaa6210e21014d07093120dc25528870c0b840da1f0
+    image: mcr.microsoft.com/playwright/python:v1.64.1-noble@sha256:330d401ae23c905896a0c26c66c36fc971b621519e7b11b435a8328d7bf6e031
     user: pwuser
     init: true
     volumes:
