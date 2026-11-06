@@ -5,10 +5,15 @@
 FROM python:3.14.10-slim@sha256:3cabfd7d7aaf394e6040e79fa1eec6ca1c52b74ed9188650472695d9a9326999 AS base
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
     DJANGO_SETTINGS_MODULE=config.settings CATALYST_STATIC_ROOT=/app/static
-# The pinned base includes apt 3.0.3. Apply Debian's CVE-2026-109518 fix;
-# keep the application/runtime versions pinned and the image scan fail-closed.
-RUN apt-get update \
-    && apt-get install --yes --no-install-recommends --only-upgrade apt=3.0.4 libapt-pkg7.0=3.0.4 \
+# The pinned base includes apt 3.0.3. Fetch Debian's CVE-2026-109518 fix over
+# HTTPS with retries disabled while the vulnerable downloader is still in use.
+# Accept security successors from this stable suite; fail below the fixed floor.
+# The SBOM records exact installed versions and deployment pins the scanned image.
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get -o Acquire::Retries=0 update \
+    && apt-get -o Acquire::Retries=0 install --yes --no-install-recommends --only-upgrade apt libapt-pkg7.0 \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' apt)" ge 3.0.4 \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libapt-pkg7.0)" ge 3.0.4 \
     && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system --gid 10001 catalyst \
     && useradd --system --uid 10001 --gid catalyst --no-create-home --shell /usr/sbin/nologin catalyst

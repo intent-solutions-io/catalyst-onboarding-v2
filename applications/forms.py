@@ -95,7 +95,7 @@ class AccessRequestForm(forms.Form):
     phone = forms.CharField(
         max_length=PHONE_TYPED_MAX,
         label="Phone number",
-        help_text="Choose the country for this number, which may differ from your residence. Include its country code starting with +, or enter the national number for a North American country.",
+        help_text="Choose the country for this number, which may differ from your residence. Include its country code starting with +, or enter the national number if its country code is +1.",
     )
     reason = forms.CharField(max_length=REASON_MAX, widget=forms.Textarea)
     contribution = forms.CharField(
