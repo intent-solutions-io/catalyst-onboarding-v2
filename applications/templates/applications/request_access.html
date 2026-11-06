@@ -1,11 +1,11 @@
 {% extends "applications/base.html" %}
 {% block content %}
 <div class="intro">
-  <p class="eyebrow">Learn. Build. Contribute.</p>
+  <p class="eyebrow">Learn and build with us</p>
   <h1>Request access</h1>
-  <p class="lead">Join the Intent Solutions technical partner community to develop practical AI skills and connect with other practitioners.</p>
-  <p>Joining is free and voluntary. Tell us about your work and what you would like to learn or build. Participation does not guarantee employment, client work or certification.</p>
-  <p class="small"><a href="#application">Go to the application</a> · <a href="#journey-title">What happens next</a> · <a href="mailto:agreements@intentsolutions.io">Ask a question first</a></p>
+  <p class="lead">We’re glad you’re here. Join the Intent Solutions technical partner community to learn, share ideas and build practical AI skills.</p>
+  <p>It’s free to join. Tell us a little about your interests and something you’ve worked on so we can get to know you.</p>
+  <p class="small"><a href="#application">Get started</a> · <a href="#journey-title">What happens next</a> · <a href="mailto:agreements@intentsolutions.io">Ask us a question</a></p>
 </div>
 {% if invitation_only %}<p>Access is currently by invitation. Use the email address your invitation was sent to; a request from any other address receives no reply.</p>{% endif %}
 <div class="application-layout">
@@ -19,14 +19,14 @@
       </div>
       {% if form.errors %}
       <div class="error-summary" id="form-errors" role="alert" tabindex="-1" autofocus>
-        <h2>Check your answers</h2><p>Your entries are still here. Correct the items below and send again.</p>
+        <h2>Please check these details</h2><p>We’ve kept your answers. Update the items below, then send your request again.</p>
         {{ form.non_field_errors }}
         <ul>{% for field in form %}{% for error in field.errors %}<li><a href="#{{ field.id_for_label }}">{{ field.label }}: {{ error }}</a></li>{% endfor %}{% endfor %}</ul>
       </div>
       {% endif %}
       <fieldset class="form-section">
         <legend>Your contact details</legend>
-        <p class="section-help">Use an email address you can open now. We will send a link to confirm it before reviewing your request. Fields marked required need an answer.</p>
+        <p class="section-help">Choose an email you check regularly. We’ll send you a confirmation link before we review your request. Required fields are marked.</p>
         {% include "applications/field.html" with field=form.name %}
         {% include "applications/field.html" with field=form.email %}
         {% include "applications/field.html" with field=form.residence_country %}
@@ -35,13 +35,13 @@
       </fieldset>
       <fieldset class="form-section">
         <legend>Your interests</legend>
-        <p class="section-help">Tell us which direction interests you. Certification support means learning and preparation; it does not award a certification. Project interest is not a work commitment.</p>
+        <p class="section-help">Choose what interests you most. Certification support covers learning and preparation; it doesn’t itself award a certification. Choosing an interest doesn’t commit you to project work.</p>
         {% include "applications/field.html" with field=form.interest_track %}
         {% include "applications/field.html" with field=form.reason %}
       </fieldset>
       <fieldset class="form-section">
-        <legend>Something you have worked on</legend>
-        <p class="section-help">One concrete technical example and your contribution help us review your request. A public link is optional. For private work, use the non-confidential description below.</p>
+        <legend>Share something you’ve worked on</legend>
+        <p class="section-help">A personal project, open-source contribution or professional example can help us understand your work. Tell us what you did. A public link is welcome, but you can describe private work without sharing confidential details.</p>
         {% for row in form.work_rows %}{% if forloop.first %}
           {% for field in row %}{% include "applications/field.html" %}{% endfor %}
         {% endif %}{% endfor %}
@@ -56,7 +56,7 @@
       </fieldset>
       <fieldset class="form-section">
         <legend>Education and certifications</legend>
-        <p class="section-help">A degree or certification is not an admission prerequisite. For each category, list an entry or select its “none to list” box. Do not select “none” if you enter a record.</p>
+        <p class="section-help">You don’t need a degree or certification to apply. For each category, either share an entry or choose “none to list.” Only choose “none” when you leave that category empty.</p>
         <h3>Education</h3>
         <p class="small muted">Each entry needs both an institution and a degree or qualification.</p>
         {% for row in form.education_rows %}{% if forloop.first %}{% for field in row %}{% include "applications/field.html" with conditional=True %}{% endfor %}{% endif %}{% endfor %}
@@ -73,9 +73,9 @@
       </fieldset>
       <fieldset class="form-section">
         <legend>Before you send</legend>
-        <p>Keep passwords, secrets and confidential client material out of this form.</p>
+        <p>Please keep passwords and confidential client information out of your answers.</p>
         {% if notice %}
-        <p class="before-submit">Read how this service uses your information, including review and correspondence, in the full data notice below. You can request human review or ask a question at <a href="mailto:agreements@intentsolutions.io">agreements@intentsolutions.io</a>.</p>
+        <p class="before-submit">The full data notice below explains how we use your information to review your request and stay in touch. For a question or a request for human review, email <a href="mailto:agreements@intentsolutions.io">agreements@intentsolutions.io</a>.</p>
         <details class="data-panel" open>
           <summary>How we use your information — full data notice</summary>
           <section id="data-notice" aria-label="Data notice" data-notice-version="{{ notice.version }}" data-notice-sha256="{{ notice.sha256 }}">
@@ -91,19 +91,19 @@
         {% include "applications/field.html" with field=form.age_attested %}
       </fieldset>
       <button type="submit">Send request</button>
-      <p class="small muted" style="margin:12px 0 0">Next: look for your email confirmation link.</p>
+      <p class="small muted" style="margin:12px 0 0">Next, check your inbox for a link to confirm your email.</p>
     </form>
   </div>
   <aside class="journey" aria-labelledby="journey-title">
     <h2 id="journey-title">What happens next</h2>
     <ol>
-      <li><strong>Confirm your email</strong>Open the link we send to your existing email address.</li>
-      <li><strong>We review your request</strong>We may ask a brief follow-up question about your work or goals.</li>
-      <li><strong>If approved, sign the NDA</strong>It protects confidential information shared between us.</li>
-      <li><strong>Review the User Agreement</strong>It explains the responsibilities for your company email and approved learning access.</li>
-      <li><strong>Get your account details</strong>After the agreements are complete, we send your email setup and next steps.</li>
+      <li><strong>Confirm your email</strong>We’ll send a link to the email address you share here.</li>
+      <li><strong>We review your request</strong>We’ll look at your interests and experience. We may ask a follow-up question to learn a little more.</li>
+      <li><strong>If approved, sign the NDA</strong>This helps both sides share confidential information safely.</li>
+      <li><strong>Review the User Agreement</strong>This explains how to use your company email and approved learning access.</li>
+      <li><strong>Get your account details</strong>Once the agreements are complete, we’ll send your email setup and next steps.</li>
     </ol>
-    <p class="small">Joining does not make you an employee or require you to take on client work.</p>
+    <p class="small">Participation is voluntary, and you decide whether to take on client work. Joining does not create an employment relationship or guarantee work or certification.</p>
   </aside>
 </div>
 {% endblock %}
