@@ -200,7 +200,9 @@ def check_fit(session, heading):
     assert measured["scroll"] <= measured["client"], where  # no horizontal scroll
     # Optional rows use native disclosures. They must open with a keyboard before
     # every field can be exercised; the approved data notice starts visible.
-    for disclosure in page.locator("main details:not([open])").all():
+    for disclosure in page.locator("main details").all():
+        if disclosure.get_attribute("open") is not None:
+            continue
         summary = disclosure.locator("summary")
         summary.focus()
         page.keyboard.press("Enter")
