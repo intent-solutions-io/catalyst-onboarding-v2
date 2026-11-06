@@ -56,7 +56,9 @@ class InterestTrack(forms.ChoiceField):
     def __init__(self, **kwargs):
         # A select, not radio buttons: the phone-width browser check requires every control to be reached by the Tab
         # key, and a radio group is entered once and then walked with the arrow keys.
-        super().__init__(choices=self.CHOICES, **kwargs)
+        super().__init__(
+            choices=(("", "Choose your interest"), *self.CHOICES), **kwargs
+        )
 
 
 INTEREST_LABELS = dict(InterestTrack.CHOICES)
@@ -80,15 +82,20 @@ class AccessRequestForm(forms.Form):
     name = forms.CharField(max_length=NAME_MAX)
     email = forms.EmailField(max_length=EMAIL_MAX)
     residence_country = forms.ChoiceField(
-        choices=countries.residence_choices, label="Country of residence"
+        choices=lambda: (
+            ("", "Choose your country of residence"),
+            *countries.residence_choices(),
+        ),
+        label="Country of residence",
     )
     phone_country = forms.ChoiceField(
-        choices=countries.phone_choices, label="Country for your phone number"
+        choices=lambda: (("", "Choose your phone country"), *countries.phone_choices()),
+        label="Country for your phone number",
     )
     phone = forms.CharField(
         max_length=PHONE_TYPED_MAX,
         label="Phone number",
-        help_text="With its country code, starting with +, or the national number for a North American country.",
+        help_text="Choose the country for this number, which may differ from your residence. Include its country code starting with +, or enter the national number for a North American country.",
     )
     reason = forms.CharField(max_length=REASON_MAX, widget=forms.Textarea)
     contribution = forms.CharField(
@@ -208,6 +215,57 @@ class AccessRequestForm(forms.Form):
                 "marketing_opt_in",
                 "age_attested",
             ]
+        )
+        self.fields["name"].widget.attrs["autocomplete"] = "name"
+        self.fields["email"].widget.attrs["autocomplete"] = "email"
+        self.fields["phone"].widget = forms.TextInput(
+            attrs={
+                "type": "tel",
+                "autocomplete": "tel",
+                "inputmode": "tel",
+                "maxlength": PHONE_TYPED_MAX,
+            }
+        )
+        self.fields["residence_country"].widget.attrs["autocomplete"] = "country"
+        self.fields[
+            "reason"
+        ].help_text = "What would you like to learn, build or contribute in the community? A few sentences are enough."
+        self.fields[
+            "contribution"
+        ].help_text = "For your example, explain which parts you personally designed, built or improved."
+        self.fields[
+            "confidential_description"
+        ].help_text = "Complete this if your work is private. Describe the problem and your contribution without identifying clients."
+        self.fields[
+            "verification_consent"
+        ].help_text = "This permission is required to submit, including when you have no education or certifications to list."
+        for field in self.fields.values():
+            if isinstance(field.widget, forms.Textarea):
+                field.widget.attrs["rows"] = 4
+
+    def _rows(self, slots, prefix, parts):
+        return [[self[f"{prefix}_{part}_{n}"] for part in parts] for n in slots]
+
+    @property
+    def work_rows(self):
+        return self._rows(SLOTS, "work", ("url", "note"))
+
+    @property
+    def education_rows(self):
+        return self._rows(EDUCATION_SLOTS, "edu", ("institution", "credential"))
+
+    @property
+    def credential_rows(self):
+        return self._rows(
+            CERTIFICATION_SLOTS, "cred", ("name", "issuer", "identifier", "url")
+        )
+
+    @property
+    def extra_background_open(self):
+        return any(
+            self[name].value() or self[name].errors
+            for name in self.fields
+            if name.startswith(("edu_", "cred_")) and not name.endswith("_1")
         )
 
     # --- the stored shapes ---------------------------------------------------------------------------------------

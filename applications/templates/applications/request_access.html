@@ -1,20 +1,109 @@
 {% extends "applications/base.html" %}
 {% block content %}
-<h1>Request access</h1>
-{% if invitation_only %}<p>Access is currently by invitation. Use the email address your invitation was sent to; a request from any other address receives no reply.</p>
-{% endif %}{% if notice %}<section id="data-notice" aria-label="Data notice" data-notice-version="{{ notice.version }}" data-notice-sha256="{{ notice.sha256 }}">
-{% if notice.draft %}<p><strong class="draft-marker">Draft notice.</strong> This wording is a placeholder that has not been approved; it is shown only outside a live environment.</p>
-{% endif %}<p>{{ notice.text|linebreaksbr }}</p>
-</section>
-{% endif %}{% if placeholder_copy %}<p><strong class="draft-marker">Placeholder copy.</strong> The optional fields below describe your work and credentials.{% if not invitation_only %} We check only the links you give, on approved sites; a private or unavailable link never counts against you.{% endif %} Never include client secrets, credentials or confidential material. A person makes every decision.</p>
-{% endif %}<form method="post" novalidate>
-  {% csrf_token %}
-  <input type="hidden" name="form_token" value="{{ form_token }}">
-  <div aria-hidden="true" style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden">
-    <label for="id_{{ honeypot }}">Leave this empty</label>
-    <input type="text" name="{{ honeypot }}" id="id_{{ honeypot }}" value="" tabindex="-1" autocomplete="off">
+<div class="intro">
+  <p class="eyebrow">Learn. Build. Contribute.</p>
+  <h1>Request access</h1>
+  <p class="lead">Join the Intent Solutions technical partner community to develop practical AI skills and connect with other practitioners.</p>
+  <p>Joining is free and voluntary. Tell us about your work and what you would like to learn or build. Participation does not guarantee employment, client work or certification.</p>
+  <p class="small"><a href="#application">Go to the application</a> · <a href="#journey-title">What happens next</a> · <a href="mailto:agreements@intentsolutions.io">Ask a question first</a></p>
+</div>
+{% if invitation_only %}<p>Access is currently by invitation. Use the email address your invitation was sent to; a request from any other address receives no reply.</p>{% endif %}
+<div class="application-layout">
+  <div>
+    <form class="form-card" id="application" method="post" novalidate aria-label="Community access request">
+      {% csrf_token %}
+      <input type="hidden" name="form_token" value="{{ form_token }}">
+      <div aria-hidden="true" style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden">
+        <label for="id_{{ honeypot }}">Leave this empty</label>
+        <input type="text" name="{{ honeypot }}" id="id_{{ honeypot }}" value="" tabindex="-1" autocomplete="off">
+      </div>
+      {% if form.errors %}
+      <div class="error-summary" id="form-errors" role="alert" tabindex="-1" autofocus>
+        <h2>Check your answers</h2><p>Your entries are still here. Correct the items below and send again.</p>
+        {{ form.non_field_errors }}
+        <ul>{% for field in form %}{% for error in field.errors %}<li><a href="#{{ field.id_for_label }}">{{ field.label }}: {{ error }}</a></li>{% endfor %}{% endfor %}</ul>
+      </div>
+      {% endif %}
+      <fieldset class="form-section">
+        <legend>Your contact details</legend>
+        <p class="section-help">Use an email address you can open now. We will send a link to confirm it before reviewing your request. Fields marked required need an answer.</p>
+        {% include "applications/field.html" with field=form.name %}
+        {% include "applications/field.html" with field=form.email %}
+        {% include "applications/field.html" with field=form.residence_country %}
+        {% include "applications/field.html" with field=form.phone_country %}
+        {% include "applications/field.html" with field=form.phone %}
+      </fieldset>
+      <fieldset class="form-section">
+        <legend>Your interests</legend>
+        <p class="section-help">Tell us which direction interests you. Certification support means learning and preparation; it does not award a certification. Project interest is not a work commitment.</p>
+        {% include "applications/field.html" with field=form.interest_track %}
+        {% include "applications/field.html" with field=form.reason %}
+      </fieldset>
+      <fieldset class="form-section">
+        <legend>Something you have worked on</legend>
+        <p class="section-help">One concrete technical example and your contribution help us review your request. A public link is optional. For private work, use the non-confidential description below.</p>
+        {% for row in form.work_rows %}{% if forloop.first %}
+          {% for field in row %}{% include "applications/field.html" %}{% endfor %}
+        {% endif %}{% endfor %}
+        {% include "applications/field.html" with field=form.contribution %}
+        {% include "applications/field.html" with field=form.confidential %}
+        {% include "applications/field.html" with field=form.confidential_description %}
+        <details{% if form.work_url_2.value or form.work_note_2.value or form.work_url_3.value or form.work_note_3.value or form.experience.value or form.work_url_2.errors or form.work_url_3.errors %} open{% endif %}>
+          <summary>More work examples or experience (optional)</summary>
+          {% for row in form.work_rows %}{% if not forloop.first %}<fieldset class="entry"><legend>Work example {{ forloop.counter }}</legend>{% for field in row %}{% include "applications/field.html" %}{% endfor %}</fieldset>{% endif %}{% endfor %}
+          {% include "applications/field.html" with field=form.experience %}
+        </details>
+      </fieldset>
+      <fieldset class="form-section">
+        <legend>Education and certifications</legend>
+        <p class="section-help">A degree or certification is not an admission prerequisite. For each category, list an entry or select its “none to list” box. Do not select “none” if you enter a record.</p>
+        <h3>Education</h3>
+        <p class="small muted">Each entry needs both an institution and a degree or qualification.</p>
+        {% for row in form.education_rows %}{% if forloop.first %}{% for field in row %}{% include "applications/field.html" with conditional=True %}{% endfor %}{% endif %}{% endfor %}
+        {% include "applications/field.html" with field=form.no_degree %}
+        <h3>Certifications</h3>
+        <p class="small muted">Each entry needs its name and either an identifier or a verification link. The issuer is optional.</p>
+        {% for row in form.credential_rows %}{% if forloop.first %}{% for field in row %}{% include "applications/field.html" with conditional=True %}{% endfor %}{% endif %}{% endfor %}
+        {% include "applications/field.html" with field=form.no_certifications %}
+        <details{% if form.extra_background_open %} open{% endif %}>
+          <summary>Additional education or certifications (optional)</summary>
+          {% for row in form.education_rows %}{% if not forloop.first %}<fieldset class="entry"><legend>Education entry {{ forloop.counter }}</legend>{% for field in row %}{% include "applications/field.html" with conditional=True %}{% endfor %}</fieldset>{% endif %}{% endfor %}
+          {% for row in form.credential_rows %}{% if not forloop.first %}<fieldset class="entry"><legend>Certification entry {{ forloop.counter }}</legend>{% for field in row %}{% include "applications/field.html" with conditional=True %}{% endfor %}</fieldset>{% endif %}{% endfor %}
+        </details>
+      </fieldset>
+      <fieldset class="form-section">
+        <legend>Before you send</legend>
+        <p>Keep passwords, secrets and confidential client material out of this form.</p>
+        {% if notice %}
+        <p class="before-submit">Read how this service uses your information, including review and correspondence, in the full data notice below. You can request human review or ask a question at <a href="mailto:agreements@intentsolutions.io">agreements@intentsolutions.io</a>.</p>
+        <details class="data-panel" open>
+          <summary>How we use your information — full data notice</summary>
+          <section id="data-notice" aria-label="Data notice" data-notice-version="{{ notice.version }}" data-notice-sha256="{{ notice.sha256 }}">
+            {% if notice.draft %}<p><strong class="draft-marker">Draft notice.</strong> This wording is a placeholder that has not been approved; it is shown only outside a live environment.</p>{% endif %}
+            <p>{{ notice.text|linebreaksbr }}</p>
+          </section>
+        </details>
+        {% endif %}
+        {% if placeholder_copy %}<p><strong class="draft-marker">Placeholder copy.</strong> The optional fields below describe your work and credentials.{% if not invitation_only %} We check only the links you give, on approved sites; a private or unavailable link never counts against you.{% endif %} Never include client secrets, credentials or confidential material. A person makes every decision.</p>{% endif %}
+        <p class="small">Our <a href="https://intentsolutions.io/privacy/">Privacy Policy</a> explains personal information use. Our separate <a href="https://intentsolutions.io/data-retention/">Data Retention Policy</a> explains record retention and deletion.</p>
+        {% include "applications/field.html" with field=form.verification_consent %}
+        {% include "applications/field.html" with field=form.marketing_opt_in %}
+        {% include "applications/field.html" with field=form.age_attested %}
+      </fieldset>
+      <button type="submit">Send request</button>
+      <p class="small muted" style="margin:12px 0 0">Next: look for your email confirmation link.</p>
+    </form>
   </div>
-  {{ form.as_div }}
-  <button type="submit">Send request</button>
-</form>
+  <aside class="journey" aria-labelledby="journey-title">
+    <h2 id="journey-title">What happens next</h2>
+    <ol>
+      <li><strong>Confirm your email</strong>Open the link we send to your existing email address.</li>
+      <li><strong>We review your request</strong>We may ask a brief follow-up question about your work or goals.</li>
+      <li><strong>If approved, sign the NDA</strong>It protects confidential information shared between us.</li>
+      <li><strong>Review the User Agreement</strong>It explains the responsibilities for your company email and approved learning access.</li>
+      <li><strong>Get your account details</strong>After the agreements are complete, we send your email setup and next steps.</li>
+    </ol>
+    <p class="small">Joining does not make you an employee or require you to take on client work.</p>
+  </aside>
+</div>
 {% endblock %}

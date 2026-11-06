@@ -225,8 +225,8 @@ pages that change rarely, while a skip cannot stand in the full suite (a skip fa
   request is answered in-process by Django's test client with CSRF checks enforced, inside the test's transaction, on
   synthetic data from the existing helpers; a request for any other origin fails the test, so the browser reaches
   nothing.
-- *Pins.* Playwright 1.63.0, hash-locked in `requirements/browser.txt` (compiled like `dev.txt`, constrained to it, and
-  in the `pip-audit` step); the browser image `mcr.microsoft.com/playwright/python:v1.63.0-noble` by digest in the
+- *Pins.* Playwright 1.64.1, hash-locked in `requirements/browser.txt` (compiled like `dev.txt`, constrained to it, and
+  in the `pip-audit` step); the browser image `mcr.microsoft.com/playwright/python:v1.64.1-noble` by digest in the
   overlay `compose.browser.yaml`, so `compose.yaml` and the full suite are unchanged. The module refuses a client
   version that differs from the image tag.
 - *Where it runs.* Locally, `scripts/browser_check.sh` (isolation and cleanup as `scripts/test.sh`; arguments go to
