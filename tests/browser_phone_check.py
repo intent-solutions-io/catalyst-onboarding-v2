@@ -151,6 +151,12 @@ class Session:
                 ):
                     break
                 response = self.client.get(location.removeprefix(ORIGIN))
+            # The original partner badge is a FileResponse, unlike the HTML pages.
+            body = (
+                b"".join(response.streaming_content)
+                if response.streaming
+                else response.content
+            )
         except Exception as exc:  # reported by close(), never swallowed
             self.failures.append(f"{request.method} {path}: {exc!r}")
             route.abort()
@@ -161,9 +167,7 @@ class Session:
             for name, value in response.items()
             if name.lower() != "set-cookie"
         }
-        route.fulfill(
-            status=response.status_code, headers=headers, body=response.content
-        )
+        route.fulfill(status=response.status_code, headers=headers, body=body)
 
     def open(self, path):
         response = self.page.goto(ORIGIN + path)
