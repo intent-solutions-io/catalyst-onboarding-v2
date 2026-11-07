@@ -158,6 +158,15 @@ EXPAND_SAFE: dict[str, str] = {
         "frozen with its `Re:` subject; nothing is removed or renamed. Reversing the migration itself needs no "
         "`lapse_note` rows, because the narrower CHECK would refuse them"
     ),
+    "correspondence.0027_hold_notice": (
+        "widens the approved-message kind CHECK and the field's choices by one value (`hold_notice`, bgl.24) and seeds an "
+        "unapproved draft template; the choices change is state only and every row a previous image writes already "
+        "satisfies the wider CHECK. No `hold_notice` row or `send_hold_notice` action exists unless "
+        "CATALYST_HOLD_NOTICE_ENABLED is on (off by default). A previous image that meets a queued `hold_notice` send "
+        "sends the frozen message as it would any other kind to an open application, and leaves `send_hold_notice` "
+        "queued (no handler); nothing is removed or renamed. Reversing the migration itself needs no `hold_notice` rows, "
+        "because the narrower CHECK would refuse them"
+    ),
 }
 
 

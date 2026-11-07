@@ -327,6 +327,7 @@ class ApprovedMessage(models.Model):
         WELCOME = "welcome"  # P5 5B.2: queued by activation, sent by the P2 sender
         DECLINE = "decline"  # oc4.11: frozen by assessments.decline, sent by the P2 sender to a declined applicant
         LAPSE_NOTE = "lapse_note"  # bgl.7: the one closing note of a lapse (correspondence.lapse), sent by the P2 sender
+        HOLD_NOTICE = "hold_notice"  # bgl.24: the one still-in-review note of a hold (assessments.hold), by the P2 sender
 
     class Authority(models.TextChoices):
         SYSTEM_POLICY = "system_policy"
@@ -407,6 +408,7 @@ class ApprovedMessage(models.Model):
                         "welcome",
                         "decline",
                         "lapse_note",
+                        "hold_notice",
                     ]
                 ),
                 name="approved_message_kind_valid",

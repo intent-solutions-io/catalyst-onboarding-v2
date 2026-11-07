@@ -191,6 +191,7 @@ APPROVED_MIGRATIONS = {
     ("provisioning", "0010_community_protection"),  # 9kg.81
     ("agreements", "0014_one_current_template"),
     ("agreements", "0015_adopted_countersign_claim"),
+    ("correspondence", "0027_hold_notice"),  # bgl.24: the hold_notice kind and template
 }
 
 

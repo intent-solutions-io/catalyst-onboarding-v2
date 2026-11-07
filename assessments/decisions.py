@@ -36,8 +36,10 @@ follow-on: `issue_nda:<application>` for admit (held by default; queued under bo
 a configured signing provider and approved NDA template); for decline a queued
 `send_decline:<application>` (oc4.11, `assessments.decline`: the decline notice), unless the decision-maker chose to
 withhold the notice, with a reason, which the decision records (`decision_inputs["decline_notice"]`) and which queues
-nothing; nothing for hold. A database trigger refuses any move into a decided stage without a decision row inserted
-in the same transaction (TEST-P3-52). No model output is read to choose anything here.
+nothing; for hold, the still-in-review note's `send_hold_notice:<application>` (bgl.24, `assessments.hold`: due ten
+business days later, queued only while `CATALYST_HOLD_NOTICE_ENABLED` is on, off by default). A database trigger
+refuses any move into a decided stage without a decision row inserted in the same transaction (TEST-P3-52). No model
+output is read to choose anything here.
 
 oc4.12 (019 decision 4; 018 section 20): the decision digest binds, and the decision records in `decision_inputs`,
 the policy reference (the synthetic rubric's `none-approved` reference stated openly until a policy is bound), the
@@ -67,7 +69,7 @@ from correspondence.staff_items import clean_note as _clean_note, resolve_item
 from workflow.models import AutomationPause, PendingAction
 
 from .quotas import exceeds
-from . import decline as declines, pack as packs, snapshot
+from . import decline as declines, hold as holds, pack as packs, snapshot
 from .models import AssessmentRun, EvidenceItem, QualificationDecision
 from .services import Refused
 
@@ -559,6 +561,10 @@ def record_decision(
                     effects={"decision": str(decision.public_id)},
                     actor_type=ApplicationEvent.ActorType.STAFF,
                 )
+        if outcome == "hold":
+            holds.schedule(
+                application, decision
+            )  # bgl.24: nothing while the switch is off; at most one note per application
         if notice is not None and notice["choice"] == declines.SEND:
             declines.enqueue(
                 application, decision

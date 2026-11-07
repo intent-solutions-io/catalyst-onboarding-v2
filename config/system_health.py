@@ -653,16 +653,31 @@ def decision_health() -> dict:
     oc4.11: the decline notice's wording state (as for the data notice: status, version, digest and synthetic flag,
     never the wording). Once decisions can be recorded, wording that may not be sent here is an anomaly
     (`decline_notice_unapproved`): a decline is recorded but its notice waits, with a staff item, until the owner
-    approves real wording."""
+    approves real wording.
+
+    bgl.24: likewise the still-in-review note's wording, an anomaly (`hold_notice_unapproved`) only while its switch
+    (CATALYST_HOLD_NOTICE_ENABLED) is on and a hold can be recorded: a due note would wait, with a staff item."""
     from applications import notices
 
     configured = settings.CATALYST_QUALIFICATION_AUTHORITY == "explicit_permission"
     notice = notices.status("decline_notice")
     unusable = configured and not notices.servable(notice, settings.CATALYST_ENV)
+    hold_enabled = bool(settings.CATALYST_HOLD_NOTICE_ENABLED)
+    hold = notices.status("hold_notice")
+    hold_unusable = (
+        configured
+        and hold_enabled
+        and not notices.servable(hold, settings.CATALYST_ENV)
+    )
+    anomalies = (["decline_notice_unapproved"] if unusable else []) + (
+        ["hold_notice_unapproved"] if hold_unusable else []
+    )
     return {
         "qualification_authority_configured": configured,
         "decline_notice": notice,
-        "anomalies": ["decline_notice_unapproved"] if unusable else [],
+        "hold_notice_enabled": hold_enabled,
+        "hold_notice": hold,
+        "anomalies": anomalies,
     }
 
 

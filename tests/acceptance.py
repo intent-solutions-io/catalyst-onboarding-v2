@@ -2183,6 +2183,7 @@ P6_SUPPORTING = {
         "test_decline_notice::test_oc4_11_a_restore_a_sent_copy_and_a_resolved_unknown_send_item_never_send_a_second_notice",
         "test_decline_notice::test_oc4_11_a_notice_copy_under_review_after_a_restore_defers_the_freeze",
         "test_decline_notice::test_oc4_11_the_handler_is_registered_redeliverable_and_automated",
+        "test_hold_notice::test_d55_the_approved_decline_wording_greets_by_first_name_only_and_clears_the_health_anomaly",
         "test_decision::test_p3_44_a_decision_is_one_transaction_with_its_follow_on",
     ],
     # oc4.9 (018 section 21): the live-call protections, built before any live model call; none makes a live request.
@@ -2539,6 +2540,21 @@ P6_SUPPORTING = {
         "test_signing_reminder::test_bgl7_under_the_service_distribution_the_reminder_sends_the_signing_link_once_more",
         "test_post_restore::test_bgl7_the_last_reminder_left_after_the_backup_still_leads_to_the_escalation_and_the_lapse",
         "test_data_model::test_open_stage_set_matches_the_journey",
+    ],
+    # bgl.24 (D-55): the still-in-review note of a hold, behind its default-off switch: queued only while it is on, due
+    # ten business days after the hold, at most once per application, from owner-approved wording; and the public
+    # pages' copy (the terms of joining, the next email, the policy links).
+    "bgl.24 the still-in-review note goes once, ten business days into a hold, only behind its default-off switch; the public pages state the terms of joining": [
+        "test_hold_notice::test_bgl24_with_the_switch_off_a_hold_queues_nothing_and_a_queued_note_is_cancelled_unsent",
+        "test_hold_notice::test_bgl24_the_switch_accepts_only_true_or_false",
+        "test_hold_notice::test_bgl24_with_the_switch_on_a_hold_sends_exactly_one_note_through_the_p2_sender_and_never_a_second",
+        "test_hold_notice::test_bgl24_a_decision_off_the_hold_before_the_note_is_due_cancels_it",
+        "test_hold_notice::test_bgl24_the_note_is_due_ten_business_days_after_the_hold_and_waits_if_run_early",
+        "test_hold_notice::test_bgl24_quiet_hours_hold_a_due_note",
+        "test_hold_notice::test_bgl24_the_note_waits_with_one_staff_item_until_the_owner_approves_real_wording_and_health_names_it",
+        "test_hold_notice::test_bgl24_a_note_copy_under_review_after_a_restore_defers_the_freeze",
+        "test_hold_notice::test_bgl24_the_handler_is_registered_redeliverable_and_automated",
+        "test_intake_presentation::test_bgl24_the_public_pages_state_the_terms_of_joining_the_next_email_and_the_policies",
     ],
     "bgl.14 the Twenty projection, the applicant file note and the daily details fill, behind the switch (034 rows 42, 43)": [
         "test_twenty_projection::test_bgl14_with_the_switch_off_nothing_is_queued_and_a_queued_action_calls_nothing",

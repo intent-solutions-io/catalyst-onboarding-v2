@@ -12,6 +12,8 @@ from correspondence import outbound
 from correspondence.models import MessageTemplateVersion
 from correspondence.rendering import canonical_digest
 from correspondence.wording import REAL
+from tests.test_decline_notice import ensure_template as ensure_decline_template
+from tests.test_hold_notice import ensure_hold_template
 from tests.test_intake_notice import template_owner
 from tests.test_invitation import ensure_notice_templates
 from tests.test_verification_wording import (
@@ -30,6 +32,8 @@ def test_d53_the_real_wording_is_added_as_drafts_once_and_served_live_only_after
 ):
     ensure_notice_templates()
     ensure_verification_template()
+    ensure_decline_template()  # D-55: the decline notice and the still-in-review note are seeded the same way
+    ensure_hold_template()
     first = seed()
     assert set(first) == set(REAL) and all(
         entry["added"] and entry["status"] == "draft" for entry in first.values()
