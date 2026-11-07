@@ -391,6 +391,8 @@ CATALYST_ACTION_HANDLERS = {
     "interpret_message": "correspondence.processing.InterpretMessage",  # 018 5.4 (P3 3B.3); test models only
     # oc4.11: a recorded decline queues `send_decline`, which freezes the decline notice and hands it to send_message.
     "send_decline": "assessments.decline.SendDecline",
+    # bgl.24: a recorded hold queues `send_hold_notice` (only under CATALYST_HOLD_NOTICE_ENABLED), the still-in-review note.
+    "send_hold_notice": "assessments.hold.SendHoldNotice",
     # P4 4B.1 (021 section 4): the held `issue_nda` from 3B.4 stays held until `activate_agreements` releases it.
     "issue_nda": "agreements.handlers.IssueAgreement",
     "create_agreement": "agreements.handlers.CreateAgreement",
@@ -609,6 +611,13 @@ CATALYST_REMINDER_STALE_RETRY_SECONDS = number(
 # oc4.11: how often a decline notice that cannot be prepared yet (wording not approved here, no verified address)
 # looks again; one staff item says why meanwhile. Fixed in code.
 CATALYST_DECLINE_NOTICE_RECHECK_SECONDS = 900
+# bgl.24 (D-55): the still-in-review note (assessments.hold): one mail per application, ten business days after a hold
+# is recorded. Off by default, so a deployment queues and sends nothing new; the owner turns it on after approving the
+# `hold_notice` wording. "true" or "false" (config.guards), like CATALYST_COMMUNITY_GRANTS_ENABLED; the web process
+# (which records the hold and queues the note) and the worker (which sends it) must see the same value.
+CATALYST_HOLD_NOTICE_ENABLED = (
+    os.environ.get("CATALYST_HOLD_NOTICE_ENABLED", "false") == "true"
+)
 # Evidence fetching (018 3.3; P3 3B.1). Synthetic only: every fetchable host must also be listed here, and the
 # guards refuse a non-empty list, a fixture address or a custom CA outside `test` (config.guards.evidence_problems).
 # Fixed in code, never read from the environment.

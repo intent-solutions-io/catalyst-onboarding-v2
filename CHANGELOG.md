@@ -283,6 +283,18 @@ only an already-merged, CI-green commit of `main` without committing or pushing 
 
 ### Changed
 
+- Public page copy (bead `bgl.24`): the request form states the terms of joining (free to apply, reviewed, mutual NDA
+  and User Agreement, company mailbox for the CCA: Foundations registration, exam fee paid by the member, no
+  employment, work, certification or partner-program guarantee); the received page names the receipt sender and the
+  NDA as the next email; the signing return page says the countersignature is automatic and which email follows each
+  agreement; the footer links Terms and Acceptable use, and the received and signing return pages link "How joining
+  works" instead of "Back to Learn"; the partner badge's alternative text has no dash.
+- The decline notice's real wording, approved by the owner on 2026-11-07 (D-55), is added to
+  `correspondence/wording.py` for `catalyst_seed_wording` to add as a draft; a live environment sends it only after
+  the owner approves that version on the template screen, which clears `decline_notice_unapproved`.
+- A once-only still-in-review note ten business days after a hold (`assessments.hold`, the `hold_notice` template and
+  approved-message kind, correspondence migration 0027), queued only while `CATALYST_HOLD_NOTICE_ENABLED` is `true`;
+  the default is `false` (D-55).
 - Dependabot no longer proposes Django major-version bumps (#29)
 - The release workflow publishes only an already-merged, CI-green commit of `main` and never commits or pushes to it
   (#41)

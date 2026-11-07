@@ -685,7 +685,7 @@ def attempt_lease_problems(settings) -> list[str]:
 def decision_problems(settings, environ: Mapping[str, str]) -> list[str]:
     """018 section 7 (P3 3B.4): the selection policy is fixed in code, never taken from the environment; the decision
     authority is configuration (9kg.30) but takes only "explicit_permission", the one rule the code implements, or
-    stays unset (POL-05 undecided: everyone refused)."""
+    stays unset (POL-05 undecided: everyone refused). bgl.24: the still-in-review note's switch is "true" or "false"."""
     problems = (
         ["CATALYST_SELECTION_POLICY may not be set from the environment"]
         if "CATALYST_SELECTION_POLICY" in environ
@@ -698,6 +698,10 @@ def decision_problems(settings, environ: Mapping[str, str]) -> list[str]:
         problems.append(
             "CATALYST_QUALIFICATION_AUTHORITY must be None or 'explicit_permission'"
         )
+    if environ.get("CATALYST_HOLD_NOTICE_ENABLED", "false") not in ("true", "false"):
+        problems.append(
+            "CATALYST_HOLD_NOTICE_ENABLED must be true or false"
+        )  # bgl.24: a typo never enables it
     policy = getattr(settings, "CATALYST_SELECTION_POLICY", "")
     if policy and not re.fullmatch(r"SP-[A-Z0-9]{1,8}-[0-9]{1,4}", policy):
         problems.append(

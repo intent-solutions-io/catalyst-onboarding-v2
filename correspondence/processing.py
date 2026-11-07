@@ -142,6 +142,9 @@ ACKNOWLEDGE_ONLY = {
     # the send retries by itself and resolves the item once it is queued
     "decline_notice_refused",
     "decline_notice_member_on_file",
+    # bgl.24: the still-in-review note could not be frozen (wording unavailable here, no verified address); it retries
+    # by itself and resolves the item once it is queued
+    "hold_notice_refused",
     # 9kg.66: the staff resend resolves it, and the sweep closes it once the applicant is verified or
     # the application closed; an acknowledgement records that staff saw it
     "verification_expired",
