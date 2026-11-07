@@ -31,15 +31,42 @@ class Command(BaseCommand):
                 # second run fails on insert and adds nothing.
                 template = MessageTemplate.objects.filter(key=key).first()
                 if template is None:
-                    raise CommandError(f"refused ({key}_missing): run the migrations first")
+                    raise CommandError(
+                        f"refused ({key}_missing): run the migrations first"
+                    )
                 digest = canonical_digest(subject, body)
-                found = MessageTemplateVersion.objects.filter(template=template, content_sha256=digest).first()
+                found = MessageTemplateVersion.objects.filter(
+                    template=template, content_sha256=digest
+                ).first()
                 if found is not None:
-                    out[key] = {"version": found.version, "sha256": digest, "added": False, "status": str(found.status)}
+                    out[key] = {
+                        "version": found.version,
+                        "sha256": digest,
+                        "added": False,
+                        "status": str(found.status),
+                    }
                     continue
-                number = (MessageTemplateVersion.objects.filter(template=template).aggregate(n=Max("version"))["n"] or 0) + 1
+                number = (
+                    MessageTemplateVersion.objects.filter(template=template).aggregate(
+                        n=Max("version")
+                    )["n"]
+                    or 0
+                ) + 1
                 MessageTemplateVersion.objects.create(
-                    template=template, version=number, subject=subject, body_text=body, variables=list(variables),
-                    secret_bearing=template.secret_bearing, status="draft", content_sha256=digest, synthetic=False)
-                out[key] = {"version": number, "sha256": digest, "added": True, "status": "draft"}
+                    template=template,
+                    version=number,
+                    subject=subject,
+                    body_text=body,
+                    variables=list(variables),
+                    secret_bearing=template.secret_bearing,
+                    status="draft",
+                    content_sha256=digest,
+                    synthetic=False,
+                )
+                out[key] = {
+                    "version": number,
+                    "sha256": digest,
+                    "added": True,
+                    "status": "draft",
+                }
         self.stdout.write(json.dumps(out, sort_keys=True))

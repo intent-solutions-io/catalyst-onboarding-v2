@@ -22,25 +22,38 @@ def worker_health() -> dict:
         return {"configured": False, "age_seconds": None, "anomalies": []}
     age = heartbeat.age_seconds(path)
     stale = age is None or age > settings.CATALYST_HEALTH_HEARTBEAT_STALE_SECONDS
-    return {"configured": True, "age_seconds": None if age is None else int(age),
-            "anomalies": ["heartbeat_missing" if age is None else "heartbeat_stale"] if stale else []}
+    return {
+        "configured": True,
+        "age_seconds": None if age is None else int(age),
+        "anomalies": ["heartbeat_missing" if age is None else "heartbeat_stale"]
+        if stale
+        else [],
+    }
 
 
 def queue_health() -> dict:
     """The oldest action that is due and still queued (moved here from readiness, 6B.3), and running actions whose
     lease ran out long ago (a worker that died mid-action without recovery)."""
     now = timezone.now()
-    oldest = PendingAction.objects.filter(status=PendingAction.Status.QUEUED, due_at__lte=Now()).aggregate(m=Min("due_at"))["m"]
+    oldest = PendingAction.objects.filter(
+        status=PendingAction.Status.QUEUED, due_at__lte=Now()
+    ).aggregate(m=Min("due_at"))["m"]
     age = int((now - oldest).total_seconds()) if oldest else 0
     expired = PendingAction.objects.filter(
         status=PendingAction.Status.RUNNING,
-        lease_expires_at__lt=now - timedelta(seconds=settings.CATALYST_WORKER_LEASE_SECONDS)).count()
+        lease_expires_at__lt=now
+        - timedelta(seconds=settings.CATALYST_WORKER_LEASE_SECONDS),
+    ).count()
     anomalies = []
     if age > settings.CATALYST_HEALTH_PENDING_AGE_SECONDS:
         anomalies.append("backlog")
     if expired:
         anomalies.append("expired_leases")
-    return {"oldest_due_seconds": age, "expired_leases": expired, "anomalies": anomalies}
+    return {
+        "oldest_due_seconds": age,
+        "expired_leases": expired,
+        "anomalies": anomalies,
+    }
 
 
 AGREEMENT_UNCERTAIN = ("create_uncertain", "distribute_uncertain", "cancel_uncertain")
@@ -53,9 +66,21 @@ def agreement_health() -> dict:
     uncertain = live.filter(issue_status__in=AGREEMENT_UNCERTAIN).count()
     failed = live.filter(issue_status="failed_needs_staff").count()
     custody_failed = live.filter(custody_status="failed_needs_staff").count()
-    anomalies = [name for name, count in (("agreements_uncertain", uncertain), ("agreements_failed", failed),
-                                          ("custody_failed", custody_failed)) if count]
-    return {"uncertain": uncertain, "failed": failed, "custody_failed": custody_failed, "anomalies": anomalies}
+    anomalies = [
+        name
+        for name, count in (
+            ("agreements_uncertain", uncertain),
+            ("agreements_failed", failed),
+            ("custody_failed", custody_failed),
+        )
+        if count
+    ]
+    return {
+        "uncertain": uncertain,
+        "failed": failed,
+        "custody_failed": custody_failed,
+        "anomalies": anomalies,
+    }
 
 
 # In-flight states only: an outcome the system is still settling. Terminal states (a conflict, a failure, a mailbox
@@ -66,49 +91,93 @@ PROVISIONING_IN_FLIGHT = ("create_uncertain", "verify_uncertain", "found_by_evid
 
 # Items that mean something went wrong alert at once; items that are ordinary waiting for staff (a checklist to carry
 # out, a name to review, a prerequisite to fix) alert only once they are older than the backlog target (PR #64 re-check).
-PROVISIONING_PROBLEM_ITEMS = ("provisioning_conflict", "provisioning_failed", "provisioning_late_mailbox",
-                              "provisioning_confirm_found", "provisioning_revocation_needs_staff",
-                              "provisioning_setup_needs_staff", "provisioning_activation_blocked",
-                              "provisioning_withdrawal_link_failed")
-PROVISIONING_ROUTINE_ITEMS = ("provisioning_checklist", "provisioning_name_needs_review", "provisioning_blocked")
+PROVISIONING_PROBLEM_ITEMS = (
+    "provisioning_conflict",
+    "provisioning_failed",
+    "provisioning_late_mailbox",
+    "provisioning_confirm_found",
+    "provisioning_revocation_needs_staff",
+    "provisioning_setup_needs_staff",
+    "provisioning_activation_blocked",
+    "provisioning_withdrawal_link_failed",
+)
+PROVISIONING_ROUTINE_ITEMS = (
+    "provisioning_checklist",
+    "provisioning_name_needs_review",
+    "provisioning_blocked",
+)
 
 
 def provisioning_health() -> dict:
     from correspondence.models import StaffItem
     from provisioning.models import AccessRevocation, ProvisioningRequest
 
-    cutoff = timezone.now() - timedelta(seconds=settings.CATALYST_HEALTH_PENDING_AGE_SECONDS)
-    settling = ProvisioningRequest.objects.filter(status__in=PROVISIONING_IN_FLIGHT).count()
+    cutoff = timezone.now() - timedelta(
+        seconds=settings.CATALYST_HEALTH_PENDING_AGE_SECONDS
+    )
+    settling = ProvisioningRequest.objects.filter(
+        status__in=PROVISIONING_IN_FLIGHT
+    ).count()
     open_items = StaffItem.objects.filter(status=StaffItem.Status.OPEN)
     problems = open_items.filter(reason_code__in=PROVISIONING_PROBLEM_ITEMS).count()
-    waiting = open_items.filter(reason_code__in=PROVISIONING_ROUTINE_ITEMS, opened_at__lt=cutoff).count()
+    waiting = open_items.filter(
+        reason_code__in=PROVISIONING_ROUTINE_ITEMS, opened_at__lt=cutoff
+    ).count()
     # A revocation round that never ran: an obligation still "requested" long after it was created. ("pending" and
     # "unsupported" rows keep a revocation staff item open, counted above; "applied_unverified" is final, 023 11.6.)
-    stalled = AccessRevocation.objects.filter(state="requested", created_at__lt=cutoff).count()
-    anomalies = [name for name, count in (("provisioning_settling", settling), ("provisioning_problem", problems),
-                                          ("provisioning_waiting_too_long", waiting),
-                                          ("revocation_stalled", stalled)) if count]
-    return {"requests_settling": settling, "problem_items": problems, "routine_items_overdue": waiting,
-            "revocations_stalled": stalled, "anomalies": anomalies}
+    stalled = AccessRevocation.objects.filter(
+        state="requested", created_at__lt=cutoff
+    ).count()
+    anomalies = [
+        name
+        for name, count in (
+            ("provisioning_settling", settling),
+            ("provisioning_problem", problems),
+            ("provisioning_waiting_too_long", waiting),
+            ("revocation_stalled", stalled),
+        )
+        if count
+    ]
+    return {
+        "requests_settling": settling,
+        "problem_items": problems,
+        "routine_items_overdue": waiting,
+        "revocations_stalled": stalled,
+        "anomalies": anomalies,
+    }
 
 
 def bounce_health() -> dict:
     """Hard bounces left unresolved past the target: every send to that applicant is blocked meanwhile (9kg.3)."""
     from correspondence.models import StaffItem
 
-    cutoff = timezone.now() - timedelta(seconds=settings.CATALYST_HEALTH_HARD_BOUNCE_AGE_SECONDS)
-    aged = StaffItem.objects.filter(reason_code="hard_bounce", status=StaffItem.Status.OPEN, opened_at__lt=cutoff).count()
-    return {"aged_hard_bounces": aged, "anomalies": ["hard_bounce_unresolved"] if aged else []}
+    cutoff = timezone.now() - timedelta(
+        seconds=settings.CATALYST_HEALTH_HARD_BOUNCE_AGE_SECONDS
+    )
+    aged = StaffItem.objects.filter(
+        reason_code="hard_bounce", status=StaffItem.Status.OPEN, opened_at__lt=cutoff
+    ).count()
+    return {
+        "aged_hard_bounces": aged,
+        "anomalies": ["hard_bounce_unresolved"] if aged else [],
+    }
 
 
 def session_health() -> dict:
     """Outside the local environments the hourly removal of expired staff sessions must be scheduled (6B.9)."""
     from accounts.staff_access import CLEAR_SESSIONS
 
-    scheduled = PendingAction.objects.filter(kind=CLEAR_SESSIONS, status__in=(PendingAction.Status.QUEUED,
-                                                                              PendingAction.Status.RUNNING)).exists()
+    scheduled = PendingAction.objects.filter(
+        kind=CLEAR_SESSIONS,
+        status__in=(PendingAction.Status.QUEUED, PendingAction.Status.RUNNING),
+    ).exists()
     required = settings.CATALYST_STAFF_TWO_FACTOR
-    return {"cleanup_scheduled": scheduled, "anomalies": ["session_cleanup_unscheduled"] if required and not scheduled else []}
+    return {
+        "cleanup_scheduled": scheduled,
+        "anomalies": ["session_cleanup_unscheduled"]
+        if required and not scheduled
+        else [],
+    }
 
 
 def staff_role_health() -> dict:
@@ -119,8 +188,19 @@ def staff_role_health() -> dict:
     found = grants.differences()
     unrecorded = sum(1 for d in found if d.problem == grants.UNRECORDED)
     not_held = len(found) - unrecorded
-    anomalies = [name for name, count in (("role_access_unrecorded", unrecorded), ("role_grant_not_held", not_held)) if count]
-    return {"unrecorded": unrecorded, "recorded_not_held": not_held, "anomalies": anomalies}
+    anomalies = [
+        name
+        for name, count in (
+            ("role_access_unrecorded", unrecorded),
+            ("role_grant_not_held", not_held),
+        )
+        if count
+    ]
+    return {
+        "unrecorded": unrecorded,
+        "recorded_not_held": not_held,
+        "anomalies": anomalies,
+    }
 
 
 def verification_health() -> dict:
@@ -128,11 +208,17 @@ def verification_health() -> dict:
     expired only link would again prompt nothing (correspondence.verification)."""
     from correspondence.verification import EXPIRY_SWEEP
 
-    scheduled = PendingAction.objects.filter(kind=EXPIRY_SWEEP, status__in=(PendingAction.Status.QUEUED,
-                                                                            PendingAction.Status.RUNNING)).exists()
+    scheduled = PendingAction.objects.filter(
+        kind=EXPIRY_SWEEP,
+        status__in=(PendingAction.Status.QUEUED, PendingAction.Status.RUNNING),
+    ).exists()
     required = settings.CATALYST_ENV not in settings.LOCAL_ENVIRONMENTS
-    return {"expiry_sweep_scheduled": scheduled,
-            "anomalies": ["verification_sweep_unscheduled"] if required and not scheduled else []}
+    return {
+        "expiry_sweep_scheduled": scheduled,
+        "anomalies": ["verification_sweep_unscheduled"]
+        if required and not scheduled
+        else [],
+    }
 
 
 def journal_health() -> dict:
@@ -154,9 +240,16 @@ def journal_health() -> dict:
     failed = journal.failures()
     if failed:
         anomalies.append("effect_journal_append_failed")
-    report = {"configured": True, "append_failures": failed, "ship_lag_seconds": None, "ship_age_seconds": None}
+    report = {
+        "configured": True,
+        "append_failures": failed,
+        "ship_lag_seconds": None,
+        "ship_age_seconds": None,
+    }
     threshold = getattr(settings, "CATALYST_JOURNAL_SHIP_LAG_SECONDS", 0)
-    if threshold and entries is not None:  # 9kg.60: the off-host copy (workflow.shipping); off when 0
+    if (
+        threshold and entries is not None
+    ):  # 9kg.60: the off-host copy (workflow.shipping); off when 0
         from workflow import shipping
 
         try:
@@ -166,9 +259,13 @@ def journal_health() -> dict:
         else:
             try:
                 if shipped is not None:
-                    journal.verify_anchor(entries, shipped["identity"], shipped["seq"], shipped["hash"])
+                    journal.verify_anchor(
+                        entries, shipped["identity"], shipped["seq"], shipped["hash"]
+                    )
             except journal.JournalError:
-                anomalies.append("effect_journal_behind_shipped")  # the local journal lost what it had shipped
+                anomalies.append(
+                    "effect_journal_behind_shipped"
+                )  # the local journal lost what it had shipped
             else:
                 report["ship_lag_seconds"] = shipping.lag(entries)
                 report["ship_age_seconds"] = shipping.age()
@@ -176,8 +273,13 @@ def journal_health() -> dict:
                     anomalies.append("effect_journal_never_shipped")
                 elif report["ship_lag_seconds"] > threshold:
                     anomalies.append("effect_journal_ship_lag")
-                elif report["ship_age_seconds"] is not None and report["ship_age_seconds"] > threshold:
-                    anomalies.append("effect_journal_ship_stale")  # the timer stopped: no run within the threshold
+                elif (
+                    report["ship_age_seconds"] is not None
+                    and report["ship_age_seconds"] > threshold
+                ):
+                    anomalies.append(
+                        "effect_journal_ship_stale"
+                    )  # the timer stopped: no run within the threshold
     return {**report, "anomalies": anomalies}
 
 
@@ -193,11 +295,20 @@ def erasure_health() -> dict:
     try:
         state = record.fold(journal.read(), None)
     except journal.JournalError:
-        return {"open": 0, "handoffs_owed": 0, "anomalies": []}  # the journal part reports the fault
+        return {
+            "open": 0,
+            "handoffs_owed": 0,
+            "anomalies": [],
+        }  # the journal part reports the fault
     opened = sum(1 for s in state.values() if s.open)
     owed = sum(len(s.outstanding) for s in state.values())
-    return {"open": opened, "handoffs_owed": owed,
-            "anomalies": [n for n, c in (("intent_open", opened), ("handoff_owed", owed)) if c]}
+    return {
+        "open": opened,
+        "handoffs_owed": owed,
+        "anomalies": [
+            n for n, c in (("intent_open", opened), ("handoff_owed", owed)) if c
+        ],
+    }
 
 
 # 9kg.70 (release-ops review of PR #105): a key file, a sealed file or a destruction younger than this is left out of
@@ -244,20 +355,35 @@ def custody_health() -> dict:
         try:
             listed[name] = keystore._listing(path)
         except keystore.KeyStoreError as exc:
-            code = "key_store_unsafe" if exc.code == "key_store_unsafe" else "key_store_unavailable"
+            code = (
+                "key_store_unsafe"
+                if exc.code == "key_store_unsafe"
+                else "key_store_unavailable"
+            )
             return {"configured": True, "store": name, "anomalies": [code]}
     try:
         found = state()
-        blobs = {(name, ref): keystore._read(path, ref) or b"" for name, path in (("primary", primary), ("mirror", mirror))
-                 for ref in listed[name]}
+        blobs = {
+            (name, ref): keystore._read(path, ref) or b""
+            for name, path in (("primary", primary), ("mirror", mirror))
+            for ref in listed[name]
+        }
         stray = keystore.strays()
         refs = set(CustodyEnvelope.objects.values_list("key_ref", flat=True))
         sealed_orphans = orphan_files(list(CustodyEnvelope.objects.all()))
     except keystore.KeyStoreError as exc:
-        code = "key_store_unsafe" if exc.code == "key_store_unsafe" else "key_store_unavailable"
+        code = (
+            "key_store_unsafe"
+            if exc.code == "key_store_unsafe"
+            else "key_store_unavailable"
+        )
         return {"configured": True, "store": "either", "anomalies": [code]}
-    except (storage.StorageError, OSError):
-        return {"configured": True, "store": "custody", "anomalies": ["key_store_unavailable"]}
+    except storage.StorageError, OSError:
+        return {
+            "configured": True,
+            "store": "custody",
+            "anomalies": ["key_store_unavailable"],
+        }
     now = time.time()
 
     def settled(path) -> bool:
@@ -265,7 +391,15 @@ def custody_health() -> dict:
             return path.stat().st_mtime <= now - CUSTODY_SETTLE_SECONDS
         except OSError:
             return True
-    journal_ok, destroyed, recent, begun, done, unmatched = found["journal"] == "ok", set(), set(), set(), set(), 0
+
+    journal_ok, destroyed, recent, begun, done, unmatched = (
+        found["journal"] == "ok",
+        set(),
+        set(),
+        set(),
+        set(),
+        0,
+    )
     if journal_ok:
         try:
             entries = journal.read()
@@ -273,17 +407,33 @@ def custody_health() -> dict:
             journal_ok = False
         else:
             destroyed = keystore.destroyed_refs(entries)
-            recent = {e.key.partition(":")[2] for e in entries if e.kind == keystore.DESTROYED
-                      and e.when.timestamp() > now - CUSTODY_SETTLE_SECONDS}
+            recent = {
+                e.key.partition(":")[2]
+                for e in entries
+                if e.kind == keystore.DESTROYED
+                and e.when.timestamp() > now - CUSTODY_SETTLE_SECONDS
+            }
             erased = set(record.fold(entries, None))
-            unmatched = sum(1 for e in entries if e.kind == keystore.DESTROYED and str(e.data.get("subject")) not in erased)
-            rotations = [e for e in entries if e.kind == "custody_rotation" and e.key.startswith("custody_rotation:")]
+            unmatched = sum(
+                1
+                for e in entries
+                if e.kind == keystore.DESTROYED
+                and str(e.data.get("subject")) not in erased
+            )
+            rotations = [
+                e
+                for e in entries
+                if e.kind == "custody_rotation"
+                and e.key.startswith("custody_rotation:")
+            ]
             begun = {e.key for e in rotations if e.data.get("phase") == "prepare"}
             done = {e.key for e in rotations if e.data.get("phase") == "done"}
     in_primary, in_mirror = listed["primary"], listed["mirror"]
     wrapped = {key: keystore.wrapped_by(blob) for key, blob in blobs.items()}
     held = None
-    if getattr(settings, "CATALYST_CUSTODY_WRAPPING_KEY", ""):  # the worker and web hold it; the check needs no decryption
+    if getattr(
+        settings, "CATALYST_CUSTODY_WRAPPING_KEY", ""
+    ):  # the worker and web hold it; the check needs no decryption
         try:
             held = keystore.wrapping_key()
         except keystore.KeyStoreError:
@@ -298,28 +448,67 @@ def custody_health() -> dict:
                 except keystore.KeyStoreError:
                     unwrap_failed += 1
     counts = {
-        "documents": found["documents"], "sealed": found["sealed"], "erased_documents": found["sealed_after_destruction"],
-        "keys_primary": len(in_primary), "keys_mirror": len(in_mirror),
-        "wrapping_key_mismatch": sum(1 for by in wrapped.values() if by and held is not None
-                                     and by != keystore.wrapping_key_id(held)),
+        "documents": found["documents"],
+        "sealed": found["sealed"],
+        "erased_documents": found["sealed_after_destruction"],
+        "keys_primary": len(in_primary),
+        "keys_mirror": len(in_mirror),
+        "wrapping_key_mismatch": sum(
+            1
+            for by in wrapped.values()
+            if by and held is not None and by != keystore.wrapping_key_id(held)
+        ),
         "key_lost": found["lost"] if journal_ok else 0,
-        "recovery_incomplete": sum(1 for ref in (in_primary ^ in_mirror) - destroyed
-                                   if settled((primary if ref in in_primary else mirror) / f"{ref}.key")),
-        "copies_differ": sum(1 for ref in in_primary & in_mirror if blobs[("primary", ref)] != blobs[("mirror", ref)]),
+        "recovery_incomplete": sum(
+            1
+            for ref in (in_primary ^ in_mirror) - destroyed
+            if settled((primary if ref in in_primary else mirror) / f"{ref}.key")
+        ),
+        "copies_differ": sum(
+            1
+            for ref in in_primary & in_mirror
+            if blobs[("primary", ref)] != blobs[("mirror", ref)]
+        ),
         "destroyed_still_present": len(((in_primary | in_mirror) & destroyed) - recent),
         "destroyed_without_erasure": unmatched,
         "in_the_clear": found["in_the_clear"] + found["plaintext_lingering"],
-        "orphans": (sum(1 for ref in (in_primary | in_mirror) - refs - destroyed
-                        if settled(primary / f"{ref}.key") and settled(mirror / f"{ref}.key"))
-                    + sum(1 for n in sealed_orphans if settled(storage.root() / n))) if journal_ok else 0,
-        "key_invalid": sum(1 for by in wrapped.values() if by is None) + unwrap_failed + stray,
-        "rotation_incomplete": len(begun - done) + int(len({by for by in wrapped.values() if by}) > 1),
-        "journal_unavailable": int(not journal_ok and found["journal"] != "not_configured"),
+        "orphans": (
+            sum(
+                1
+                for ref in (in_primary | in_mirror) - refs - destroyed
+                if settled(primary / f"{ref}.key") and settled(mirror / f"{ref}.key")
+            )
+            + sum(1 for n in sealed_orphans if settled(storage.root() / n))
+        )
+        if journal_ok
+        else 0,
+        "key_invalid": sum(1 for by in wrapped.values() if by is None)
+        + unwrap_failed
+        + stray,
+        "rotation_incomplete": len(begun - done)
+        + int(len({by for by in wrapped.values() if by}) > 1),
+        "journal_unavailable": int(
+            not journal_ok and found["journal"] != "not_configured"
+        ),
     }
-    paging = ("wrapping_key_mismatch", "key_lost", "recovery_incomplete", "copies_differ", "destroyed_still_present",
-              "destroyed_without_erasure", "in_the_clear", "orphans", "key_invalid", "rotation_incomplete",
-              "journal_unavailable")
-    return {"configured": True, **counts, "anomalies": [name for name in paging if counts[name]]}
+    paging = (
+        "wrapping_key_mismatch",
+        "key_lost",
+        "recovery_incomplete",
+        "copies_differ",
+        "destroyed_still_present",
+        "destroyed_without_erasure",
+        "in_the_clear",
+        "orphans",
+        "key_invalid",
+        "rotation_incomplete",
+        "journal_unavailable",
+    )
+    return {
+        "configured": True,
+        **counts,
+        "anomalies": [name for name in paging if counts[name]],
+    }
 
 
 def backup_health() -> dict:
@@ -329,14 +518,21 @@ def backup_health() -> dict:
     from erasure import registry
 
     blocked = settings.CATALYST_ENV in LIVE_ENVIRONMENTS and bool(registry.problems())
-    return {"registry_blocked": blocked, "anomalies": ["registry_blocked"] if blocked else []}
+    return {
+        "registry_blocked": blocked,
+        "anomalies": ["registry_blocked"] if blocked else [],
+    }
 
 
 # 9kg.51 (029 section 5.2): the waits that had no bound once the first-generation owner notices retired. Each class is
 # counted past its own threshold and its oldest age is printed; a class in CATALYST_HEALTH_AGED_WAITS_PAGE raises the
 # anomaly `aged_waits.<class>` (delivered by the alert floor as high), the others are audit only. Counts and ages
 # only: no identifier of any application, item, message or agreement is part of the report.
-STAGE_WAITS = {"assessing": "assessing", "awaiting_decision": "awaiting_decision", "on_hold": "on_hold"}
+STAGE_WAITS = {
+    "assessing": "assessing",
+    "awaiting_decision": "awaiting_decision",
+    "on_hold": "on_hold",
+}
 # A sent agreement still awaiting the applicant's signature, or the countersignature once the applicant signed.
 AWAITING_SIGNATURE = ("not_started", "partially_signed", "signing_complete_observed")
 # 9kg.57: the follow-ons a decision or the agreements hand-off leave held for the owner's release or a policy: the decline
@@ -354,9 +550,12 @@ def _stage_wait(stage: str):
 
     from applications.models import Application, ApplicationEvent
 
-    entered = ApplicationEvent.objects.filter(application=OuterRef("pk"), data__to=stage).order_by("-occurred_at", "-id")
-    return (Application.objects.filter(stage=stage)
-            .annotate(started_at=Coalesce(Subquery(entered.values("occurred_at")[:1]), "updated_at")))
+    entered = ApplicationEvent.objects.filter(
+        application=OuterRef("pk"), data__to=stage
+    ).order_by("-occurred_at", "-id")
+    return Application.objects.filter(stage=stage).annotate(
+        started_at=Coalesce(Subquery(entered.values("occurred_at")[:1]), "updated_at")
+    )
 
 
 def _waits() -> dict:
@@ -365,21 +564,49 @@ def _waits() -> dict:
     from correspondence.models import InboundMessage, StaffItem
     from workflow.models import AutomationPause
 
-    waits = {name: (_stage_wait(stage), "started_at") for name, stage in STAGE_WAITS.items()}
-    waits.update({
-        "open_staff_items": (StaffItem.objects.filter(status=StaffItem.Status.OPEN), "opened_at"),
-        "pauses": (AutomationPause.objects.filter(subject_type="application"), "created_at"),
-        "replies_awaiting_processing": (InboundMessage.objects.filter(status=InboundMessage.Status.AWAITING_PROCESSING),
-                                        "received_at"),
-        "issued_agreements": (AgreementInstance.objects.filter(replaced_at__isnull=True, issue_status="issued",
-                                                               signing_status__in=AWAITING_SIGNATURE), "updated_at"),
-        "provisioning_activation": (PendingAction.objects.filter(kind="provision_activate", status=PendingAction.Status.QUEUED),
-                                    "created_at"),
-        # From `updated_at`: when the action was created held or last returned to held (a refused `issue_nda` goes back
-        # to held); nothing else updates a held row.
-        "held_followons": (PendingAction.objects.filter(kind__in=HELD_FOLLOWONS, status=PendingAction.Status.HELD),
-                           "updated_at"),
-    })
+    waits = {
+        name: (_stage_wait(stage), "started_at") for name, stage in STAGE_WAITS.items()
+    }
+    waits.update(
+        {
+            "open_staff_items": (
+                StaffItem.objects.filter(status=StaffItem.Status.OPEN),
+                "opened_at",
+            ),
+            "pauses": (
+                AutomationPause.objects.filter(subject_type="application"),
+                "created_at",
+            ),
+            "replies_awaiting_processing": (
+                InboundMessage.objects.filter(
+                    status=InboundMessage.Status.AWAITING_PROCESSING
+                ),
+                "received_at",
+            ),
+            "issued_agreements": (
+                AgreementInstance.objects.filter(
+                    replaced_at__isnull=True,
+                    issue_status="issued",
+                    signing_status__in=AWAITING_SIGNATURE,
+                ),
+                "updated_at",
+            ),
+            "provisioning_activation": (
+                PendingAction.objects.filter(
+                    kind="provision_activate", status=PendingAction.Status.QUEUED
+                ),
+                "created_at",
+            ),
+            # From `updated_at`: when the action was created held or last returned to held (a refused `issue_nda` goes back
+            # to held); nothing else updates a held row.
+            "held_followons": (
+                PendingAction.objects.filter(
+                    kind__in=HELD_FOLLOWONS, status=PendingAction.Status.HELD
+                ),
+                "updated_at",
+            ),
+        }
+    )
     return waits
 
 
@@ -390,13 +617,32 @@ def aged_waits_health() -> dict:
         threshold = settings.CATALYST_HEALTH_AGED_WAIT_SECONDS[name]
         oldest = queryset.aggregate(m=Min(column))["m"]
         age = (now - oldest).total_seconds() if oldest else 0.0
-        aged = queryset.filter(**{f"{column}__lt": now - timedelta(seconds=threshold)}).count() if oldest else 0
-        report[name] = {"waiting": queryset.count(), "aged": aged, "oldest_seconds": int(age),
-                        "threshold_seconds": int(threshold), "pages": name in settings.CATALYST_HEALTH_AGED_WAITS_PAGE}
-        if name == "held_followons":  # which follow-on is waiting: kind names and counts, never an identifier
-            past = queryset.filter(**{f"{column}__lt": now - timedelta(seconds=threshold)})
-            report[name]["aged_by_kind"] = {kind: past.filter(kind=kind).count() for kind in HELD_FOLLOWONS}
-    report["anomalies"] = sorted(name for name, values in report.items() if values["aged"] and values["pages"])
+        aged = (
+            queryset.filter(
+                **{f"{column}__lt": now - timedelta(seconds=threshold)}
+            ).count()
+            if oldest
+            else 0
+        )
+        report[name] = {
+            "waiting": queryset.count(),
+            "aged": aged,
+            "oldest_seconds": int(age),
+            "threshold_seconds": int(threshold),
+            "pages": name in settings.CATALYST_HEALTH_AGED_WAITS_PAGE,
+        }
+        if (
+            name == "held_followons"
+        ):  # which follow-on is waiting: kind names and counts, never an identifier
+            past = queryset.filter(
+                **{f"{column}__lt": now - timedelta(seconds=threshold)}
+            )
+            report[name]["aged_by_kind"] = {
+                kind: past.filter(kind=kind).count() for kind in HELD_FOLLOWONS
+            }
+    report["anomalies"] = sorted(
+        name for name, values in report.items() if values["aged"] and values["pages"]
+    )
     return report
 
 
@@ -413,8 +659,11 @@ def decision_health() -> dict:
     configured = settings.CATALYST_QUALIFICATION_AUTHORITY == "explicit_permission"
     notice = notices.status("decline_notice")
     unusable = configured and not notices.servable(notice, settings.CATALYST_ENV)
-    return {"qualification_authority_configured": configured, "decline_notice": notice,
-            "anomalies": ["decline_notice_unapproved"] if unusable else []}
+    return {
+        "qualification_authority_configured": configured,
+        "decline_notice": notice,
+        "anomalies": ["decline_notice_unapproved"] if unusable else [],
+    }
 
 
 def intake_health() -> dict:
@@ -430,29 +679,58 @@ def intake_health() -> dict:
     # approved synthetic placeholder outside the draft environments) is an anomaly: the page is withheld and no
     # invitation can be issued until the owner approves real wording. Where a draft may be shown the page works, marked.
     notice = notices.status(notices.DATA_NOTICE)
-    withheld = settings.CATALYST_INTAKE_MODE == "invitation" and not notices.servable(notice, settings.CATALYST_ENV)
+    withheld = settings.CATALYST_INTAKE_MODE == "invitation" and not notices.servable(
+        notice, settings.CATALYST_ENV
+    )
     anomalies = ["data_notice_unapproved"] if withheld else []
     # 9kg.84: the provisional retention values lock real intake here (the page is withheld, no invitation is issued).
     locked = registry.intake_locked()
     anomalies += ["registry_provisional"] if locked else []
     # 9kg.80: the verification mail's state; in a live environment without approved real wording, intake is withheld.
-    anomalies += ["verification_template_unapproved"] if notices.verification_withheld() else []
+    anomalies += (
+        ["verification_template_unapproved"] if notices.verification_withheld() else []
+    )
     # bgl.5: with the separate receipt on, its state too (in "verification" mode the line above covers the receipt).
     anomalies += ["receipt_template_unapproved"] if notices.receipt_withheld() else []
-    return {"mode": settings.CATALYST_INTAKE_MODE, "client_identity": settings.CATALYST_CLIENT_IDENTITY,
-            "live_invitations": Invitation.objects.filter(LIVE).count(), "data_notice": notice,
-            "verification": notices.status(notices.verification_template()), "registry_provisional": locked,
-            "anomalies": anomalies}
+    return {
+        "mode": settings.CATALYST_INTAKE_MODE,
+        "client_identity": settings.CATALYST_CLIENT_IDENTITY,
+        "live_invitations": Invitation.objects.filter(LIVE).count(),
+        "data_notice": notice,
+        "verification": notices.status(notices.verification_template()),
+        "registry_provisional": locked,
+        "anomalies": anomalies,
+    }
 
 
 def report() -> dict:
-    from correspondence.health import collector_health, mail_behaviour_health, reminder_health, reply_health, send_health
+    from correspondence.health import (
+        collector_health,
+        mail_behaviour_health,
+        reminder_health,
+        reply_health,
+        send_health,
+    )
 
-    return {"worker": worker_health(), "queue": queue_health(), "agreements": agreement_health(),
-            "provisioning": provisioning_health(), "bounces": bounce_health(), "sends": send_health(),
-            "collector": collector_health(), "replies": reply_health(), "reminders": reminder_health(),
-            "mail": mail_behaviour_health(), "sessions": session_health(), "staff_roles": staff_role_health(),
-            "verification": verification_health(),
-            "journal": journal_health(),
-            "aged_waits": aged_waits_health(), "decision": decision_health(), "intake": intake_health(),
-            "erasure": erasure_health(), "backup": backup_health(), "custody": custody_health()}
+    return {
+        "worker": worker_health(),
+        "queue": queue_health(),
+        "agreements": agreement_health(),
+        "provisioning": provisioning_health(),
+        "bounces": bounce_health(),
+        "sends": send_health(),
+        "collector": collector_health(),
+        "replies": reply_health(),
+        "reminders": reminder_health(),
+        "mail": mail_behaviour_health(),
+        "sessions": session_health(),
+        "staff_roles": staff_role_health(),
+        "verification": verification_health(),
+        "journal": journal_health(),
+        "aged_waits": aged_waits_health(),
+        "decision": decision_health(),
+        "intake": intake_health(),
+        "erasure": erasure_health(),
+        "backup": backup_health(),
+        "custody": custody_health(),
+    }
