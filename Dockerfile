@@ -8,12 +8,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_
 # The pinned base includes apt 3.0.3. Fetch Debian's CVE-2026-109518 fix over
 # HTTPS with retries disabled while the vulnerable downloader is still in use.
 # Accept security successors from this stable suite; fail below the fixed floor.
+# The same step takes Debian's zlib1g 1+deb13u1 (CVE-2026-76844, CVE-2026-85091,
+# CVE-2026-27171), which no python:3.14-slim image carried on 2026-11-11; the
+# floor keeps the build honest when the base is next repinned.
 # The SBOM records exact installed versions and deployment pins the scanned image.
 RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
     && apt-get -o Acquire::Retries=0 update \
-    && apt-get -o Acquire::Retries=0 install --yes --no-install-recommends --only-upgrade apt libapt-pkg7.0 \
+    && apt-get -o Acquire::Retries=0 install --yes --no-install-recommends --only-upgrade apt libapt-pkg7.0 zlib1g \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' apt)" ge 3.0.4 \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libapt-pkg7.0)" ge 3.0.4 \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' zlib1g)" ge 1:1.3.dfsg+really1.3.1-1+deb13u1 \
     && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system --gid 10001 catalyst \
     && useradd --system --uid 10001 --gid catalyst --no-create-home --shell /usr/sbin/nologin catalyst
