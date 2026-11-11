@@ -1402,6 +1402,7 @@ P6_CASES = {
         "test_system_health::test_6b4_an_aged_hard_bounce_alerts_and_a_fresh_one_does_not",
         "test_system_health::test_6b4_agreement_and_custody_states_alert",
         "test_system_health::test_6b4_a_backlog_and_an_expired_lease_are_anomalies",
+        "test_system_health::test_6b4_a_due_automated_action_on_a_paused_subject_is_paused_due_not_a_backlog",
         "test_system_health::test_6b4_a_conflict_alerts_until_staff_resolve_it_then_the_system_is_healthy",
         "test_system_health::test_6b4_a_revocation_round_that_never_ran_is_reported",
         "test_system_health::test_6b4_an_unknown_mailbox_create_is_reported_until_staff_resolve_it",

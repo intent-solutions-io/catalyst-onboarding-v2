@@ -8,12 +8,12 @@ until POL-16 (P6-D-9). No applicant name, address, token or message text is ever
 from datetime import timedelta
 
 from django.conf import settings
-from django.db.models import Min
+from django.db.models import Exists, Min, OuterRef
 from django.db.models.functions import Now
 from django.utils import timezone
 
 from workflow import heartbeat
-from workflow.models import PendingAction
+from workflow.models import AutomationPause, PendingAction
 
 
 def worker_health() -> dict:
@@ -33,11 +33,27 @@ def worker_health() -> dict:
 
 def queue_health() -> dict:
     """The oldest action that is due and still queued (moved here from readiness, 6B.3), and running actions whose
-    lease ran out long ago (a worker that died mid-action without recovery)."""
+    lease ran out long ago (a worker that died mid-action without recovery).
+
+    A due action of an automated kind whose subject carries a staff pause is the pause's intent, not a backlog: the
+    claim deliberately skips it (ledger rule 1) until staff resume. Such rows are counted as `paused_due` and left
+    out of the age, so the backlog signal fires only for work the worker could take and has not."""
+    from workflow import ledger
+
     now = timezone.now()
-    oldest = PendingAction.objects.filter(
+    automated = [
+        kind for kind, handler in ledger.handlers().items() if handler.automated
+    ]
+    paused = AutomationPause.objects.filter(
+        subject_type=OuterRef("subject_type"), subject_id=OuterRef("subject_id")
+    )
+    due = PendingAction.objects.filter(
         status=PendingAction.Status.QUEUED, due_at__lte=Now()
-    ).aggregate(m=Min("due_at"))["m"]
+    ).annotate(paused=Exists(paused))
+    paused_due = due.filter(paused=True, kind__in=automated).count()
+    oldest = due.exclude(paused=True, kind__in=automated).aggregate(m=Min("due_at"))[
+        "m"
+    ]
     age = int((now - oldest).total_seconds()) if oldest else 0
     expired = PendingAction.objects.filter(
         status=PendingAction.Status.RUNNING,
@@ -51,6 +67,7 @@ def queue_health() -> dict:
         anomalies.append("expired_leases")
     return {
         "oldest_due_seconds": age,
+        "paused_due": paused_due,
         "expired_leases": expired,
         "anomalies": anomalies,
     }
