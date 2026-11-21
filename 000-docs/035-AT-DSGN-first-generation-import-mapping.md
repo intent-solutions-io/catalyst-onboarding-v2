@@ -511,3 +511,44 @@ historical approval, allowing an old envelope to finish against its original ver
 agreements select the current template and its approved company recipient slot, so a newer NDA
 with a company SIGNER can coexist with a User Agreement whose company slot is APPROVER.
 Executed agreements remain history; changing the current template does not reissue them.
+
+## 17. Existing members outside any case: attachment (dy7.5)
+
+Owner decision of 2026-11-21 on `catalyst-v2-211.7.6` ("attach the 25"): existing members who
+completed a User Agreement on the first generation's pilot or legacy signing path, outside any
+first-generation case, take part in v2 as active member cases. The import keeps their completed
+envelopes only as `ua_details_capture` records of no case, with the personal columns dropped
+(section 1), so v2 does not know them by address. The owner-run `catalyst_member_adopt`
+(`firstgen/adoption.py`) attaches them from a private file that lives only on the host.
+
+Per accepted entry, in one transaction: an application at `active` (contact not verified, so no
+v2 path mails them until staff verify the address); the member-on-file record through
+`applications.members`, so nobody signs again; a system automation pause; for an existing company
+mailbox, a live reservation and an `active` checklist provisioning request, as the import does for
+a mailbox the first generation created, so v2 never reserves or creates the name again (the
+mailbox is never read, created, adopted or changed: P5-D-5, P5-D-10); and one
+`adopted_existing_member` event, inserted without the save signal so not even a Twenty projection
+is queued. Nothing is sent, nothing is queued, and the import records stay unchanged.
+
+Refusals, each a code: the User Agreement envelope is not an unattached `ua_details_capture`
+record of the snapshot (`envelope_not_in_first_generation_snapshot`), belongs to an imported case
+(`envelope_attached_to_a_case`), is an agreement instance of v2 or was adopted already; the address
+already has an application (`address_known_to_v2`); a re-run of the same entry reports `unchanged`
+and a changed one is refused (`adopted_with_different_input`; label corrections go through
+`catalyst_member_on_file --correct`); the mailbox name is already reserved. The provider is not
+read: the V2 signing account cannot read first-generation envelopes (section 16).
+
+```text
+manage.py catalyst_member_adopt --input <private file, or - for standard input> --recorded-by "<who>" --dry-run
+manage.py catalyst_member_adopt --input <private file, or - for standard input> --recorded-by "<who>"
+```
+
+The file is `{"members": [...]}`; each entry has `email`, `display_name`,
+`user_agreement_envelope_id` and `user_agreement_version` (a plain label such as `ua-v2.4`), and
+optionally `nda_envelope_id` with `nda_version` and `mailbox_local_part` (the domain is
+`--mailbox-domain`, default `CATALYST_PROVISIONING_DOMAIN`). The report gives counts, the outcome
+of each entry by its index, refusal codes and public references, never an address, name or
+envelope id. Exit 0 when every entry is adopted or unchanged, 1 when one is refused. Erasing an
+attached person clears every row the attachment wrote (`erasure.catalog`); a later re-run of the
+same file would attach them again, so the owner removes an erased person from the file. Tests:
+`tests/test_member_adopt.py`.
