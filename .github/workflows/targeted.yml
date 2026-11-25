@@ -70,7 +70,7 @@ jobs:
             || { echo "::error::selection may contain only paths, node ids, pytest options and quoted expressions"; exit 1; }
 
       - name: Install test container tools
-        run: apk add --no-cache git bash coreutils openssl-4.0 tar zstd
+        run: apk add --no-cache git bash coreutils openssl-4.0 gnutar zstd libstdc++
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
