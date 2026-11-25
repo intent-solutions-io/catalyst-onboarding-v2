@@ -244,6 +244,11 @@ def adopt(
         ).exists()
     ):
         raise Refused("mailbox_already_reserved")
+    # A different contact address can still belong to an existing case. An exact
+    # name match is only a warning, never proof of identity; have staff reconcile
+    # the records rather than silently creating a second person.
+    if Application.objects.filter(display_name__iexact=entry.display_name).exists():
+        raise Refused("name_matches_existing_case_needs_review")
     app = Application.objects.create(
         email=entry.email,
         email_key=entry.key,

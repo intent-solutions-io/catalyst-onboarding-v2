@@ -535,8 +535,11 @@ record of the snapshot (`envelope_not_in_first_generation_snapshot`), belongs to
 (`envelope_attached_to_a_case`), is an agreement instance of v2 or was adopted already; the address
 already has an application (`address_known_to_v2`); a re-run of the same entry reports `unchanged`
 and a changed one is refused (`adopted_with_different_input`; label corrections go through
-`catalyst_member_on_file --correct`); the mailbox name is already reserved. The provider is not
-read: the V2 signing account cannot read first-generation envelopes (section 16).
+`catalyst_member_on_file --correct`); the mailbox name is already reserved; or the name matches
+an existing case, regardless of address (`name_matches_existing_case_needs_review`). A name
+match is a reason for manual identity review, not proof that the two entries are the same person.
+This check alone cannot detect aliases or all concurrent duplicates. The provider is not read:
+the V2 signing account cannot read first-generation envelopes (section 16).
 
 ```text
 manage.py catalyst_member_adopt --input <private file, or - for standard input> --recorded-by "<who>" --dry-run

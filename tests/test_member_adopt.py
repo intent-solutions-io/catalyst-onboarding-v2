@@ -547,8 +547,16 @@ def test_dy7_5_every_refusal_is_a_code_and_leaves_nothing_behind(
             "mailbox_already_reserved",
         ),
         (
-            entry(email=invited, envelope=OUTSIDE[2]),
+            entry(name="Another Invitee", email=invited, envelope=OUTSIDE[2]),
             "member_on_file_different_record_needs_correct",
+        ),
+        (
+            entry(
+                name=CASEY[0].upper(),
+                email="other-casey@example.test",
+                envelope=OUTSIDE[2],
+            ),
+            "name_matches_existing_case_needs_review",
         ),
     ]
     before = imported_records()
