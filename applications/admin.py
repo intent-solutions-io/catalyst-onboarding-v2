@@ -9,8 +9,8 @@ tokens, message bodies (not stored) and retention audit rows.
 
 from django.apps import apps
 from django.contrib import admin
-from django.db.models import Exists, OuterRef, Q
-from django.db.models.functions import Now
+from django.db.models import Exists, OuterRef, Q, Subquery, Value
+from django.db.models.functions import Concat, Now
 from django.urls import reverse
 from django.utils.html import format_html, format_html_join
 
@@ -18,7 +18,13 @@ from config.staff_admin import ReadOnlyModelAdmin, ReadOnlyTabularInline
 
 from . import countries, invitations, members, staff
 from .forms import INTEREST_LABELS
-from .models import Application, ApplicationEvent, ContactChallenge, SubmissionVersion, VersionAdoption
+from .models import (
+    Application,
+    ApplicationEvent,
+    ContactChallenge,
+    SubmissionVersion,
+    VersionAdoption,
+)
 
 
 class NeedsAttentionFilter(admin.SimpleListFilter):
@@ -36,14 +42,30 @@ class NeedsAttentionFilter(admin.SimpleListFilter):
 
 class VersionInline(ReadOnlyTabularInline):
     model = SubmissionVersion
-    fields = ("version_number", "trust", "origin", "name", "email", "reason", "answers", "received_at")
+    fields = (
+        "version_number",
+        "trust",
+        "origin",
+        "name",
+        "email",
+        "reason",
+        "answers",
+        "received_at",
+    )
     readonly_fields = fields
     ordering = ("version_number",)
     verbose_name = "submission version"
 
     def get_queryset(self, request):
-        return super().get_queryset(request).annotate(
-            adopted=Exists(VersionAdoption.objects.filter(submission_version=OuterRef("pk"))))
+        return (
+            super()
+            .get_queryset(request)
+            .annotate(
+                adopted=Exists(
+                    VersionAdoption.objects.filter(submission_version=OuterRef("pk"))
+                )
+            )
+        )
 
     @admin.display(description="trust")
     def trust(self, obj):
@@ -76,31 +98,77 @@ def describe_answers(fields: dict):
     education = fields.get("education") or []
     credentials = (fields.get("claims") or {}).get("credentials") or []
     rows = [
-        ("Country of residence", f"{countries.name(fields['residence_country'])} ({fields['residence_country']})"),
-        ("Phone", f"{fields.get('phone_e164', '')} (read for {countries.name(fields.get('phone_country', ''))})"),
-        ("Interest", INTEREST_LABELS.get(fields.get("interest_track"), str(fields.get("interest_track")))),
-        ("Marketing updates", f"{yes_no.get(fields.get('marketing_opt_in'), 'unknown')}"
-                              f" (wording {fields.get('marketing_wording_version', 'unrecorded')})"),
+        (
+            "Country of residence",
+            f"{countries.name(fields['residence_country'])} ({fields['residence_country']})",
+        ),
+        (
+            "Phone",
+            f"{fields.get('phone_e164', '')} (read for {countries.name(fields.get('phone_country', ''))})",
+        ),
+        (
+            "Interest",
+            INTEREST_LABELS.get(
+                fields.get("interest_track"), str(fields.get("interest_track"))
+            ),
+        ),
+        (
+            "Marketing updates",
+            f"{yes_no.get(fields.get('marketing_opt_in'), 'unknown')}"
+            f" (wording {fields.get('marketing_wording_version', 'unrecorded')})",
+        ),
         ("18 or older", yes_no.get(fields.get("age_attested"), "unknown")),
-        ("Education", "; ".join(f"{e.get('institution', '')}: {e.get('credential', '')}" for e in education)
-                      or ("none, by the applicant's tick" if fields.get("no_degree") else "none listed")),
-        ("Certifications", f"{len(credentials)} row(s), see the claims" if credentials
-                           else ("none, by the applicant's tick" if fields.get("no_certifications") else "none listed")),
-        ("Verification consent", f"{yes_no.get(fields.get('verification_consent'), 'unknown')}"
-                                 f" (wording {fields.get('verification_wording_version', 'unrecorded')})"),
+        (
+            "Education",
+            "; ".join(
+                f"{e.get('institution', '')}: {e.get('credential', '')}"
+                for e in education
+            )
+            or (
+                "none, by the applicant's tick"
+                if fields.get("no_degree")
+                else "none listed"
+            ),
+        ),
+        (
+            "Certifications",
+            f"{len(credentials)} row(s), see the claims"
+            if credentials
+            else (
+                "none, by the applicant's tick"
+                if fields.get("no_certifications")
+                else "none listed"
+            ),
+        ),
+        (
+            "Verification consent",
+            f"{yes_no.get(fields.get('verification_consent'), 'unknown')}"
+            f" (wording {fields.get('verification_wording_version', 'unrecorded')})",
+        ),
     ]
-    return format_html("<dl>{}</dl>", format_html_join("", "<dt>{}</dt><dd>{}</dd>", rows))
+    return format_html(
+        "<dl>{}</dl>", format_html_join("", "<dt>{}</dt><dd>{}</dd>", rows)
+    )
 
 
 class ChallengeInline(ReadOnlyTabularInline):
     model = ContactChallenge
-    fields = ("state", "email_at_issue", "created_at", "expires_at", "used_at", "superseded_at")  # never public_id
+    fields = (
+        "state",
+        "email_at_issue",
+        "created_at",
+        "expires_at",
+        "used_at",
+        "superseded_at",
+    )  # never public_id
     readonly_fields = fields
     ordering = ("created_at", "id")
     verbose_name = "verification challenge"
 
     def get_queryset(self, request):
-        return super().get_queryset(request).annotate(unexpired=Q(expires_at__gt=Now()))  # database clock
+        return (
+            super().get_queryset(request).annotate(unexpired=Q(expires_at__gt=Now()))
+        )  # database clock
 
     @admin.display(description="state")
     def state(self, obj):
@@ -122,81 +190,268 @@ class EventInline(ReadOnlyTabularInline):
     @admin.display(description="type")
     def entry(self, obj):
         if obj.kind == staff.ATTENTION:
-            return format_html('<strong class="errornote">{}</strong>', "Needs staff attention")
+            return format_html(
+                '<strong class="errornote">{}</strong>', "Needs staff attention"
+            )
         return "recorded step"
 
 
 class OutboundInline(ReadOnlyTabularInline):
-    model = apps.get_model("correspondence", "OutboundMessage")  # no import: correspondence depends on applications
-    fields = ("attempt_number", "template_key", "template_version", "recipient", "status", "sent_at")
+    model = apps.get_model(
+        "correspondence", "OutboundMessage"
+    )  # no import: correspondence depends on applications
+    fields = (
+        "attempt_number",
+        "template_key",
+        "template_version",
+        "recipient",
+        "status",
+        "sent_at",
+    )
     readonly_fields = fields
     ordering = ("pending_action_id", "attempt_number")
     verbose_name = "outbound message"
 
 
 # The permissions that open the per-application correspondence screen (correspondence/staff_views.py APPLICATION).
-CORRESPONDENCE_SCREEN_PERMISSIONS = ("approve_question", "withdraw_question", "pause_automation", "resume_automation",
-                                     "send_staff_message")
+CORRESPONDENCE_SCREEN_PERMISSIONS = (
+    "approve_question",
+    "withdraw_question",
+    "pause_automation",
+    "resume_automation",
+    "send_staff_message",
+)
 # The P4 agreement screen's permissions (agreements.staff_views.SCREEN; tests keep the two in step). Names only:
 # applications never imports a later app (ADR-01).
-AGREEMENT_SCREEN_PERMISSIONS = ("view_agreementinstance", "operate_agreements", "manage_agreements",
-                                "decide_uncertain_agreement", "resolve_agreement_integrity",
-                                "retrieve_agreement_document", "confirm_required_details")
+AGREEMENT_SCREEN_PERMISSIONS = (
+    "view_agreementinstance",
+    "operate_agreements",
+    "manage_agreements",
+    "decide_uncertain_agreement",
+    "resolve_agreement_integrity",
+    "retrieve_agreement_document",
+    "confirm_required_details",
+)
 # The P3 decision screen's permissions (assessments.staff_views.DECIDE; tests keep the two in step).
-DECISION_SCREEN_PERMISSIONS = ("review_evidence", "operate_evidence", "record_qualification_decision")
+DECISION_SCREEN_PERMISSIONS = (
+    "review_evidence",
+    "operate_evidence",
+    "record_qualification_decision",
+)
 # The P5 provisioning screen's permissions (provisioning.staff_views.SCREEN; tests keep the two in step).
-PROVISIONING_SCREEN_PERMISSIONS = ("view_provisioningrequest", "approve_provisioning", "operate_provisioning",
-                                   "close_application")
+PROVISIONING_SCREEN_PERMISSIONS = (
+    "view_provisioningrequest",
+    "approve_provisioning",
+    "operate_provisioning",
+    "close_application",
+)
 
 
 @admin.register(Application)
 class ApplicationAdmin(ReadOnlyModelAdmin):
-    list_display = ("display_name", "email", "reference", "stage", "contact_verified", "attention", "created_at")
+    list_display = (
+        "display_name",
+        "email",
+        "reference",
+        "stage",
+        "contact_verified",
+        "attention",
+        "created_at",
+    )
     list_filter = (NeedsAttentionFilter, "stage")
-    search_fields = ("email_key", "display_name", "reference")  # bgl.5: staff find a case by the reference it quotes
+    search_fields = (
+        "email_key",
+        "display_name",
+        "reference",
+    )  # bgl.5: staff find a case by the reference it quotes
     ordering = ("-created_at", "-id")
     fieldsets = [
-        ("Applicant", {"fields": ("reference", "display_name", "email", "stage", "created_at", "updated_at")}),
-        ("Status", {"fields": ("intake", "member_agreement", "contact_state", "adopted_version", "staff_attention", "next_step",
-                               "outstanding_work", "legacy_history")}),
+        (
+            "Applicant",
+            {
+                "fields": (
+                    "reference",
+                    "display_name",
+                    "email",
+                    "stage",
+                    "created_at",
+                    "updated_at",
+                )
+            },
+        ),
+        (
+            "Status",
+            {
+                "fields": (
+                    "intake",
+                    "member_agreement",
+                    "contact_state",
+                    "adopted_version",
+                    "staff_attention",
+                    "next_step",
+                    "outstanding_work",
+                    "legacy_history",
+                )
+            },
+        ),
     ]
-    readonly_fields = ("reference", "display_name", "email", "stage", "created_at", "updated_at",
-                       "intake", "member_agreement", "contact_state", "adopted_version", "staff_attention", "next_step",
-                       "outstanding_work", "legacy_history")
+    readonly_fields = (
+        "reference",
+        "display_name",
+        "email",
+        "stage",
+        "created_at",
+        "updated_at",
+        "intake",
+        "member_agreement",
+        "contact_state",
+        "adopted_version",
+        "staff_attention",
+        "next_step",
+        "outstanding_work",
+        "legacy_history",
+    )
     inlines = [VersionInline, ChallengeInline, EventInline, OutboundInline]
+
+    @staticmethod
+    def can_view_company_addresses(request):
+        user = request.user
+        return (
+            user.is_active
+            and user.is_staff
+            and not user.is_superuser
+            and any(
+                user.has_perm(f"provisioning.{name}")
+                for name in PROVISIONING_SCREEN_PERMISSIONS
+            )
+        )
+
+    def get_list_display(self, request):
+        columns = super().get_list_display(request)
+        if self.can_view_company_addresses(request):
+            return (*columns[:2], "company_address", *columns[2:])
+        return columns
+
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = super().get_fieldsets(request, obj)
+        if not self.can_view_company_addresses(request):
+            return fieldsets
+        return [*fieldsets, ("Company email", {"fields": ("company_address",)})]
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = super().get_readonly_fields(request, obj)
+        return (
+            (*fields, "company_address")
+            if self.can_view_company_addresses(request)
+            else fields
+        )
+
+    @admin.display(
+        description="Reserved company email", ordering="reserved_company_address"
+    )
+    def company_address(self, obj):
+        return obj.reserved_company_address or "Not reserved"
 
     @admin.display(description="Legacy case history")
     def legacy_history(self, obj):
-        case = apps.get_model("firstgen", "ImportedCase").objects.filter(application=obj).first()
+        case = (
+            apps.get_model("firstgen", "ImportedCase")
+            .objects.filter(application=obj)
+            .first()
+        )
         if case is None:
             return "Not imported from v1"
-        return format_html('<a href="{}">Review legacy questions, replies and agreement state ({})</a>',
-                           reverse("firstgen_staff:history", args=[obj.public_ref]), case.reference)
+        return format_html(
+            '<a href="{}">Review legacy questions, replies and agreement state ({})</a>',
+            reverse("firstgen_staff:history", args=[obj.public_ref]),
+            case.reference,
+        )
 
     def get_queryset(self, request):
-        return super().get_queryset(request).annotate(needs_attention=staff.attention_q())
+        queryset = (
+            super().get_queryset(request).annotate(needs_attention=staff.attention_q())
+        )
+        if self.can_view_company_addresses(request):
+            reservation = (
+                apps.get_model("provisioning", "AddressReservation")
+                .objects.filter(application_id=OuterRef("pk"), released_at__isnull=True)
+                .order_by("-created_at", "-pk")
+                .annotate(address=Concat("local_part", Value("@"), "domain"))
+            )
+            queryset = queryset.annotate(
+                reserved_company_address=Subquery(reservation.values("address")[:1])
+            )
+        return queryset
+
+    def get_search_results(self, request, queryset, search_term):
+        results, may_have_duplicates = super().get_search_results(
+            request, queryset, search_term
+        )
+        if search_term and self.can_view_company_addresses(request):
+            results = results | queryset.filter(
+                reserved_company_address__icontains=search_term.strip()
+            )
+        return results, may_have_duplicates
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         """The dossier links to the correspondence staff screen only for a user who could open it (P2 closeout).
         The link confers nothing: that screen checks the same permissions. Permission names, not imports, keep
         this app independent of correspondence (003 ADR-01)."""
         user = request.user
-        allowed = user.is_active and not user.is_superuser and any(
-            user.has_perm(f"correspondence.{name}") for name in CORRESPONDENCE_SCREEN_PERMISSIONS)
-        agreements_allowed = user.is_active and user.is_staff and not user.is_superuser and any(
-            user.has_perm(f"agreements.{name}") for name in AGREEMENT_SCREEN_PERMISSIONS)
-        provisioning_allowed = user.is_active and user.is_staff and not user.is_superuser and any(
-            user.has_perm(f"provisioning.{name}") for name in PROVISIONING_SCREEN_PERMISSIONS)
-        templates_allowed = user.is_active and user.is_staff and not user.is_superuser and user.has_perm(
-            "agreements.approve_agreement_template")  # 9kg.47: the template screen (agreements.staff_views.TEMPLATES)
-        decision_allowed = user.is_active and user.is_staff and not user.is_superuser and any(
-            user.has_perm(f"assessments.{name}") for name in DECISION_SCREEN_PERMISSIONS)  # 9kg.50: the decision screen
-        return super().changeform_view(request, object_id, form_url, {**(extra_context or {}),
-                                                                      "correspondence_link": allowed,
-                                                                      "agreements_link": agreements_allowed,
-                                                                      "provisioning_link": provisioning_allowed,
-                                                                      "agreement_templates_link": templates_allowed,
-                                                                      "decision_link": decision_allowed})
+        allowed = (
+            user.is_active
+            and not user.is_superuser
+            and any(
+                user.has_perm(f"correspondence.{name}")
+                for name in CORRESPONDENCE_SCREEN_PERMISSIONS
+            )
+        )
+        agreements_allowed = (
+            user.is_active
+            and user.is_staff
+            and not user.is_superuser
+            and any(
+                user.has_perm(f"agreements.{name}")
+                for name in AGREEMENT_SCREEN_PERMISSIONS
+            )
+        )
+        provisioning_allowed = (
+            user.is_active
+            and user.is_staff
+            and not user.is_superuser
+            and any(
+                user.has_perm(f"provisioning.{name}")
+                for name in PROVISIONING_SCREEN_PERMISSIONS
+            )
+        )
+        templates_allowed = (
+            user.is_active
+            and user.is_staff
+            and not user.is_superuser
+            and user.has_perm("agreements.approve_agreement_template")
+        )  # 9kg.47: the template screen (agreements.staff_views.TEMPLATES)
+        decision_allowed = (
+            user.is_active
+            and user.is_staff
+            and not user.is_superuser
+            and any(
+                user.has_perm(f"assessments.{name}")
+                for name in DECISION_SCREEN_PERMISSIONS
+            )
+        )  # 9kg.50: the decision screen
+        return super().changeform_view(
+            request,
+            object_id,
+            form_url,
+            {
+                **(extra_context or {}),
+                "correspondence_link": allowed,
+                "agreements_link": agreements_allowed,
+                "provisioning_link": provisioning_allowed,
+                "agreement_templates_link": templates_allowed,
+                "decision_link": decision_allowed,
+            },
+        )
 
     @admin.display(boolean=True, description="contact verified")
     def contact_verified(self, obj):
@@ -204,7 +459,13 @@ class ApplicationAdmin(ReadOnlyModelAdmin):
 
     @admin.display(description="staff attention", ordering="needs_attention")
     def attention(self, obj):
-        return format_html('<strong class="errornote">{}</strong>', "Needs staff attention") if obj.needs_attention else "-"
+        return (
+            format_html(
+                '<strong class="errornote">{}</strong>', "Needs staff attention"
+            )
+            if obj.needs_attention
+            else "-"
+        )
 
     @admin.display(description="intake mode")
     def intake(self, obj):
@@ -233,19 +494,42 @@ class ApplicationAdmin(ReadOnlyModelAdmin):
         items = staff.attention_items(obj)
         if not items:
             return "none"
-        return format_html_join("", '<p><strong class="errornote">Needs staff attention</strong> {} ({} UTC)</p>',
-                                ((staff.describe_attention(e), f"{e.opened_at:%Y-%m-%d %H:%M:%S}") for e in items))
+        return format_html_join(
+            "",
+            '<p><strong class="errornote">Needs staff attention</strong> {} ({} UTC)</p>',
+            (
+                (staff.describe_attention(e), f"{e.opened_at:%Y-%m-%d %H:%M:%S}")
+                for e in items
+            ),
+        )
 
     @admin.display(description="next responsible party")
     def next_step(self, obj):
-        return format_html_join("", "<p>{}<strong>{}</strong>: {}</p>", (
-            ("Needs staff attention. " if s.attention else "", s.party, s.text) for s in staff.next_steps(obj)))
+        return format_html_join(
+            "",
+            "<p>{}<strong>{}</strong>: {}</p>",
+            (
+                ("Needs staff attention. " if s.attention else "", s.party, s.text)
+                for s in staff.next_steps(obj)
+            ),
+        )
 
     @admin.display(description="outstanding and completed work")
     def outstanding_work(self, obj):
         actions = staff.actions_for(obj)
         if not actions:
             return "none"
-        return format_html_join("", "<p>{}: <strong>{}</strong>, attempts {} of {}{}</p>", (
-            (a.kind, staff.describe_status(a), a.attempts, a.max_attempts, f"; last error: {a.last_error}" if a.last_error else "")
-            for a in actions))
+        return format_html_join(
+            "",
+            "<p>{}: <strong>{}</strong>, attempts {} of {}{}</p>",
+            (
+                (
+                    a.kind,
+                    staff.describe_status(a),
+                    a.attempts,
+                    a.max_attempts,
+                    f"; last error: {a.last_error}" if a.last_error else "",
+                )
+                for a in actions
+            ),
+        )
