@@ -1171,6 +1171,8 @@ P5_CASES = {
     "TEST-P5-19": [
         "test_provisioning_screen::test_p5_19_only_holders_of_a_provisioning_permission_open_the_screen_and_a_superuser_is_refused",
         "test_provisioning_screen::test_the_dossier_link_and_the_provisioning_screen_use_the_same_permissions",
+        "test_provisioning_screen::test_application_directory_shows_and_searches_reserved_company_email_only_for_authorized_staff",
+        "test_provisioning_screen::test_application_directory_omits_released_reservations",
         "test_provisioning_screen::test_p5_19_the_screen_shows_each_phase_the_next_action_and_its_owner",
         "test_provisioning_screen::test_p5_19_approving_through_the_screen_needs_csrf_and_the_digest_shown",
         "test_provisioning_screen::test_p5_19_a_refusal_keeps_what_was_typed_and_an_unknown_action_is_not_found",
