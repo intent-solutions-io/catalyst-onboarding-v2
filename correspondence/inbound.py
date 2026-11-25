@@ -19,6 +19,7 @@ Synthetic only.
 Collection never marks a question answered and never cancels a reminder (J-07).
 """
 
+import hashlib
 import logging
 import time
 from datetime import timedelta
@@ -49,6 +50,7 @@ from .models import (
     OutboundMessage,
     Question,
     QuestionReplyLink,
+    StaffItem,
 )
 from .common import Refused
 from .rendering import TemplateRefused, frozen_html
@@ -61,7 +63,7 @@ from .messages import (
     verified_address,
 )
 from .scheduling import sync_reminders
-from .staff_items import open_item
+from .staff_items import open_item, resolve_item
 from . import lapse
 
 logger = logging.getLogger(__name__)
@@ -468,10 +470,8 @@ class Collect:
 
         def write():
             failures = cursor.consecutive_failures + 1
-            if (
-                code in BLOCKING
-                or failures >= settings.CATALYST_MAIL_COLLECT_FAILURE_LIMIT
-            ):
+            at_limit = failures >= settings.CATALYST_MAIL_COLLECT_FAILURE_LIMIT
+            if code in BLOCKING or (at_limit and code != "unreachable"):
                 MailboxCursor.objects.filter(pk=cursor.pk).update(
                     state=State.BLOCKED,
                     blocked_reason=code,
@@ -491,7 +491,10 @@ class Collect:
                     consecutive_failures=failures,
                     pass_number=n + 1,
                 )
-                enqueue_pass(cursor, n + 1, settings.CATALYST_MAIL_POLL_SECONDS)
+                delay = settings.CATALYST_MAIL_POLL_SECONDS
+                if at_limit:
+                    delay = max(delay, 300)
+                enqueue_pass(cursor, n + 1, delay)
 
         ledger.finish(
             claim, self, status=Status.DONE, error=f"mailbox:{code}", write=write
@@ -553,6 +556,20 @@ class Collect:
             except (MailboxError, *NETWORK_ERRORS) as exc:
                 self._blocked_or_backoff(claim, cursor, classify(exc).code)
                 return
+            if cursor.blocked_reason == "unreachable":
+                # Bind the provider's read-only snapshot to an independently comparable
+                # set of durable locations. Never log headers, addresses or bodies.
+                eligible = [str(uid) for uid in uids if uid <= target]
+                digest = hashlib.sha256(",".join(eligible).encode("ascii")).hexdigest()
+                logger.warning(
+                    "mailbox recovery snapshot uidvalidity=%d after_uid=%d "
+                    "through_uid=%d eligible=%d uid_set_sha256=%s",
+                    validity,
+                    cursor.last_uid,
+                    target,
+                    len(eligible),
+                    digest,
+                )
             if len(uids) > settings.CATALYST_MAIL_BATCH_SIZE:
                 uids, complete = uids[: settings.CATALYST_MAIL_BATCH_SIZE], False
             for uid in uids:
@@ -606,6 +623,20 @@ class Collect:
                     complete_through_at=pass_started_at,
                     state=State.OK,
                 )
+                if cursor.blocked_reason == "unreachable":
+                    fields["blocked_reason"] = ""
+                    for item in StaffItem.objects.select_for_update().filter(
+                        status="open",
+                        reason_code="collector_blocked",
+                        dedupe_key=f"cursor:{cursor.public_id}",
+                    ):
+                        resolve_item(
+                            item,
+                            code="mailbox_caught_up",
+                            actor_ref="system:collect",
+                            actor_type=ApplicationEvent.ActorType.SYSTEM,
+                            effects={"cursor": str(cursor.public_id)},
+                        )
             MailboxCursor.objects.filter(pk=cursor.pk).update(**fields)
             enqueue_pass(cursor, n + 1, settings.CATALYST_MAIL_POLL_SECONDS)
 

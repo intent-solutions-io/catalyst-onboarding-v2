@@ -342,7 +342,8 @@ P2_CASES = {
     ],
     "TEST-P2-23": [
         "test_inbound::test_p2_23_an_authentication_failure_blocks_without_a_retry_chain_and_only_restart_resumes",
-        "test_inbound::test_p2_23_an_unreachable_server_backs_off_then_blocks_at_the_bound",
+        "test_inbound::test_p2_23_release_recovers_saved_network_outage_once",
+        "test_inbound::test_p2_23_an_unreachable_server_backs_off_then_collects_the_backlog",
         "test_inbound::test_p2_23_collected_content_never_reaches_logs_items_events_or_actions",
     ],
     "TEST-P2-24": [

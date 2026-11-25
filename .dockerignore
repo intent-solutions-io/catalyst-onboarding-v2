@@ -14,6 +14,7 @@
 !provisioning/
 !workflow/
 !scripts/provision_db_roles.py
+!scripts/install_python_runtime.sh
 !tests/__init__.py
 !tests/mxroute_fake.py
 !tests/documenso_fake.py
