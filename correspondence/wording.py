@@ -14,6 +14,16 @@ What each sentence rests on:
   estate's backup record states it (borg prune keeps up to six monthly archives; the home-server snapshots are kept
   until pruned), and a restore re-applies every erasure (the replay, PR #103);
 - what remains after erasure: "a pseudonymous record" (033 Q1, never "anonymized").
+
+Two applicant notices follow, worded by the owner and approved in session on 2026-11-07 (D-55); the seed command adds
+them as drafts like the rest, and a live environment serves them only after the owner approves each version on the
+template screen. Both greet by first name only (the version declares `first_name`, derived from the display name by
+correspondence.rendering.fit_greeting) and carry no other variable, so no reason, rationale or model output can reach
+the applicant:
+- the decline notice (`decline_notice`, assessments.decline): no reason, the twelve-month retention (033 Q1, R1) and the
+  two public policy pages;
+- the still-in-review note (`hold_notice`, assessments.hold): once, after ten business days on hold, behind the
+  default-off CATALYST_HOLD_NOTICE_ENABLED.
 """
 
 DATA_NOTICE_SUBJECT = "How your information is handled"
@@ -59,9 +69,35 @@ VERIFICATION_BODY = (
     "The link works once and expires after 24 hours. If it was not you, ignore this message or reply to tell us.\n"
 )
 
+DECLINE_NOTICE_SUBJECT = "Your Intent Solutions access request"
+DECLINE_NOTICE_BODY = (
+    "Hello $first_name,\n\n"
+    "Thanks for your request to join the Intent Solutions practitioner community. We are not able to advance it right "
+    "now. We keep requests on file for twelve months and then delete them; if anything changes on your side, reply to "
+    "this email. Our privacy and data-retention notices are at intentsolutions.io/privacy/ and "
+    "intentsolutions.io/data-retention/.\n"
+)
+
+HOLD_NOTICE_SUBJECT = "Your Intent Solutions access request: still in review"
+HOLD_NOTICE_BODY = (
+    "Hello $first_name,\n\n"
+    "Your request is still in review; no action is needed from you. We will write when there is a decision. If you "
+    "have a question, reply to this email.\n"
+)
+
 # key -> (subject, body, variables)
 REAL = {
     "data_notice": (DATA_NOTICE_SUBJECT, DATA_NOTICE_BODY, []),
     "invitation": (INVITATION_SUBJECT, INVITATION_BODY, ["notice"]),
     "verification_invitation": (VERIFICATION_SUBJECT, VERIFICATION_BODY, ["link"]),
+    "decline_notice": (
+        DECLINE_NOTICE_SUBJECT,
+        DECLINE_NOTICE_BODY,
+        ["first_name"],
+    ),  # D-55
+    "hold_notice": (
+        HOLD_NOTICE_SUBJECT,
+        HOLD_NOTICE_BODY,
+        ["first_name"],
+    ),  # D-55, bgl.24
 }

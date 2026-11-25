@@ -195,11 +195,19 @@ def test_9kg_34_nothing_new_is_stored_in_the_clear_and_a_live_environment_stores
     )
     custody_keys(settings, tmp_path)
     settings.CATALYST_ENV = "production"
+    assert (
+        custody_policy.problems() == []
+    )  # ratified deployment policy; provisioning is a separate act
+    monkeypatch.setattr(
+        custody_policy,
+        "DECISION",
+        {name: custody_policy.UNDECIDED for name in custody_policy.ROWS},
+    )
     with pytest.raises(storage.StorageError, match="custody_undecided"):
         storage.write(b"%PDF-1.7 synthetic")
     assert (
         "custody.location:undecided" in custody_policy.problems()
-    )  # the shipped decision is open
+    )  # a missing decision still refuses custody
     monkeypatch.setattr(
         custody_policy,
         "DECISION",
@@ -422,11 +430,16 @@ def test_9kg_34_key_recovery_rebuilds_a_lost_directory_from_its_copy_and_never_b
         keystore.create()
     mirror.chmod(0o700)
     assert len(keystore.listing()[0]) == 2
-    # The holder and the time bound are the owner's rows (211.7.9), shipped undecided.
+    # Missing recovery decisions remain a refusal even after the deployment policy is ratified.
+    incomplete = {
+        **custody_policy.current(),
+        "recovery_holder": "",
+        "recovery_time_bound": "",
+    }
     assert {
         "custody.recovery_holder:undecided",
         "custody.recovery_time_bound:undecided",
-    } <= set(custody_policy.problems())
+    } <= set(custody_policy.problems(incomplete))
 
 
 # --- migration of documents stored in the clear --------------------------------------------------------------------
@@ -765,6 +778,11 @@ def test_9kg_34_the_start_up_guards_check_the_wrapping_key_the_key_directories_a
         == []
     )
     repository = Path(guards.__file__).resolve().parent.parent
+    monkeypatch.setattr(
+        custody_policy,
+        "DECISION",
+        {name: custody_policy.UNDECIDED for name in custody_policy.ROWS},
+    )
     for change, kind, expected in (
         ({"CATALYST_CUSTODY_WRAPPING_KEY": "ab" * 16}, "worker", "64 lower-case hex"),
         ({"CATALYST_CUSTODY_WRAPPING_KEY": "AB" * 32}, "worker", "64 lower-case hex"),

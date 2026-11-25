@@ -18,6 +18,24 @@ The overlay requires the separate custody directories and per-process secret fil
 named in the YAML. An absent profile retains the base configuration; a wrong digest,
 unknown setting or invalid provider target refuses startup.
 
+## Public evidence sources
+
+Add `CATALYST_EVIDENCE_ALLOWED_HOSTS` to the reviewed worker profile for the exact
+public hosts that approved evidence-source definitions may fetch. Each source still
+requires its own recorded approval, path prefix, content types and redirect list.
+Private addresses, estate hosts, fixture addresses and custom trust stores remain refused.
+
+Include `evidence.compose.yaml` for the isolated fetcher. Set
+`CATALYST_EVIDENCE_PARITY_CONFIG` and `CATALYST_EVIDENCE_PARITY_SHA256` to a separate
+digest-bound profile containing **only** `CATALYST_EVIDENCE_ALLOWED_HOSTS`, with the
+same host list. The fetcher rejects profiles containing model or other provider settings;
+it receives no provider credentials or custody keys. Its existing egress proxy remains
+mandatory, with TLS verification and address checks on every fetch and redirect.
+
+Before enabling the overlay, populate the operator's existing egress deny file with
+the estate's current domains. The enabled egress healthcheck refuses an empty or broken
+deny file. Verify a bounded approved public fetch before opening production intake.
+
 ## Staff certificates
 
 For a staff host with an existing certificate, include `staff-tls.compose.yaml` after
@@ -154,3 +172,91 @@ production credentials must not gain authority over them. A lineage mismatch or 
 tail requires recovery from the receiver, or the existing explicit accepted-loss and
 rebaseline procedure; no automatic rebaseline is provided here. Full off-host loss,
 restore and alert drills remain deployment evidence, not claims made by unit tests.
+
+### Restricted SSH transport
+
+`workflow.journal_gateway` supplies the source gateway and receiver stream decoder.
+Its version-one wire format is one JSON packet line followed by the exact journal
+bytes. Metadata is limited to 4096 bytes; the journal has no transport size quota.
+No remote filename or archive member is accepted. The full chain and digest are
+checked before receiver staging changes, then the existing receive protocol persists
+and reads back the independent copy before returning a receipt.
+
+Install a dedicated source SSH key with `restrict` and a root-owned forced command.
+The receiver alone holds the private key. The login must have no Docker-group access,
+general sudo, writable wrapper/configuration, forwarding or other unrestricted key.
+The forced command passes `SSH_ORIGINAL_COMMAND` as **one quoted operation argument**;
+it must never evaluate it or use it as a container command. Only the exact strings
+`export-v1` and `ack-v1` are accepted. Paths, image digest, container user and mounts
+are fixed by the operator-owned wrapper, not by the SSH request or client environment.
+
+The wrapper's fixed container invocation has this shape (replace the operator inputs
+when provisioning; this is not an installation command):
+
+```bash
+# Wrapper-owned constants: approved image digest, journal volume, private staging path,
+# and the uid:gid allowed to access only those mounts. No production env/secrets file.
+exec /usr/bin/timeout --kill-after=5s 120s /usr/bin/docker run --rm -i \
+  --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+  --user "$JOURNAL_UID_GID" --entrypoint python \
+  --mount "type=volume,src=$JOURNAL_VOLUME,dst=/journal" \
+  --mount "type=bind,src=$SOURCE_STAGE,dst=/stage" \
+  "$PINNED_IMAGE" -m workflow.journal_gateway source \
+  --journal /journal --stage /stage --operation="${SSH_ORIGINAL_COMMAND-}"
+```
+
+Provision the source stage as described above. The gateway loads no production
+settings, opens no database and needs no provider or custody secret. An SSH transport
+timeout must also terminate/clean its specific container; do not rely on killing the
+Docker client alone to stop a daemon-managed container. The deployed wrapper must
+use a unique container identity and bounded cleanup for that invocation.
+
+On the receiver, precreate private, disjoint `/transfer` and `/copy` directories in
+the isolated receiver container. Provision both once using the existing standalone
+command (the reversed second invocation provisions staging, not another live journal):
+
+```bash
+python -m workflow.journal_pull --source /transfer --to /copy --provision
+python -m workflow.journal_pull --source /copy --to /transfer --provision
+```
+
+For each serialized receiver cycle:
+
+1. Pin the source host key, use the dedicated identity, batch mode and disabled
+   forwarding. Request exactly `export-v1` over SSH and feed its stdout to the
+   network-isolated receiver container's
+   `python -m workflow.journal_gateway receive --stage /transfer --to /copy`.
+2. Require **both** SSH and the receiver process to exit successfully (`pipefail` if
+   piping). Save this invocation's returned receipt privately; never substitute a
+   previous receipt when either process fails. A partial or corrupt stream cannot
+   replace the receiver's copy. A source failure after emitting complete bytes may
+   leave a valid copy, but still must not trigger acknowledgment from a failed cycle.
+3. Only then request exactly `ack-v1`, sending that receipt on stdin and closing stdin.
+   Require a successful source response. Failed acknowledgment leaves a durable
+   receiver copy and the source alert outstanding; the next complete cycle may retry.
+
+Keep a receiver-side lock across export, persistence and acknowledgment, and retain
+the five-minute cadence and independent failure monitoring above. Local protocol
+tests do not establish off-host custody, SSH restrictions, timer operation or recovery.
+Those require the independently controlled destination and live host acceptance.
+
+## Local alert rehearsal
+
+Run `CATALYST_STACK_ENV=production bash scripts/alert_drill.sh` on the development
+host to exercise the existing health and stale-check adapters against the production
+image and Compose definition. Omitting the variable retains the staging drill.
+Both modes refuse remote Docker contexts, a nonlocal daemon, and an existing production
+stack or retained production journal before creating resources.
+
+The production run uses synthetic credentials, loopback listeners and a separately
+named, ownership-labelled external journal volume. It renders all required Compose
+profiles, trusts only its local proxy's CA for the production probe, and verifies that
+the unapproved intake answers 503 over valid TLS. Existing policy and unshipped-journal
+warnings remain visible; worker recovery must return to that exact baseline. Unknown
+baseline faults fail the run. Worker loss, overdue work, unresolved bounces, stopped
+monitoring and content-free alert output are exercised using the recording stub.
+
+This is local rehearsal evidence. No notification is delivered, no production timer is
+installed, and no off-host recovery is demonstrated. Those checks remain open in
+`catalyst-v2-9kg.28` and `catalyst-v2-9kg.78.4`; production restore and deploy drills also
+remain unfinished. A passing local drill must not close these live acceptance gates.

@@ -10,11 +10,16 @@ It fails closed: legitimate technical wording ("token", "wallet") may be refused
 import re
 import unicodedata
 
-EMAIL = re.compile(r"(?:mailto:)?[\w.+-]{1,64}\s*(?:@|\(at\)|\[at\]|\s+at\s+)\s*[\w-]{1,63}"
-                   r"(?:\s*(?:\.|\(dot\)|\[dot\]|\s+dot\s+)\s*[\w-]{1,63}){1,6}", re.I)
+EMAIL = re.compile(
+    r"(?:mailto:)?[\w.+-]{1,64}\s*(?:@|\(at\)|\[at\]|\s+at\s+)\s*[\w-]{1,63}"
+    r"(?:\s*(?:\.|\(dot\)|\[dot\]|\s+dot\s+)\s*[\w-]{1,63}){1,6}",
+    re.I,
+)
+# Scan each domain token once; word boundaries also occur after hyphens and rescan suffixes.
 UNSAFE_TEXT = re.compile(
-    r"https?://|www\.|mailto:|javascript:|data:|\]\(|<[a-z/!?]|@|\b[a-z0-9-]+\.(com|org|net|io|dev|app|ai|co|ly|me|sh|fr|ca|in|us|eu|tv|cloud|tech|test)\b",
-    re.I)
+    r"https?://|www\.|mailto:|javascript:|data:|\]\(|<[a-z/!?]|@|(?<![a-z0-9-])[a-z0-9-]+\.(com|org|net|io|dev|app|ai|co|ly|me|sh|fr|ca|in|us|eu|tv|cloud|tech|test)\b",
+    re.I,
+)
 NUMBER = re.compile(r"\+?\d[\d ()./-]{6,24}\d")
 REFUSED_QUESTION = re.compile(
     r"\b(pass(word|phrase|code)\w*|credential\w*|log-?in\w*|sign-?in\w*|api[ _-]?keys?|ssh[ _-]?keys?|private[ _-]?keys?"
@@ -25,22 +30,38 @@ REFUSED_QUESTION = re.compile(
     r"|pregnan\w*|famil\w*|married|marital|children|home[ _-]?address|address|phone|ethnic\w*|race|sexual\w*"
     r"|source[ _-]?code|customer[ _-]?(lists?|data|names?)|client[ _-]?(data|secrets?|names?|lists?)|confidential\w*"
     r"|nda|contracts?|proprietary|pass[ _-]?words?|credit[ _-]?cards?|cvv|visas?|immigration\w*|gender\w*"
-    r"|politic\w*|union\w*|criminal\w*|tax\w*)\b", re.I)
+    r"|politic\w*|union\w*|criminal\w*|tax\w*)\b",
+    re.I,
+)
 _TYPOGRAPHY = str.maketrans("‘’“”–—", "''\"\"--")
 
 
 def unsafe(text: str) -> bool:
     """A link, contact detail, markup or control character in free text."""
-    phone = any(sum(ch.isdigit() for ch in m.group(0)) >= 9 for m in NUMBER.finditer(text))  # not a year range
-    return phone or bool(UNSAFE_TEXT.search(text)) or any(
-        unicodedata.category(ch) in ("Cc", "Cf", "Co", "Cs") for ch in text if ch not in "\n\t")
+    phone = any(
+        sum(ch.isdigit() for ch in m.group(0)) >= 9 for m in NUMBER.finditer(text)
+    )  # not a year range
+    return (
+        phone
+        or bool(UNSAFE_TEXT.search(text))
+        or any(
+            unicodedata.category(ch) in ("Cc", "Cf", "Co", "Cs")
+            for ch in text
+            if ch not in "\n\t"
+        )
+    )
 
 
 def question_problems(text: str) -> list[str]:
     """Reason codes; empty means the question may be stored for approval."""
     if not text.strip():
         return ["question_empty"]
-    if unsafe(text) or EMAIL.search(text) or REFUSED_QUESTION.search(text) or not text.translate(_TYPOGRAPHY).isascii():
+    if (
+        unsafe(text)
+        or EMAIL.search(text)
+        or REFUSED_QUESTION.search(text)
+        or not text.translate(_TYPOGRAPHY).isascii()
+    ):
         return ["question_refused"]
     return []
 

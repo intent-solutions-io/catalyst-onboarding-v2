@@ -18,6 +18,7 @@ docker image inspect "$target" >/dev/null 2>&1 || fail "refused: $target is not 
 label="$(image_label "$target")" || fail "refused: cannot read $target's commit label"
 serving="$( [ -s "$POINTER" ] && cat "$POINTER" || echo - )"
 role="$(operation gate "$target" "$label" "$serving")" || fail "refused: deploy $CATALYST_DEPLOY_ID does not allow switching to $target; nothing changed"
+check_journal_layout "$target" >&2
 # The record before this switch, plus the target's own marks: a revert away from the target must still know them.
 recorded="$(recorded_forward_only)" || exit 1
 target_fwd="$(in_image "$target" forward-only)" || fail "refused: cannot read $target's forward-only list"

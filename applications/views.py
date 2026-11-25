@@ -56,7 +56,9 @@ def _data_notice():
     """9kg.52: in invitation mode the page carries the data notice from its approved template; with none approved, a
     local or synthetic environment shows the draft with its marker and a live environment withholds the page (the
     one 503 page, a reason code in the log). The open intake is the S1 intake unchanged."""
-    if not invitations.required():
+    from config import parity
+
+    if not invitations.required() and not parity.automated_admission_enabled(settings):
         return None
     return notices.data_notice()
 
@@ -82,10 +84,14 @@ def request_access(request):
     if registry.intake_locked():  # 9kg.84: no real intake while POL-10 is provisional
         _log_withheld("registry_provisional")
         return render(request, TRY_AGAIN, status=503)
-    if notices.verification_withheld():  # 9kg.80: no applicant is accepted who cannot be sent the verification mail
+    if (
+        notices.verification_withheld()
+    ):  # 9kg.80: no applicant is accepted who cannot be sent the verification mail
         _log_withheld("verification_template_unapproved")
         return render(request, TRY_AGAIN, status=503)
-    if notices.receipt_withheld():  # bgl.5: nor one who cannot be sent the receipt the first generation sent
+    if (
+        notices.receipt_withheld()
+    ):  # bgl.5: nor one who cannot be sent the receipt the first generation sent
         _log_withheld("receipt_template_unapproved")
         return render(request, TRY_AGAIN, status=503)
     try:
@@ -95,28 +101,62 @@ def request_access(request):
         return render(request, TRY_AGAIN, status=503)
     if request.method == "POST":
         try:
-            throttle.enforce(request, ("intake-client", client_identity(request), settings.CATALYST_THROTTLE_INTAKE_PER_CLIENT),
-                             issuance=True, unavailable=TRY_AGAIN)
+            throttle.enforce(
+                request,
+                (
+                    "intake-client",
+                    client_identity(request),
+                    settings.CATALYST_THROTTLE_INTAKE_PER_CLIENT,
+                ),
+                issuance=True,
+                unavailable=TRY_AGAIN,
+            )
             form = AccessRequestForm(request.POST)
-            checked = abuse.check_token(request.POST.get(abuse.TOKEN_FIELD)) if abuse.enabled() else abuse.OK
-            if checked != abuse.OK:  # bgl.2: the form comes back with its values and a fresh token; nothing recorded
+            checked = (
+                abuse.check_token(request.POST.get(abuse.TOKEN_FIELD))
+                if abuse.enabled()
+                else abuse.OK
+            )
+            if (
+                checked != abuse.OK
+            ):  # bgl.2: the form comes back with its values and a fresh token; nothing recorded
                 logger.info("intake refused: form_%s; nothing recorded", checked)
                 form.add_error(None, FORM_AGAIN)
                 return _form_page(request, form, notice, status=400)
             if abuse.enabled() and abuse.honeypot_tripped(request.POST):
-                logger.info("intake refused: honeypot; nothing recorded")  # the accepted response, nothing stored
+                logger.info(
+                    "intake refused: honeypot; nothing recorded"
+                )  # the accepted response, nothing stored
                 return _received(request)
             if form.is_valid():
-                throttle.enforce(request, ("intake-address", email_key(form.cleaned_data["email"]),
-                                           settings.CATALYST_THROTTLE_INTAKE_PER_ADDRESS), issuance=True, unavailable=TRY_AGAIN)
+                throttle.enforce(
+                    request,
+                    (
+                        "intake-address",
+                        email_key(form.cleaned_data["email"]),
+                        settings.CATALYST_THROTTLE_INTAKE_PER_ADDRESS,
+                    ),
+                    issuance=True,
+                    unavailable=TRY_AGAIN,
+                )
                 try:
-                    services.accept_submission({**form.cleaned_data, "claims": form.claims(), "answers": form.answers()})
+                    services.accept_submission(
+                        {
+                            **form.cleaned_data,
+                            "claims": form.claims(),
+                            "answers": form.answers(),
+                        }
+                    )
                 except services.NotInvited:
-                    logger.info("intake refused: not_invited; nothing recorded")  # the reason code only, never the address
+                    logger.info(
+                        "intake refused: not_invited; nothing recorded"
+                    )  # the reason code only, never the address
                 except DatabaseError as exc:
                     # Class name only: no applicant data and no database error text. "Did not complete" rather than
                     # "not saved": if the commit acknowledgment was lost, the submission may have committed.
-                    logger.warning("intake submission did not complete: %s", type(exc).__name__)
+                    logger.warning(
+                        "intake submission did not complete: %s", type(exc).__name__
+                    )
                     return render(request, TRY_AGAIN, status=503)
                 return _received(request)
         except throttle.Refused as refused:
@@ -132,17 +172,30 @@ FORM_AGAIN = "Please check your details and send the form again."
 def _form_page(request, form, notice, status=200):
     # 9kg.80: the form's own sentences are unapproved copy, so a live environment shows none of them; the approved
     # data notice is what a real person reads there. bgl.2: every rendering carries a fresh signed render time.
-    return render(request, "applications/request_access.html",
-                  {"form": form, "invitation_only": invitations.required(), "notice": notice,
-                   "placeholder_copy": guards.draft_wording_allowed(settings.CATALYST_ENV),
-                   "form_token": abuse.issue_token(), "honeypot": abuse.HONEYPOT_FIELD}, status=status)
+    return render(
+        request,
+        "applications/request_access.html",
+        {
+            "form": form,
+            "invitation_only": invitations.required(),
+            "notice": notice,
+            "placeholder_copy": guards.draft_wording_allowed(settings.CATALYST_ENV),
+            "form_token": abuse.issue_token(),
+            "honeypot": abuse.HONEYPOT_FIELD,
+        },
+        status=status,
+    )
 
 
 def _received(request):
     """POST-redirect-GET to the received page on the path form the applicant used: the first generation's exact
     `/request-access` leads to `/request-access/received`, the slash form to the slash form (034 row 1, bgl.2)."""
     exact = not request.path.endswith("/")
-    return redirect("applications:request_access_received_exact" if exact else "applications:request_access_received")
+    return redirect(
+        "applications:request_access_received_exact"
+        if exact
+        else "applications:request_access_received"
+    )
 
 
 @require_safe
@@ -162,9 +215,17 @@ REFUSAL_STATUS = {
 @ensure_csrf_cookie
 def confirm(request, token):
     try:
-        throttle.enforce(request, ("confirm-client", client_identity(request), settings.CATALYST_THROTTLE_LINK_PER_CLIENT),
-                         ("confirm-token", token, settings.CATALYST_THROTTLE_LINK_PER_TOKEN),
-                         issuance=request.method == "POST", unavailable="applications/confirm_try_again.html")
+        throttle.enforce(
+            request,
+            (
+                "confirm-client",
+                client_identity(request),
+                settings.CATALYST_THROTTLE_LINK_PER_CLIENT,
+            ),
+            ("confirm-token", token, settings.CATALYST_THROTTLE_LINK_PER_TOKEN),
+            issuance=request.method == "POST",
+            unavailable="applications/confirm_try_again.html",
+        )
     except throttle.Refused as refused:
         return refused.response
     try:
@@ -173,19 +234,33 @@ def confirm(request, token):
             try:
                 version = uuid.UUID(request.POST.get("version", ""))
             except ValueError:
-                raise confirmation.Refused(confirmation.Refused.BAD_VERSION, "version is not a reference") from None
+                raise confirmation.Refused(
+                    confirmation.Refused.BAD_VERSION, "version is not a reference"
+                ) from None
             confirmation.confirm(challenge, version)
-            response = render(request, "applications/confirmed.html", {"already": False})
+            response = render(
+                request, "applications/confirmed.html", {"already": False}
+            )
         else:
-            response = render(request, "applications/confirm.html", {"preview": confirmation.preview(challenge)})
+            response = render(
+                request,
+                "applications/confirm.html",
+                {"preview": confirmation.preview(challenge)},
+            )
     except confirmation.Refused as refusal:
         if refusal.kind == confirmation.Refused.ALREADY:
             logger.info("confirmation: %s; nothing changed", refusal.reason)
             response = render(request, "applications/confirmed.html", {"already": True})
         else:
             logger.info("confirmation refused: %s; nothing changed", refusal.reason)
-            response = render(request, "applications/link_invalid.html", status=REFUSAL_STATUS[refusal.kind])
+            response = render(
+                request,
+                "applications/link_invalid.html",
+                status=REFUSAL_STATUS[refusal.kind],
+            )
     except (DatabaseError, InterfaceError) as exc:
-        logger.warning("confirmation did not complete: %s", type(exc).__name__)  # class name only
+        logger.warning(
+            "confirmation did not complete: %s", type(exc).__name__
+        )  # class name only
         response = render(request, "applications/confirm_try_again.html", status=503)
     return response

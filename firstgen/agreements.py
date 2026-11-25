@@ -17,7 +17,6 @@ from correspondence.common import Refused
 from correspondence.messages import verified_address
 from correspondence.models import StaffItem
 from correspondence.staff_items import clean_note, event
-from workflow.models import PendingAction
 
 from . import mapping, review
 from .models import ImportedRecord
@@ -51,7 +50,7 @@ def can_adopt(user):
     return review.can_review(user) and services.can(user, "manage_agreements")
 
 
-def _recipients(application, version):
+def _recipients(application, version, envelope_id=""):
     address = verified_address(application)
     if not address:
         raise Refused("verified_contact_required")
@@ -60,6 +59,9 @@ def _recipients(application, version):
         settings.CATALYST_AGREEMENT_COMPANY_ROLE,
         settings.CATALYST_AGREEMENT_COMPANY_EMAIL,
     )
+    binding = provider.legacy_binding(envelope_id)
+    if binding:
+        role, company = binding["company_role"], binding["company_email"]
     expected_slots = {"SIGNER:1"} | ({f"{role}:2"} if company else set())
     if set(slots) != expected_slots or any(
         type(v) is not int or v <= 0 for v in slots.values()
@@ -147,7 +149,7 @@ def _state(application, record_id, version_id, expected_digest):
         .exists()
     ):
         raise Refused("envelope_already_owned_by_another_case")
-    recipients = _recipients(application, version)
+    recipients = _recipients(application, version, data["provider_ref"])
     existing = application.agreements.filter(envelope_id=data["provider_ref"]).first()
     if existing is not None:
         if (
@@ -178,11 +180,7 @@ def _state(application, record_id, version_id, expected_digest):
     ):
         raise Refused("identity_or_safety_item_open")
     if (
-        PendingAction.objects.filter(
-            subject_type="application",
-            subject_id=application.public_ref,
-            status__in=("queued", "running", "held"),
-        )
+        review.pending_native_work(application)
         .exclude(
             kind__in=(
                 completion.READ,

@@ -29,19 +29,43 @@ from dataclasses import dataclass
 from .quotas import exceeds
 from .schema import AssessmentOutput, ProposedQuestion
 
-VERSION = "1"  # recorded with every verdict and every automatic decision; bump on any change to `decide`
-ADVANCE, ASK, HOLD, NEEDS_HUMAN = "advance_to_nda", "ask_a_question", "hold", "needs_human"
+VERSION = (
+    "2"  # approved self-report criteria; old rubrics retain their evidence requirement
+)
+ADVANCE, ASK, HOLD, NEEDS_HUMAN = (
+    "advance_to_nda",
+    "ask_a_question",
+    "hold",
+    "needs_human",
+)
 OUTCOMES = (ADVANCE, ASK, HOLD, NEEDS_HUMAN)
 CONFIDENCE = ("low", "medium", "high")
 # Ratings in increasing order of support; `not_supported` is negative and meets no threshold.
-RATING_RANK = {"not_supported": 0, "insufficient_evidence": 1, "partly_supported": 2, "supported": 3}
+RATING_RANK = {
+    "not_supported": 0,
+    "insufficient_evidence": 1,
+    "partly_supported": 2,
+    "supported": 3,
+}
 THRESHOLD_RATINGS = ("insufficient_evidence", "partly_supported", "supported")
 # A run carrying any of these soft flags (schema.flags) is never acted on without a person.
-BLOCKING_FLAGS = frozenset({"injection_suspected_by_model", "injection_markers_in_evidence", "citation_overlaps_an_injection_marker",
-                            "inconsistent_recommendation", "not_supported_while_evidence_is_missing", "decline_without_a_negative_finding"})
+BLOCKING_FLAGS = frozenset(
+    {
+        "injection_suspected_by_model",
+        "injection_markers_in_evidence",
+        "citation_overlaps_an_injection_marker",
+        "inconsistent_recommendation",
+        "not_supported_while_evidence_is_missing",
+        "decline_without_a_negative_finding",
+    }
+)
 # What an automatic admit records per criterion for each rating (capability, strength of evidence).
-RECORD = {"supported": ("shown", "moderate"), "partly_supported": ("partly_shown", "weak"),
-          "not_supported": ("not_shown", "weak"), "insufficient_evidence": ("unknown", "none")}
+RECORD = {
+    "supported": ("shown", "moderate"),
+    "partly_supported": ("partly_shown", "weak"),
+    "not_supported": ("not_shown", "weak"),
+    "insufficient_evidence": ("unknown", "none"),
+}
 
 
 @dataclass(frozen=True)
@@ -52,24 +76,37 @@ class Thresholds:
 
     @classmethod
     def from_settings(cls, settings) -> "Thresholds":
-        return cls(settings.CATALYST_ROUTINE_ADVANCE_CONFIDENCE, settings.CATALYST_ROUTINE_ADVANCE_REQUIRED_RATING,
-                   settings.CATALYST_ROUTINE_ADVANCE_OTHER_RATING)
+        return cls(
+            settings.CATALYST_ROUTINE_ADVANCE_CONFIDENCE,
+            settings.CATALYST_ROUTINE_ADVANCE_REQUIRED_RATING,
+            settings.CATALYST_ROUTINE_ADVANCE_OTHER_RATING,
+        )
 
     def problems(self) -> list[str]:
         found = []
         if self.advance_confidence not in CONFIDENCE:
-            found.append("CATALYST_ROUTINE_ADVANCE_CONFIDENCE must be low, medium or high")
-        for name, value in (("CATALYST_ROUTINE_ADVANCE_REQUIRED_RATING", self.required_rating),
-                            ("CATALYST_ROUTINE_ADVANCE_OTHER_RATING", self.other_rating)):
+            found.append(
+                "CATALYST_ROUTINE_ADVANCE_CONFIDENCE must be low, medium or high"
+            )
+        for name, value in (
+            ("CATALYST_ROUTINE_ADVANCE_REQUIRED_RATING", self.required_rating),
+            ("CATALYST_ROUTINE_ADVANCE_OTHER_RATING", self.other_rating),
+        ):
             if value not in THRESHOLD_RATINGS:
-                found.append(f"{name} must be insufficient_evidence, partly_supported or supported")
+                found.append(
+                    f"{name} must be insufficient_evidence, partly_supported or supported"
+                )
         return found
 
 
 @dataclass(frozen=True)
 class Facts:
     """What the policy knows about the application beside the run's output. All booleans default to the safe side."""
+
     required: frozenset = frozenset()  # the rubric's required criterion ids
+    self_report: frozenset = (
+        frozenset()
+    )  # only criteria explicitly approved for applicant statements
     flags: tuple = ()  # the run's soft flags (schema.flags)
     round: int = 1  # the run's clarification round
     rounds: int | None = 3  # CATALYST_ASSESSMENT_ROUNDS
@@ -89,30 +126,54 @@ class Verdict:
     questions: tuple = ()  # the ProposedQuestion objects to ask, for `ask_a_question`
 
     def record(self) -> dict:
-        return {"policy_version": VERSION, "outcome": self.outcome, "reason": self.reason, "questions": len(self.questions)}
+        return {
+            "policy_version": VERSION,
+            "outcome": self.outcome,
+            "reason": self.reason,
+            "questions": len(self.questions),
+        }
 
 
 def _at_least(rank: dict, value: str, threshold: str) -> bool:
     return rank[value] >= rank[threshold]
 
 
-def meets_advance(output: AssessmentOutput, facts: Facts, thresholds: Thresholds) -> str:
-    """"" when the output is a routine admit; otherwise the first reason it is not."""
+def meets_advance(
+    output: AssessmentOutput, facts: Facts, thresholds: Thresholds
+) -> str:
+    """ "" when the output is a routine admit; otherwise the first reason it is not."""
     if output.recommendation != "admit":
         return "recommendation_not_admit"
     confidence = {c: i for i, c in enumerate(CONFIDENCE)}
     if not _at_least(confidence, output.confidence, thresholds.advance_confidence):
         return "confidence_below_threshold"
     for finding in output.criteria:
-        threshold = thresholds.required_rating if finding.criterion_id in facts.required else thresholds.other_rating
-        if finding.rating == "not_supported" or not _at_least(RATING_RANK, finding.rating, threshold):
+        threshold = (
+            thresholds.required_rating
+            if finding.criterion_id in facts.required
+            else thresholds.other_rating
+        )
+        self_report = finding.criterion_id in facts.self_report
+        if self_report:
+            threshold = "partly_supported"  # a clear statement meets this criterion, without claiming independent proof
+        if finding.rating == "not_supported" or not _at_least(
+            RATING_RANK, finding.rating, threshold
+        ):
             return "rating_below_threshold"
-        if finding.rating != "insufficient_evidence" and not any(c.evidence_alias.startswith("E") for c in finding.citations):
+        if not finding.citations:
+            return "rating_without_citation"
+        if (
+            not self_report
+            and finding.rating != "insufficient_evidence"
+            and not any(c.evidence_alias.startswith("E") for c in finding.citations)
+        ):
             return "rating_rests_on_claims_only"
     return ""
 
 
-def decide(output: AssessmentOutput, facts: Facts, thresholds: Thresholds | None = None) -> Verdict:
+def decide(
+    output: AssessmentOutput, facts: Facts, thresholds: Thresholds | None = None
+) -> Verdict:
     thresholds = thresholds if thresholds is not None else Thresholds()
     if facts.cohort_boundary:
         return Verdict(NEEDS_HUMAN, "cohort_boundary")
@@ -122,18 +183,40 @@ def decide(output: AssessmentOutput, facts: Facts, thresholds: Thresholds | None
         return Verdict(NEEDS_HUMAN, "flagged_for_a_person")
     if output.recommendation == "decline":
         return Verdict(NEEDS_HUMAN, "decline_is_never_automatic")
-    blocked = ("evidence_pending" if facts.evidence_pending else "automation_paused" if facts.paused
-               else "contact_not_verified" if not facts.contact_verified else "question_open" if facts.open_question else "")
+    blocked = (
+        "evidence_pending"
+        if facts.evidence_pending
+        else "automation_paused"
+        if facts.paused
+        else "contact_not_verified"
+        if not facts.contact_verified
+        else "question_open"
+        if facts.open_question
+        else ""
+    )
     short = meets_advance(output, facts, thresholds)
     if not short:
         return Verdict(HOLD, blocked) if blocked else Verdict(ADVANCE, "routine_admit")
-    if output.proposed_questions and not exceeds(facts.round + 1, facts.rounds) and facts.room > 0:
+    if (
+        output.proposed_questions
+        and not exceeds(facts.round + 1, facts.rounds)
+        and facts.room > 0
+    ):
         if blocked:
             return Verdict(HOLD, blocked)
-        return Verdict(ASK, "evidence_gap", tuple(output.proposed_questions[:facts.room]))
+        return Verdict(
+            ASK, "evidence_gap", tuple(output.proposed_questions[: facts.room])
+        )
     if output.proposed_questions:
-        return Verdict(NEEDS_HUMAN, "rounds_exhausted" if exceeds(facts.round + 1, facts.rounds) else "round_full")
-    return Verdict(NEEDS_HUMAN, "hold_recommended" if output.recommendation == "hold" else short)
+        return Verdict(
+            NEEDS_HUMAN,
+            "rounds_exhausted"
+            if exceeds(facts.round + 1, facts.rounds)
+            else "round_full",
+        )
+    return Verdict(
+        NEEDS_HUMAN, "hold_recommended" if output.recommendation == "hold" else short
+    )
 
 
 def rationale(output: AssessmentOutput, version: str = VERSION) -> dict:
@@ -143,8 +226,13 @@ def rationale(output: AssessmentOutput, version: str = VERSION) -> dict:
     for finding in output.criteria:
         capability, strength = RECORD[finding.rating]
         cited = sum(c.evidence_alias.startswith("E") for c in finding.citations)
-        out[finding.criterion_id] = {"capability": capability, "evidence_strength": strength if cited else ("none" if capability == "unknown" else "weak"),
-                                     "note": f"Routine policy v{version}: the assessment rated this {finding.rating} on {cited} evidence citation(s)."}
+        out[finding.criterion_id] = {
+            "capability": capability,
+            "evidence_strength": strength
+            if cited
+            else ("none" if capability == "unknown" else "weak"),
+            "note": f"Routine policy v{version}: the assessment rated this {finding.rating} on {cited} evidence citation(s).",
+        }
     return out
 
 

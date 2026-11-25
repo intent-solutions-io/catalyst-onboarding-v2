@@ -1,0 +1,10 @@
+<div class="field">
+  {% if field.field.widget.input_type == 'checkbox' %}
+    <label class="checkbox-label" for="{{ field.id_for_label }}">{{ field }}<span>{{ field.label }}{% if field.field.required %} <span class="field-hint">(required)</span>{% endif %}</span></label>
+  {% else %}
+    <label for="{{ field.id_for_label }}">{{ field.label }} <span class="field-hint">({% if field.field.required %}required{% elif conditional %}if listing an entry{% else %}optional{% endif %})</span></label>
+    {{ field }}
+  {% endif %}
+  {% if field.help_text %}<div class="helptext" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</div>{% endif %}
+  {{ field.errors }}
+</div>

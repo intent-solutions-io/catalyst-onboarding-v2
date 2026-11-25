@@ -13,7 +13,6 @@ from correspondence.models import StaffItem
 from correspondence.staff_items import event
 from provisioning import adapter, closure, core, services
 from provisioning.models import ProvisioningEvidence, ProvisioningRequest
-from workflow.models import PendingAction
 
 from . import mailbox_history, mailboxes, mapping, review, signing_history
 
@@ -109,9 +108,7 @@ def _validated(application, request, expected_digest, decision, quota, limit):
         raise Refused("source_job_still_in_flight")
     if request.attempts.exists() or request.setups.exists():
         raise Refused("native_mailbox_operation_requires_reconciliation")
-    actions = PendingAction.objects.filter(
-        subject_id=application.public_ref, status__in=("queued", "running", "held")
-    )
+    actions = review.pending_native_work(application)
     if stopped:
         actions = actions.exclude(kind=closure.REVOKE)
     if actions.exists():

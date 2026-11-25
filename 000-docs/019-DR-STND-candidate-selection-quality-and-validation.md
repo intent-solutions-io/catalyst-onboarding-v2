@@ -226,6 +226,16 @@ platform by default. **No thresholds are set** (POL-16): with small numbers, rev
 counts, not rates. "Minimum to interpret" is the smallest count at which a rate would mean anything; the owner sets
 it, and until then every case is reviewed individually. Owner: the operational delegate (section 10) prepares; the owner reviews.
 
+**Staff report (`f1u.7`).** The read-only “Selection quality and owner report” screen is linked from
+the staff index for active staff holding `assessments.record_qualification_decision`; superusers and
+other roles are refused. It uses the same queries as `manage.py selection_scorecard`, shows all 15
+measures, and keeps unavailable measurements distinct from zero. The screen covers all recorded
+cases, without a date or cohort filter, and does not claim a change since the previous review.
+Printing includes the owner summary, while detailed measures remain on screen. It excludes case
+identifiers, narrative decision reasons and unrelated staff notices. It assigns no delegate, changes
+no decision and schedules no review. Owner review of the sample and the operational appointment
+remain acceptance work; rendering the report does not ratify either.
+
 | Area | Measure | Definition and denominator | Source | Minimum to interpret | Review trigger | Response | Privacy boundary |
 |---|---|---|---|---|---|---|---|
 | A. Candidate | time waiting | days from adoption to decision, per decided case | stage events | any case | any case over the owner's stated window | review the stalled step | counts and durations only |

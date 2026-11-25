@@ -480,3 +480,79 @@ def test_late_source_final_states_and_duplicate_envelopes_are_refused_before_pro
         )
     assert not envelopes.fake.requests
     assert not AgreementInstance.objects.exists() and not PendingAction.objects.exists()
+
+
+def test_handover_keeps_legacy_recipients_and_allows_only_adopted_countersigning(
+    envelopes, settings
+):
+    from django.db import transaction
+    from agreements import countersign
+    from tests.documenso_fake import TOKEN
+
+    application = app("CAT-ND00-0007")
+    data = provider_envelope(envelopes, application)
+    settings.CATALYST_AGREEMENT_COMPANY_ROLE = "SIGNER"
+    settings.CATALYST_AGREEMENT_COMPANY_EMAIL = "new-company@example.test"
+    settings.CATALYST_AGREEMENT_LEGACY_TOKEN = TOKEN
+    settings.CATALYST_AGREEMENT_LEGACY_ENVELOPES = {
+        data["id"]: {
+            "external_key": data["externalId"],
+            "company_email": "company@example.test",
+            "company_role": "APPROVER",
+        }
+    }
+    instance = adopt(envelopes, application)
+    assert countersign.owned(instance)
+    recipient = instance.recipients.get(who="staff")
+    assert (recipient.email, recipient.role) == ("company@example.test", "APPROVER")
+    with transaction.atomic():
+        assert countersign.take_claim(instance, 101) == "taken"
+    envelopes.fake.add_field(data["id"], 1)
+    envelopes.fake.sign(data["id"], 0)
+    assert (
+        provider.countersign(
+            data["id"],
+            data["externalId"],
+            recipient.email,
+            recipient.role,
+            "Synthetic Company",
+        )
+        == "SIGNED"
+    )
+    read_once()
+    instance.refresh_from_db()
+    assert instance.signing_status == "signing_complete_verified"
+    settings.CATALYST_AGREEMENT_LEGACY_ENVELOPES[data["id"]]["external_key"] = (
+        "onb_other"
+    )
+    assert not countersign.owned(instance)
+    with pytest.raises(provider.CountersignRefused, match="not_a_v2_envelope"):
+        provider.countersign(
+            data["id"],
+            data["externalId"],
+            recipient.email,
+            recipient.role,
+            "Synthetic Company",
+        )
+
+
+def test_countersign_claim_refuses_an_import_without_the_adoption_receipt(envelopes):
+    from django.db import IntegrityError, transaction
+    from agreements.models import CountersignClaim
+
+    application = app("CAT-ND00-0007")
+    data = provider_envelope(envelopes, application)
+    instance = AgreementInstance.objects.create(
+        application=application,
+        agreement_type=envelopes.versions["nda"].agreement_type,
+        template_version=envelopes.versions["nda"],
+        external_key=data["externalId"],
+    )
+    AgreementInstance.objects.filter(pk=instance.pk).update(envelope_id=data["id"])
+    with pytest.raises(IntegrityError, match="not owned"), transaction.atomic():
+        CountersignClaim.objects.create(
+            instance=instance,
+            envelope_id=data["id"],
+            external_key=data["externalId"],
+            holder="catalyst_v2",
+        )

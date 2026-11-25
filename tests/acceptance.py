@@ -563,6 +563,8 @@ P2_CASES = {
 P3_CASES = {
     "TEST-P3-01": [
         "test_assessment::test_p3_01_a_valid_output_is_stored_with_provenance_and_the_stage_moves_for_staff",
+        "test_assessment_narratives::test_p3_long_narratives_keep_provenance_checks_without_wasting_a_repair",
+        "test_assessment_narratives::test_long_hyphenated_narratives_are_screened_without_suffix_rescanning",
     ],
     "TEST-P3-02": [
         "test_assessment::test_p3_02_25_malformed_output_gets_one_repair_then_staff_and_never_a_third_request",
@@ -1400,6 +1402,7 @@ P6_CASES = {
         "test_system_health::test_6b4_an_aged_hard_bounce_alerts_and_a_fresh_one_does_not",
         "test_system_health::test_6b4_agreement_and_custody_states_alert",
         "test_system_health::test_6b4_a_backlog_and_an_expired_lease_are_anomalies",
+        "test_system_health::test_6b4_a_due_automated_action_on_a_paused_subject_is_paused_due_not_a_backlog",
         "test_system_health::test_6b4_a_conflict_alerts_until_staff_resolve_it_then_the_system_is_healthy",
         "test_system_health::test_6b4_a_revocation_round_that_never_ran_is_reported",
         "test_system_health::test_6b4_an_unknown_mailbox_create_is_reported_until_staff_resolve_it",
@@ -1567,9 +1570,39 @@ P6_CASES = {
 }
 
 P6_SUPPORTING = {
+    "9kg.61 segmented journal recovery and constant-size usage reads": [
+        "test_journal_segments::test_segments_keep_global_anchors_and_archive_only_unanchored_ranges",
+        "test_journal_segments::test_unknown_or_foreign_backup_anchor_refuses_archival_without_moving_evidence",
+        "test_journal_segments::test_rotation_crash_after_rename_resumes_the_existing_lineage",
+        "test_journal_segments::test_torn_continuation_repair_preserves_closed_evidence",
+        "test_journal_segments::test_missing_or_altered_closed_segment_fails_the_full_chain_and_cannot_be_repaired",
+        "test_journal_segments::test_continuation_metadata_is_verified_even_with_a_recomputed_hash",
+        "test_journal_segments::test_usage_reads_and_updates_do_not_rescan_history_after_initialization",
+        "test_journal_segments::test_cache_write_crash_and_missing_day_rebuild_without_lowering_usage",
+        "test_journal_segments::test_concurrent_rotation_and_usage_writers_keep_one_chain",
+        "test_journal_segments::test_real_backup_restore_spans_rotation_and_retained_archive",
+        "test_journal_segments::test_operator_command_requires_recovery_and_complete_inventory_confirmations",
+        "test_journal_segments::test_deploy_probe_refuses_old_readers_before_migration_or_switch",
+    ],
     # bgl.12 (034 section 2.2 rows 15 to 19): the live MiniMax branch and the routine-advance policy, both behind
     # activations that are off in code; a named design rule like the 9kg groups, never a staging case.
     "bgl.12 the live model branch and the routine-advance policy act only under their activations": [
+        "test_evidence_transport::test_evidence_close_response_preserves_completion_and_limits",
+        "test_production_admission::test_production_admit_queues_nda_only_with_configured_approved_signing",
+        "test_live_workflow_regressions::test_cold_worker_preserves_model_activation_after_loading_handlers",
+        "test_live_workflow_regressions::test_twenty_accepts_complete_close_responses_but_refuses_truncation",
+        "test_parity_activation::test_production_evidence_hosts_require_profile_and_preserve_fixture_refusals",
+        "test_parity_activation::test_fetcher_profile_rejects_other_provider_configuration",
+        "test_production_admission::test_public_automated_intake_requires_and_displays_the_approved_notice",
+        "test_production_admission::test_confirmation_queues_research_only_for_the_bound_production_policy",
+        "test_production_admission::test_incomplete_activation_keeps_the_cohort_boundary",
+        "test_production_admission::test_approved_self_report_advances_without_claiming_independent_support",
+        "test_production_admission::test_self_report_does_not_bypass_workflow_holds",
+        "test_production_admission::test_missing_goal_and_declines_cannot_automatically_advance",
+        "test_production_admission::test_production_pack_is_explicit_and_historical_packs_are_unchanged",
+        "test_production_admission::test_practice_goal_has_its_own_approved_input_field",
+        "test_production_admission::test_owner_approval_matches_the_actual_clarification_request",
+        "test_production_admission::test_owner_command_persists_and_revokes_each_clarification_approval",
         "test_routine_advance::test_bgl12_the_default_configuration_reaches_no_live_branch",
         "test_routine_advance::test_bgl12_the_live_branch_is_selected_only_when_settings_say_so_and_requests_are_allowed",
         "test_routine_advance::test_bgl12_a_live_call_runs_fenced_and_a_provider_failure_is_never_adverse",
@@ -1742,6 +1775,10 @@ P6_SUPPORTING = {
         "test_human_only::test_the_guard_refuses_a_policy_that_is_unbound_or_bound_to_a_synthetic_pack",
         "test_human_only::test_a_human_only_decision_never_rests_on_free_text_alone",
         "test_human_only::test_human_only_decisions_are_counted_on_the_scorecard_without_identifiers",
+        "test_selection_report::test_selection_report_refuses_other_roles_before_queries",
+        "test_selection_report::test_selection_report_preserves_zero_unknowns_and_rejects_writes",
+        "test_selection_report::test_selection_report_escapes_version_labels",
+        "test_selection_report::test_selection_report_matches_existing_queries_without_identifiers_or_effects",
         "test_human_only::test_model_output_is_shown_as_nonbinding",
         "test_human_only::test_the_evidence_manifest_names_every_state_and_a_new_failed_run_changes_the_digest",
         "test_human_only::test_a_paused_application_under_the_suspension_is_refused_at_once_not_requeued",
@@ -1796,6 +1833,11 @@ P6_SUPPORTING = {
         "test_erasure_replay::test_9kg_25_a_restored_plaintext_copy_of_an_erased_subjects_document_withholds_the_marker",
     ],
     "9kg.28 pulled journal copies require a verified receiver receipt before the source records shipping": [
+        "test_journal_gateway::test_unknown_operations_refuse_before_any_io",
+        "test_journal_gateway::test_stream_requires_receiver_persistence_before_acknowledgment",
+        "test_journal_gateway::test_bad_streams_and_staged_receipts_preserve_receiver_and_watermark",
+        "test_journal_gateway::test_oversized_receipt_and_overlapping_paths_refuse",
+        "test_journal_gateway::test_cli_export_receive_ack_needs_no_database_or_production_settings",
         "test_journal_pull::test_only_a_verified_receiver_receipt_marks_the_current_export_shipped",
         "test_journal_pull::test_corrupted_or_mixed_packages_never_overwrite_the_receiver",
         "test_journal_pull::test_a_lost_source_tail_refuses_acknowledgment_and_cannot_replace_the_receiver",
@@ -2142,6 +2184,7 @@ P6_SUPPORTING = {
         "test_decline_notice::test_oc4_11_a_restore_a_sent_copy_and_a_resolved_unknown_send_item_never_send_a_second_notice",
         "test_decline_notice::test_oc4_11_a_notice_copy_under_review_after_a_restore_defers_the_freeze",
         "test_decline_notice::test_oc4_11_the_handler_is_registered_redeliverable_and_automated",
+        "test_hold_notice::test_d55_the_approved_decline_wording_greets_by_first_name_only_and_clears_the_health_anomaly",
         "test_decision::test_p3_44_a_decision_is_one_transaction_with_its_follow_on",
     ],
     # oc4.9 (018 section 21): the live-call protections, built before any live model call; none makes a live request.
@@ -2424,6 +2467,7 @@ P6_SUPPORTING = {
         "test_countersign_release::test_bgl9_two_workers_one_claim_one_signature",
         "test_countersign_release::test_bgl9_the_claim_is_unique_per_envelope_and_only_for_v2_keys",
         "test_countersign_release::test_bgl9_a_foreign_envelope_is_refused_and_never_touched",
+        "test_countersign_release::test_company_role_follows_the_approved_template_across_an_nda_version_change",
         "test_countersign_release::test_bgl9_a_failure_is_retried_and_the_retry_signs_once",
         "test_countersign_release::test_bgl9_after_thirty_minutes_of_failure_the_owner_countersigns_by_hand",
         "test_countersign_release::test_bgl9_a_paused_case_is_never_countersigned",
@@ -2497,6 +2541,21 @@ P6_SUPPORTING = {
         "test_signing_reminder::test_bgl7_under_the_service_distribution_the_reminder_sends_the_signing_link_once_more",
         "test_post_restore::test_bgl7_the_last_reminder_left_after_the_backup_still_leads_to_the_escalation_and_the_lapse",
         "test_data_model::test_open_stage_set_matches_the_journey",
+    ],
+    # bgl.24 (D-55): the still-in-review note of a hold, behind its default-off switch: queued only while it is on, due
+    # ten business days after the hold, at most once per application, from owner-approved wording; and the public
+    # pages' copy (the terms of joining, the next email, the policy links).
+    "bgl.24 the still-in-review note goes once, ten business days into a hold, only behind its default-off switch; the public pages state the terms of joining": [
+        "test_hold_notice::test_bgl24_with_the_switch_off_a_hold_queues_nothing_and_a_queued_note_is_cancelled_unsent",
+        "test_hold_notice::test_bgl24_the_switch_accepts_only_true_or_false",
+        "test_hold_notice::test_bgl24_with_the_switch_on_a_hold_sends_exactly_one_note_through_the_p2_sender_and_never_a_second",
+        "test_hold_notice::test_bgl24_a_decision_off_the_hold_before_the_note_is_due_cancels_it",
+        "test_hold_notice::test_bgl24_the_note_is_due_ten_business_days_after_the_hold_and_waits_if_run_early",
+        "test_hold_notice::test_bgl24_quiet_hours_hold_a_due_note",
+        "test_hold_notice::test_bgl24_the_note_waits_with_one_staff_item_until_the_owner_approves_real_wording_and_health_names_it",
+        "test_hold_notice::test_bgl24_a_note_copy_under_review_after_a_restore_defers_the_freeze",
+        "test_hold_notice::test_bgl24_the_handler_is_registered_redeliverable_and_automated",
+        "test_intake_presentation::test_bgl24_the_public_pages_state_the_terms_of_joining_the_next_email_and_the_policies",
     ],
     "bgl.14 the Twenty projection, the applicant file note and the daily details fill, behind the switch (034 rows 42, 43)": [
         "test_twenty_projection::test_bgl14_with_the_switch_off_nothing_is_queued_and_a_queued_action_calls_nothing",

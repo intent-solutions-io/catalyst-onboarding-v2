@@ -1,9 +1,11 @@
 """The custody decision (POL-09, owner decision 211.7.9; council record 030 Q4, D-51 provisional): where the v2
 custody copy of signed documents lives on a live host, who may retrieve it, and how its keys are recovered.
 
-The mechanism (agreements.keystore, agreements.storage) is built; the values are the owner's. Every row ships
-`undecided`, in the pattern of the erasure registry (erasure.registry): while any row is undecided, a live
-environment refuses custody (`storage.write` refuses and the start-up guard reports it, config.guards.custody_problems).
+The mechanism (agreements.keystore, agreements.storage) is built. These values record D-52 Q4, ratified
+2026-10-28, the delegated 2026-10-29 passphrase-escrow choice in 211.7.9, and the owner's 2026-11-02
+replacement instruction. They specify the required arrangement, not proof that the operator completed it.
+A missing decision still refuses live custody; activation also needs the private provisioning and owner-held
+recovery receipts.
 The synthetic and local environments are not live, so tests and drills store synthetic documents as before. The
 owner's decision changes rows of this table (a reviewed change, like every policy constant here), never the code.
 
@@ -25,12 +27,26 @@ Rows:
 
 UNDECIDED = "undecided"
 
-ROWS = ("location", "access", "recovery_holder", "recovery_time_bound", "escrow", "provider_copy")
+ROWS = (
+    "location",
+    "access",
+    "recovery_holder",
+    "recovery_time_bound",
+    "escrow",
+    "provider_copy",
+)
 
-DECISION = {name: UNDECIDED for name in ROWS}
+DECISION = {
+    "location": "managed custody volume; primary keys and live mirror in separate directories outside every archive; same-disk fallback under D-52 Q4",
+    "access": "agreement decision-makers only through retrieve_agreement_document",
+    "recovery_holder": "owner; no deputy during the trial",
+    "recovery_time_bound": "within 24 hours; stop the worker while recovery is incomplete",
+    "escrow": "wrapping key only, encrypted with an owner-held passphrase; password-manager and offline paper copies; no development-host or production-host escrow key",
+    "provider_copy": "retained as the same-disk fallback recovery source; deletion only through the recorded erasure handoff under POL-10",
+}
 
 # Printed by every operator command that reports on custody, so no output overstates what the keys protect.
-SCOPE = ("v2_custody_copy_only: the provider's copy is outside this claim (P4-D-15) until POL-10 decides it")
+SCOPE = "v2_custody_copy_only: the provider's copy is outside this claim (P4-D-15) until POL-10 decides it"
 
 
 def current() -> dict:

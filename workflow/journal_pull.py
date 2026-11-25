@@ -149,8 +149,17 @@ def package(directory):
     try:
         packet = _packet(json.loads(_read(source / PACKET)), "staged")
         raw = _read(source / journal.FILE)
-        entries = journal._entries(raw)
     except ValueError, journal.JournalError:
+        raise shipping.ShipError("transfer_content_invalid") from None
+    validate_content(packet, raw)
+    return packet, raw
+
+
+def validate_content(packet, raw):
+    """Validate transferred bytes before any receiver-side file is replaced."""
+    try:
+        entries = journal._entries(raw)
+    except journal.JournalError:
         raise shipping.ShipError("transfer_content_invalid") from None
     if (
         not entries
@@ -159,7 +168,6 @@ def package(directory):
         != {k: packet[k] for k in ("identity", "seq", "hash")}
     ):
         raise shipping.ShipError("transfer_content_mismatch")
-    return packet, raw
 
 
 def receive(source, destination):

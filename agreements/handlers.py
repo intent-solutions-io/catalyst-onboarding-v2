@@ -274,7 +274,17 @@ def _add_company_recipient(instance, version: AgreementTemplateVersion) -> None:
         settings.CATALYST_AGREEMENT_COMPANY_EMAIL,
         settings.CATALYST_AGREEMENT_COMPANY_ROLE,
     )
-    if email and isinstance((version.recipient_slots or {}).get(f"{role}:2"), int):
+    slots = version.recipient_slots or {}
+    company_roles = [
+        candidate
+        for candidate in ("SIGNER", "APPROVER")
+        if type(slots.get(f"{candidate}:2")) is int and slots[f"{candidate}:2"] > 0
+    ]
+    if len(company_roles) == 1:
+        role = company_roles[
+            0
+        ]  # the approved template determines the signing role for this version
+    if email and isinstance(slots.get(f"{role}:2"), int):
         AgreementRecipient.objects.create(
             instance=instance,
             role=role,

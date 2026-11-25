@@ -3,9 +3,11 @@
 from django.urls import path
 
 from . import staff_views as v
+from .scorecard_views import selection_report
 
 app_name = "assessments_staff"
 urlpatterns = [
+    path("selection-report/", selection_report, name="selection_report"),
     path("sources/", v.source_list, name="sources"),
     path("sources/<int:pk>/", v.source_detail, name="source"),
     path("sources/<int:pk>/approve/", v.approve_source, name="approve_source"),

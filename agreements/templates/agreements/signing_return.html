@@ -1,7 +1,9 @@
 {% extends "applications/base.html" %}
 {% block title %}Thank you for signing{% endblock %}
 {% block content %}
-<h1>Thank you for signing</h1>
-<p>The signing service has recorded your signature. You can close this page.</p>
-<p>Once every signature is in place, the signing service emails you a copy of the completed agreement. If there is a next step for you, we will email you about it; nothing else is needed from you now.</p>
+{% comment %}The page reads nothing from the request (agreements.views.signing_return), so it cannot tell which document was
+signed: it names neither and gives the next step for both.{% endcomment %}
+<h1>Thanks, your signature is recorded.</h1>
+<p>Our countersignature is automatic, usually within minutes. If you just signed the NDA, the next email is the User Agreement. If you just signed the User Agreement, the next email is your welcome with your company mailbox.</p>
 {% endblock %}
+{% block footer_onward %}<a href="https://intentsolutions.io/how-it-works/">How joining works</a>{% endblock %}

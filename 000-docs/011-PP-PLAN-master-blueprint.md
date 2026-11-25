@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document | `011-PP-PLAN-master-blueprint` (the only master blueprint for this repository) |
-| Version | 1.5.0 (D-54 mirrored from the owner decision notes in `bgl.1`, status reconciled 2026-10-31; 1.4.0 recorded D-51, the council record `030` adopting the `029` section 14 decisions provisionally, 2026-10-23; 1.3.0 recorded D-50, the gate boundaries for one internal production launch and the PL-A task table, 2026-10-23; 1.2.0 corrected the status and added the selection-quality contract, section 11, 2026-10-14; 1.1.0 recorded the ADR decisions of 2026-10-10) |
+| Version | 1.6.0 (D-55 recorded: the owner-approved decline-notice wording and the default-off still-in-review note, 2026-11-07; 1.5.0 D-54 mirrored from the owner decision notes in `bgl.1`, status reconciled 2026-10-31; 1.4.0 recorded D-51, the council record `030` adopting the `029` section 14 decisions provisionally, 2026-10-23; 1.3.0 recorded D-50, the gate boundaries for one internal production launch and the PL-A task table, 2026-10-23; 1.2.0 corrected the status and added the selection-quality contract, section 11, 2026-10-14; 1.1.0 recorded the ADR decisions of 2026-10-10) |
 | Status | **APPROVED IN SCOPE** (section 10 and dated decisions in section 4). P1-P5 and staging have their recorded synthetic sign-offs. D-53 authorized bounded wave-one production on 2026-10-29; D-54 mirrors the owner's nine parity decisions recorded in Beads on 2026-10-31, effective at activation under the swap plan and provider canaries. The full replacement workflow is not verified live. Current evidence is in `006`; open policies retain their recorded limits. |
 | Owner | Jeremy Longshore (product owner and approver) |
 | Reviewers | `catalyst-django-architect` (build design), `catalyst-independent-qa` (independent review); results in section 9 |
@@ -12,8 +12,8 @@
 | Conventions | Intent Blueprint Docs 3.0.0 (stable IDs, evidence status, lifecycle links); doc-filing v4.5 |
 | Supersedes | nothing; the earlier planning drafts named in section 2 were not available |
 
-> **Status reconciled 2026-10-31:** wave one has a recorded production launch under D-53. The full first-generation
-> replacement is in development and has no completed cutover proof in the reviewed records. Read `006` for the
+> **Status reconciled 2026-11-01:** the combined parity implementation is deployed on the US host; live provider
+> activation and the full first-generation cutover remain unverified. Read `006` for the
 > dated evidence snapshot and Beads for current task state. Earlier synthetic-only statements describe their
 > original scopes; later owner decisions apply only as recorded. D-54 mirrors existing owner answers, not new
 > agent-created approvals.
@@ -418,6 +418,7 @@ summary a reader needs first.
 | D-34 | `018` (P3 evidence, assessment and qualification specification) version 0.2.1 approved with its recommended defaults `P3-D-1` to `P3-D-16` for synthetic P3; 3B.1 (`catalyst-v2-oc4.2`) released. Not authorized: a live model call, real fetching, real applicant data, 3B.2 to 3C (each needs its own release), a versioned release or a deployment. The decisions marked for GATE-PILOT or later (real fetching, the applicant notice, retention, live model use) stay conditions at those gates | OWNER-DECIDED 2026-10-14 | section 4.1; `018` section 8 |
 | D-53 | Wave 1 goes live before counsel answers. Owner's words (2026-10-29): "we need this to go live, act as counsel make the call", then "Yes, go" to one question covering four acts: (1) launch wave 1 before counsel answers, the owner accepting the legal risk, on the session's recommendation (not legal advice): wave 1 only (the owner plus members with both agreements on file), nothing signed, rated or declined, no model, owner-only access, erasure within 30 days of a request, the strictest common US notice and access rules where location is unknown; (2) the host go: host preparation, the dark deploy with intake locked, the restore drill and the erasure of the synthetic subjects; (3) the agent's shell access to the production host accepted for wave 1 (D-52 Q8 binding met by written acceptance); (4) a note to counsel replacing the facts sheet, which no record holds (sent 2026-10-29). Also "you can keep your github access": the `032` section 1 step 3 residual (the agent's login keeps administrator rights) accepted. Still the owner's: approving the three applicant wordings on the template screen, generating the erasure key outside any agent session, and wave 2 (signing, members without both agreements), which waits for counsel. The provisional lock is cleared by a reviewed release after the owner approves the wording | OWNER-DECIDED 2026-10-29 | owner, in session; `032` sections 1.8 and 2.3 |
 | D-54 | The nine first-generation parity choices are decided as recorded in `bgl.1` on 2026-10-31; see section 4.3. Reversals take effect only at activation under the swap plan and provider canaries. Model data-use wording and counsel-dependent items remain distinct. | OWNER ANSWERS RECORDED IN BEADS; mirrored 2026-10-31 | `catalyst-v2-bgl.1` notes; `034` section 3.6 |
+| D-55 | Applicant notices (2026-11-07). The decline notice's wording is approved by the owner (owner, 2026-11-07, in session), exactly as in section 4.5: no reason, no other link, the receipt's sender. A once-only still-in-review note goes ten business days after a hold, behind `CATALYST_HOLD_NOTICE_ENABLED`, default `false` (off); turning it on is the owner's. The decline notice keeps its existing behaviour and no new switch. Both wordings enter as drafts and are served live only after the owner approves each version on the template screen (D-29). | OWNER-DECIDED 2026-11-07 (in session) | section 4.5; bead `catalyst-v2-bgl.24` |
 | D-52 | The 211.7.x decision backlog adopted provisionally by the seven-seat council with two non-voting legal advisors on 2026-10-28 (`033`): POL-10 as proposed in `031` section 2 with R4 running from receipt, R3 from an owner-recorded engagement end, an agreement-obligations hold before key destruction and "pseudonymous record" wording; the registry filled now behind a coded "provisional" lock that refuses invitations and intake until counsel answers; anonymize-and-replay accepted for the cohort with POL-18 empty and refused if not; the counsel packet recommended for sending now; custody as `031` section 3 with the escrow outside every agent-reachable key; option (a) only where counsel clears it; the wording returned for rework, not approved; owner-only, unrated results; D-51 coexistence final in three parts; the owner as sole staff, agent shell access to production removed or accepted before real intake; built defaults with a 24-hour challenge and corrected quiet hours; a two-wave launch (wave 1: the owner plus members with both agreements on file, signing off; wave 2 adds signing). Counsel-dependent values stay provisional until counsel answers; the counsel packet was sent on 2026-10-28. Not authorized: wording approval, any host, provider, real-data or launch act | OWNER-RATIFIED 2026-10-28 (two waves adopted; counsel packet sent) | `033` |
 | D-51 | The `029` section 14 decision brief (D-A to D-M) adopted provisionally by the seven-seat council of 2026-10-23 (`030`), with binding minority constraints: a dedicated v2 host name; a separate Documenso team or agreements disabled; the erasure chain built now with values "undecided: refuse" and POL-10/POL-09 before the first real submission; the legal posture with per-member verified completion; provisional starting values with named holds; both gates hard; protections now by the owner's hand with a scoped agent token and the repository move after launch or never; the cohort not candidate-impacting selection on four flip conditions with the data notice, decline notice, POL-10 and scorecard not deferred. Authority: the repo-only batch, the erasure chain and go preparation proceed; three bundled goes remain the owner's (host, providers, launch). Not authorized: any host, provider, real-data or launch act | COUNCIL-ADOPTED 2026-10-23, PROVISIONAL (owner ratification pending) | owner's designation in session; `030`; `029` section 14 |
 | D-50 | GATE-STAGING signed off for synthetic staging on the dev box: the full-run gate at PR #80's final head (CI run 39797287619, counts in the PR #80 comment; GATE-STAGING PASS 38 with every other gate PASS) and the live drills in `026` section 16; the 17 partly proven cases accepted with their gaps carried on beads (`9kg.27`, `9kg.25`, and `9kg.20` and `9kg.22` re-homed to `9kg.28`); TEST-P6-26 proven on a stand-in only. Not authorized: a persistent staging or pilot host, a production deploy, reading or changing Learn's live proxy configuration, the webhook or real inbound mail, live provider keys, real applicants or real personal data in any backup. Open: RPO and RTO, alert thresholds, rotation intervals, the scan policy | OWNER-DECIDED 2026-10-22 | owner, in session ("i sign off gate-staging, go build the pilot plan"); `028` section 9; section 4.1 |
@@ -465,6 +466,61 @@ The bead explicitly retains activation with the swap plan (`bgl.17`, `bgl.18`) a
 do not prove template approval, live provider compatibility, completed import, preservation of in-flight cases,
 backup/restore readiness, counsel clearance or a successful cutover. They must not be presented as unanswered
 product choices, or as evidence that the associated code is already enabled.
+
+### 4.4 Production admission and notice activation (2026-11-02)
+
+The owner directed completing the replacement workflow after being presented with the recommendation to preserve
+three admission criteria and the concrete production data notice. The approved criteria are a specific work example,
+a description of personal contribution, and a technical practice goal. Applicant statements may satisfy these
+criteria; they are not independent proof of authorship, competence or credentials. Missing detail calls for a focused
+follow-up. Declines and exceptions remain human decisions.
+
+`assessment_v4` records this production rubric. It is explicitly selected by the digest-bound deployment profile;
+the historical synthetic packs remain unchanged. Model approvals bind each actual purpose and prompt separately.
+The approved notice discloses public-link research, MiniMax processing and routine automatic advancement; its exact
+text and approval digest are held in the private deployment record and the application's versioned template record.
+This supersedes the internal-trial notice for the public replacement, not the retention or recovery requirements.
+
+Under this bound production activation, an admit queues its NDA handoff automatically when the signing provider
+is configured and an approved NDA template exists. The decision, handoff and activation event commit together;
+the signing worker still checks the decision, verified contact, pauses and template before any provider effect.
+Outside that activation, the historical held handoff and owner-run release command remain in place.
+
+The workflow repair removes the 300-character finding-summary and 600-character recommendation-explanation
+caps: a longer explanation alone must not stop an application. Text is preserved without truncation. Evidence,
+citation, unsafe-text and decision checks remain in force, as do request-rate pacing, timeouts and bounded
+repairs. This widens the existing output shape; historical output remains readable. Builder version 3 requires
+renewed model-use records before live requests under the changed contract.
+
+This decision authorizes activation. It does not assert that the release, case import, provider checks or traffic
+transfer have completed. Those remain measured production operations under `bgl.18`.
+
+### 4.5 D-55: applicant notice wording and the hold note (2026-11-07)
+
+Source: the owner's instruction in session on 2026-11-07, recorded on bead `catalyst-v2-bgl.24`. Approval of the
+decline wording: owner, 2026-11-07, in session.
+
+**Decline notice (existing, `assessments.decline`; template `decline_notice`).** Subject "Your Intent Solutions
+access request". Greeting by first name only ("Hello" and the first word of the applicant's name), then: "Thanks for
+your request to join the Intent Solutions practitioner community. We are not able to advance it right now. We keep
+requests on file for twelve months and then delete them; if anything changes on your side, reply to this email. Our
+privacy and data-retention notices are at intentsolutions.io/privacy/ and intentsolutions.io/data-retention/." No
+reasons and no other links; the same sender and Reply-To as the receipt (`config.mail`). The send path, the
+decision-maker's withhold choice and the staff items are unchanged, and no switch is added.
+
+**Still-in-review note (new, `assessments.hold`; template `hold_notice`).** Subject "Your Intent Solutions access
+request: still in review". The same first-name greeting, then: "Your request is still in review; no action is needed
+from you. We will write when there is a decision. If you have a question, reply to this email." One note per
+application, due ten business days (Monday to Friday by the UTC date, as the lapse counts) after the hold is recorded;
+it is cancelled if the application leaves the hold first, and waits for quiet hours, a pause and approved wording like
+the other automated mail. It is queued only while `CATALYST_HOLD_NOTICE_ENABLED` is `true`; the shipped default is
+`false`, so a deployment queues and sends nothing new. Turning it on is the owner's act after approving the wording.
+
+**How the wording becomes live.** Both texts are in `correspondence/wording.py`. `manage.py catalyst_seed_wording`
+adds each as a new draft, non-synthetic version; a live environment serves a version only after the owner approves
+it on the template screen (D-29). Approving the decline version clears the health report's
+`decline_notice_unapproved`; `hold_notice_unapproved` is reported only while the hold switch is on. This record
+approves the wording; it does not perform the in-application approval, a deployment or a send.
 
 ## 5. Who may authorize what
 

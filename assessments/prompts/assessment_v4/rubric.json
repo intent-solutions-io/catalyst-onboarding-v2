@@ -1,0 +1,26 @@
+{
+  "rubric_version": 3,
+  "synthetic": false,
+  "approval_ref": "owner-production-workflow-20261102",
+  "include_practice_goal": true,
+  "criteria": [
+    {
+      "id": "work_quality",
+      "required": true,
+      "basis": "self_report",
+      "definition": "The applicant describes a concrete technical work example or a permitted description of private work, with enough detail to understand what was built or solved. A public link is optional; this is a statement-completeness criterion, not an independent certification of competence."
+    },
+    {
+      "id": "contribution",
+      "required": true,
+      "basis": "self_report",
+      "definition": "The applicant explains what they personally did in that example. A clear first-person account meets this criterion; do not claim that authorship has been independently proved."
+    },
+    {
+      "id": "purpose_fit",
+      "required": true,
+      "basis": "self_report",
+      "definition": "The applicant states a specific technical skill, project or practice goal they want to pursue in the community. Prestige, credentials, employer, nationality and personal background are not admission requirements."
+    }
+  ]
+}

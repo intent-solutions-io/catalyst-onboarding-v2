@@ -27,11 +27,34 @@ from django.db.models.functions import Now
 # its rendered body is never stored or shown to staff.
 LINK_VARIABLES = ["link", "confirmation_link", "token", "url"]
 
-OUTBOUND_STATUSES = ["rendered", "accepted", "failed", "sending", "accepted_by_server", "rejected_temporary",
-                     "rejected_permanent", "transport_blocked", "unknown"]
-QUESTION_STATUSES = ["open", "reply_pending", "partially_answered", "satisfied", "withdrawn"]
-DISPOSITIONS = ["active", "accepted_by_server", "accepted_by_evidence", "rejected_permanent", "retries_exhausted",
-                "transport_blocked", "operator_abandoned", "superseded"]
+OUTBOUND_STATUSES = [
+    "rendered",
+    "accepted",
+    "failed",
+    "sending",
+    "accepted_by_server",
+    "rejected_temporary",
+    "rejected_permanent",
+    "transport_blocked",
+    "unknown",
+]
+QUESTION_STATUSES = [
+    "open",
+    "reply_pending",
+    "partially_answered",
+    "satisfied",
+    "withdrawn",
+]
+DISPOSITIONS = [
+    "active",
+    "accepted_by_server",
+    "accepted_by_evidence",
+    "rejected_permanent",
+    "retries_exhausted",
+    "transport_blocked",
+    "operator_abandoned",
+    "superseded",
+]
 
 
 class OutboundMessage(models.Model):
@@ -42,15 +65,29 @@ class OutboundMessage(models.Model):
         RENDERED = "rendered"
         ACCEPTED = "accepted"  # S1: accepted by the mail backend; not proof of delivery
         FAILED = "failed"  # S1
-        SENDING = "sending"  # P2: recorded before the SMTP exchange; left behind by a crash
-        ACCEPTED_BY_SERVER = "accepted_by_server"  # a 250 after the end of data; never "delivered"
+        SENDING = (
+            "sending"  # P2: recorded before the SMTP exchange; left behind by a crash
+        )
+        ACCEPTED_BY_SERVER = (
+            "accepted_by_server"  # a 250 after the end of data; never "delivered"
+        )
         REJECTED_TEMPORARY = "rejected_temporary"
         REJECTED_PERMANENT = "rejected_permanent"
-        TRANSPORT_BLOCKED = "transport_blocked"  # a channel fault: not a verdict on the message
+        TRANSPORT_BLOCKED = (
+            "transport_blocked"  # a channel fault: not a verdict on the message
+        )
         UNKNOWN = "unknown"  # the end-of-data marker was sent and no reply was observed
 
-    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="outbound_messages")
-    pending_action = models.ForeignKey("workflow.PendingAction", on_delete=models.PROTECT, related_name="outbound_messages")
+    application = models.ForeignKey(
+        "applications.Application",
+        on_delete=models.PROTECT,
+        related_name="outbound_messages",
+    )
+    pending_action = models.ForeignKey(
+        "workflow.PendingAction",
+        on_delete=models.PROTECT,
+        related_name="outbound_messages",
+    )
     attempt_number = models.PositiveIntegerField()
     template_key = models.CharField(max_length=64)
     template_version = models.CharField(max_length=32)
@@ -59,23 +96,46 @@ class OutboundMessage(models.Model):
     status = models.CharField(max_length=24, choices=Status.choices)
     sent_at = models.DateTimeField(null=True, blank=True)
     # P2 (016 3.2)
-    approved_message = models.ForeignKey("ApprovedMessage", on_delete=models.PROTECT, null=True, blank=True,
-                                         related_name="attempts")
-    attempt_series = models.PositiveIntegerField(db_default=0)  # database defaults keep S1 inserts valid
+    approved_message = models.ForeignKey(
+        "ApprovedMessage",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="attempts",
+    )
+    attempt_series = models.PositiveIntegerField(
+        db_default=0
+    )  # database defaults keep S1 inserts valid
     protocol_phase_reached = models.CharField(max_length=16, blank=True, db_default="")
-    smtp_reply_code = models.PositiveIntegerField(null=True, blank=True)  # the code only; reply text is never stored
+    smtp_reply_code = models.PositiveIntegerField(
+        null=True, blank=True
+    )  # the code only; reply text is never stored
     rendered_sha256 = models.CharField(max_length=64, blank=True, db_default="")
     server_accepted_at = models.DateTimeField(null=True, blank=True)
-    filed_copy_state = models.CharField(max_length=16, blank=True, db_default="none")  # 016 A4 (2B.2)
-    created_at = models.DateTimeField(db_default=Now())  # when the attempt row was written (G3 age)
+    filed_copy_state = models.CharField(
+        max_length=16, blank=True, db_default="none"
+    )  # 016 A4 (2B.2)
+    created_at = models.DateTimeField(
+        db_default=Now()
+    )  # when the attempt row was written (G3 age)
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["pending_action", "attempt_number"], name="outbound_unique_per_attempt"),
-            models.CheckConstraint(condition=Q(attempt_number__gte=1), name="outbound_attempt_positive"),
-            models.CheckConstraint(condition=Q(status__in=OUTBOUND_STATUSES), name="outbound_status_valid"),
-            models.UniqueConstraint(fields=["approved_message", "attempt_number"], condition=Q(approved_message__isnull=False),
-                                    name="outbound_attempt_number_per_message"),
+            models.UniqueConstraint(
+                fields=["pending_action", "attempt_number"],
+                name="outbound_unique_per_attempt",
+            ),
+            models.CheckConstraint(
+                condition=Q(attempt_number__gte=1), name="outbound_attempt_positive"
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=OUTBOUND_STATUSES), name="outbound_status_valid"
+            ),
+            models.UniqueConstraint(
+                fields=["approved_message", "attempt_number"],
+                condition=Q(approved_message__isnull=False),
+                name="outbound_attempt_number_per_message",
+            ),
         ]
 
 
@@ -92,9 +152,13 @@ class MessageTemplateVersion(models.Model):
         APPROVED = "approved"
         RETIRED = "retired"
 
-    template = models.ForeignKey(MessageTemplate, on_delete=models.PROTECT, related_name="versions")
+    template = models.ForeignKey(
+        MessageTemplate, on_delete=models.PROTECT, related_name="versions"
+    )
     version = models.PositiveIntegerField()
-    subject = models.CharField(max_length=200)  # static: no variables in subjects (016 A1)
+    subject = models.CharField(
+        max_length=200
+    )  # static: no variables in subjects (016 A1)
     # bgl.5 (the owner's parity direction of 2026-10-31; amends 016 A1 for the reference only): the sender appends
     # " [CAT-XXXX-XXXX]", the application's reference, to the static subject. Part of the content digest
     # (correspondence.rendering.version_digest), so approving a version approves whether its subject carries it.
@@ -104,26 +168,50 @@ class MessageTemplateVersion(models.Model):
     # value is HTML-escaped when substituted, and a link variable may stand only in an href the author wrote
     # (correspondence.rendering). Part of content_sha256 when not blank, so an approved version stays immutable.
     body_html = models.TextField(blank=True, default="", db_default="")
-    variables = models.JSONField(default=list)  # the allow-list of $names the body may use
+    variables = models.JSONField(
+        default=list
+    )  # the allow-list of $names the body may use
     # Copied from the template at creation (code keeps them equal) so the database can enforce 3.1's rule.
     secret_bearing = models.BooleanField(default=False)
-    status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.DRAFT
+    )
     approved_by = models.CharField(max_length=200, blank=True, default="")
     approved_at = models.DateTimeField(null=True, blank=True)
     content_sha256 = models.CharField(max_length=64)
-    synthetic = models.BooleanField(default=True)  # placeholder wording; real wording needs POL-06 and POL-17
+    synthetic = models.BooleanField(
+        default=True
+    )  # placeholder wording; real wording needs POL-06 and POL-17
     created_at = models.DateTimeField(db_default=Now())
 
     class Meta:
-        permissions = [("approve_template_version", "Approve a message template version (owner only, D-29)")]
+        permissions = [
+            (
+                "approve_template_version",
+                "Approve a message template version (owner only, D-29)",
+            )
+        ]
         constraints = [
-            models.UniqueConstraint(fields=["template", "version"], name="template_version_unique"),
-            models.CheckConstraint(condition=Q(version__gte=1), name="template_version_positive"),
-            models.CheckConstraint(condition=Q(status__in=["draft", "approved", "retired"]), name="template_version_status_valid"),
-            models.CheckConstraint(condition=~Q(status="approved") | (~Q(approved_by="") & Q(approved_at__isnull=False)),
-                                   name="template_version_approved_has_approver"),
-            models.CheckConstraint(condition=Q(secret_bearing=True) | ~Q(variables__has_any_keys=LINK_VARIABLES),
-                                   name="template_version_link_is_secret_bearing"),
+            models.UniqueConstraint(
+                fields=["template", "version"], name="template_version_unique"
+            ),
+            models.CheckConstraint(
+                condition=Q(version__gte=1), name="template_version_positive"
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=["draft", "approved", "retired"]),
+                name="template_version_status_valid",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="approved")
+                | (~Q(approved_by="") & Q(approved_at__isnull=False)),
+                name="template_version_approved_has_approver",
+            ),
+            models.CheckConstraint(
+                condition=Q(secret_bearing=True)
+                | ~Q(variables__has_any_keys=LINK_VARIABLES),
+                name="template_version_link_is_secret_bearing",
+            ),
         ]
 
 
@@ -147,40 +235,84 @@ class Question(models.Model):
         APPROVED = "approved"
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="questions")
+    application = models.ForeignKey(
+        "applications.Application", on_delete=models.PROTECT, related_name="questions"
+    )
     text = models.TextField()
-    origin = models.CharField(max_length=16, choices=Origin.choices, default=Origin.STAFF)
-    approval_state = models.CharField(max_length=16, choices=Approval.choices, default=Approval.PROPOSED)
+    origin = models.CharField(
+        max_length=16, choices=Origin.choices, default=Origin.STAFF
+    )
+    approval_state = models.CharField(
+        max_length=16, choices=Approval.choices, default=Approval.PROPOSED
+    )
     approved_by = models.CharField(max_length=200, blank=True, default="")
     approved_at = models.DateTimeField(null=True, blank=True)
-    status = models.CharField(max_length=24, choices=Status.choices, default=Status.OPEN)
+    status = models.CharField(
+        max_length=24, choices=Status.choices, default=Status.OPEN
+    )
     withdrawn_by = models.CharField(max_length=200, blank=True, default="")
     withdrawn_reason = models.CharField(max_length=200, blank=True, default="")
     withdrawn_at = models.DateTimeField(null=True, blank=True)
     # P3 3B.3 (018 section 4 steps 5 and 6, section 15; 019 section 5). Set at insert, never updated.
     criterion_id = models.CharField(max_length=40, blank=True, default="")
-    evidence_gap = models.CharField(max_length=300, blank=True, default="")  # why the question is asked
-    alternative_route = models.CharField(max_length=300, blank=True, default="")  # another way to show the same
-    requires_evidence = models.BooleanField(default=False)  # an answer should carry a link or an attachment
-    raised_by = models.CharField(max_length=80, blank=True, default="")  # "run:<uuid>" or "staff"; empty in P2
-    round = models.PositiveIntegerField(default=0)  # the clarification round; 0 for P2 questions
-    text_key = models.CharField(max_length=400, blank=True, default="")  # normalized text, for deduplication
+    evidence_gap = models.CharField(
+        max_length=300, blank=True, default=""
+    )  # why the question is asked
+    alternative_route = models.CharField(
+        max_length=300, blank=True, default=""
+    )  # another way to show the same
+    requires_evidence = models.BooleanField(
+        default=False
+    )  # an answer should carry a link or an attachment
+    raised_by = models.CharField(
+        max_length=80, blank=True, default=""
+    )  # "run:<uuid>" or "staff"; empty in P2
+    round = models.PositiveIntegerField(
+        default=0
+    )  # the clarification round; 0 for P2 questions
+    text_key = models.CharField(
+        max_length=400, blank=True, default=""
+    )  # normalized text, for deduplication
     created_at = models.DateTimeField(db_default=Now())
     updated_at = models.DateTimeField(db_default=Now())
 
     class Meta:
-        permissions = [("approve_question", "Approve an applicant-specific question (operators, D-29)"),
-                       ("withdraw_question", "Withdraw a question; never an answer (operator, A-8)"),
-                       ("author_question", "Author an applicant-specific clarification question (P3 3B.3)")]
+        permissions = [
+            (
+                "approve_question",
+                "Approve an applicant-specific question (operators, D-29)",
+            ),
+            (
+                "withdraw_question",
+                "Withdraw a question; never an answer (operator, A-8)",
+            ),
+            (
+                "author_question",
+                "Author an applicant-specific clarification question (P3 3B.3)",
+            ),
+        ]
         constraints = [
-            models.CheckConstraint(condition=Q(status__in=QUESTION_STATUSES), name="question_status_valid"),
-            models.CheckConstraint(condition=Q(approval_state__in=["proposed", "approved"]), name="question_approval_valid"),
-            models.CheckConstraint(condition=Q(origin__in=["staff", "model"]), name="question_origin_valid"),
-            models.CheckConstraint(condition=~Q(approval_state="approved") | (~Q(approved_by="") & Q(approved_at__isnull=False)),
-                                   name="question_approved_has_approver"),
+            models.CheckConstraint(
+                condition=Q(status__in=QUESTION_STATUSES), name="question_status_valid"
+            ),
+            models.CheckConstraint(
+                condition=Q(approval_state__in=["proposed", "approved"]),
+                name="question_approval_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(origin__in=["staff", "model"]), name="question_origin_valid"
+            ),
+            models.CheckConstraint(
+                condition=~Q(approval_state="approved")
+                | (~Q(approved_by="") & Q(approved_at__isnull=False)),
+                name="question_approved_has_approver",
+            ),
             # One live question per normalized text per application (018 step 5); a withdrawn one may be re-asked.
-            models.UniqueConstraint(fields=["application", "text_key"], condition=~Q(text_key="") & ~Q(status="withdrawn"),
-                                    name="question_text_unique_while_live"),
+            models.UniqueConstraint(
+                fields=["application", "text_key"],
+                condition=~Q(text_key="") & ~Q(status="withdrawn"),
+                name="question_text_unique_while_live",
+            ),
         ]
 
 
@@ -195,6 +327,7 @@ class ApprovedMessage(models.Model):
         WELCOME = "welcome"  # P5 5B.2: queued by activation, sent by the P2 sender
         DECLINE = "decline"  # oc4.11: frozen by assessments.decline, sent by the P2 sender to a declined applicant
         LAPSE_NOTE = "lapse_note"  # bgl.7: the one closing note of a lapse (correspondence.lapse), sent by the P2 sender
+        HOLD_NOTICE = "hold_notice"  # bgl.24: the one still-in-review note of a hold (assessments.hold), by the P2 sender
 
     class Authority(models.TextChoices):
         SYSTEM_POLICY = "system_policy"
@@ -212,42 +345,102 @@ class ApprovedMessage(models.Model):
 
     send_ref = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     kind = models.CharField(max_length=24, choices=Kind.choices)
-    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="approved_messages")
-    recipient = models.CharField(max_length=320)  # the verified address, frozen at approval
-    template_version = models.ForeignKey(MessageTemplateVersion, on_delete=models.PROTECT, null=True, blank=True,
-                                         related_name="approved_messages")
+    application = models.ForeignKey(
+        "applications.Application",
+        on_delete=models.PROTECT,
+        related_name="approved_messages",
+    )
+    recipient = models.CharField(
+        max_length=320
+    )  # the verified address, frozen at approval
+    template_version = models.ForeignKey(
+        MessageTemplateVersion,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="approved_messages",
+    )
     frozen_subject = models.CharField(max_length=200, blank=True, default="")
     frozen_body = models.TextField(blank=True, default="")
     content_sha256 = models.CharField(max_length=64, blank=True, default="")
-    reproducible_inputs = models.JSONField(default=dict)  # secret-bearing kinds: identifiers only, never the secret
+    reproducible_inputs = models.JSONField(
+        default=dict
+    )  # secret-bearing kinds: identifiers only, never the secret
     inputs_sha256 = models.CharField(max_length=64, blank=True, default="")
     authorized_by = models.CharField(max_length=200)
     authority = models.CharField(max_length=16, choices=Authority.choices)
     authorized_at = models.DateTimeField(db_default=Now())
-    supersedes = models.OneToOneField("self", on_delete=models.PROTECT, null=True, blank=True, related_name="superseded_by")
-    disposition = models.CharField(max_length=24, choices=Disposition.choices, default=Disposition.ACTIVE)
+    supersedes = models.OneToOneField(
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="superseded_by",
+    )
+    disposition = models.CharField(
+        max_length=24, choices=Disposition.choices, default=Disposition.ACTIVE
+    )
     disposition_at = models.DateTimeField(null=True, blank=True)
     disposition_by = models.CharField(max_length=200, blank=True, default="")
     # 016 3.4: a staff message is created only by confirming one preview, at most once.
-    staff_draft = models.OneToOneField("StaffMessageDraft", on_delete=models.PROTECT, null=True, blank=True,
-                                       related_name="approved_message")
+    staff_draft = models.OneToOneField(
+        "StaffMessageDraft",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="approved_message",
+    )
 
     class Meta:
-        permissions = [("decide_uncertain_send", "Decide an unknown, exhausted, blocked or rejected send (decision-maker, D-30)")]
+        permissions = [
+            (
+                "decide_uncertain_send",
+                "Decide an unknown, exhausted, blocked or rejected send (decision-maker, D-30)",
+            )
+        ]
         constraints = [
-            models.CheckConstraint(condition=Q(kind__in=["question", "reminder", "staff_message", "welcome", "decline",
-                                                         "lapse_note"]),
-                                   name="approved_message_kind_valid"),
-            models.CheckConstraint(condition=Q(authority__in=["system_policy", "staff"]), name="approved_message_authority_valid"),
-            models.CheckConstraint(condition=Q(disposition__in=DISPOSITIONS), name="approved_message_disposition_valid"),
-            models.CheckConstraint(condition=Q(kind="staff_message") | Q(template_version__isnull=False),
-                                   name="approved_message_template_required"),
-            models.CheckConstraint(condition=~Q(content_sha256="") | ~Q(inputs_sha256=""), name="approved_message_has_content"),
-            models.CheckConstraint(condition=~Q(authorized_by=""), name="approved_message_authorized"),
-            models.CheckConstraint(condition=~Q(supersedes=F("id")), name="approved_message_not_self_superseding"),
-            models.CheckConstraint(condition=(Q(kind="staff_message") & Q(staff_draft__isnull=False))
-                                   | (~Q(kind="staff_message") & Q(staff_draft__isnull=True)),
-                                   name="approved_message_staff_draft_iff_staff_message"),
+            models.CheckConstraint(
+                condition=Q(
+                    kind__in=[
+                        "question",
+                        "reminder",
+                        "staff_message",
+                        "welcome",
+                        "decline",
+                        "lapse_note",
+                        "hold_notice",
+                    ]
+                ),
+                name="approved_message_kind_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(authority__in=["system_policy", "staff"]),
+                name="approved_message_authority_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(disposition__in=DISPOSITIONS),
+                name="approved_message_disposition_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(kind="staff_message") | Q(template_version__isnull=False),
+                name="approved_message_template_required",
+            ),
+            models.CheckConstraint(
+                condition=~Q(content_sha256="") | ~Q(inputs_sha256=""),
+                name="approved_message_has_content",
+            ),
+            models.CheckConstraint(
+                condition=~Q(authorized_by=""), name="approved_message_authorized"
+            ),
+            models.CheckConstraint(
+                condition=~Q(supersedes=F("id")),
+                name="approved_message_not_self_superseding",
+            ),
+            models.CheckConstraint(
+                condition=(Q(kind="staff_message") & Q(staff_draft__isnull=False))
+                | (~Q(kind="staff_message") & Q(staff_draft__isnull=True)),
+                name="approved_message_staff_draft_iff_staff_message",
+            ),
         ]
 
 
@@ -256,17 +449,33 @@ class StaffMessageDraft(models.Model):
     is never edited, sent or counted as a message. Confirmation links it to one `ApprovedMessage`."""
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="staff_drafts")
+    application = models.ForeignKey(
+        "applications.Application",
+        on_delete=models.PROTECT,
+        related_name="staff_drafts",
+    )
     author = models.CharField(max_length=200)
     subject = models.CharField(max_length=200)
     body = models.TextField()
-    recipient = models.CharField(max_length=320)  # the verified address at preview, never typed
+    recipient = models.CharField(
+        max_length=320
+    )  # the verified address at preview, never typed
     content_sha256 = models.CharField(max_length=64)
     created_at = models.DateTimeField(db_default=Now())
 
     class Meta:
-        permissions = [("send_staff_message", "Preview and confirm a staff message (operator, D-30, A-5)")]
-        constraints = [models.CheckConstraint(condition=~Q(author="") & ~Q(content_sha256=""), name="staff_draft_complete")]
+        permissions = [
+            (
+                "send_staff_message",
+                "Preview and confirm a staff message (operator, D-30, A-5)",
+            )
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=~Q(author="") & ~Q(content_sha256=""),
+                name="staff_draft_complete",
+            )
+        ]
 
 
 class ApprovedMessageQuestion(models.Model):
@@ -275,15 +484,28 @@ class ApprovedMessageQuestion(models.Model):
         REMINDER = "reminder"
         REVISION = "revision"  # a revised message superseding the initial one (016 3.2, A6 `revise`)
 
-    approved_message = models.ForeignKey(ApprovedMessage, on_delete=models.PROTECT, related_name="question_links")
-    question = models.ForeignKey(Question, on_delete=models.PROTECT, related_name="message_links")
+    approved_message = models.ForeignKey(
+        ApprovedMessage, on_delete=models.PROTECT, related_name="question_links"
+    )
+    question = models.ForeignKey(
+        Question, on_delete=models.PROTECT, related_name="message_links"
+    )
     purpose = models.CharField(max_length=16, choices=Purpose.choices)
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["approved_message", "question"], name="message_question_unique"),
-            models.UniqueConstraint(fields=["question"], condition=Q(purpose="initial"), name="question_one_initial_message"),
-            models.CheckConstraint(condition=Q(purpose__in=["initial", "reminder", "revision"]), name="message_question_purpose_valid"),
+            models.UniqueConstraint(
+                fields=["approved_message", "question"], name="message_question_unique"
+            ),
+            models.UniqueConstraint(
+                fields=["question"],
+                condition=Q(purpose="initial"),
+                name="question_one_initial_message",
+            ),
+            models.CheckConstraint(
+                condition=Q(purpose__in=["initial", "reminder", "revision"]),
+                name="message_question_purpose_valid",
+            ),
         ]
 
 
@@ -296,37 +518,77 @@ class StaffItem(models.Model):
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     reason_code = models.CharField(max_length=64)
-    dedupe_key = models.CharField(max_length=200)  # identifiers or digests only, never an address
-    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, null=True, blank=True,
-                                    related_name="staff_items")
-    approved_message = models.ForeignKey(ApprovedMessage, on_delete=models.PROTECT, null=True, blank=True,
-                                         related_name="staff_items")
+    dedupe_key = models.CharField(
+        max_length=200
+    )  # identifiers or digests only, never an address
+    application = models.ForeignKey(
+        "applications.Application",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="staff_items",
+    )
+    approved_message = models.ForeignKey(
+        ApprovedMessage,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="staff_items",
+    )
     question_id = models.BigIntegerField(null=True, blank=True)
     pending_action_id = models.BigIntegerField(null=True, blank=True)
-    status = models.CharField(max_length=16, choices=Status.choices, default=Status.OPEN)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.OPEN
+    )
     opened_at = models.DateTimeField(db_default=Now())
 
     class Meta:
         permissions = [
             ("resolve_exception", "Resolve a non-identity staff item (operator, D-30)"),
-            ("resolve_identity_exception", "Resolve an identity-affecting staff item (decision-maker, D-30, D-31)"),
-            ("pause_automation", "Pause automated correspondence for an application (operator, F)"),
-            ("resume_automation", "Resume automated correspondence for an application (operator, F, E4)"),
+            (
+                "resolve_identity_exception",
+                "Resolve an identity-affecting staff item (decision-maker, D-30, D-31)",
+            ),
+            (
+                "pause_automation",
+                "Pause automated correspondence for an application (operator, F)",
+            ),
+            (
+                "resume_automation",
+                "Resume automated correspondence for an application (operator, F, E4)",
+            ),
         ]
         constraints = [
-            models.UniqueConstraint(fields=["reason_code", "dedupe_key"], condition=Q(status="open"), name="staff_item_one_open_per_key"),
-            models.CheckConstraint(condition=Q(status__in=["open", "resolved"]), name="staff_item_status_valid"),
+            models.UniqueConstraint(
+                fields=["reason_code", "dedupe_key"],
+                condition=Q(status="open"),
+                name="staff_item_one_open_per_key",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=["open", "resolved"]),
+                name="staff_item_status_valid",
+            ),
         ]
         indexes = [
-            models.Index(fields=["dedupe_key"], condition=Q(status="open"), name="staff_item_open_key"),
-            models.Index(fields=["application"], condition=Q(status="open"), name="staff_item_open_application"),
+            models.Index(
+                fields=["dedupe_key"],
+                condition=Q(status="open"),
+                name="staff_item_open_key",
+            ),
+            models.Index(
+                fields=["application"],
+                condition=Q(status="open"),
+                name="staff_item_open_application",
+            ),
         ]
 
 
 class StaffItemResolution(models.Model):
     """Immutable: INSERT-only for the application role, one per item, with or without an application."""
 
-    item = models.OneToOneField(StaffItem, on_delete=models.PROTECT, related_name="resolution")
+    item = models.OneToOneField(
+        StaffItem, on_delete=models.PROTECT, related_name="resolution"
+    )
     resolution_code = models.CharField(max_length=64)
     resolved_by = models.CharField(max_length=200)
     resolved_at = models.DateTimeField(db_default=Now())
@@ -334,12 +596,22 @@ class StaffItemResolution(models.Model):
     effects = models.JSONField(default=dict)  # the identifiers changed
 
     class Meta:
-        constraints = [models.CheckConstraint(condition=~Q(resolved_by=""), name="staff_item_resolution_has_actor")]
+        constraints = [
+            models.CheckConstraint(
+                condition=~Q(resolved_by=""), name="staff_item_resolution_has_actor"
+            )
+        ]
 
 
 # --- P2 inbound (016 sections 3.3, 3.5, 3.6; task 2B.2) ---------------------------------------------------
 
-INBOUND_STATUSES = ["received", "awaiting_processing", "processed", "automated_reply", "exception"]
+INBOUND_STATUSES = [
+    "received",
+    "awaiting_processing",
+    "processed",
+    "automated_reply",
+    "exception",
+]
 CURSOR_STATES = ["ok", "resync", "recovery", "blocked"]
 LINK_STATES = ["pending", "applied", "ignored_automated", "stale", "void_withdrawn"]
 
@@ -364,7 +636,9 @@ class MailboxCursor(models.Model):
     blocked_reason = models.CharField(max_length=64, blank=True, default="")
     epoch = models.PositiveIntegerField(default=0)
     pass_number = models.PositiveIntegerField(default=0)
-    start_mode = models.CharField(max_length=16, blank=True, default="")  # from_now | from_uid | recovery
+    start_mode = models.CharField(
+        max_length=16, blank=True, default=""
+    )  # from_now | from_uid | recovery
     last_batch_at = models.DateTimeField(null=True, blank=True)
     last_error_code = models.CharField(max_length=64, blank=True, default="")
     consecutive_failures = models.PositiveIntegerField(default=0)
@@ -372,11 +646,22 @@ class MailboxCursor(models.Model):
     created_at = models.DateTimeField(db_default=Now())
 
     class Meta:
-        permissions = [("restart_collector", "Restart a blocked mailbox collector (decision-maker, D-30)")]
+        permissions = [
+            (
+                "restart_collector",
+                "Restart a blocked mailbox collector (decision-maker, D-30)",
+            )
+        ]
         constraints = [
-            models.UniqueConstraint(fields=["mailbox_ref", "folder"], name="cursor_one_per_folder"),
-            models.CheckConstraint(condition=Q(state__in=CURSOR_STATES), name="cursor_state_valid"),
-            models.CheckConstraint(condition=Q(last_uid__gte=0), name="cursor_last_uid_nonnegative"),
+            models.UniqueConstraint(
+                fields=["mailbox_ref", "folder"], name="cursor_one_per_folder"
+            ),
+            models.CheckConstraint(
+                condition=Q(state__in=CURSOR_STATES), name="cursor_state_valid"
+            ),
+            models.CheckConstraint(
+                condition=Q(last_uid__gte=0), name="cursor_last_uid_nonnegative"
+            ),
         ]
 
 
@@ -399,53 +684,102 @@ class InboundMessage(models.Model):
     from_address = models.CharField(max_length=320, blank=True, default="")
     from_normalized = models.CharField(max_length=320, blank=True, default="")
     auto_markers = models.JSONField(default=dict)
-    date_header = models.CharField(max_length=200, blank=True, default="")  # untrusted text, never used for ordering
+    date_header = models.CharField(
+        max_length=200, blank=True, default=""
+    )  # untrusted text, never used for ordering
     internal_date = models.CharField(max_length=64, blank=True, default="")
     received_at = models.DateTimeField(db_default=Now())
     size = models.BigIntegerField(default=0)
-    original_sha256 = models.CharField(max_length=64, blank=True, default="")  # empty when identity is unestablished
+    original_sha256 = models.CharField(
+        max_length=64, blank=True, default=""
+    )  # empty when identity is unestablished
     derived_text = models.TextField(blank=True, default="")
-    derived_text_sha256 = models.CharField(max_length=64, blank=True, db_default="")  # pins spans (016 section 1)
+    derived_text_sha256 = models.CharField(
+        max_length=64, blank=True, db_default=""
+    )  # pins spans (016 section 1)
     derivation_version = models.PositiveIntegerField(default=1)
     redaction_version = models.PositiveIntegerField(default=1)
     truncated = models.BooleanField(default=False)
     truncated_at_chars = models.PositiveIntegerField(null=True, blank=True)
     omitted_parts = models.JSONField(default=list)
     redactions = models.JSONField(default=dict)
-    attachments = models.JSONField(default=list)  # metadata only: sanitized name, type, size, digest
+    attachments = models.JSONField(
+        default=list
+    )  # metadata only: sanitized name, type, size, digest
     is_derivative = models.BooleanField(default=True)
     auth_evidence = models.CharField(max_length=24, blank=True, default="missing")
     trust_decision = models.CharField(max_length=24, blank=True, default="")
     from_matches_verified_address = models.BooleanField(default=False)
-    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, null=True, blank=True,
-                                    related_name="inbound_messages")
-    approved_message = models.ForeignKey(ApprovedMessage, on_delete=models.PROTECT, null=True, blank=True,
-                                         related_name="replies")
-    classification = models.CharField(max_length=16, blank=True, default="")  # human | automatic | bounce | own_copy
-    status = models.CharField(max_length=24, choices=Status.choices, default=Status.RECEIVED)
+    application = models.ForeignKey(
+        "applications.Application",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="inbound_messages",
+    )
+    approved_message = models.ForeignKey(
+        ApprovedMessage,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="replies",
+    )
+    classification = models.CharField(
+        max_length=16, blank=True, default=""
+    )  # human | automatic | bounce | own_copy
+    status = models.CharField(
+        max_length=24, choices=Status.choices, default=Status.RECEIVED
+    )
     exception_reason = models.CharField(max_length=64, blank=True, default="")
     processed_at = models.DateTimeField(null=True, blank=True)
-    identity_state = models.CharField(max_length=16, default="established")  # established | unestablished
+    identity_state = models.CharField(
+        max_length=16, default="established"
+    )  # established | unestablished
 
     class Meta:
-        permissions = [("confirm_question_outcome", "Confirm question outcomes or close a reply (operator, D-30)")]
+        permissions = [
+            (
+                "confirm_question_outcome",
+                "Confirm question outcomes or close a reply (operator, D-30)",
+            )
+        ]
         constraints = [
-            models.CheckConstraint(condition=Q(status__in=INBOUND_STATUSES), name="inbound_status_valid"),
-            models.CheckConstraint(condition=Q(is_derivative=True), name="inbound_is_derivative"),
-            models.CheckConstraint(condition=Q(identity_state__in=["established", "unestablished"]), name="inbound_identity_state_valid"),
-            models.UniqueConstraint(fields=["mailbox_ref", "original_sha256"], condition=~Q(original_sha256=""),
-                                    name="inbound_one_per_digest"),
+            models.CheckConstraint(
+                condition=Q(status__in=INBOUND_STATUSES), name="inbound_status_valid"
+            ),
+            models.CheckConstraint(
+                condition=Q(is_derivative=True), name="inbound_is_derivative"
+            ),
+            models.CheckConstraint(
+                condition=Q(identity_state__in=["established", "unestablished"]),
+                name="inbound_identity_state_valid",
+            ),
+            models.UniqueConstraint(
+                fields=["mailbox_ref", "original_sha256"],
+                condition=~Q(original_sha256=""),
+                name="inbound_one_per_digest",
+            ),
         ]
         indexes = [
-            models.Index(fields=["mailbox_ref", "message_id_header"], condition=~Q(message_id_header=""), name="inbound_msgid_lookup"),
-            models.Index(fields=["received_at"], condition=Q(status="awaiting_processing"), name="inbound_awaiting"),
+            models.Index(
+                fields=["mailbox_ref", "message_id_header"],
+                condition=~Q(message_id_header=""),
+                name="inbound_msgid_lookup",
+            ),
+            models.Index(
+                fields=["received_at"],
+                condition=Q(status="awaiting_processing"),
+                name="inbound_awaiting",
+            ),
         ]
 
 
 class InboundMessageLocation(models.Model):
     """Every place a message was observed (016 3.5). INSERT-only."""
 
-    message = models.ForeignKey(InboundMessage, on_delete=models.PROTECT, related_name="locations")
+    message = models.ForeignKey(
+        InboundMessage, on_delete=models.PROTECT, related_name="locations"
+    )
     mailbox_ref = models.CharField(max_length=64)
     folder = models.CharField(max_length=200)
     uidvalidity = models.BigIntegerField()
@@ -455,16 +789,26 @@ class InboundMessageLocation(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["mailbox_ref", "folder", "uidvalidity", "uid"], name="inbound_location_unique"),
-            models.CheckConstraint(condition=Q(matched_by__in=["new", "digest", "metadata"]), name="inbound_location_matched_by_valid"),
+            models.UniqueConstraint(
+                fields=["mailbox_ref", "folder", "uidvalidity", "uid"],
+                name="inbound_location_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(matched_by__in=["new", "digest", "metadata"]),
+                name="inbound_location_matched_by_valid",
+            ),
         ]
 
 
 class QuestionReplyLink(models.Model):
     """016 3.3: a reply's relation to one question. `pending` makes the question `reply_pending`."""
 
-    question = models.ForeignKey(Question, on_delete=models.PROTECT, related_name="reply_links")
-    inbound_message = models.ForeignKey(InboundMessage, on_delete=models.PROTECT, related_name="question_links")
+    question = models.ForeignKey(
+        Question, on_delete=models.PROTECT, related_name="reply_links"
+    )
+    inbound_message = models.ForeignKey(
+        InboundMessage, on_delete=models.PROTECT, related_name="question_links"
+    )
     state = models.CharField(max_length=24, default="pending")
     outcome = models.CharField(max_length=24, blank=True, default="")
     actor_ref = models.CharField(max_length=200, blank=True, default="")
@@ -473,11 +817,24 @@ class QuestionReplyLink(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["question", "inbound_message"], name="reply_link_unique"),
-            models.CheckConstraint(condition=Q(state__in=LINK_STATES), name="reply_link_state_valid"),
-            models.CheckConstraint(condition=Q(outcome__in=["", "satisfied", "partial", "not_addressed"]), name="reply_link_outcome_valid"),
+            models.UniqueConstraint(
+                fields=["question", "inbound_message"], name="reply_link_unique"
+            ),
+            models.CheckConstraint(
+                condition=Q(state__in=LINK_STATES), name="reply_link_state_valid"
+            ),
+            models.CheckConstraint(
+                condition=Q(outcome__in=["", "satisfied", "partial", "not_addressed"]),
+                name="reply_link_outcome_valid",
+            ),
         ]
-        indexes = [models.Index(fields=["inbound_message"], condition=Q(state="pending"), name="reply_link_pending")]
+        indexes = [
+            models.Index(
+                fields=["inbound_message"],
+                condition=Q(state="pending"),
+                name="reply_link_pending",
+            )
+        ]
 
 
 class ReplyInterpretation(models.Model):
@@ -495,26 +852,54 @@ class ReplyInterpretation(models.Model):
         ABANDONED = "abandoned"  # the attempt never finished
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    message = models.ForeignKey(InboundMessage, on_delete=models.PROTECT, related_name="interpretations")
-    application = models.ForeignKey("applications.Application", on_delete=models.PROTECT, related_name="reply_interpretations")
+    message = models.ForeignKey(
+        InboundMessage, on_delete=models.PROTECT, related_name="interpretations"
+    )
+    application = models.ForeignKey(
+        "applications.Application",
+        on_delete=models.PROTECT,
+        related_name="reply_interpretations",
+    )
     attempt = models.PositiveIntegerField()
     text_sha256 = models.CharField(max_length=64)
-    status = models.CharField(max_length=16, choices=Status.choices, default=Status.STARTED)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.STARTED
+    )
     code = models.CharField(max_length=64, blank=True, default="")
     reserved_requests = models.PositiveIntegerField(default=0)
-    proposals = models.JSONField(default=list)  # [{question, outcome, spans: [[start, end]], note}]
+    proposals = models.JSONField(
+        default=list
+    )  # [{question, outcome, spans: [[start, end]], note}]
     problems = models.JSONField(default=list)  # reason codes only
-    flags = models.JSONField(default=list)  # e.g. evidence_required_but_absent:<question>
+    flags = models.JSONField(
+        default=list
+    )  # e.g. evidence_required_but_absent:<question>
     provenance = models.JSONField(default=dict)
     started_at = models.DateTimeField(db_default=Now())
     finished_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["message", "attempt"], name="reply_interpretation_one_per_attempt"),
-            models.CheckConstraint(condition=Q(status__in=["started", "completed", "invalid", "unavailable", "superseded",
-                                                           "text_changed", "abandoned"]),
-                                   name="reply_interpretation_status_valid"),
-            models.CheckConstraint(condition=Q(status="started") | Q(finished_at__isnull=False),
-                                   name="reply_interpretation_finished_has_time"),
+            models.UniqueConstraint(
+                fields=["message", "attempt"],
+                name="reply_interpretation_one_per_attempt",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    status__in=[
+                        "started",
+                        "completed",
+                        "invalid",
+                        "unavailable",
+                        "superseded",
+                        "text_changed",
+                        "abandoned",
+                    ]
+                ),
+                name="reply_interpretation_status_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(status="started") | Q(finished_at__isnull=False),
+                name="reply_interpretation_finished_has_time",
+            ),
         ]

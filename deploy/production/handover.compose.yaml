@@ -1,0 +1,10 @@
+# Add only at the recorded source-writer shutdown. The digest-bound parity profile
+# names exact legacy envelope identities; creates/listings stay on the isolated V2 account.
+services:
+  worker:
+    secrets: [agreement_legacy_token]
+  migrate:
+    secrets: [agreement_legacy_token]
+secrets:
+  agreement_legacy_token:
+    file: ${CATALYST_PRODUCTION_SECRETS:?}/agreement_legacy_token

@@ -32,6 +32,7 @@ SECRET_ENV_NAMES = (
     "CATALYST_ASSESSMENT_API_KEY",  # bgl.12: the live model key, a file outside test and development
     "CATALYST_TWENTY_TOKEN",
     "CATALYST_AGREEMENT_PROVIDER_TOKEN",
+    "CATALYST_AGREEMENT_LEGACY_TOKEN",
 )  # bgl.14: the Twenty token, a file outside test and development
 
 # Environments Catalyst may run in. `staging` (026 P6-D-2, D-49) is synthetic like `test`: the same fakes under the
@@ -515,9 +516,11 @@ EVIDENCE_TEST_ONLY = (
 
 
 def evidence_problems(settings, environ: Mapping[str, str]) -> list[str]:
-    """018 3.3 step 7 (P3 3B.1): evidence fetching is synthetic only. Outside `test` and `staging`, no host may be
-    fetchable, no fixture address may be pinned and no custom trust store may be set; in `staging` only `.test` hosts,
-    a loopback fixture address and an absolute trust-store path; none of them may come from the environment."""
+    """Evidence hosts require the production parity profile or the synthetic settings.
+
+    Production admits explicit public names outside this estate, never fixture addresses or custom trust stores.
+    Staging retains only .test hosts and its loopback fixture. Direct environment overrides remain forbidden.
+    """
     problems = [
         f"{name} may not be set from the environment"
         for name in EVIDENCE_TEST_ONLY
@@ -526,6 +529,19 @@ def evidence_problems(settings, environ: Mapping[str, str]) -> list[str]:
     environment = getattr(settings, "CATALYST_ENV", "")
     if not synthetic(environment):
         for name in EVIDENCE_TEST_ONLY:
+            if name == "CATALYST_EVIDENCE_ALLOWED_HOSTS" and parity.enabled(settings):
+                hosts = getattr(settings, name, ()) or ()
+                if any(
+                    not isinstance(host, str)
+                    or not _live_host(host)
+                    or host.endswith((".test", ".invalid", ".localhost", ".local"))
+                    or _production_host(host)
+                    for host in hosts
+                ):
+                    problems.append(
+                        "production evidence hosts must be public DNS names outside this estate"
+                    )
+                continue
             if getattr(settings, name, None):
                 problems.append(
                     f"{name} is allowed only in the test and staging environments (synthetic evidence only)"
@@ -669,7 +685,7 @@ def attempt_lease_problems(settings) -> list[str]:
 def decision_problems(settings, environ: Mapping[str, str]) -> list[str]:
     """018 section 7 (P3 3B.4): the selection policy is fixed in code, never taken from the environment; the decision
     authority is configuration (9kg.30) but takes only "explicit_permission", the one rule the code implements, or
-    stays unset (POL-05 undecided: everyone refused)."""
+    stays unset (POL-05 undecided: everyone refused). bgl.24: the still-in-review note's switch is "true" or "false"."""
     problems = (
         ["CATALYST_SELECTION_POLICY may not be set from the environment"]
         if "CATALYST_SELECTION_POLICY" in environ
@@ -682,6 +698,10 @@ def decision_problems(settings, environ: Mapping[str, str]) -> list[str]:
         problems.append(
             "CATALYST_QUALIFICATION_AUTHORITY must be None or 'explicit_permission'"
         )
+    if environ.get("CATALYST_HOLD_NOTICE_ENABLED", "false") not in ("true", "false"):
+        problems.append(
+            "CATALYST_HOLD_NOTICE_ENABLED must be true or false"
+        )  # bgl.24: a typo never enables it
     policy = getattr(settings, "CATALYST_SELECTION_POLICY", "")
     if policy and not re.fullmatch(r"SP-[A-Z0-9]{1,8}-[0-9]{1,4}", policy):
         problems.append(
@@ -719,6 +739,7 @@ AGREEMENT_TEST_ONLY = (
     "CATALYST_AGREEMENT_PROVIDER_ADDRESS",
     "CATALYST_AGREEMENT_PROVIDER_CA_FILE",
     "CATALYST_AGREEMENT_PROVIDER_TOKEN",
+    "CATALYST_AGREEMENT_LEGACY_TOKEN",
     "CATALYST_AGREEMENT_WEBHOOK_SECRETS",
     "CATALYST_AGREEMENT_STORAGE_DIR",
     "CATALYST_AGREEMENT_REQUIRED_DETAILS",

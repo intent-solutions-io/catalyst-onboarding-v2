@@ -108,7 +108,7 @@ DJANGO_SENDS = {
     "django.core.mail.mail_managers",
 }
 # Journal entries about the journal itself, written only inside `workflow.journal`.
-INTERNAL_KINDS = {"genesis", "repair"}
+INTERNAL_KINDS = {"genesis", "repair", "continues"}
 # Modules that open a network connection, start a process or write a file, and what they touch. A new one fails the
 # outward test until it is reviewed: classified in workflow/effects.py if a restore cannot undo it, listed here if not.
 OUTWARD = {
@@ -127,6 +127,8 @@ OUTWARD = {
     "crm/twenty.py": "the Twenty client (its writes are the twenty family; bgl.14)",
     "workflow/heartbeat.py": "the worker's heartbeat file",
     "workflow/journal.py": "the effect journal",
+    "workflow/journal_segments.py": "closed journal segments and retained archives; no deletion of journal history",
+    "workflow/journal_usage.py": "derived per-day request-count cache and checkpoint; never a quota",
     "workflow/journal_pull.py": "the journal transfer lock, staged exports and receiver receipts; no provider or network access",
     "workflow/shipping.py": "the effect journal's off-host copy",
 }

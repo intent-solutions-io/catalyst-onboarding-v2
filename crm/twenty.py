@@ -50,7 +50,11 @@ class TwentyError(Exception):
     @property
     def rejected(self) -> bool:
         """Twenty refused the request (a 4xx other than the retryable ones): another attempt cannot help."""
-        return self.status is not None and 400 <= self.status < 500 and self.status not in RETRYABLE
+        return (
+            self.status is not None
+            and 400 <= self.status < 500
+            and self.status not in RETRYABLE
+        )
 
     @property
     def unknown(self) -> bool:
@@ -81,12 +85,22 @@ def _target():
     if not url or not settings.CATALYST_TWENTY_TOKEN:
         raise TwentyError("twenty_not_configured", sent=False)
     parts = urlsplit(url)
-    if parts.scheme != "https" or not parts.hostname or parts.query or parts.fragment or parts.username:
+    if (
+        parts.scheme != "https"
+        or not parts.hostname
+        or parts.query
+        or parts.fragment
+        or parts.username
+    ):
         raise TwentyError("twenty_url_invalid", sent=False)
     from config import parity
 
     if parity.enabled(settings) and parity.endpoint_problems(
-            settings, "CATALYST_TWENTY_URL", pinned="CATALYST_TWENTY_ADDRESS", trust="CATALYST_TWENTY_CA_FILE"):
+        settings,
+        "CATALYST_TWENTY_URL",
+        pinned="CATALYST_TWENTY_ADDRESS",
+        trust="CATALYST_TWENTY_CA_FILE",
+    ):
         raise TwentyError("twenty_target_not_approved", sent=False)
     address = settings.CATALYST_TWENTY_ADDRESS
     try:
@@ -94,21 +108,33 @@ def _target():
     except ValueError:
         raise TwentyError("twenty_address_not_pinned", sent=False) from None
     if settings.CATALYST_ENV in ("test", "staging") and not parsed.is_loopback:
-        raise TwentyError("twenty_address_not_pinned", sent=False)  # the synthetic environments reach the stub only
+        raise TwentyError(
+            "twenty_address_not_pinned", sent=False
+        )  # the synthetic environments reach the stub only
     if not settings.CATALYST_TWENTY_CA_FILE:
         raise TwentyError("twenty_trust_store_missing", sent=False)
     return parts.hostname, parts.port or 443, parts.path.rstrip("/"), address
 
 
-def exchange(method: str, path: str, *, query: dict | None = None, body: dict | None = None,
-             allow_404: bool = False) -> Response | None:
+def exchange(
+    method: str,
+    path: str,
+    *,
+    query: dict | None = None,
+    body: dict | None = None,
+    allow_404: bool = False,
+) -> Response | None:
     """One bounded HTTPS exchange. Returns the 2xx response (None for a 404 when `allow_404`); raises TwentyError for
     anything else."""
     host, port, base, address = _target()
     deadline = time.monotonic() + settings.CATALYST_TWENTY_DEADLINE_SECONDS
     sent = False
     raw, watchdog, expired, live = None, None, threading.Event(), {}
-    payload = None if body is None else json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
+    payload = (
+        None
+        if body is None
+        else json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
+    )
 
     def remaining() -> float:
         left = deadline - time.monotonic()
@@ -120,7 +146,7 @@ def exchange(method: str, path: str, *, query: dict | None = None, body: dict | 
         expired.set()
         try:
             live["sock"].shutdown(socket.SHUT_RDWR)
-        except (OSError, KeyError):
+        except OSError, KeyError:
             pass
 
     try:
@@ -133,7 +159,9 @@ def exchange(method: str, path: str, *, query: dict | None = None, body: dict | 
             raise TwentyError("peer_not_allowed", sent=False)
         context = ssl.create_default_context(cafile=settings.CATALYST_TWENTY_CA_FILE)
         context.minimum_version = ssl.TLSVersion.TLSv1_2
-        tls = context.wrap_socket(raw, server_hostname=host, do_handshake_on_connect=False)
+        tls = context.wrap_socket(
+            raw, server_hostname=host, do_handshake_on_connect=False
+        )
         raw = live["sock"] = tls
         tls.settimeout(remaining())
         tls.do_handshake()
@@ -146,7 +174,9 @@ def exchange(method: str, path: str, *, query: dict | None = None, body: dict | 
         connection.putheader("Accept", "application/json")
         connection.putheader("Accept-Encoding", "identity")
         connection.putheader("Connection", "close")
-        connection.putheader("Authorization", f"Bearer {settings.CATALYST_TWENTY_TOKEN}")
+        connection.putheader(
+            "Authorization", f"Bearer {settings.CATALYST_TWENTY_TOKEN}"
+        )
         if payload is not None:
             connection.putheader("Content-Type", "application/json")
             connection.putheader("Content-Length", str(len(payload)))
@@ -163,10 +193,12 @@ def exchange(method: str, path: str, *, query: dict | None = None, body: dict | 
             return None
         if not 200 <= status < 300:
             raise TwentyError(f"http_{status}", sent=True, status=status)
-        if (response.getheader("Content-Encoding") or "identity").strip().lower() != "identity":
+        if (
+            response.getheader("Content-Encoding") or "identity"
+        ).strip().lower() != "identity":
             raise TwentyError("content_encoding_refused", sent=True, status=status)
         cap, chunks, size = settings.CATALYST_TWENTY_MAX_BYTES, [], 0
-        while True:
+        while not response.isclosed():
             tls.settimeout(remaining())
             chunk = response.read1(min(65536, cap + 1 - size))
             if expired.is_set():
@@ -177,15 +209,28 @@ def exchange(method: str, path: str, *, query: dict | None = None, body: dict | 
             size += len(chunk)
             if size > cap:
                 raise TwentyError("response_too_large", sent=True, status=status)
+        declared = response.getheader("Content-Length")
+        if declared is not None and declared.isdigit() and int(declared) != size:
+            raise TwentyError("response_truncated", sent=True, status=status)
         return Response(status, b"".join(chunks))
     except TwentyError:
         raise
     except ssl.SSLCertVerificationError:
         raise TwentyError("tls_certificate_refused", sent=sent) from None
-    except (TimeoutError, socket.timeout):
-        raise TwentyError("deadline_exceeded" if expired.is_set() else "timeout", sent=sent) from None
-    except (ssl.SSLError, ConnectionError, OSError, http.client.HTTPException, ValueError):
-        raise TwentyError("deadline_exceeded" if expired.is_set() else "connection_failed", sent=sent) from None
+    except TimeoutError, socket.timeout:
+        raise TwentyError(
+            "deadline_exceeded" if expired.is_set() else "timeout", sent=sent
+        ) from None
+    except (
+        ssl.SSLError,
+        ConnectionError,
+        OSError,
+        http.client.HTTPException,
+        ValueError,
+    ):
+        raise TwentyError(
+            "deadline_exceeded" if expired.is_set() else "connection_failed", sent=sent
+        ) from None
     finally:
         if watchdog is not None:
             watchdog.cancel()
@@ -202,7 +247,9 @@ def _data(response: Response | None, key: str):
     try:
         payload = json.loads(response.body)
     except ValueError:
-        raise TwentyError("response_unreadable", sent=True, status=response.status) from None
+        raise TwentyError(
+            "response_unreadable", sent=True, status=response.status
+        ) from None
     if not isinstance(payload, dict):
         raise TwentyError("response_unreadable", sent=True, status=response.status)
     return (payload.get("data") or {}).get(key)
@@ -222,20 +269,37 @@ def _literal(value: str) -> str:
 
 
 def _live(rows) -> list:
-    return [r for r in (rows or []) if isinstance(r, dict) and r.get("id") and not r.get("deletedAt")]
+    return [
+        r
+        for r in (rows or [])
+        if isinstance(r, dict) and r.get("id") and not r.get("deletedAt")
+    ]
 
 
 # --- People -------------------------------------------------------------------------------------------------------
 
+
 def find_people(filter_expression: str) -> list:
     """People matching a REST filter expression (soft-deleted people are never returned)."""
-    return _live(_data(exchange("GET", "/rest/people", query={"filter": filter_expression, "limit": SEARCH_LIMIT}),
-                       "people"))
+    return _live(
+        _data(
+            exchange(
+                "GET",
+                "/rest/people",
+                query={"filter": filter_expression, "limit": SEARCH_LIMIT},
+            ),
+            "people",
+        )
+    )
 
 
 def find_people_by_field(field: str, value: str) -> list:
     """People whose TEXT `field` equals `value` exactly (the case id the projection writes)."""
-    return [p for p in find_people(f'{field}[eq]:"{_literal(value)}"') if str(p.get(field) or "") == value]
+    return [
+        p
+        for p in find_people(f'{field}[eq]:"{_literal(value)}"')
+        if str(p.get(field) or "") == value
+    ]
 
 
 def find_people_by_email(address: str) -> list:
@@ -252,7 +316,9 @@ def find_people_by_email(address: str) -> list:
     exact = {}
     for person in find_people(f"or({','.join(clauses)})"):
         emails = person.get("emails") or {}
-        addresses = [emails.get("primaryEmail") or ""] + list(emails.get("additionalEmails") or [])
+        addresses = [emails.get("primaryEmail") or ""] + list(
+            emails.get("additionalEmails") or []
+        )
         if any(normalize_email(str(a)) == wanted for a in addresses):
             exact[str(person["id"])] = person
     return list(exact.values())
@@ -260,8 +326,14 @@ def find_people_by_email(address: str) -> list:
 
 def get_person(person_id: str) -> dict | None:
     """The person, or None when it does not exist or is soft-deleted."""
-    person = _data(exchange("GET", f"/rest/people/{_id(person_id)}", allow_404=True), "person")
-    return person if isinstance(person, dict) and person.get("id") and not person.get("deletedAt") else None
+    person = _data(
+        exchange("GET", f"/rest/people/{_id(person_id)}", allow_404=True), "person"
+    )
+    return (
+        person
+        if isinstance(person, dict) and person.get("id") and not person.get("deletedAt")
+        else None
+    )
 
 
 def create_person(body: dict) -> dict:
@@ -272,7 +344,9 @@ def create_person(body: dict) -> dict:
 
 
 def update_person(person_id: str, body: dict) -> dict:
-    person = _data(exchange("PATCH", f"/rest/people/{_id(person_id)}", body=body), "updatePerson")
+    person = _data(
+        exchange("PATCH", f"/rest/people/{_id(person_id)}", body=body), "updatePerson"
+    )
     return person if isinstance(person, dict) else {}
 
 
@@ -280,31 +354,53 @@ def update_person(person_id: str, body: dict) -> dict:
 # A note has `title` and the rich-text composite `bodyV2` (`markdown`, `blocknote`); writing `markdown` alone makes
 # Twenty derive `blocknote`. A note is attached to a person by a `noteTargets` row (`noteId`, `targetPersonId`).
 
+
 def _note_body(title: str, markdown: str) -> dict:
     return {"title": title, "bodyV2": {"markdown": markdown, "blocknote": None}}
 
 
 def get_note(note_id: str) -> dict | None:
     note = _data(exchange("GET", f"/rest/notes/{_id(note_id)}", allow_404=True), "note")
-    return note if isinstance(note, dict) and note.get("id") and not note.get("deletedAt") else None
+    return (
+        note
+        if isinstance(note, dict) and note.get("id") and not note.get("deletedAt")
+        else None
+    )
 
 
 def find_notes(title: str) -> list:
     """Notes whose title equals `title` exactly (soft-deleted notes are never returned)."""
-    notes = _data(exchange("GET", "/rest/notes", query={"filter": f'title[eq]:"{_literal(title)}"',
-                                                         "limit": SEARCH_LIMIT}), "notes")
+    notes = _data(
+        exchange(
+            "GET",
+            "/rest/notes",
+            query={"filter": f'title[eq]:"{_literal(title)}"', "limit": SEARCH_LIMIT},
+        ),
+        "notes",
+    )
     return [n for n in _live(notes) if n.get("title") == title]
 
 
 def note_targets(note_id: str) -> list:
     """The people a note is attached to."""
-    targets = _data(exchange("GET", "/rest/noteTargets", query={"filter": f'noteId[eq]:"{_literal(note_id)}"',
-                                                                 "limit": SEARCH_LIMIT}), "noteTargets")
+    targets = _data(
+        exchange(
+            "GET",
+            "/rest/noteTargets",
+            query={
+                "filter": f'noteId[eq]:"{_literal(note_id)}"',
+                "limit": SEARCH_LIMIT,
+            },
+        ),
+        "noteTargets",
+    )
     return [str(t["targetPersonId"]) for t in _live(targets) if t.get("targetPersonId")]
 
 
 def create_note(title: str, markdown: str) -> str:
-    note = _data(exchange("POST", "/rest/notes", body=_note_body(title, markdown)), "createNote")
+    note = _data(
+        exchange("POST", "/rest/notes", body=_note_body(title, markdown)), "createNote"
+    )
     if not isinstance(note, dict) or not note.get("id"):
         raise TwentyError("response_unreadable", sent=True, status=200)
     return str(note["id"])
@@ -312,11 +408,25 @@ def create_note(title: str, markdown: str) -> str:
 
 def update_note(note_id: str, title: str, markdown: str) -> bool:
     """Replace a note's title and body. False when the note no longer exists (deleted in Twenty)."""
-    return exchange("PATCH", f"/rest/notes/{_id(note_id)}", body=_note_body(title, markdown), allow_404=True) is not None
+    return (
+        exchange(
+            "PATCH",
+            f"/rest/notes/{_id(note_id)}",
+            body=_note_body(title, markdown),
+            allow_404=True,
+        )
+        is not None
+    )
 
 
 def attach_note(note_id: str, person_id: str) -> None:
-    target = _data(exchange("POST", "/rest/noteTargets", body={"noteId": note_id, "targetPersonId": person_id}),
-                   "createNoteTarget")
+    target = _data(
+        exchange(
+            "POST",
+            "/rest/noteTargets",
+            body={"noteId": note_id, "targetPersonId": person_id},
+        ),
+        "createNoteTarget",
+    )
     if not isinstance(target, dict) or not target.get("id"):
         raise TwentyError("response_unreadable", sent=True, status=200)

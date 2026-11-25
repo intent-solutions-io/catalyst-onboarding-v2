@@ -93,6 +93,16 @@ BASELINE: dict[str, str] = {
 }
 # Later migrations that contracting() flags but a reviewer found safe for the previous image, with the reason.
 EXPAND_SAFE: dict[str, str] = {
+    "assessments.0013_clarification_approval_purposes": (
+        "widens the existing purpose constraint to the draft and checking callers; previous assessment and "
+        "interpretation writes remain valid and previous readers filter their own purpose; "
+        "no existing approval, column, privilege or immutability guard changes"
+    ),
+    "agreements.0015_adopted_countersign_claim": (
+        "preserves every native claim the previous image creates, including its exact instance identity; "
+        "additionally allows imported identities only with a matching source and recorded adoption; "
+        "the previous image ignores non-native claims and no existing column or grant changes"
+    ),
     "applications.0011_application_reference": (
         "adds the reference nullable, preserves imported labels and backfills other existing rows before adding "
         "uniqueness and format constraints; an empty database default plus a non-elevating BEFORE INSERT trigger "
@@ -147,6 +157,15 @@ EXPAND_SAFE: dict[str, str] = {
         "without the thread headers (its digest check covers only the frozen subject and body), as it would a reminder "
         "frozen with its `Re:` subject; nothing is removed or renamed. Reversing the migration itself needs no "
         "`lapse_note` rows, because the narrower CHECK would refuse them"
+    ),
+    "correspondence.0027_hold_notice": (
+        "widens the approved-message kind CHECK and the field's choices by one value (`hold_notice`, bgl.24) and seeds an "
+        "unapproved draft template; the choices change is state only and every row a previous image writes already "
+        "satisfies the wider CHECK. No `hold_notice` row or `send_hold_notice` action exists unless "
+        "CATALYST_HOLD_NOTICE_ENABLED is on (off by default). A previous image that meets a queued `hold_notice` send "
+        "sends the frozen message as it would any other kind to an open application, and leaves `send_hold_notice` "
+        "queued (no handler); nothing is removed or renamed. Reversing the migration itself needs no `hold_notice` rows, "
+        "because the narrower CHECK would refuse them"
     ),
 }
 

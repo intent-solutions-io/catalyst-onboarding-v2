@@ -32,11 +32,14 @@ record and refusals, as `actor_ref` `policy:routine_advance:v<n>`; it never reco
 human screen is unchanged. At the default configuration no such decision exists.
 
 Then: the `QualificationDecision` row, the stage move (`admitted`, `declined` or `on_hold`), an event, and the
-follow-on: a held `issue_nda:<application>` for admit (P4 releases it); for decline a queued
+follow-on: `issue_nda:<application>` for admit (held by default; queued under bound production admission with
+a configured signing provider and approved NDA template); for decline a queued
 `send_decline:<application>` (oc4.11, `assessments.decline`: the decline notice), unless the decision-maker chose to
 withhold the notice, with a reason, which the decision records (`decision_inputs["decline_notice"]`) and which queues
-nothing; nothing for hold. A database trigger refuses any move into a decided stage without a decision row inserted
-in the same transaction (TEST-P3-52). No model output is read to choose anything here.
+nothing; for hold, the still-in-review note's `send_hold_notice:<application>` (bgl.24, `assessments.hold`: due ten
+business days later, queued only while `CATALYST_HOLD_NOTICE_ENABLED` is on, off by default). A database trigger
+refuses any move into a decided stage without a decision row inserted in the same transaction (TEST-P3-52). No model
+output is read to choose anything here.
 
 oc4.12 (019 decision 4; 018 section 20): the decision digest binds, and the decision records in `decision_inputs`,
 the policy reference (the synthetic rubric's `none-approved` reference stated openly until a policy is bound), the
@@ -66,7 +69,7 @@ from correspondence.staff_items import clean_note as _clean_note, resolve_item
 from workflow.models import AutomationPause, PendingAction
 
 from .quotas import exceeds
-from . import decline as declines, pack as packs, snapshot
+from . import decline as declines, hold as holds, pack as packs, snapshot
 from .models import AssessmentRun, EvidenceItem, QualificationDecision
 from .services import Refused
 
@@ -245,7 +248,7 @@ def decision_state(application) -> dict:
     """What a decision would rely on now: the current snapshot, the run (if valid), the open question set and the
     digest that binds them. The screen shows `digest`; the service recomputes it."""
     run = latest_run(application)
-    pack_name = run.prompt_pack if run is not None else packs.CURRENT
+    pack_name = run.prompt_pack if run is not None else packs.current()
     try:
         pack = packs.load(pack_name)
     except packs.PackRefused:
@@ -356,7 +359,13 @@ def cohort_boundary() -> bool:
     """9kg.85: whether the internal cohort's trial boundary applies here (set, and the environment is live)."""
     from config.guards import LIVE_ENVIRONMENTS
 
-    return COHORT_BOUNDARY and settings.CATALYST_ENV in LIVE_ENVIRONMENTS
+    from config import parity
+
+    return (
+        COHORT_BOUNDARY
+        and settings.CATALYST_ENV in LIVE_ENVIRONMENTS
+        and not parity.automated_admission_enabled(settings)
+    )
 
 
 def record_decision(
@@ -552,6 +561,10 @@ def record_decision(
                     effects={"decision": str(decision.public_id)},
                     actor_type=ApplicationEvent.ActorType.STAFF,
                 )
+        if outcome == "hold":
+            holds.schedule(
+                application, decision
+            )  # bgl.24: nothing while the switch is off; at most one note per application
         if notice is not None and notice["choice"] == declines.SEND:
             declines.enqueue(
                 application, decision
@@ -570,7 +583,7 @@ def record_decision(
 def _follow_on(
     application, decision, from_stages, code: str, actor: str, actor_type
 ) -> None:
-    """The stage move, the withdrawal of unsent proposed questions and the held follow-on action, shared by the human
+    """The stage move, the withdrawal of unsent proposed questions and the follow-on action, shared by the human
     decision and the routine policy's admit (bgl.12). Inside the decision's transaction."""
     outcome = decision.outcome
     try:
@@ -612,13 +625,22 @@ def _follow_on(
         )
     kind = FOLLOW_ON.get(outcome)
     if kind:
+        from workflow.admission import activate_nda_handoff
+
+        automatic_signing = activate_nda_handoff(
+            application, decision, actor=actor, actor_type=actor_type
+        )
         PendingAction.objects.create(
             kind=kind,
             subject_type="application",
             subject_id=application.public_ref,
             input_ref=str(decision.public_id),
             idempotency_key=f"{kind}:{application.public_ref}",
-            status=PendingAction.Status.HELD,
+            status=(
+                PendingAction.Status.QUEUED
+                if automatic_signing
+                else PendingAction.Status.HELD
+            ),
         )
 
 
@@ -631,7 +653,7 @@ def record_routine_admit(
     """bgl.12 (034 rows 15 and 18): the routine-advance policy's admit, on the existing admit path and with the same
     record, inside the caller's transaction with the application locked. The decision stands on the valid succeeded run
     for the current snapshot (basis `model_assisted`), carries the policy's per-criterion rationale (validated like a
-    human's) and its verdict in `decision_inputs`, and ends in the same held `issue_nda`. Everything the human path
+    human's) and its verdict in `decision_inputs`, and uses the same guarded `issue_nda` handoff. Everything the human path
     refuses is refused here too (a stale run, pending evidence, an open identity item, an open question, a pause, the
     cohort boundary), and the authority setting is not consulted: this is not a person deciding, and the policy runs
     only under its own activation. Never a decline, never a hold."""

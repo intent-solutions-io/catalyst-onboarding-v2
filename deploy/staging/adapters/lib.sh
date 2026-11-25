@@ -38,6 +38,35 @@ in_image() { docker run --rm --network none --entrypoint python "$1" -m config.r
 operation() { release operation "$1" "$CATALYST_DEPLOY_STATE" "${CATALYST_DEPLOY_ID:?the id of the deploy operation}" "${@:2}"; }
 image_label() { docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$1"; }
 
+# The probe runs inside the target with the real journal mount, before any
+# backup/migration/switch. It also works with old images: absent capability is 0.
+# An interrupted first rotation still has its durable format marker.
+check_journal_layout() {
+  CATALYST_IMAGE="$1" compose run --rm --no-deps -T web python - <<'PY' || fail "refused: target cannot read the effect journal layout"
+import json
+from pathlib import Path
+from workflow import journal
+
+root = Path(journal.directory())
+assert root.is_dir(), 'journal unavailable'
+marker = root / 'effects.layout.json'
+required = 0
+if marker.exists():
+    assert not marker.is_symlink()
+    value = json.loads(marker.read_text())
+    assert set(value) == {'format'} and type(value['format']) is int and value['format'] >= 1
+    required = value['format']
+for name in ('segments', 'archive'):
+    folder = root / name
+    if folder.exists():
+        assert not folder.is_symlink() and folder.is_dir()
+        if any(folder.iterdir()):
+            assert required >= 1, 'journal layout marker missing'
+assert getattr(journal, 'SEGMENT_FORMAT', 0) >= required, 'journal layout unsupported'
+print('journal layout compatible')
+PY
+}
+
 # Print the recorded forward-only list. With a serving release recorded, a missing record is lost state, never "none":
 # only the very first deploy (no pointer yet) starts from an empty list.
 recorded_forward_only() {

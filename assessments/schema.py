@@ -17,7 +17,9 @@ from correspondence.question_screen import question_problems, unsafe as _unsafe
 
 SCHEMA_VERSION = "3"  # 3B.3: confirmed-answer aliases (A1..), questions carry an alternative evidence route
 MIN_QUOTE_CHARS = 20  # letters or digits, after removing redaction placeholders
-Rating = Literal["supported", "partly_supported", "not_supported", "insufficient_evidence"]
+Rating = Literal[
+    "supported", "partly_supported", "not_supported", "insufficient_evidence"
+]
 Text = Annotated[str, Field(max_length=200)]
 
 
@@ -26,22 +28,30 @@ class Strict(BaseModel):
 
 
 class Citation(Strict):
-    evidence_alias: str = Field(pattern=r"^[CEA][0-9]{1,2}$")  # C claims, E evidence, A confirmed answers
+    evidence_alias: str = Field(
+        pattern=r"^[CEA][0-9]{1,2}$"
+    )  # C claims, E evidence, A confirmed answers
     quote: str = Field(min_length=1, max_length=300)
 
 
 class Finding(Strict):
     criterion_id: str = Field(max_length=40)
     rating: Rating
-    summary: str = Field(max_length=300)
+    # Narrative length is presentation, not evidence validity. Preserve the full explanation;
+    # problems() still screens it and verifies the separately bounded citations.
+    summary: str
     citations: list[Citation] = Field(default_factory=list, max_length=3)
 
 
 class ProposedQuestion(Strict):
     text: str = Field(min_length=1, max_length=400)
     criterion_id: str = Field(max_length=40)
-    why_needed: str = Field(max_length=200)  # the evidence gap the question addresses (019 section 5)
-    alternative_route: str = Field(default="", max_length=200)  # another way to show the same thing, if any
+    why_needed: str = Field(
+        max_length=200
+    )  # the evidence gap the question addresses (019 section 5)
+    alternative_route: str = Field(
+        default="", max_length=200
+    )  # another way to show the same thing, if any
     requires_evidence: bool = False  # the answer should carry a link or an attachment
 
 
@@ -49,10 +59,12 @@ class AssessmentOutput(Strict):
     schema_version: Literal["3"]
     criteria: list[Finding] = Field(min_length=1, max_length=8)
     recommendation: Literal["admit", "decline", "hold"]
-    recommendation_basis: str = Field(max_length=600)
+    recommendation_basis: str
     basis_criteria: list[str] = Field(min_length=1, max_length=8)
     confidence: Literal["low", "medium", "high"]
-    proposed_questions: list[ProposedQuestion] = Field(default_factory=list, max_length=3)
+    proposed_questions: list[ProposedQuestion] = Field(
+        default_factory=list, max_length=3
+    )
     injection_suspected: bool = False
     injection_citations: list[Citation] = Field(default_factory=list, max_length=4)
     limitations: list[Text] = Field(default_factory=list, max_length=5)
@@ -73,7 +85,9 @@ def problems(output: AssessmentOutput, request) -> list[str]:
     seen = [f.criterion_id for f in output.criteria]
     if sorted(seen) != sorted(ids):
         found.append("criteria_do_not_match_the_rubric")
-    if any(c not in ids for c in output.basis_criteria) or len(set(output.basis_criteria)) != len(output.basis_criteria):
+    if any(c not in ids for c in output.basis_criteria) or len(
+        set(output.basis_criteria)
+    ) != len(output.basis_criteria):
         found.append("basis_criteria_invalid")
     texts = [output.recommendation_basis, *output.limitations]
     for finding in output.criteria:
@@ -85,12 +99,22 @@ def problems(output: AssessmentOutput, request) -> list[str]:
             found.append("duplicate_citation")
         for citation in finding.citations:
             found.extend(_citation_problems(citation, request))
-        if finding.citations and all(c.evidence_alias[0] in "CA" for c in finding.citations) and \
-                finding.rating in ("supported", "not_supported"):
+        if (
+            finding.citations
+            and all(c.evidence_alias[0] in "CA" for c in finding.citations)
+            and finding.rating in ("supported", "not_supported")
+        ):
             found.append("claims_only_rating_above_partly_supported")
-        evidence = [request.items[c.evidence_alias] for c in finding.citations if c.evidence_alias in request.items
-                    and c.evidence_alias.startswith("E")]
-        if finding.rating == "not_supported" and evidence and all(item.truncated for item in evidence):
+        evidence = [
+            request.items[c.evidence_alias]
+            for c in finding.citations
+            if c.evidence_alias in request.items and c.evidence_alias.startswith("E")
+        ]
+        if (
+            finding.rating == "not_supported"
+            and evidence
+            and all(item.truncated for item in evidence)
+        ):
             found.append("not_supported_on_truncated_evidence")
     for citation in output.injection_citations:
         found.extend(_citation_problems(citation, request, minimum=False))
@@ -102,7 +126,9 @@ def problems(output: AssessmentOutput, request) -> list[str]:
             found.append("question_names_an_unknown_criterion")
         if not question.why_needed.strip():
             found.append("question_names_no_evidence_gap")
-        found.extend(question_problems(question.text))  # the same screen staff-authored questions pass
+        found.extend(
+            question_problems(question.text)
+        )  # the same screen staff-authored questions pass
     if any(_unsafe(t) for t in texts):
         found.append("free_text_contains_a_link_contact_or_markup")
     return sorted(set(found))
@@ -114,7 +140,9 @@ def _citation_problems(citation, request, minimum: bool = True) -> list[str]:
         return ["citation_to_an_alias_not_sent"]
     if citation.quote not in item.text:  # exactly the sanitized text that was sent
         return ["quote_not_found_verbatim"]
-    floor = MIN_QUOTE_CHARS if minimum else 8  # an injection citation may be short, never junk
+    floor = (
+        MIN_QUOTE_CHARS if minimum else 8
+    )  # an injection citation may be short, never junk
     if _substance(citation.quote) < min(floor, max(_substance(item.text), 1)):
         return ["quote_too_short_or_only_placeholders"]
     return []
@@ -126,14 +154,25 @@ def flags(output: AssessmentOutput, request) -> list[str]:
     required = {c["id"] for c in request.criteria if c.get("required")}
     by_id = {f.criterion_id: f for f in output.criteria}
     if output.recommendation == "admit" and any(
-            by_id.get(c) is not None and by_id[c].rating in ("not_supported", "insufficient_evidence") for c in required):
+        by_id.get(c) is not None
+        and by_id[c].rating in ("not_supported", "insufficient_evidence")
+        for c in required
+    ):
         out.append("inconsistent_recommendation")
-    if output.recommendation == "decline" and not any(f.rating == "not_supported" for f in output.criteria):
+    if output.recommendation == "decline" and not any(
+        f.rating == "not_supported" for f in output.criteria
+    ):
         out.append("decline_without_a_negative_finding")
-    if getattr(request, "missing", None) and any(f.rating == "not_supported" for f in output.criteria):
+    if getattr(request, "missing", None) and any(
+        f.rating == "not_supported" for f in output.criteria
+    ):
         out.append("not_supported_while_evidence_is_missing")
-    if any(f.citations and all(c.evidence_alias[0] in "CA" for c in f.citations) and f.rating != "insufficient_evidence"
-           for f in output.criteria):
+    if any(
+        f.citations
+        and all(c.evidence_alias[0] in "CA" for c in f.citations)
+        and f.rating != "insufficient_evidence"
+        for f in output.criteria
+    ):
         out.append("rating_rests_on_claims_only")
     if output.injection_suspected:
         out.append("injection_suspected_by_model")

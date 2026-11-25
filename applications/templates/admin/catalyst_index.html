@@ -1,7 +1,7 @@
 {% extends "admin/index.html" %}
 {% block content %}
 {% with c=perms.correspondence %}
-{% if not user.is_superuser %}{% if c.resolve_exception or c.resolve_identity_exception or c.decide_uncertain_send or c.restart_collector or c.confirm_question_outcome or c.approve_question or c.pause_automation or c.resume_automation or c.send_staff_message or c.approve_template_version or perms.agreements.approve_agreement_template or perms.assessments.approve_evidence_source %}
+{% if not user.is_superuser %}{% if c.resolve_exception or c.resolve_identity_exception or c.decide_uncertain_send or c.restart_collector or c.confirm_question_outcome or c.approve_question or c.pause_automation or c.resume_automation or c.send_staff_message or c.approve_template_version or perms.agreements.approve_agreement_template or perms.assessments.approve_evidence_source or perms.assessments.record_qualification_decision %}
 <div class="module" id="staff-screens"><h2>Staff screens (where staff act)</h2>
 <ul>
 {% if c.resolve_exception or c.resolve_identity_exception or c.decide_uncertain_send or c.restart_collector or c.confirm_question_outcome or c.approve_question or c.pause_automation or c.resume_automation or c.send_staff_message %}<li><a href="{% url 'correspondence_staff:queue' %}">Open staff items</a>: every exception, uncertain send, bounce and escalation, oldest first</li>{% endif %}
@@ -9,6 +9,7 @@
 {% if c.approve_template_version %}<li><a href="{% url 'correspondence_staff:templates' %}">Message templates</a></li>{% endif %}
 {% if perms.agreements.approve_agreement_template %}<li><a href="{% url 'agreements_staff:templates' %}">Agreement templates</a></li>{% endif %}
 {% if perms.assessments.approve_evidence_source %}<li><a href="{% url 'assessments_staff:sources' %}">Evidence sources</a></li>{% endif %}
+{% if perms.assessments.record_qualification_decision %}<li><a href="{% url 'assessments_staff:selection_report' %}">Selection quality and owner report</a>: counts, exceptions and missing measurements</li>{% endif %}
 </ul>
 <p>The decision, agreements and provisioning screens open from each application's dossier page.</p></div>
 {% endif %}{% endif %}

@@ -216,7 +216,17 @@ def test_9kg_58_migrations_reverse_and_reapply_without_changing_rows_or_protecti
             "pg_catalog.transaction_timestamp()" not in definition
             for _, definition, _, _ in functions()
         )
-        assert records() == rows and protection_state(owner) == protections
+        # The later handover migration adds a trigger; the older schema must lack exactly that trigger.
+        old_triggers = [
+            row
+            for row in protections[0]
+            if row[:2]
+            != ("agreements_countersignclaim", "catalyst_countersign_identity")
+        ]
+        assert records() == rows and protection_state(owner) == (
+            old_triggers,
+            protections[1],
+        )
     finally:
         manage_as_owner("migrate", "--verbosity", "0")
     assert functions() == before

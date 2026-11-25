@@ -593,8 +593,8 @@ class AgreementDetailsVersion(models.Model):
 class CountersignClaim(models.Model):
     """bgl.9 (034 row 30; first-generation decision 12, owner YES 2026-10-31): the single-writer claim on one envelope
     for the automated company countersignature (agreements.countersign). One row per envelope, unique, so two workers or
-    a second consumer cannot both sign it. The database refuses a claim on an envelope Catalyst v2 did not create: the
-    external key must carry v2's `ag_` prefix (the first generation's `onb_` envelopes are never v2's to sign).
+    a second consumer cannot both sign it. The database requires a native V2 identity or an exact imported
+    source identity with a recorded, reviewed adoption after source shutdown.
 
     `state`: `signing` (taken; the exchange may have started, so the next attempt reads first and never signs blindly), `signed` (a fresh read showed the company recipient signed), `failed` (the last attempt failed;
     a retry is due), `handed_off` (retries ran for the hand-off window: the owner countersigns by hand). No token, link,
@@ -634,7 +634,7 @@ class CountersignClaim(models.Model):
                 name="countersign_claim_state_valid",
             ),
             models.CheckConstraint(
-                condition=Q(external_key__startswith="ag_") & ~Q(envelope_id=""),
-                name="countersign_claim_v2_envelope_only",
+                condition=~Q(external_key="") & ~Q(envelope_id=""),
+                name="countersign_claim_identity_present",
             ),
         ]

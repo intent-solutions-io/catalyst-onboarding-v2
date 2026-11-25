@@ -180,6 +180,7 @@ APPROVED_MIGRATIONS = {
     ("erasure", "0006_twenty_projection"),
     ("workflow", "0007_restore_transaction_time"),
     ("assessments", "0012_restore_transaction_time"),
+    ("assessments", "0013_clarification_approval_purposes"),
     ("agreements", "0013_restore_transaction_time"),
     (
         "erasure",
@@ -189,6 +190,8 @@ APPROVED_MIGRATIONS = {
     ("provisioning", "0009_communityaccess_communityreceipt_and_more"),
     ("provisioning", "0010_community_protection"),  # 9kg.81
     ("agreements", "0014_one_current_template"),
+    ("agreements", "0015_adopted_countersign_claim"),
+    ("correspondence", "0027_hold_notice"),  # bgl.24: the hold_notice kind and template
 }
 
 

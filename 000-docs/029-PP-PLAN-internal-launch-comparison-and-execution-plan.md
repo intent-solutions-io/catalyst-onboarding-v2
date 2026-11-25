@@ -359,9 +359,24 @@ not approve new legal policy or establish deployment/cutover readiness.
   backup's recorded seq is in the snapshot or is reconciled; a lift implies a journal whose identity and head match
   the receipt; an append failure is observable (a code-only log, a failure counter, a health signal, a readiness
   refusal). Deferred, as beads the main session files: a database-assigned version per key for replay ordering;
-  off-host shipping of the journal with a head mirror and a lag alert (the journal's own RPO); rotation into chained
-  segments tied to backup retention; an item per queued send with no copy instead of the blanket
+  off-host shipping of the journal with a head mirror and a lag alert (the journal's own RPO);
+  an item per queued send with no copy instead of the blanket
   `--outward-checked`.
+- **Journal segments and request-count cache** (`9kg.61`): owner-run `catalyst_journal_segments --rotate
+  --confirm --segment-aware-recovery` closes the active file and starts the next with a `continues` entry naming
+  the previous global sequence and hash. Every read verifies the complete chain across hot and archived segments;
+  shipping exports the same flattened chain and existing backup anchors keep their meaning. A crash after the
+  rename resumes that lineage, and repair moves aside only the active torn tail, never closed evidence.
+  `--archive-receipts <json-array> --confirm --complete-backup-inventory` requires the operator's complete inventory
+  of retained local and off-host backup receipts. Every anchor must verify; segments containing an anchor stay hot.
+  Archival relocates files within the journal volume and retains them in reads and transfers. It never prunes history
+  or makes a POL-10 retention decision. Daily request-count high-water marks use constant-size checkpoint/day files
+  under the same lock; appends advance the checkpoint. Missing, stale or corrupt cache state rebuilds from the
+  verified journal. This is request accounting, with no token cap or new production quota. Cache initialization,
+  recovery and a day's first lookup can scan history; steady-state reads/updates do not. Full snapshots and restore
+  verification still scan the chain. The first rotation writes a durable format marker: deploy/predeploy refuse
+  images without segment support. Recovery readers must be verified before that activation. Production rotation
+  and archival have **not** been performed by this repository change.
 - **The effect registry** (`9kg.62`, built 2026-10-26): `workflow/effects.py` names each function that performs an
   effect a restore cannot undo, in seven families (journal writes, SMTP, Django mail, Documenso writes, MXroute
   writes, IMAP appends, model runs), with its class: journaled before, journaled after, provider read, checked before

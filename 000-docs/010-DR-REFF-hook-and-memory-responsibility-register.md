@@ -145,8 +145,9 @@ Observed 2026-10-09 in a session started in this repository (build-contract hand
 | CI on `main` `95b7537` | run 37891535566 PASS: Markdown, index, agent definitions, gitleaks |
 | Parent permission mode | this session ran in `bypassPermissions`; see `008` section 5.1 for why subagent restriction is evidenced by the tool allowlist, not by permission prompts |
 
-Still pending (not claimed): auto memory behaviour in a fresh session; compaction
-recovery (no destructive compaction test was run); CI timings for a runtime lane that does not exist yet.
+At that dated observation, auto memory behaviour, destructive compaction recovery and runtime-lane timings
+were unverified. Auto memory remains optional and is not a project dependency; no destructive compaction
+test is claimed. The runtime lane now exists; current CI and commit-hook measurements are in `009` section 11.
 
 ## 7. Staged-file checks (2026-11-01, 9kg.95)
 
@@ -164,3 +165,7 @@ commit. Worktrees share one tool installation. `009` section 11 records timing a
 The earlier inventory is the dated baseline: the local checker adds a commit gate to the Beads chain, not a new
 agent-session hook. Host-side integration tests exercise partial staging, literal filenames, refusals, tool
 drift and preservation of the previous hook. They run inside the existing docs job after its lint dependencies.
+
+The installed Beads pre-commit chain measured 0.28 s with three Python files staged; the checker itself
+reported 0.10 s (`009` section 11). This supersedes the unmeasured Git-hook baseline above for that invocation,
+not for arbitrary future changes. No memory feature is required to run, deploy or recover the application.

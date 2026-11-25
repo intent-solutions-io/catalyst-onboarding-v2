@@ -1,6 +1,10 @@
 {% extends "applications/base.html" %}
 {% block title %}Request received{% endblock %}
 {% block content %}
-<h1>Request received</h1>
-<p>Thank you. If this address can receive email, a message with the next step will arrive shortly.</p>
+<div class="intro">
+  <p class="eyebrow">Thanks for reaching out</p>
+  <h1>Request received</h1>
+  <p class="lead">Your receipt email arrives within a few minutes from agreements@intentsolutions.io. If your request advances, the next email is the NDA. Questions: reply to the receipt.</p>
+</div>
 {% endblock %}
+{% block footer_onward %}<a href="https://intentsolutions.io/how-it-works/">How joining works</a>{% endblock %}

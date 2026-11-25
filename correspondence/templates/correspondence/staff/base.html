@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Correspondence staff</title>
+<title>{% block title %}Correspondence staff{% endblock %}</title>
 <style>
 body { font-family: system-ui, sans-serif; margin: 1rem; max-width: 70rem; }
 pre.untrusted { white-space: pre-wrap; overflow-wrap: anywhere; unicode-bidi: isolate; direction: ltr; border: 1px solid #999; padding: .5rem; }
@@ -14,7 +14,7 @@ form.inline { display: inline; } .refused { color: #a00; } .ok { color: #060; }
 </head>
 <body>
 {% block nav %}<nav><a href="{% url 'correspondence_staff:queue' %}">Staff queue</a> · <a href="{% url 'correspondence_staff:applications' %}">Applications</a> · <a href="{% url 'correspondence_staff:templates' %}">Templates</a>{% if perms.agreements.approve_agreement_template %} · <a href="{% url 'agreements_staff:templates' %}">Agreement templates</a>{% endif %} · <a href="{% url 'admin:index' %}">Read-only dossier</a></nav>{% endblock %}
-{% if messages %}<ul>{% for m in messages %}<li class="{% if m.level_tag == 'error' %}refused{% else %}ok{% endif %}">{{ m }}</li>{% endfor %}</ul>{% endif %}
+{% block messages %}{% if messages %}<ul>{% for m in messages %}<li class="{% if m.level_tag == 'error' %}refused{% else %}ok{% endif %}">{{ m }}</li>{% endfor %}</ul>{% endif %}{% endblock %}
 <main>{% block content %}{% endblock %}</main>
 </body>
 </html>

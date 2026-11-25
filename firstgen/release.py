@@ -145,11 +145,7 @@ def _validated(application, expected_digest):
         if previous.data["handover_digest"] != current["digest"]:
             raise Refused("existing_handoff_requires_reconciliation")
         return current, previous
-    if PendingAction.objects.filter(
-        subject_type="application",
-        subject_id=application.public_ref,
-        status__in=("queued", "running", "held"),
-    ).exists():
+    if review.pending_native_work(application).exists():
         raise Refused("native_work_requires_reconciliation")
     if PendingAction.objects.filter(
         idempotency_key=f"provision:{application.public_ref}"
