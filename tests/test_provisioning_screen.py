@@ -98,6 +98,51 @@ def test_the_dossier_link_and_the_provisioning_screen_use_the_same_permissions(
     assert page(app) not in client_for(plain).get(dossier).content.decode()
 
 
+def test_application_directory_shows_and_searches_reserved_company_email_only_for_authorized_staff(
+    cl, released
+):
+    app, request = released
+    address = request.reservation.address
+    changelist = reverse("admin:applications_application_changelist")
+    dossier = reverse("admin:applications_application_change", args=[app.pk])
+    viewer = grant(
+        cl,
+        grant(cl, staff(cl, "directory-viewer"), "view_application"),
+        "view_provisioningrequest",
+    )
+    plain = grant(cl, staff(cl, "directory-dossier-only"), "view_application")
+
+    for url in (changelist, dossier):
+        assert address in client_for(viewer).get(url).content.decode()
+        assert address not in client_for(plain).get(url).content.decode()
+    assert (
+        app.display_name
+        in client_for(viewer).get(changelist, {"q": address}).content.decode()
+    )
+    assert (
+        app.display_name
+        not in client_for(plain).get(changelist, {"q": address}).content.decode()
+    )
+
+
+def test_application_directory_omits_released_reservations(cl, released):
+    app, request = released
+    from django.utils import timezone
+
+    request.reservation.released_at = timezone.now()
+    request.reservation.released_by = "test"
+    request.reservation.save(update_fields=["released_at", "released_by"])
+    viewer = grant(
+        cl,
+        grant(cl, staff(cl, "directory-released"), "view_application"),
+        "view_provisioningrequest",
+    )
+    dossier = reverse("admin:applications_application_change", args=[app.pk])
+    body = client_for(viewer).get(dossier).content.decode()
+    assert request.reservation.address not in body
+    assert "Not reserved" in body
+
+
 # --- TEST-P5-19: each phase shown separately, with the next action and its owner -----------------------------------
 
 
