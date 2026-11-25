@@ -31,7 +31,7 @@ def queue_transient_outages(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("correspondence", "0027_hold_notice"),
-        ("workflow", "0007_restore_transaction_time"),
+        ("workflow", "0001_initial"),
     ]
     operations = [
         migrations.RunPython(queue_transient_outages, migrations.RunPython.noop)
