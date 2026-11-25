@@ -273,7 +273,7 @@ agreements on file, nothing signed, rated or declined, no model.
 | 45 | Operator CLI in the worker container + `catalyst-status` board | DIFFERENT (IMPROVED): staff web screens `/staff/p2..p5/`, read-only admin, 2FA, `grant_staff_role` | O: yes (different tools) | — | `correspondence/staff_urls.py:8-29`; `accounts/roles.py:56-94` |
 | 46 | Monitor 5 min, reconcile hourly, monthly restore drill, nightly `pg_dump`; alerts to Buzz | DIFFERENT: `catalyst_health`, heartbeat, sweep, backup/restore commands; host timers not installed yet; hourly provider reconcile a later task | no | M | `config/management/commands/catalyst_health.py`; `029:162` |
 | 47 | Host kill files per notice family | DIFFERENT (IMPROVED): audited `AutomationPause` | no | — | `workflow/models.py:57` |
-| 48 | Pilot-bridge hooks: `bridge sync`, single-writer `claim-countersign`, legacy import commands | MISSING (only `catalyst_member_on_file`, a version-label coverage record) | O: yes | M | `applications/members.py:1-30` |
+| 48 | Pilot-bridge hooks: `bridge sync`, single-writer `claim-countersign`, legacy import commands | MISSING (only `catalyst_member_on_file`, a version-label coverage record). Update 2026-11-21: `catalyst_member_adopt` attaches the pilot and legacy signers outside any case as active member cases (dy7.5; `035` section 17) | O: yes | M | `applications/members.py:1-30`; `firstgen/adoption.py` |
 | 49 | Erasure: none (`talent erase` only) | IMPROVED: erasure path built | no | — | `029:312-379` |
 
 ---
