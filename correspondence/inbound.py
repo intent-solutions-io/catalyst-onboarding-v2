@@ -468,10 +468,8 @@ class Collect:
 
         def write():
             failures = cursor.consecutive_failures + 1
-            if (
-                code in BLOCKING
-                or failures >= settings.CATALYST_MAIL_COLLECT_FAILURE_LIMIT
-            ):
+            at_limit = failures >= settings.CATALYST_MAIL_COLLECT_FAILURE_LIMIT
+            if code in BLOCKING or (at_limit and code != "unreachable"):
                 MailboxCursor.objects.filter(pk=cursor.pk).update(
                     state=State.BLOCKED,
                     blocked_reason=code,
@@ -491,7 +489,10 @@ class Collect:
                     consecutive_failures=failures,
                     pass_number=n + 1,
                 )
-                enqueue_pass(cursor, n + 1, settings.CATALYST_MAIL_POLL_SECONDS)
+                delay = settings.CATALYST_MAIL_POLL_SECONDS
+                if at_limit:
+                    delay = max(delay, 300)
+                enqueue_pass(cursor, n + 1, delay)
 
         ledger.finish(
             claim, self, status=Status.DONE, error=f"mailbox:{code}", write=write
