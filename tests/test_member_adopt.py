@@ -547,7 +547,7 @@ def test_dy7_5_every_refusal_is_a_code_and_leaves_nothing_behind(
             "mailbox_already_reserved",
         ),
         (
-            entry(name="Another Invitee", email=invited, envelope=OUTSIDE[2]),
+            entry(name="Ada Other", email=invited, envelope=OUTSIDE[2]),
             "member_on_file_different_record_needs_correct",
         ),
         (
