@@ -24,7 +24,7 @@ jobs:
     timeout-minutes: 35
     # Same digest-pinned images as ci.yml and compose.yaml (ADR-17, D-18).
     container:
-      image: python:3.14.10-slim@sha256:3cabfd7d7aaf394e6040e79fa1eec6ca1c52b74ed9188650472695d9a9326999
+      image: cgr.dev/chainguard/wolfi-base@sha256:28c39be5a5e1e9b85081c10740e8495f6518a865b23bc6a486637c4b21e74b43
     services:
       postgres:
         image: postgres:16.15@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
@@ -69,7 +69,14 @@ jobs:
           [[ "$PYTEST_SELECTION" =~ $allowed ]] \
             || { echo "::error::selection may contain only paths, node ids, pytest options and quoted expressions"; exit 1; }
 
+      - name: Install test container tools
+        run: apk add --no-cache git bash coreutils openssl-4.0 tar zstd
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pinned Python runtime
+        run: sh scripts/install_python_runtime.sh
+
 
       - name: Restore Python download cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

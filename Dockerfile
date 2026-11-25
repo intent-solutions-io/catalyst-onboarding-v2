@@ -2,27 +2,19 @@
 # socket, no access log), worker and fetcher (manage.py run_worker with --exclude / --only), migrate (manage.py
 # migrate as the owner role). Two targets: `production` carries the application only; `staging` adds the two
 # synthetic fakes staging is allowed to use (6B.1). Secrets never enter a layer; they are mounted at run time.
-FROM python:3.14.10-slim@sha256:3cabfd7d7aaf394e6040e79fa1eec6ca1c52b74ed9188650472695d9a9326999 AS base
+FROM cgr.dev/chainguard/wolfi-base@sha256:28c39be5a5e1e9b85081c10740e8495f6518a865b23bc6a486637c4b21e74b43 AS runtime
+COPY scripts/install_python_runtime.sh /tmp/install_python_runtime.sh
+RUN sh /tmp/install_python_runtime.sh && rm /tmp/install_python_runtime.sh
+
+FROM runtime AS test-runtime
+RUN apk add --no-cache openssl-4.0 bash git coreutils
+
+FROM runtime AS base
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
     DJANGO_SETTINGS_MODULE=config.settings CATALYST_STATIC_ROOT=/app/static
-# The pinned base includes apt 3.0.3. Fetch Debian's CVE-2026-109518 fix over
-# HTTPS with retries disabled while the vulnerable downloader is still in use.
-# Accept security successors from this stable suite; fail below the fixed floor.
-# The same step takes Debian's zlib1g 1+deb13u1 (CVE-2026-76844, CVE-2026-85091,
-# CVE-2026-27171), which no python:3.14-slim image carried on 2026-11-11; the
-# floor keeps the build honest when the base is next repinned.
-# Upgrade libc6 and libc-bin together to Debian's deb13u5 security floor
-# (CVE-2026-19499 and CVE-2026-5435).
-# The SBOM records exact installed versions and deployment pins the scanned image.
-RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
-    && apt-get -o Acquire::Retries=0 update \
-    && apt-get -o Acquire::Retries=0 install --yes --no-install-recommends --only-upgrade apt libapt-pkg7.0 zlib1g libc6 libc-bin \
-    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' apt)" ge 3.0.4 \
-    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libapt-pkg7.0)" ge 3.0.4 \
-    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' zlib1g)" ge 1:1.3.dfsg+really1.3.1-1+deb13u1 \
-    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libc6)" ge 2.41-12+deb13u5 \
-    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libc-bin)" ge 2.41-12+deb13u5 \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache shadow coreutils \
+    && python3.14 -m venv /opt/catalyst-python
+ENV PATH="/opt/catalyst-python/bin:${PATH}"
 RUN groupadd --system --gid 10001 catalyst \
     && useradd --system --uid 10001 --gid catalyst --no-create-home --shell /usr/sbin/nologin catalyst
 WORKDIR /app

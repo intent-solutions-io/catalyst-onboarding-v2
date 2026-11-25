@@ -19,6 +19,7 @@ Synthetic only.
 Collection never marks a question answered and never cancels a reminder (J-07).
 """
 
+import hashlib
 import logging
 import time
 from datetime import timedelta
@@ -555,6 +556,20 @@ class Collect:
             except (MailboxError, *NETWORK_ERRORS) as exc:
                 self._blocked_or_backoff(claim, cursor, classify(exc).code)
                 return
+            if cursor.blocked_reason == "unreachable":
+                # Bind the provider's read-only snapshot to an independently comparable
+                # set of durable locations. Never log headers, addresses or bodies.
+                eligible = [str(uid) for uid in uids if uid <= target]
+                digest = hashlib.sha256(",".join(eligible).encode("ascii")).hexdigest()
+                logger.warning(
+                    "mailbox recovery snapshot uidvalidity=%d after_uid=%d "
+                    "through_uid=%d eligible=%d uid_set_sha256=%s",
+                    validity,
+                    cursor.last_uid,
+                    target,
+                    len(eligible),
+                    digest,
+                )
             if len(uids) > settings.CATALYST_MAIL_BATCH_SIZE:
                 uids, complete = uids[: settings.CATALYST_MAIL_BATCH_SIZE], False
             for uid in uids:
