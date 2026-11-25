@@ -792,6 +792,38 @@ def test_p2_23_an_unreachable_server_backs_off_then_collects_the_backlog(
     assert InboundMessageLocation.objects.filter(uid=uid).count() == 1
 
 
+def test_p2_23_release_recovers_saved_network_outage_once(mailbox):
+    from importlib import import_module
+    from django.apps import apps
+    from django.db import connection
+
+    migrate = import_module("correspondence.migrations.0028_retry_transient_outages")
+    _, message = sent_question(mailbox)
+    state = cursor(mailbox)
+    uid = mailbox.imap.deliver(reply(message))
+    PendingAction.objects.filter(kind="collect", status="queued").update(status="done")
+    MailboxCursor.objects.filter(pk=state.pk).update(
+        state="blocked", blocked_reason="auth_failed", last_error_code="auth_failed"
+    )
+    with connection.schema_editor() as editor:
+        migrate.queue_transient_outages(apps, editor)
+        assert not PendingAction.objects.filter(
+            kind="collect", status="queued"
+        ).exists()
+        MailboxCursor.objects.filter(pk=state.pk).update(
+            blocked_reason="unreachable", last_error_code="unreachable"
+        )
+        item = inbound.open_item("collector_blocked", f"cursor:{state.public_id}")
+        migrate.queue_transient_outages(apps, editor)
+        migrate.queue_transient_outages(apps, editor)
+    assert PendingAction.objects.filter(kind="collect", status="queued").count() == 1
+    assert cursor(mailbox).last_uid == state.last_uid
+    collect()
+    assert cursor(mailbox).complete_through_uid == uid
+    assert StaffItemResolution.objects.get(item=item).resolved_by == "system:collect"
+    assert InboundMessageLocation.objects.filter(uid=uid).count() == 1
+
+
 def test_p2_19_a_collector_killed_mid_message_loses_nothing_and_duplicates_nothing(
     mailbox, tmp_path, tls
 ):

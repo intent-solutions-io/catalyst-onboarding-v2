@@ -49,6 +49,7 @@ from .models import (
     OutboundMessage,
     Question,
     QuestionReplyLink,
+    StaffItem,
 )
 from .common import Refused
 from .rendering import TemplateRefused, frozen_html
@@ -61,7 +62,7 @@ from .messages import (
     verified_address,
 )
 from .scheduling import sync_reminders
-from .staff_items import open_item
+from .staff_items import open_item, resolve_item
 from . import lapse
 
 logger = logging.getLogger(__name__)
@@ -607,6 +608,20 @@ class Collect:
                     complete_through_at=pass_started_at,
                     state=State.OK,
                 )
+                if cursor.blocked_reason == "unreachable":
+                    fields["blocked_reason"] = ""
+                    for item in StaffItem.objects.select_for_update().filter(
+                        status="open",
+                        reason_code="collector_blocked",
+                        dedupe_key=f"cursor:{cursor.public_id}",
+                    ):
+                        resolve_item(
+                            item,
+                            code="mailbox_caught_up",
+                            actor_ref="system:collect",
+                            actor_type=ApplicationEvent.ActorType.SYSTEM,
+                            effects={"cursor": str(cursor.public_id)},
+                        )
             MailboxCursor.objects.filter(pk=cursor.pk).update(**fields)
             enqueue_pass(cursor, n + 1, settings.CATALYST_MAIL_POLL_SECONDS)
 

@@ -192,6 +192,7 @@ APPROVED_MIGRATIONS = {
     ("agreements", "0014_one_current_template"),
     ("agreements", "0015_adopted_countersign_claim"),
     ("correspondence", "0027_hold_notice"),  # bgl.24: the hold_notice kind and template
+    ("correspondence", "0028_retry_transient_outages"),
 }
 
 
